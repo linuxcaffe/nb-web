@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nb-web</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+<!-- ── Top navbar ──────────────────────────────────────────────── -->
+<header id="nb-header">
+  <div id="nb-header-left">
+    <button id="nb-menu-btn" class="nb-icon-btn" title="Menu" aria-label="Menu">☰</button>
+    <span id="nb-wordmark">nb</span>
+  </div>
+
+  <div id="nb-header-center">
+    <div id="nb-search-wrap">
+      <input id="nb-search" type="search" placeholder="search notes…" autocomplete="off" spellcheck="false">
+      <button id="nb-search-clear" class="nb-icon-btn" title="Clear search" hidden>✕</button>
+    </div>
+  </div>
+
+  <div id="nb-header-right">
+    <button id="nb-today-btn" class="nb-btn nb-btn-today" title="Open today's journal">Today</button>
+    <button id="nb-add-btn"   class="nb-icon-btn nb-btn-add" title="New note">＋</button>
+    <button id="nb-sync-btn"  class="nb-icon-btn" title="Sync notebook" id="nb-sync-btn">⟳</button>
+    <button id="nb-settings-btn" class="nb-icon-btn" title="Settings">⚙</button>
+  </div>
+</header>
+
+<!-- ── Notebook tab bar ────────────────────────────────────────── -->
+<nav id="nb-notebook-bar">
+  <div id="nb-notebook-tabs"><!-- populated by nav.js --></div>
+  <div id="nb-breadcrumb" hidden></div>
+</nav>
+
+<!-- ── Active filter chips ─────────────────────────────────────── -->
+<div id="nb-filter-bar" hidden>
+  <div id="nb-filter-chips"></div>
+  <button id="nb-filter-clear" class="nb-link-btn">clear all</button>
+</div>
+
+<!-- ── Main layout ─────────────────────────────────────────────── -->
+<div id="nb-layout">
+
+  <!-- List pane -->
+  <aside id="nb-list-pane">
+    <div id="nb-list-meta">
+      <span id="nb-count"></span>
+      <span id="nb-type-breakdown"></span>
+    </div>
+    <ul id="nb-list" role="listbox" aria-label="Notes"></ul>
+    <div id="nb-list-empty" hidden>No notes found.</div>
+  </aside>
+
+  <!-- Preview / editor pane -->
+  <main id="nb-preview-pane">
+    <div id="nb-preview-toolbar" hidden>
+      <div id="nb-preview-nav">
+        <button id="nb-back-btn"    class="nb-tool-btn" title="Go back"    hidden>←</button>
+        <button id="nb-forward-btn" class="nb-tool-btn" title="Go forward" hidden>→</button>
+        <span id="nb-preview-title"></span>
+      </div>
+      <div id="nb-preview-actions">
+        <button id="nb-edit-btn"   class="nb-tool-btn">Edit</button>
+        <button id="nb-delete-btn" class="nb-tool-btn nb-btn-danger">Delete</button>
+      </div>
+    </div>
+
+    <div id="nb-preview-content">
+      <div id="nb-welcome">
+        <h2>nb-web</h2>
+        <p>Select a note to read, or press <kbd>Today</kbd> to open your journal.</p>
+      </div>
+    </div>
+
+    <!-- Inline editor (hidden until Edit clicked) -->
+    <div id="nb-editor-wrap" hidden>
+      <div id="nb-editor-toolbar">
+        <button class="nb-tool-btn" data-fmt="bold">B</button>
+        <button class="nb-tool-btn" data-fmt="italic">I</button>
+        <button class="nb-tool-btn" data-fmt="heading">#</button>
+        <button class="nb-tool-btn" data-fmt="link">🔗</button>
+        <button class="nb-tool-btn" data-fmt="tag">#tag</button>
+        <span class="nb-spacer"></span>
+        <button id="nb-save-btn"   class="nb-tool-btn nb-btn-primary">Save</button>
+        <button id="nb-cancel-btn" class="nb-tool-btn">Cancel</button>
+      </div>
+      <textarea id="nb-editor" spellcheck="true"></textarea>
+    </div>
+  </main>
+
+</div><!-- #nb-layout -->
+
+<!-- ── Slide-in side menu ──────────────────────────────────────── -->
+<div id="nb-menu-overlay" hidden></div>
+<aside id="nb-side-menu" aria-label="Application menu" hidden>
+  <div id="nb-menu-header">
+    <span>nb-web</span>
+    <button id="nb-menu-close" class="nb-icon-btn">✕</button>
+  </div>
+  <nav id="nb-menu-nav">
+    <button class="nb-menu-item" data-view="journal">📓 Journal</button>
+    <button class="nb-menu-item" data-view="notes">📝 Notes</button>
+    <button class="nb-menu-item" data-view="bookmarks">🔖 Bookmarks</button>
+    <button class="nb-menu-item" data-view="todos">✔️ Todos</button>
+    <button class="nb-menu-item" data-view="all">🗂 All Items</button>
+    <hr>
+    <button class="nb-menu-item" data-view="tags">🏷 Tags</button>
+    <button class="nb-menu-item" data-view="pinned">📌 Pinned</button>
+    <hr>
+    <button class="nb-menu-item" id="nb-menu-settings">⚙ Settings</button>
+    <button class="nb-menu-item" id="nb-menu-about">ℹ About</button>
+  </nav>
+</aside>
+
+<!-- ── Add note popover ────────────────────────────────────────── -->
+<div id="nb-add-popover" hidden>
+  <button class="nb-add-type" data-type="note">📝 Note</button>
+  <button class="nb-add-type" data-type="bookmark">🔖 Bookmark</button>
+  <button class="nb-add-type" data-type="todo">✔️ Todo</button>
+  <button class="nb-add-type" data-type="folder">📂 Folder</button>
+</div>
+
+<!-- ── Bottom anchor: Journal append + Annotation (future) ─────── -->
+<div id="nb-bottom-bar">
+  <div id="nb-append-bar" hidden>
+    <textarea id="nb-append-input" placeholder="Add to today's log…" rows="1"></textarea>
+    <button id="nb-append-btn" class="nb-btn-primary">↑</button>
+  </div>
+  <!-- annotation slot: populated when annotation plugin active -->
+  <div id="nb-annotation-bar" hidden></div>
+</div>
+
+<script src="marked.min.js"></script>
+<script src="nav.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

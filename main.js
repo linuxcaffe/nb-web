@@ -1,0 +1,631 @@
+// nb-web main.js — list, preview, editor, today, add, sync
+
+const NbMain = (() => {
+    let _activeSelector = null;
+    let _editing        = false;
+    let _searchTimer    = null;
+    let _todayInfo      = null;
+    const _history      = [];   // back-stack
+    const _future       = [];   // forward-stack (cleared on any new navigation)
+
+    // ── Boot ───────────────────────────────────────────────────────
+
+    function init() {
+        NbNav.init();
+        _bindSearch();
+        _bindToday();
+        _bindAdd();
+        _bindSync();
+        _bindAppend();
+        _bindPreviewActions();
+        loadNotes();
+    }
+
+    // ── Notes list ─────────────────────────────────────────────────
+
+    async function loadNotes(typeFilter) {
+        const nb     = NbNav.notebook;
+        const folder = NbNav.folder;
+        const params = new URLSearchParams({ notebook: nb });
+        if (folder) params.set('folder', folder);
+
+        try {
+            const r = await fetch('/api/notes?' + params);
+            const d = await r.json();
+            let notes = d.notes || [];
+            if (typeFilter) notes = notes.filter(n => n.type === typeFilter.replace('--type ', ''));
+            renderList(notes);
+        } catch (e) {
+            console.error('loadNotes:', e);
+        }
+    }
+
+    async function search(query) {
+        if (!query.trim()) { loadNotes(); return; }
+        const nb     = NbNav.notebook;
+        const params = new URLSearchParams({ notebook: nb, q: query });
+        try {
+            const r = await fetch('/api/notes?' + params);
+            const d = await r.json();
+            renderList(d.notes || []);
+            _setFilterBar(query);
+        } catch (e) {
+            console.error('search:', e);
+        }
+    }
+
+    function _setFilterBar(query) {
+        const bar   = document.getElementById('nb-filter-bar');
+        const chips = document.getElementById('nb-filter-chips');
+        bar.hidden = false;
+        chips.innerHTML = `<div class="nb-chip"><span>${_esc(query)}</span><button class="nb-chip-remove">✕</button></div>`;
+        chips.querySelector('.nb-chip-remove').addEventListener('click', () => {
+            document.getElementById('nb-search').value = '';
+            bar.hidden = true; chips.innerHTML = '';
+            loadNotes();
+        });
+    }
+
+    function renderList(notes) {
+        const ul      = document.getElementById('nb-list');
+        const empty   = document.getElementById('nb-list-empty');
+        const countEl = document.getElementById('nb-count');
+        ul.innerHTML  = '';
+
+        if (!notes.length) {
+            empty.hidden = false;
+            countEl.textContent = '0 items';
+            return;
+        }
+        empty.hidden = true;
+        countEl.textContent = `${notes.length} item${notes.length !== 1 ? 's' : ''}`;
+
+        // type breakdown
+        const types = {};
+        notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄'};
+        const breakdown = Object.entries(types)
+            .filter(([t]) => t in icons && t !== 'note')
+            .map(([t,c]) => `${icons[t]}${c}`)
+            .join('  ');
+        document.getElementById('nb-type-breakdown').textContent = breakdown;
+
+        notes.forEach(note => {
+            const li = document.createElement('li');
+            li.className = 'nb-list-item' + (note.type === 'folder' ? ' folder' : '') +
+                           (note.selector === _activeSelector ? ' active' : '');
+            li.setAttribute('role', 'option');
+            li.dataset.selector = note.selector;
+            li.dataset.type     = note.type;
+
+            const icon = document.createElement('span');
+            icon.className = 'nb-list-icon';
+            icon.textContent = note.indicator || '';
+
+            const body = document.createElement('div');
+            body.className = 'nb-list-body';
+
+            const titleRow = document.createElement('div');
+            titleRow.className = 'nb-list-title-row';
+
+            const title = document.createElement('span');
+            title.className = 'nb-list-title';
+            title.textContent = note.title || note.filename;
+            titleRow.appendChild(title);
+
+            if (note.id) {
+                const idEl = document.createElement('span');
+                idEl.className = 'nb-list-id';
+                idEl.textContent = note.id;
+                idEl.title = note.selector;
+                titleRow.appendChild(idEl);
+            }
+            body.appendChild(titleRow);
+
+            if (note.excerpt) {
+                const exc = document.createElement('div');
+                exc.className = 'nb-list-excerpt';
+                exc.textContent = note.excerpt;
+                body.appendChild(exc);
+            }
+
+            li.appendChild(icon);
+            li.appendChild(body);
+
+            if (note.type === 'folder') {
+                li.addEventListener('click', () => NbNav.drillFolder(note.filename));
+            } else {
+                li.addEventListener('click', () => openNote(note.selector));
+            }
+
+            ul.appendChild(li);
+        });
+    }
+
+    // ── Open / preview note ────────────────────────────────────────
+
+    async function openNote(selector, pushHistory = true) {
+        if (pushHistory && _activeSelector && _activeSelector !== selector) {
+            _history.push(_activeSelector);
+            _future.length = 0;   // new navigation invalidates forward history
+        }
+        _activeSelector = selector;
+        _updateNavBtns();
+
+        document.querySelectorAll('.nb-list-item').forEach(el => {
+            el.classList.toggle('active', el.dataset.selector === selector);
+        });
+
+        // Show toolbar
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        toolbar.hidden = false;
+        document.getElementById('nb-preview-title').textContent = selector.split(':').pop();
+
+        // Show spinner while loading
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+
+        try {
+            const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
+            if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
+            const d = await r.json();
+            renderPreview(d);
+        } catch (e) {
+            content.innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${_esc(String(e))}</div>`;
+        }
+    }
+
+    function renderPreview(note) {
+        const content = document.getElementById('nb-preview-content');
+        document.getElementById('nb-preview-title').textContent = note.title || note.filename;
+
+        // Cancel any active editing
+        _editing = false;
+        document.getElementById('nb-editor-wrap').hidden = true;
+        document.getElementById('nb-preview-content').hidden = false;
+
+        let html = '';
+
+        if (note.type === 'bookmark') {
+            html = _renderBookmark(note);
+        } else if (note.type === 'todo') {
+            html = _renderTodo(note);
+        } else if (['note','file',''].includes(note.type)) {
+            html = _renderMarkdown(note.body);
+        } else {
+            html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw)}</pre>`;
+        }
+
+        content.innerHTML = `<div class="nb-rendered">${html}</div>`;
+
+        // Wire wiki-links and tag-links
+        content.querySelectorAll('.nb-wiki-link').forEach(el => {
+            el.addEventListener('click', () => openNote(el.dataset.selector || el.textContent));
+        });
+        content.querySelectorAll('.nb-tag-link').forEach(el => {
+            el.addEventListener('click', () => {
+                const tag = el.textContent;
+                document.getElementById('nb-search').value = tag;
+                search(tag);
+            });
+        });
+
+        // Todo checkboxes
+        content.querySelectorAll('.nb-todo-check').forEach(cb => {
+            cb.addEventListener('change', () => _toggleTask(note.selector, cb.dataset.task, cb.checked));
+        });
+    }
+
+    function _renderMarkdown(body) {
+        if (typeof marked === 'undefined') return `<pre>${_esc(body)}</pre>`;
+        // Pre-process wiki-links and hashtags before marked
+        let processed = body
+            .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) =>
+                `<span class="nb-wiki-link" data-selector="${_esc(target)}">${_esc(label || target)}</span>`)
+            .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
+                `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
+        return marked.parse(processed);
+    }
+
+    function _renderBookmark(note) {
+        const urlMatch = note.raw.match(/<(https?:\/\/[^>]+)>/);
+        const url = urlMatch ? urlMatch[1] : '';
+        return `
+            <div style="margin-bottom:16px">
+              <h1>${_esc(note.title)}</h1>
+              ${url ? `<a href="${_esc(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-size:13px">${_esc(url)}</a>` : ''}
+            </div>
+            ${_renderMarkdown(note.body)}`;
+    }
+
+    function _renderTodo(note) {
+        // Replace markdown checkboxes with real ones
+        let taskNum = 0;
+        const html = _renderMarkdown(note.body.replace(/- \[([ x])\] (.+)/g, (_, state, text) => {
+            const n   = ++taskNum;
+            const chk = state === 'x' ? 'checked' : '';
+            return `<li><label><input type="checkbox" class="nb-todo-check" data-task="${n}" ${chk}> ${_esc(text)}</label></li>`;
+        }));
+        return html;
+    }
+
+    async function _toggleTask(selector, taskNum, done) {
+        await fetch('/api/todo', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({selector, done, task: Number(taskNum)}),
+        });
+    }
+
+    // ── Inline editor ──────────────────────────────────────────────
+
+    function _updateNavBtns() {
+        const back = document.getElementById('nb-back-btn');
+        const fwd  = document.getElementById('nb-forward-btn');
+        if (back) back.hidden = _history.length === 0;
+        if (fwd)  fwd.hidden  = _future.length === 0;
+    }
+
+    function _goBack() {
+        if (!_history.length) return;
+        _future.push(_activeSelector);
+        openNote(_history.pop(), false);
+    }
+
+    function _goForward() {
+        if (!_future.length) return;
+        _history.push(_activeSelector);
+        openNote(_future.pop(), false);
+    }
+
+    function _bindPreviewActions() {
+        document.getElementById('nb-back-btn').addEventListener('click', _goBack);
+        document.getElementById('nb-forward-btn').addEventListener('click', _goForward);
+        document.getElementById('nb-edit-btn').addEventListener('click', _openEditor);
+        document.getElementById('nb-save-btn').addEventListener('click', _saveNote);
+        document.getElementById('nb-cancel-btn').addEventListener('click', _closeEditor);
+        document.getElementById('nb-delete-btn').addEventListener('click', _deleteNote);
+
+        // Format toolbar
+        document.querySelectorAll('[data-fmt]').forEach(btn => {
+            btn.addEventListener('click', () => _applyFmt(btn.dataset.fmt));
+        });
+    }
+
+    function _openEditor() {
+        if (!_activeSelector) return;
+        _editing = true;
+        const raw = document.querySelector('#nb-preview-content .nb-rendered');
+        // Get raw content from server (already stored in note data if we cache it)
+        fetch('/api/note?selector=' + encodeURIComponent(_activeSelector))
+            .then(r => r.json())
+            .then(d => {
+                const ta = document.getElementById('nb-editor');
+                ta.value = d.raw || d.body || '';
+                document.getElementById('nb-preview-content').hidden = true;
+                document.getElementById('nb-editor-wrap').hidden = false;
+                ta.focus();
+            });
+    }
+
+    async function _saveNote() {
+        if (!_activeSelector) return;
+        const content = document.getElementById('nb-editor').value;
+        const btn = document.getElementById('nb-save-btn');
+        btn.textContent = 'Saving…';
+        try {
+            const r = await fetch('/api/note', {
+                method: 'PUT',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({selector: _activeSelector, content}),
+            });
+            const d = await r.json();
+            if (d.success) { _closeEditor(); openNote(_activeSelector); }
+            else alert('Save failed: ' + (d.stderr || 'unknown error'));
+        } finally {
+            btn.textContent = 'Save';
+        }
+    }
+
+    function _closeEditor() {
+        _editing = false;
+        document.getElementById('nb-editor-wrap').hidden = true;
+        document.getElementById('nb-preview-content').hidden = false;
+    }
+
+    function _applyFmt(fmt) {
+        const ta  = document.getElementById('nb-editor');
+        const s   = ta.selectionStart, e = ta.selectionEnd;
+        const sel = ta.value.slice(s, e);
+        const map = {
+            bold:    `**${sel || 'bold text'}**`,
+            italic:  `_${sel || 'italic text'}_`,
+            heading: `\n## ${sel || 'Heading'}\n`,
+            link:    `[${sel || 'link text'}](url)`,
+            tag:     `#${sel || 'tag'}`,
+        };
+        const ins = map[fmt] || sel;
+        ta.setRangeText(ins, s, e, 'end');
+        ta.focus();
+    }
+
+    async function _deleteNote() {
+        if (!_activeSelector) return;
+        if (!confirm(`Delete "${_activeSelector}"?`)) return;
+        const r = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector), {method:'DELETE'});
+        const d = await r.json();
+        if (d.success) {
+            _activeSelector = null;
+            document.getElementById('nb-preview-toolbar').hidden = true;
+            document.getElementById('nb-preview-content').innerHTML =
+                '<div id="nb-welcome"><h2>nb-web</h2><p>Note deleted.</p></div>';
+            loadNotes();
+        }
+    }
+
+    // ── Today / Journal ────────────────────────────────────────────
+
+    function _bindToday() {
+        document.getElementById('nb-today-btn').addEventListener('click', openToday);
+    }
+
+    async function openToday() {
+        const btn = document.getElementById('nb-today-btn');
+        btn.textContent = '…';
+        try {
+            const r = await fetch('/api/today');
+            const d = await r.json();
+            _todayInfo = {path: d.path, info: d.info};
+
+            // Show today's content in preview pane
+            const content = document.getElementById('nb-preview-content');
+            document.getElementById('nb-preview-toolbar').hidden = false;
+            document.getElementById('nb-preview-title').textContent = "Today's Journal";
+
+            const html = _renderMarkdown(d.body || d.raw || '');
+            content.innerHTML = `<div class="nb-rendered">${html}</div>`;
+
+            // Show append bar
+            document.getElementById('nb-append-bar').hidden = false;
+            document.getElementById('nb-append-input').focus();
+
+            _activeSelector = null;   // today is managed separately via nb daily
+        } catch(e) {
+            console.error('openToday:', e);
+        } finally {
+            btn.textContent = 'Today';
+        }
+    }
+
+    function _bindAppend() {
+        const input = document.getElementById('nb-append-input');
+        const btn   = document.getElementById('nb-append-btn');
+
+        // Auto-grow textarea
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
+
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _doAppend(); }
+        });
+        btn.addEventListener('click', _doAppend);
+    }
+
+    async function _doAppend() {
+        const input   = document.getElementById('nb-append-input');
+        const content = input.value.trim();
+        if (!content) return;
+        input.disabled = true;
+        try {
+            const r = await fetch('/api/today', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({content}),
+            });
+            const d = await r.json();
+            if (d.success) {
+                input.value = '';
+                input.style.height = '';
+                openToday();   // refresh preview
+            }
+        } finally {
+            input.disabled = false;
+            input.focus();
+        }
+    }
+
+    // ── Search ─────────────────────────────────────────────────────
+
+    // Matches nb selectors: notebook:id, notebook:filename, or bare id
+    // e.g. tasks:87  home:20260430.md  claude:3
+    const _selectorPat = /^([a-z][a-z0-9_-]*):(\d+|[\w.-]+\.(?:md|org|txt|adoc))$/i;
+    const _bareIdPat   = /^\d+$/;
+
+    function _dispatchQuery(raw) {
+        const q = raw.trim();
+        if (!q) { loadNotes(); return; }
+
+        // Direct selector: notebook:id or notebook:filename.md → open immediately
+        if (_selectorPat.test(q)) {
+            openNote(q);
+            return;
+        }
+        // Bare number → treat as id in current notebook
+        if (_bareIdPat.test(q) && NbNav.notebook !== '_all') {
+            openNote(`${NbNav.notebook}:${q}`);
+            return;
+        }
+        search(q);
+    }
+
+    function _bindSearch() {
+        const input = document.getElementById('nb-search');
+        const clear = document.getElementById('nb-search-clear');
+
+        input.addEventListener('input', () => {
+            clear.hidden = !input.value;
+            clearTimeout(_searchTimer);
+            _searchTimer = setTimeout(() => _dispatchQuery(input.value), 400);
+        });
+
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                clearTimeout(_searchTimer);
+                _dispatchQuery(input.value);
+            }
+        });
+
+        clear.addEventListener('click', () => {
+            input.value = '';
+            clear.hidden = true;
+            document.getElementById('nb-filter-bar').hidden = true;
+            loadNotes();
+        });
+    }
+
+    // ── Add ────────────────────────────────────────────────────────
+
+    function _bindAdd() {
+        const addBtn  = document.getElementById('nb-add-btn');
+        const popover = document.getElementById('nb-add-popover');
+
+        addBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            popover.hidden = !popover.hidden;
+        });
+        document.addEventListener('click', () => { popover.hidden = true; });
+
+        popover.querySelectorAll('.nb-add-type').forEach(btn => {
+            btn.addEventListener('click', () => {
+                popover.hidden = true;
+                _showAddForm(btn.dataset.type);
+            });
+        });
+    }
+
+    function _showAddForm(type) {
+        const title   = type === 'bookmark' ? 'New Bookmark' :
+                        type === 'todo'     ? 'New Todo' :
+                        type === 'folder'   ? 'New Folder' : 'New Note';
+        const content = document.getElementById('nb-preview-content');
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        content.hidden = false;
+        document.getElementById('nb-editor-wrap').hidden = true;
+
+        let extraFields = '';
+        if (type === 'bookmark') {
+            extraFields = `<label>URL <input type="url" id="nf-url" placeholder="https://…" style="width:100%;margin-top:4px"></label>
+                           <label>Comment <input type="text" id="nf-comment" placeholder="Optional comment…" style="width:100%;margin-top:4px"></label>`;
+        }
+
+        content.innerHTML = `
+          <div style="max-width:600px;padding:8px 0">
+            <h2 style="margin-bottom:16px;font-size:1.1em;color:var(--text-muted)">${_esc(title)}</h2>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <label>Title<br><input type="text" id="nf-title" placeholder="${_esc(title)}" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
+              ${extraFields}
+              <label>Tags (comma-separated)<br><input type="text" id="nf-tags" placeholder="tag1, tag2" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
+              ${type === 'note' ? '<label>Content<br><textarea id="nf-content" rows="6" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px;font-family:var(--font-mono);font-size:13px;resize:vertical"></textarea></label>' : ''}
+              <div style="display:flex;gap:8px;margin-top:4px">
+                <button id="nf-save" class="nb-tool-btn nb-btn-primary">Create</button>
+                <button id="nf-cancel" class="nb-tool-btn">Cancel</button>
+              </div>
+            </div>
+          </div>`;
+
+        document.getElementById('nf-title').focus();
+        document.getElementById('nf-cancel').addEventListener('click', () => {
+            content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note to read, or press <kbd>Today</kbd> to open your journal.</p></div>';
+        });
+        document.getElementById('nf-save').addEventListener('click', () => _submitAdd(type));
+    }
+
+    async function _submitAdd(type) {
+        const titleEl   = document.getElementById('nf-title');
+        const tagsEl    = document.getElementById('nf-tags');
+        const contentEl = document.getElementById('nf-content');
+        const urlEl     = document.getElementById('nf-url');
+        const commentEl = document.getElementById('nf-comment');
+
+        const body = {
+            notebook: NbNav.notebook,
+            folder:   NbNav.folder,
+            type,
+            title:   titleEl?.value.trim() || '',
+            tags:    tagsEl?.value.split(',').map(t=>t.trim()).filter(Boolean) || [],
+            content: contentEl?.value || '',
+            url:     urlEl?.value.trim() || '',
+            comment: commentEl?.value.trim() || '',
+        };
+
+        const btn = document.getElementById('nf-save');
+        btn.textContent = 'Creating…'; btn.disabled = true;
+        try {
+            const r = await fetch('/api/notes', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(body),
+            });
+            const d = await r.json();
+            if (d.success) {
+                loadNotes();
+                document.getElementById('nb-preview-content').innerHTML =
+                    '<div id="nb-welcome"><h2>nb-web</h2><p>Created!</p></div>';
+            } else {
+                alert('Create failed: ' + (d.error || 'unknown'));
+                btn.textContent = 'Create'; btn.disabled = false;
+            }
+        } catch(e) {
+            btn.textContent = 'Create'; btn.disabled = false;
+        }
+    }
+
+    // ── Sync ───────────────────────────────────────────────────────
+
+    function _bindSync() {
+        document.getElementById('nb-sync-btn').addEventListener('click', async function() {
+            this.classList.add('nb-spin');
+            try {
+                const r = await fetch('/api/sync', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({notebook: NbNav.notebook}),
+                });
+                const d = await r.json();
+                if (!d.success) console.warn('sync stderr:', d.stderr);
+                else loadNotes();
+            } finally {
+                this.classList.remove('nb-spin');
+            }
+        });
+    }
+
+    // ── Util ───────────────────────────────────────────────────────
+
+    function _esc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function resetAndLoad() {
+        // Clear search state then load fresh list — called on notebook switch
+        const searchEl = document.getElementById('nb-search');
+        const clearEl  = document.getElementById('nb-search-clear');
+        const filterEl = document.getElementById('nb-filter-bar');
+        const chipsEl  = document.getElementById('nb-filter-chips');
+        if (searchEl) searchEl.value = '';
+        if (clearEl)  clearEl.hidden = true;
+        if (filterEl) filterEl.hidden = true;
+        if (chipsEl)  chipsEl.innerHTML = '';
+        clearTimeout(_searchTimer);
+        loadNotes();
+    }
+
+    return { init, loadNotes, resetAndLoad, search, openNote, openToday };
+})();
+
+// ── Settings stub (wired up later) ────────────────────────────────
+const NbSettings = { open() { alert('Settings panel coming soon.'); } };
+
+document.addEventListener('DOMContentLoaded', () => NbMain.init());
