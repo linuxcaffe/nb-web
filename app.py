@@ -558,6 +558,32 @@ def api_run():
 
 
 # ---------------------------------------------------------------------------
+# API: Rename / Move note
+# ---------------------------------------------------------------------------
+
+@app.route('/api/note/rename', methods=['POST'])
+def api_rename():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    name     = data.get('name', '').strip()
+    if not selector or not name:
+        return jsonify({'error': 'selector and name required'}), 400
+    r = run_nb('rename', selector, name, '--force')
+    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+@app.route('/api/note/move', methods=['POST'])
+def api_move():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    dest     = data.get('dest', '').strip()   # e.g. "work:" or "tasks:folder/"
+    if not selector or not dest:
+        return jsonify({'error': 'selector and dest required'}), 400
+    r = run_nb('move', selector, dest, '--force')
+    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+# ---------------------------------------------------------------------------
 # API: Config / settings
 # ---------------------------------------------------------------------------
 

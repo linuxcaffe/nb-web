@@ -5,6 +5,8 @@ const NbMain = (() => {
     let _editing        = false;
     let _searchTimer    = null;
     let _todayInfo      = null;
+    let _lastNotes      = [];   // original load order, for client-side sort
+    let _sortMode       = 'default';
     const _history      = [];   // back-stack
     const _future       = [];   // forward-stack (cleared on any new navigation)
 
@@ -16,6 +18,8 @@ const NbMain = (() => {
         _bindSync();
         _bindAppend();
         _bindPreviewActions();
+        _bindListMenu();
+        _bindPreviewMenu();
         _bindKeyboard();
         initDragHandle();
         loadNotes();
@@ -58,7 +62,8 @@ const NbMain = (() => {
         // Output bar is now managed by nav.js / NbNav; no-op here
     }
 
-    function renderList(notes) {
+    function renderList(notes, fromSort = false) {
+        if (!fromSort) { _lastNotes = notes; _sortMode = 'default'; }
         const ul      = document.getElementById('nb-list');
         const empty   = document.getElementById('nb-list-empty');
         const countEl = document.getElementById('nb-count');
@@ -249,6 +254,208 @@ const NbMain = (() => {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({selector, done, task: Number(taskNum)}),
+        });
+    }
+
+    // ── Panel menus ────────────────────────────────────────────────
+
+    // Reusable floating dropdown.
+    // items: array of { label, action, active?, disabled? } or the string 'sep'
+    function _showDropdown(anchor, items) {
+        const existing = document.querySelector('.nb-panel-dropdown');
+        if (existing) {
+            const wasThisAnchor = existing.dataset.anchorId === anchor.id;
+            existing.remove();
+            if (wasThisAnchor) return;   // toggle off
+        }
+
+        const drop = document.createElement('div');
+        drop.className     = 'nb-panel-dropdown';
+        drop.dataset.anchorId = anchor.id;
+
+        items.forEach(item => {
+            if (item === 'sep') {
+                const s = document.createElement('div');
+                s.className = 'nb-panel-dropdown-sep';
+                drop.appendChild(s);
+                return;
+            }
+            const btn = document.createElement('button');
+            btn.className   = 'nb-panel-dropdown-item' + (item.active ? ' active' : '');
+            btn.textContent = item.label;
+            btn.disabled    = !!item.disabled;
+            btn.addEventListener('click', () => { drop.remove(); item.action(); });
+            drop.appendChild(btn);
+        });
+
+        // Initial position: below anchor, left-aligned
+        const rect = anchor.getBoundingClientRect();
+        drop.style.top  = (rect.bottom + 4) + 'px';
+        drop.style.left = rect.left + 'px';
+        document.body.appendChild(drop);
+
+        // Nudge left if it overflows the right edge
+        const dRect = drop.getBoundingClientRect();
+        if (dRect.right > window.innerWidth - 8)
+            drop.style.left = Math.max(4, rect.right - dRect.width) + 'px';
+
+        // Dismiss on outside click
+        function dismiss(e) {
+            if (!drop.contains(e.target) && e.target !== anchor) {
+                drop.remove();
+                document.removeEventListener('click', dismiss, true);
+            }
+        }
+        setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+    }
+
+    function _bindListMenu() {
+        const btn = document.getElementById('nb-list-menu-btn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            _showDropdown(btn, [
+                { label: 'Sort: Default', active: _sortMode === 'default',
+                  action: () => _applySort('default') },
+                { label: 'Sort: A → Z',  active: _sortMode === 'az',
+                  action: () => _applySort('az') },
+                { label: 'Sort: Z → A',  active: _sortMode === 'za',
+                  action: () => _applySort('za') },
+                'sep',
+                { label: 'Newest first', active: _sortMode === 'newest',
+                  action: () => _applySort('newest') },
+                { label: 'Oldest first', active: _sortMode === 'oldest',
+                  action: () => _applySort('oldest') },
+            ]);
+        });
+    }
+
+    function _applySort(mode) {
+        _sortMode = mode;
+        const sorted = [..._lastNotes];
+        const title  = n => (n.title || n.filename || '').toLowerCase();
+        if (mode === 'az')     sorted.sort((a, b) => title(a).localeCompare(title(b)));
+        if (mode === 'za')     sorted.sort((a, b) => title(b).localeCompare(title(a)));
+        if (mode === 'newest') sorted.sort((a, b) => (b.id || 0) - (a.id || 0));
+        if (mode === 'oldest') sorted.sort((a, b) => (a.id || 0) - (b.id || 0));
+        renderList(sorted, true);
+    }
+
+    function _bindPreviewMenu() {
+        const btn = document.getElementById('nb-preview-menu-btn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            const hasNote = !!_activeSelector;
+            _showDropdown(btn, [
+                { label: 'Rename…', disabled: !hasNote, action: _doRename },
+                { label: 'Move to…', disabled: !hasNote, action: _doMove },
+            ]);
+        });
+    }
+
+    function _doRename() {
+        if (!_activeSelector) return;
+        const titleEl  = document.getElementById('nb-preview-title');
+        const origText = titleEl.textContent;
+
+        const input = document.createElement('input');
+        input.type      = 'text';
+        input.className = 'nb-rename-input';
+        input.value     = origText;
+        titleEl.style.display = 'none';
+        titleEl.parentNode.insertBefore(input, titleEl.nextSibling);
+        input.select();
+
+        function cancel() { input.remove(); titleEl.style.display = ''; }
+
+        async function commit() {
+            const newName = input.value.trim();
+            input.remove(); titleEl.style.display = '';
+            if (!newName || newName === origText) return;
+            try {
+                const r = await fetch('/api/note/rename', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ selector: _activeSelector, name: newName }),
+                });
+                const d = await r.json();
+                if (d.success) { titleEl.textContent = newName; loadNotes(); }
+                else alert('Rename failed: ' + (d.stderr || 'unknown'));
+            } catch(e) { alert('Rename error: ' + e); }
+        }
+
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+            if (e.key === 'Escape') cancel();
+        });
+        input.focus();
+    }
+
+    async function _doMove() {
+        if (!_activeSelector) return;
+
+        // Remove any existing move bar
+        document.getElementById('nb-move-bar')?.remove();
+
+        const r = await fetch('/api/notebooks');
+        const d = await r.json();
+        const notebooks = d.notebooks || [];
+
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const bar = document.createElement('div');
+        bar.id        = 'nb-move-bar';
+        bar.className = 'nb-move-bar';
+
+        const lbl = document.createElement('span');
+        lbl.className   = 'nb-move-label';
+        lbl.textContent = 'Move to:';
+
+        const sel = document.createElement('select');
+        sel.className = 'nb-scope-select';
+        sel.style.colorScheme = 'dark';
+        const curNb = _activeSelector.split(':')[0];
+        notebooks.forEach(nb => {
+            const opt = document.createElement('option');
+            opt.value = nb; opt.textContent = nb;
+            if (nb === curNb) { opt.selected = true; opt.disabled = true; }
+            sel.appendChild(opt);
+        });
+
+        const goBtn = document.createElement('button');
+        goBtn.className   = 'nb-tool-btn nb-btn-primary';
+        goBtn.textContent = 'Move';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className   = 'nb-tool-btn';
+        cancelBtn.textContent = 'Cancel';
+
+        bar.append(lbl, sel, goBtn, cancelBtn);
+        toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
+        sel.focus();
+
+        cancelBtn.addEventListener('click', () => bar.remove());
+
+        goBtn.addEventListener('click', async () => {
+            const dest = sel.value + ':';
+            goBtn.textContent = 'Moving…'; goBtn.disabled = true;
+            try {
+                const resp = await fetch('/api/note/move', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ selector: _activeSelector, dest }),
+                });
+                const rd = await resp.json();
+                if (rd.success) {
+                    bar.remove();
+                    _activeSelector = null;
+                    document.getElementById('nb-preview-toolbar').hidden = true;
+                    document.getElementById('nb-preview-content').innerHTML =
+                        '<div id="nb-welcome"><h2>nb-web</h2><p>Note moved.</p></div>';
+                    loadNotes();
+                } else {
+                    alert('Move failed: ' + (rd.stderr || 'unknown'));
+                    goBtn.textContent = 'Move'; goBtn.disabled = false;
+                }
+            } catch(e) { goBtn.textContent = 'Move'; goBtn.disabled = false; }
         });
     }
 

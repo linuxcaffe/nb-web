@@ -765,6 +765,86 @@ body {
 #nb-list-pane.kb-focus    { box-shadow: inset 2px 0 0 var(--accent); }
 #nb-preview-pane.kb-focus { box-shadow: inset -2px 0 0 var(--accent); }
 
+/* ── Panel hamburger button ───────────────────────────────────── */
+.nb-panel-menu-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s;
+}
+.nb-panel-menu-btn:hover { color: var(--text); background: var(--accent-dim); }
+
+/* ── Floating dropdown menu ───────────────────────────────────── */
+.nb-panel-dropdown {
+  position: fixed;
+  min-width: 160px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  z-index: 200;
+  padding: 4px 0;
+  animation: nb-dropdown-in 0.1s ease;
+}
+@keyframes nb-dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.nb-panel-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 14px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.nb-panel-dropdown-item:hover:not(:disabled) { background: var(--accent-dim); color: var(--text); }
+.nb-panel-dropdown-item.active  { color: var(--accent); }
+.nb-panel-dropdown-item:disabled { color: var(--text-dim); cursor: default; }
+.nb-panel-dropdown-sep { height: 1px; background: var(--border); margin: 3px 0; }
+
+/* ── Inline rename input (replaces preview title span) ────────── */
+.nb-rename-input {
+  background: var(--bg3);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  padding: 1px 7px;
+  outline: none;
+  min-width: 180px;
+  flex: 1;
+}
+
+/* ── Move-to bar (injected below preview toolbar) ─────────────── */
+.nb-move-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.nb-move-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 
 /* ── Bottom bar ───────────────────────────────────────────────── */
 #nb-bottom-bar {
