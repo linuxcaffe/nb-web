@@ -13,11 +13,10 @@ const NbMain = (() => {
     function init() {
         NbNav.init();
         _bindSearch();
-        _bindToday();
-        _bindAdd();
         _bindSync();
         _bindAppend();
         _bindPreviewActions();
+        initDragHandle();
         loadNotes();
     }
 
@@ -54,16 +53,8 @@ const NbMain = (() => {
         }
     }
 
-    function _setFilterBar(query) {
-        const bar   = document.getElementById('nb-filter-bar');
-        const chips = document.getElementById('nb-filter-chips');
-        bar.hidden = false;
-        chips.innerHTML = `<div class="nb-chip"><span>${_esc(query)}</span><button class="nb-chip-remove">✕</button></div>`;
-        chips.querySelector('.nb-chip-remove').addEventListener('click', () => {
-            document.getElementById('nb-search').value = '';
-            bar.hidden = true; chips.innerHTML = '';
-            loadNotes();
-        });
+    function _setFilterBar(_query) {
+        // Output bar is now managed by nav.js / NbNav; no-op here
     }
 
     function renderList(notes) {
@@ -179,6 +170,9 @@ const NbMain = (() => {
         const content = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
 
+        const ref = document.getElementById('nb-preview-ref');
+        if (ref) ref.textContent = note.notebook ? `${note.notebook}:${note.id ?? '?'}` : '';
+
         // Cancel any active editing
         _editing = false;
         document.getElementById('nb-editor-wrap').hidden = true;
@@ -255,6 +249,94 @@ const NbMain = (() => {
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({selector, done, task: Number(taskNum)}),
         });
+    }
+
+    // ── Drag handle ────────────────────────────────────────────────
+
+    function initDragHandle() {
+        const handle   = document.getElementById('nb-drag-handle');
+        const listPane = document.getElementById('nb-list-pane');
+        if (!handle || !listPane) return;
+
+        const KEY_W = 'nb-list-w';
+        const KEY_H = 'nb-list-h';
+
+        function isMobile() { return window.innerWidth <= 700; }
+
+        function applySize(px) {
+            if (isMobile()) {
+                listPane.style.width     = '';
+                listPane.style.maxHeight = Math.max(80, Math.min(px, window.innerHeight * 0.75)) + 'px';
+            } else {
+                listPane.style.maxHeight = '';
+                listPane.style.width     = Math.max(150, Math.min(px, window.innerWidth * 0.65)) + 'px';
+            }
+        }
+
+        // Restore saved size
+        const savedW = localStorage.getItem(KEY_W);
+        const savedH = localStorage.getItem(KEY_H);
+        if (!isMobile() && savedW) applySize(Number(savedW));
+        if (isMobile()  && savedH) applySize(Number(savedH));
+
+        // Re-apply correct size when crossing the mobile/desktop threshold
+        let _wasMobile = isMobile();
+        window.addEventListener('resize', () => {
+            const mobile = isMobile();
+            if (mobile === _wasMobile) return;
+            _wasMobile = mobile;
+            if (mobile) {
+                listPane.style.maxHeight = '';
+                listPane.style.width = '';
+                const h = localStorage.getItem(KEY_H);
+                if (h) applySize(Number(h));
+            } else {
+                listPane.style.maxHeight = '';
+                listPane.style.width = '';
+                const w = localStorage.getItem(KEY_W);
+                if (w) applySize(Number(w));
+            }
+        });
+
+        let dragging = false, startX = 0, startY = 0, startW = 0, startH = 0;
+
+        function startDrag(cx, cy) {
+            dragging = true;
+            startX = cx; startY = cy;
+            startW = listPane.offsetWidth;
+            startH = listPane.offsetHeight;
+            handle.classList.add('dragging');
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = isMobile() ? 'row-resize' : 'col-resize';
+        }
+
+        function moveDrag(cx, cy) {
+            if (!dragging) return;
+            applySize(isMobile() ? startH + (cy - startY) : startW + (cx - startX));
+        }
+
+        function endDrag() {
+            if (!dragging) return;
+            dragging = false;
+            handle.classList.remove('dragging');
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+            const size = isMobile() ? listPane.offsetHeight : listPane.offsetWidth;
+            localStorage.setItem(isMobile() ? KEY_H : KEY_W, size);
+        }
+
+        handle.addEventListener('mousedown', e => { e.preventDefault(); startDrag(e.clientX, e.clientY); });
+        document.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY));
+        document.addEventListener('mouseup', endDrag);
+
+        handle.addEventListener('touchstart', e => {
+            e.preventDefault();
+            startDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+        document.addEventListener('touchmove', e => {
+            if (dragging) { e.preventDefault(); moveDrag(e.touches[0].clientX, e.touches[0].clientY); }
+        }, {passive: false});
+        document.addEventListener('touchend', endDrag);
     }
 
     // ── Inline editor ──────────────────────────────────────────────
@@ -365,35 +447,28 @@ const NbMain = (() => {
 
     // ── Today / Journal ────────────────────────────────────────────
 
-    function _bindToday() {
-        document.getElementById('nb-today-btn').addEventListener('click', openToday);
-    }
-
     async function openToday() {
-        const btn = document.getElementById('nb-today-btn');
-        btn.textContent = '…';
         try {
             const r = await fetch('/api/today');
             const d = await r.json();
-            _todayInfo = {path: d.path, info: d.info};
+            _todayInfo = {path: d.path};
 
-            // Show today's content in preview pane
             const content = document.getElementById('nb-preview-content');
-            document.getElementById('nb-preview-toolbar').hidden = false;
+            const toolbar = document.getElementById('nb-preview-toolbar');
+            toolbar.hidden = false;
             document.getElementById('nb-preview-title').textContent = "Today's Journal";
+            const ref = document.getElementById('nb-preview-ref');
+            if (ref) ref.textContent = '';
 
             const html = _renderMarkdown(d.body || d.raw || '');
             content.innerHTML = `<div class="nb-rendered">${html}</div>`;
 
-            // Show append bar
             document.getElementById('nb-append-bar').hidden = false;
             document.getElementById('nb-append-input').focus();
 
-            _activeSelector = null;   // today is managed separately via nb daily
+            _activeSelector = null;
         } catch(e) {
             console.error('openToday:', e);
-        } finally {
-            btn.textContent = 'Today';
         }
     }
 
@@ -480,32 +555,13 @@ const NbMain = (() => {
         clear.addEventListener('click', () => {
             input.value = '';
             clear.hidden = true;
-            document.getElementById('nb-filter-bar').hidden = true;
             loadNotes();
         });
     }
 
-    // ── Add ────────────────────────────────────────────────────────
+    // ── Add (now driven by cmd_bar "Add" button via NbNav) ─────────
 
-    function _bindAdd() {
-        const addBtn  = document.getElementById('nb-add-btn');
-        const popover = document.getElementById('nb-add-popover');
-
-        addBtn.addEventListener('click', e => {
-            e.stopPropagation();
-            popover.hidden = !popover.hidden;
-        });
-        document.addEventListener('click', () => { popover.hidden = true; });
-
-        popover.querySelectorAll('.nb-add-type').forEach(btn => {
-            btn.addEventListener('click', () => {
-                popover.hidden = true;
-                _showAddForm(btn.dataset.type);
-            });
-        });
-    }
-
-    function _showAddForm(type) {
+    function showAddForm(type) {
         const title   = type === 'bookmark' ? 'New Bookmark' :
                         type === 'todo'     ? 'New Todo' :
                         type === 'folder'   ? 'New Folder' : 'New Note';
@@ -537,7 +593,7 @@ const NbMain = (() => {
 
         document.getElementById('nf-title').focus();
         document.getElementById('nf-cancel').addEventListener('click', () => {
-            content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note to read, or press <kbd>Today</kbd> to open your journal.</p></div>';
+            content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
         });
         document.getElementById('nf-save').addEventListener('click', () => _submitAdd(type));
     }
@@ -584,22 +640,108 @@ const NbMain = (() => {
 
     // ── Sync ───────────────────────────────────────────────────────
 
+    async function doSync() {
+        const btn = document.getElementById('nb-sync-btn');
+        if (btn) btn.classList.add('nb-spin');
+        try {
+            const r = await fetch('/api/sync', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({notebook: NbNav.notebook}),
+            });
+            const d = await r.json();
+            if (!d.success) console.warn('sync stderr:', d.stderr);
+            else loadNotes();
+        } finally {
+            if (btn) btn.classList.remove('nb-spin');
+        }
+    }
+
     function _bindSync() {
-        document.getElementById('nb-sync-btn').addEventListener('click', async function() {
-            this.classList.add('nb-spin');
-            try {
-                const r = await fetch('/api/sync', {
-                    method: 'POST',
-                    headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({notebook: NbNav.notebook}),
-                });
-                const d = await r.json();
-                if (!d.success) console.warn('sync stderr:', d.stderr);
-                else loadNotes();
-            } finally {
-                this.classList.remove('nb-spin');
-            }
-        });
+        document.getElementById('nb-sync-btn').addEventListener('click', doSync);
+    }
+
+    // ── Run command (cal / daily / info / weather / notebooks) ─────
+
+    async function runCmd(cmd, opts = {}) {
+        _showPreviewLoading();
+        try {
+            const params = new URLSearchParams({ cmd });
+            if (opts.month) params.set('month', opts.month);
+            if (opts.year)  params.set('year',  opts.year);
+            if (opts.date)  params.set('date',  opts.date);
+            const r = await fetch('/api/run?' + params);
+            const d = await r.json();
+            _showCmdOutput(cmd, d.output || d.stderr || '(no output)');
+        } catch (e) {
+            _showCmdOutput(cmd, String(e));
+        }
+    }
+
+    function _showPreviewLoading() {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+        document.getElementById('nb-editor-wrap').hidden = true;
+    }
+
+    function _showCmdOutput(cmd, text) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = `<pre class="nb-cmd-output">${_esc(text)}</pre>`;
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        _activeSelector = null;
+    }
+
+    function showNotebooksWelcome() {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div id="nb-welcome"><h2>📚 Notebooks</h2>' +
+            '<p>Use the <strong>scope:</strong> dropdown above to set the active notebook.</p>' +
+            '<p style="margin-top:8px;font-size:12px;color:var(--text-dim)">The selected scope applies to List, Bookmark, Todo, and other commands.</p></div>';
+        _activeSelector = null;
+    }
+
+    // ── Add note (called from opts bar form) ───────────────────────
+
+    async function addNote({ notebook, type, title, url }) {
+        try {
+            const r = await fetch('/api/notes', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ notebook, type, title, url,
+                                       tags: [], content: '', comment: '' }),
+            });
+            const d = await r.json();
+            if (d.success) { loadNotes(); return true; }
+            alert('Add failed: ' + (d.error || 'unknown'));
+            return false;
+        } catch(e) {
+            alert('Add failed: ' + String(e));
+            return false;
+        }
+    }
+
+    // ── Grep ────────────────────────────────────────────────────────
+
+    async function runGrep(opts) {
+        if (!opts.pattern) {
+            _showCmdOutput('g', '(enter a pattern above and press run ↵)');
+            return;
+        }
+        _showPreviewLoading();
+        const params = new URLSearchParams({ q: opts.pattern });
+        if (opts.all) params.set('notebook', '_all');
+        else          params.set('notebook', NbNav.notebook);
+        try {
+            const r = await fetch('/api/notes?' + params);
+            const d = await r.json();
+            renderList(d.notes || []);
+            document.getElementById('nb-preview-content').innerHTML =
+                '<div style="padding:40px;color:var(--text-muted)">Select a result to preview.</div>';
+            document.getElementById('nb-preview-toolbar').hidden = true;
+        } catch (e) {
+            console.error('runGrep:', e);
+        }
     }
 
     // ── Util ───────────────────────────────────────────────────────
@@ -609,20 +751,16 @@ const NbMain = (() => {
     }
 
     function resetAndLoad() {
-        // Clear search state then load fresh list — called on notebook switch
         const searchEl = document.getElementById('nb-search');
         const clearEl  = document.getElementById('nb-search-clear');
-        const filterEl = document.getElementById('nb-filter-bar');
-        const chipsEl  = document.getElementById('nb-filter-chips');
         if (searchEl) searchEl.value = '';
         if (clearEl)  clearEl.hidden = true;
-        if (filterEl) filterEl.hidden = true;
-        if (chipsEl)  chipsEl.innerHTML = '';
         clearTimeout(_searchTimer);
         loadNotes();
     }
 
-    return { init, loadNotes, resetAndLoad, search, openNote, openToday };
+    return { init, loadNotes, resetAndLoad, search, openNote, openToday,
+             showAddForm, addNote, runCmd, runGrep, doSync };
 })();
 
 // ── Settings stub (wired up later) ────────────────────────────────

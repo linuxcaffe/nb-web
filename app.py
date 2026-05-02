@@ -314,6 +314,27 @@ def api_note():
         return jsonify({'error': 'not found'}), 404
     fpath = path_r['stdout'].strip()
 
+    # Determine notebook name and numeric id from filesystem path
+    p = Path(fpath)
+    note_notebook = None
+    note_id = None
+    try:
+        for nb_candidate in NB_DIR.iterdir():
+            if not nb_candidate.is_dir() or nb_candidate.name.startswith('.'):
+                continue
+            try:
+                rel = p.relative_to(nb_candidate)
+                note_notebook = nb_candidate.name
+                idx = read_index(note_notebook)
+                fname_key = rel.name
+                if fname_key in idx:
+                    note_id = idx.index(fname_key) + 1
+                break
+            except ValueError:
+                continue
+    except Exception:
+        pass
+
     try:
         raw = Path(fpath).read_text(errors='replace')
     except OSError:
@@ -328,6 +349,8 @@ def api_note():
 
     return jsonify({
         'selector': selector,
+        'notebook': note_notebook or '',
+        'id':       note_id,
         'filename': filename,
         'title':    title,
         'type':     itype,
@@ -507,6 +530,31 @@ def api_sync():
     args = ['sync'] if not notebook else [f'{notebook}:sync']
     r = run_nb(*args)
     return jsonify({'success': nb_ok(r), 'output': strip_ansi(r['stdout']), 'stderr': r['stderr']})
+
+
+# ---------------------------------------------------------------------------
+# API: Run read-only nb command (cal, daily, info, weather, notebooks)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/run')
+def api_run():
+    cmd = request.args.get('cmd', '').strip()
+    ALLOWED = {'info', 'weather', 'cal', 'daily', 'notebooks', 'version'}
+    if cmd not in ALLOWED:
+        return jsonify({'error': f'command not in allowed list: {cmd}'}), 400
+    extra = []
+    for flag in ('month', 'year'):
+        v = request.args.get(flag)
+        if v: extra += [f'--{flag}', v]
+    date = request.args.get('date')
+    if date and cmd == 'daily':
+        extra.append(date)   # nb daily 2026-04-30 (positional)
+    r = run_nb(cmd, *extra)
+    return jsonify({
+        'output':  strip_ansi(r['stdout']),
+        'success': nb_ok(r),
+        'stderr':  strip_ansi(r['stderr']),
+    })
 
 
 # ---------------------------------------------------------------------------

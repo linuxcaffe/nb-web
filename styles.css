@@ -34,40 +34,98 @@ body {
   flex-direction: column;
 }
 
-/* ── Header ──────────────────────────────────────────────────── */
-#nb-header {
-  height: var(--header-h);
+/* ── Command bar ──────────────────────────────────────────────── */
+#nb-cmd-bar {
+  min-height: var(--header-h);
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 8px;
   flex-shrink: 0;
   z-index: 20;
 }
 
-#nb-header-left  { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-#nb-header-center { flex: 1; min-width: 0; }
-#nb-header-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+#nb-cmds-builtin,
+#nb-cmds-plugins { display: flex; align-items: center; gap: 1px; }
 
-#nb-wordmark {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: -0.02em;
-  user-select: none;
+/* Separator between built-in and plugin commands */
+.nb-cmd-group-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
 }
+
+/* Command buttons */
+.nb-cmd {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, background 0.12s;
+  border-bottom: 2px solid transparent;
+}
+.nb-cmd:hover { color: var(--text); background: var(--accent-dim); }
+.nb-cmd.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-dim);
+}
+/* Plugin commands slightly dimmer when inactive */
+.nb-cmd-plugin { font-size: 12px; color: var(--text-dim); }
+.nb-cmd-plugin:hover { color: var(--text-muted); }
+.nb-cmd-plugin.active { color: var(--accent); }
+
+/* Search */
+#nb-search-wrap {
+  flex: 1;
+  min-width: 80px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 4px;
+}
+
+/* Meta buttons (sync, nb/menu) */
+#nb-cmd-meta { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+
+/* Logo / menu button */
+.nb-logo-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.nb-logo-btn:hover { background: var(--accent-dim); }
 
 /* Search */
 #nb-search-wrap {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 80px;
 }
 #nb-search {
   width: 100%;
-  max-width: 480px;
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -83,20 +141,6 @@ body {
   position: absolute; right: 4px;
   color: var(--text-muted); font-size: 11px;
 }
-
-/* Today button */
-.nb-btn-today {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  padding: 5px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-.nb-btn-today:hover { opacity: 0.85; }
 
 /* Icon buttons */
 .nb-icon-btn {
@@ -114,29 +158,27 @@ body {
 .nb-btn-add { font-size: 20px; color: var(--accent); }
 .nb-btn-add:hover { color: #fff; }
 
-/* ── Notebook tab bar ─────────────────────────────────────────── */
-#nb-notebook-bar {
-  height: var(--tabbar-h);
+/* ── Command opts bar ─────────────────────────────────────────── */
+#nb-cmd-opts-bar {
+  min-height: var(--tabbar-h);
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  overflow: hidden;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px 8px;
   flex-shrink: 0;
   z-index: 19;
 }
 
-#nb-notebook-tabs {
+/* Notebook tabs inside opts bar */
+.nb-opts-tabs {
   display: flex;
   align-items: stretch;
-  height: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-wrap: wrap;
   gap: 1px;
-  padding: 0 4px;
 }
-#nb-notebook-tabs::-webkit-scrollbar { display: none; }
-
 .nb-notebook-tab {
   background: none;
   border: none;
@@ -144,42 +186,229 @@ body {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
-  padding: 0 12px;
+  padding: 2px 10px;
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.12s, border-color 0.12s;
   letter-spacing: 0.02em;
+  line-height: var(--tabbar-h);
 }
 .nb-notebook-tab:hover { color: var(--text); }
-.nb-notebook-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+.nb-notebook-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Separator inside opts bar */
+.nb-opts-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 3px;
+  flex-shrink: 0;
+  align-self: center;
 }
 
+/* Type/status chip row */
+.nb-opts-chips { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; }
+.nb-opt-chip {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.nb-opt-chip:hover { color: var(--text); background: var(--bg3); }
+.nb-opt-chip.active {
+  background: var(--accent-dim);
+  border-color: rgba(91,155,213,0.3);
+  color: var(--accent);
+}
+.nb-opt-run {
+  color: var(--green);
+  border-color: rgba(87,171,90,0.3);
+}
+.nb-opt-run:hover { background: rgba(87,171,90,0.12); color: var(--green); }
+
+/* Cal / daily nav */
+.nb-opts-nav { display: flex; align-items: center; gap: 4px; }
+.nb-opt-nav-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 0.12s, background 0.12s;
+}
+.nb-opt-nav-btn:hover { color: var(--text); background: var(--bg3); }
+.nb-opt-nav-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  min-width: 76px;
+  text-align: center;
+}
+
+/* Grep context stepper */
+.nb-opts-stepper { display: flex; align-items: center; gap: 2px; }
+.nb-step-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  width: 20px; height: 20px;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.12s, background 0.12s;
+}
+.nb-step-btn:hover { color: var(--text); background: var(--bg3); }
+.nb-step-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  padding: 0 4px;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* Opts bar text label */
+.nb-opts-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding-right: 2px;
+  flex-shrink: 0;
+}
+
+/* Scope selector */
+.nb-scope-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.nb-scope-icon { font-size: 12px; line-height: 1; }
+.nb-scope-select {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 8px 2px 6px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s;
+  font-family: var(--font-ui);
+  color-scheme: dark;   /* makes native option list respect dark theme */
+  min-width: 90px;
+}
+.nb-scope-select:focus { border-color: var(--accent); }
+
+/* Add form: title and url inputs grow to fill opts bar */
+.nb-add-title,
+.nb-add-url {
+  flex: 1;
+  min-width: 110px;
+  width: auto;   /* override nb-opt-input's fixed width */
+}
+
+/* Cancel / Save row — full-width forces its own line, buttons right-aligned */
+.nb-add-actions {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+  margin-top: 1px;
+}
+
+/* Grep pattern input */
+.nb-opt-input {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 3px 8px;
+  outline: none;
+  width: 180px;
+  transition: border-color 0.15s;
+}
+.nb-opt-input:focus { border-color: var(--accent); }
+.nb-opt-input::placeholder { color: var(--text-dim); }
+
+/* Breadcrumb bar */
 #nb-breadcrumb {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-muted);
-  padding: 0 12px;
+  padding: 4px 12px;
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 .nb-crumb { cursor: pointer; }
 .nb-crumb:hover { color: var(--text); }
 .nb-crumb-sep { color: var(--text-dim); }
 
-/* ── Filter bar ───────────────────────────────────────────────── */
-#nb-filter-bar {
+/* ── Drag handle ──────────────────────────────────────────────── */
+#nb-drag-handle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  transition: background 0.15s;
+  z-index: 5;
+}
+#nb-drag-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;  /* wider hit area */
+}
+#nb-drag-handle:hover,
+#nb-drag-handle.dragging {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+/* ── Command output bar ───────────────────────────────────────── */
+#nb-cmd-output-bar {
   height: var(--filterbar-h);
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0 12px;
   flex-shrink: 0;
 }
-#nb-filter-chips { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; }
+.nb-cmd-output-prompt {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+#nb-cmd-output-text {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Keep old filter chip styles for any remaining usage */
 .nb-chip {
   background: var(--accent-dim);
   border: 1px solid rgba(91,155,213,0.3);
@@ -198,13 +427,6 @@ body {
   line-height: 1; opacity: 0.7;
 }
 .nb-chip-remove:hover { opacity: 1; }
-.nb-link-btn {
-  background: none; border: none;
-  color: var(--text-muted); font-size: 11px;
-  cursor: pointer; text-decoration: underline;
-  margin-left: auto; white-space: nowrap;
-}
-.nb-link-btn:hover { color: var(--text); }
 
 /* ── Main layout ──────────────────────────────────────────────── */
 #nb-layout {
@@ -343,6 +565,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+.nb-preview-ref {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding-right: 6px;
+  user-select: all;
 }
 #nb-preview-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
@@ -489,33 +721,6 @@ body {
 .nb-menu-item.active { color: var(--accent); }
 #nb-menu-nav hr { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
 
-/* ── Add popover ──────────────────────────────────────────────── */
-#nb-add-popover {
-  position: fixed;
-  top: calc(var(--header-h) + 4px);
-  right: 8px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 30;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-}
-.nb-add-type {
-  background: none; border: none;
-  color: var(--text);
-  font-size: 13px;
-  text-align: left;
-  padding: 8px 14px;
-  border-radius: 5px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.1s;
-}
-.nb-add-type:hover { background: var(--bg3); }
 
 /* ── Bottom bar ───────────────────────────────────────────────── */
 #nb-bottom-bar {
@@ -559,18 +764,48 @@ body {
 }
 #nb-append-btn:hover { opacity: 0.85; }
 
+/* ── Full-preview layout (hide list pane) ─────────────────────── */
+#nb-layout.nb-full-preview #nb-list-pane,
+#nb-layout.nb-full-preview #nb-drag-handle {
+  display: none;
+}
+
+/* ── Command text output ──────────────────────────────────────── */
+pre.nb-cmd-output {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  padding: 24px 28px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Side menu section labels ─────────────────────────────────── */
+.nb-menu-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding: 8px 20px 2px;
+  text-transform: uppercase;
+}
+
 /* ── Responsive: narrow (tablet/mobile) ───────────────────────── */
 @media (max-width: 700px) {
   :root { --list-w: 100%; }
   #nb-layout { flex-direction: column; }
   #nb-list-pane { width: 100%; flex-shrink: 0; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
-  #nb-preview-pane { flex: 1; }
-  #nb-header-center { display: none; }  /* search moves to filter bar on mobile */
+  #nb-preview-pane { flex: 1; min-height: 0; }
+  #nb-drag-handle { width: 100%; height: 6px; cursor: row-resize; }
+  #nb-preview-toolbar { flex-wrap: wrap; gap: 6px; }
+  #nb-cmds-plugins { display: none; }  /* hide plugin cmds on narrow; accessible via menu */
 }
 
 @media (max-width: 480px) {
   #nb-list-pane { max-height: 35vh; }
   #nb-preview-content { padding: 16px; }
+  .nb-cmd { font-size: 12px; padding: 3px 7px; }
 }
 
 /* ── Utility ──────────────────────────────────────────────────── */
