@@ -16,6 +16,7 @@ const NbMain = (() => {
         _bindSync();
         _bindAppend();
         _bindPreviewActions();
+        _bindKeyboard();
         initDragHandle();
         loadNotes();
     }
@@ -248,6 +249,111 @@ const NbMain = (() => {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({selector, done, task: Number(taskNum)}),
+        });
+    }
+
+    // ── Keyboard navigation ────────────────────────────────────────
+
+    function _bindKeyboard() {
+        let _kbPane = 'list';   // 'list' | 'preview'
+        const listPane    = document.getElementById('nb-list-pane');
+        const previewPane = document.getElementById('nb-preview-pane');
+        const previewContent = document.getElementById('nb-preview-content');
+
+        function _setKbPane(pane) {
+            _kbPane = pane;
+            listPane.classList.toggle('kb-focus',    pane === 'list');
+            previewPane.classList.toggle('kb-focus', pane === 'preview');
+        }
+        _setKbPane('list');
+
+        // Mouse clicks transfer keyboard focus
+        document.getElementById('nb-list').addEventListener('mousedown',
+            () => _setKbPane('list'));
+        previewContent.addEventListener('mousedown',
+            () => _setKbPane('preview'));
+
+        function _visibleItems() {
+            return [...document.querySelectorAll('#nb-list .nb-list-item')];
+        }
+
+        function _activeIdx(items) {
+            return items.findIndex(el => el.classList.contains('active'));
+        }
+
+        function _selectItem(item) {
+            if (!item) return;
+            item.scrollIntoView({ block: 'nearest' });
+            // Update visual selection immediately
+            _visibleItems().forEach(el => el.classList.remove('active'));
+            item.classList.add('active');
+            // Load preview (or drill folder)
+            if (item.dataset.type === 'folder') {
+                // folders: don't auto-drill; stay in list, let → or Enter drill in
+            } else if (item.dataset.selector) {
+                openNote(item.dataset.selector);
+            }
+        }
+
+        document.addEventListener('keydown', e => {
+            // Let inputs handle their own keys
+            const tag = document.activeElement?.tagName;
+            if (['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
+            if (e.ctrlKey || e.metaKey) return;
+
+            const items = _visibleItems();
+            const idx   = _activeIdx(items);
+            const PAGE  = 8;
+
+            if (_kbPane === 'list') {
+                switch (e.key) {
+                    case 'ArrowUp': {
+                        e.preventDefault();
+                        _selectItem(items[idx <= 0 ? 0 : idx - 1]);
+                        break;
+                    }
+                    case 'ArrowDown': {
+                        e.preventDefault();
+                        _selectItem(items[idx < 0 ? 0 : Math.min(items.length - 1, idx + 1)]);
+                        break;
+                    }
+                    case 'PageUp': {
+                        e.preventDefault();
+                        _selectItem(items[Math.max(0, idx - PAGE)]);
+                        break;
+                    }
+                    case 'PageDown': {
+                        e.preventDefault();
+                        _selectItem(items[Math.min(items.length - 1, Math.max(0, idx) + PAGE)]);
+                        break;
+                    }
+                    case 'ArrowRight': {
+                        e.preventDefault();
+                        const cur = items[idx];
+                        if (cur?.dataset.type === 'folder') {
+                            cur.click();    // drill into folder
+                        } else {
+                            _setKbPane('preview');
+                        }
+                        break;
+                    }
+                    case 'ArrowLeft': {
+                        e.preventDefault();
+                        if (NbNav.folder) NbNav.goUpFolder();
+                        break;
+                    }
+                }
+            } else {
+                // Preview pane — scroll with arrows, ← returns to list
+                const step = 72;
+                switch (e.key) {
+                    case 'ArrowUp':   e.preventDefault(); previewContent.scrollBy(0, -step); break;
+                    case 'ArrowDown': e.preventDefault(); previewContent.scrollBy(0,  step); break;
+                    case 'PageUp':    e.preventDefault(); previewContent.scrollBy(0, -previewContent.clientHeight * 0.85); break;
+                    case 'PageDown':  e.preventDefault(); previewContent.scrollBy(0,  previewContent.clientHeight * 0.85); break;
+                    case 'ArrowLeft': e.preventDefault(); _setKbPane('list'); break;
+                }
+            }
         });
     }
 

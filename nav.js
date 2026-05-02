@@ -487,18 +487,40 @@ const NbNav = (() => {
         const logo    = document.getElementById('nb-logo-btn');
         const overlay = document.getElementById('nb-menu-overlay');
         const menu    = document.getElementById('nb-side-menu');
-        const close   = document.getElementById('nb-menu-close');
+        const header  = document.getElementById('nb-menu-header');
 
         function open() { menu.classList.add('open'); overlay.removeAttribute('hidden'); }
         function shut() { menu.classList.remove('open'); overlay.setAttribute('hidden', ''); }
 
         logo.addEventListener('click', open);
         overlay.addEventListener('click', shut);
-        close.addEventListener('click', shut);
+        header.addEventListener('click', shut);
 
+        // Close on Escape
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && menu.classList.contains('open')) shut();
+        });
+
+        // Menu items — close drawer then act
         document.getElementById('nb-menu-settings').addEventListener('click', () => { shut(); NbSettings.open(); });
         const syncEl = document.getElementById('nb-menu-sync');
         if (syncEl) syncEl.addEventListener('click', () => { shut(); NbMain.doSync(); });
+        // Remaining items close the menu; their real action can be wired later
+        ['nb-menu-status','nb-menu-import','nb-menu-export','nb-menu-plugins','nb-menu-about']
+            .forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('click', shut); });
+    }
+
+    // ── Folder navigation ─────────────────────────────────────────
+
+    function goUpFolder() {
+        const cur = _folder[_activeCmd] || '';
+        if (!cur) return;
+        const parts = cur.split('/');
+        parts.pop();
+        _folder[_activeCmd] = parts.join('/');
+        NbMain.loadNotes();
+        const remaining = _folder[_activeCmd];
+        updateBreadcrumb(remaining ? remaining.split('/') : []);
     }
 
     // ── Breadcrumb ────────────────────────────────────────────────
@@ -557,6 +579,7 @@ const NbNav = (() => {
         get activeCmd() { return _activeCmd; },
         activateCmd,
         drillFolder,
+        goUpFolder,
         updateBreadcrumb,
     };
 })();
