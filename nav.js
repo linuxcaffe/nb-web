@@ -551,74 +551,159 @@ const NbNav = (() => {
         return s;
     }
 
-    // ── Output bar ────────────────────────────────────────────────
+    // ── Output bar (omnipresent token bar) ───────────────────────
 
-    function _updateOutputBar() {
-        const bar  = document.getElementById('nb-cmd-output-bar');
-        const text = document.getElementById('nb-cmd-output-text');
-        const cmd  = _buildCmdString();
-        text.textContent = cmd || '';
-        bar.hidden = !cmd;
-    }
+    let _searchQuery = '';
 
-    function _buildCmdString() {
-        const cmd = _activeCmd;
-        const st  = _state[cmd] || {};
+    // Build an ordered list of token descriptors for the current state.
+    // Tokens with a clearFn become filter chips with ×.
+    function _buildTokens() {
+        const cmd    = _activeCmd;
+        const st     = _state[cmd] || {};
+        const folder = _folder[cmd] || '';
+        const tokens = [];
+
+        // Helper: scope token (notebook + folder combined)
+        function _scopeTok() {
+            if (_scope === '_all') {
+                return { text: '--all', clearFn: () => {
+                    _scope = 'home'; _executeCmd(); _updateOutputBar();
+                }};
+            }
+            if (_scope !== 'home' || folder) {
+                const t = folder ? `${_scope}:${folder}/` : `${_scope}:`;
+                return { text: t, clearFn: () => {
+                    _scope = 'home'; _folder[cmd] = ''; updateBreadcrumb([]);
+                    _executeCmd(); _updateOutputBar();
+                }};
+            }
+            return null;
+        }
+
+        // Helper: search token
+        function _searchTok() {
+            if (!_searchQuery) return null;
+            return { text: `"${_searchQuery}"`, clearFn: () => {
+                _searchQuery = '';
+                const el = document.getElementById('nb-search');
+                const cl = document.getElementById('nb-search-clear');
+                if (el) el.value = '';
+                if (cl) cl.hidden = true;
+                _executeCmd(); _updateOutputBar();
+            }};
+        }
 
         switch (cmd) {
             case 'list': {
-                const parts = ['list'];
-                if (_scope === '_all')       parts.push('--all');
-                else if (_scope !== 'home')  parts.push(`${_scope}:`);
-                if (st.type && st.type !== 'all') parts.push(`--type ${st.type}`);
-                return parts.length > 1 ? parts.join(' ') : '';
+                tokens.push({ text: 'list' });
+                const sc = _scopeTok(); if (sc) tokens.push(sc);
+                if (st.type && st.type !== 'all') tokens.push({ text: `--type ${st.type}`, clearFn: () => {
+                    st.type = 'all'; renderOptsBar(); _executeCmd();
+                }});
+                const sq = _searchTok(); if (sq) tokens.push(sq);
+                break;
             }
             case 'todo': {
-                const parts = [`todo ${st.status || 'open'}`];
-                if (_scope === '_all')       parts.push('--all');
-                else if (_scope !== 'home')  parts.push(`${_scope}:`);
-                return parts.join(' ');
+                tokens.push({ text: `todo ${st.status || 'open'}` });
+                const sc = _scopeTok(); if (sc) tokens.push(sc);
+                const sq = _searchTok(); if (sq) tokens.push(sq);
+                break;
             }
             case 'add': {
-                if (st.type === 'bookmark') return st.url   ? `bookmark ${st.url}`     : 'bookmark';
-                if (st.type === 'todo')     return st.title ? `todo add "${st.title}"` : 'todo add';
-                return st.title ? `add "${st.title}"` : 'add';
+                const t = st.type === 'bookmark' ? 'bookmark'      :
+                          st.type === 'todo'     ? 'todo add'      :
+                          st.type === 'folder'   ? 'add folder'    :
+                          st.type === 'notebook' ? 'notebooks add' : 'add';
+                tokens.push({ text: t });
+                if (_scope !== 'home' && st.type !== 'notebook') tokens.push({ text: `${_scope}:` });
+                if (st.title) tokens.push({ text: `"${st.title}"` });
+                if (st.url)   tokens.push({ text: st.url });
+                break;
             }
             case 'cal': {
-                const parts = ['cal'];
-                if (st.start) parts.push(`--start ${st.start}`);
-                if (st.end)   parts.push(`--end ${st.end}`);
-                if (!st.start && !st.end && st.selected) parts.push(`--start ${st.selected} --end ${st.selected}`);
-                return parts.join(' ');
+                tokens.push({ text: 'cal' });
+                if (_scope !== 'home') tokens.push({ text: `${_scope}:` });
+                if (st.start) tokens.push({ text: `--start ${st.start}`, clearFn: () => {
+                    st.start = null; renderOptsBar(); _executeCmd();
+                }});
+                if (st.end) tokens.push({ text: `--end ${st.end}`, clearFn: () => {
+                    st.end = null; renderOptsBar(); _executeCmd();
+                }});
+                if (!st.start && !st.end && st.selected) tokens.push({ text: st.selected });
+                break;
             }
-            case 'daily':   return st.date ? `daily ${st.date}` : '';
+            case 'daily':
+                tokens.push({ text: 'daily' });
+                tokens.push({ text: st.date || 'today' });
+                break;
             case 'g': {
-                if (!st.pattern) return '';
-                const parts = ['g'];
-                if (st.all)     parts.push('--all');
-                parts.push(`"${st.pattern}"`);
-                if (st.context) parts.push(`-C ${st.context}`);
-                return parts.join(' ');
+                tokens.push({ text: 'g' });
+                if (st.all) tokens.push({ text: '--all', clearFn: () => {
+                    st.all = false; renderOptsBar(); _executeCmd();
+                }});
+                if (st.pattern) tokens.push({ text: `"${st.pattern}"` });
+                if (st.context > 0) tokens.push({ text: `-C ${st.context}` });
+                break;
             }
-            case 'info':    return 'info';
-            case 'weather': return 'weather';
-            default:        return '';
+            case 'info':    tokens.push({ text: 'info' });    break;
+            case 'weather': tokens.push({ text: 'weather' }); break;
+            default:        tokens.push({ text: _activeCmd || 'list' }); break;
         }
+        return tokens;
+    }
+
+    function _updateOutputBar() {
+        const bar    = document.getElementById('nb-cmd-output-bar');
+        const tokDiv = document.getElementById('nb-cmd-output-tokens');
+        if (!bar || !tokDiv) return;
+
+        tokDiv.innerHTML = '';
+        _buildTokens().forEach(tok => {
+            const span = document.createElement('span');
+            span.className = 'nb-cmd-token' + (tok.clearFn ? ' nb-cmd-token-filter' : '');
+            span.appendChild(document.createTextNode(tok.text));
+            if (tok.clearFn) {
+                const x = document.createElement('button');
+                x.className   = 'nb-cmd-token-x';
+                x.textContent = '×';
+                x.title       = 'Remove this filter';
+                x.addEventListener('click', e => { e.stopPropagation(); tok.clearFn(); });
+                span.appendChild(x);
+            }
+            tokDiv.appendChild(span);
+        });
+        bar.removeAttribute('hidden');   // always visible
     }
 
     function _clearOutputBar() {
+        // Clear search
+        _searchQuery = '';
+        const searchEl = document.getElementById('nb-search');
+        const clearEl  = document.getElementById('nb-search-clear');
+        if (searchEl) searchEl.value = '';
+        if (clearEl)  clearEl.hidden = true;
+        // Clear folder + scope
+        _folder[_activeCmd] = '';
+        _scope = 'home';
+        updateBreadcrumb([]);
+        // Reset command-specific state
+        const now = new Date();
         const defaults = {
             list:  { type: 'all' },
             todo:  { status: 'open' },
-            cal:   { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
+            cal:   { displayYear: now.getFullYear(), displayMonth: now.getMonth() + 1,
                      selected: null, start: null, end: null, noteDays: new Set() },
             daily: { date: '' },
             g:     { all: false, context: 1, pattern: '' },
         };
         if (defaults[_activeCmd]) Object.assign(_state[_activeCmd], defaults[_activeCmd]);
-        _scope = 'home';
         renderOptsBar();
         _executeCmd();
+    }
+
+    function setSearchQuery(q) {
+        _searchQuery = q;
+        _updateOutputBar();
     }
 
     // ── Execute command ───────────────────────────────────────────
@@ -626,7 +711,10 @@ const NbNav = (() => {
     function _executeCmd() {
         const st = _state[_activeCmd];
         switch (_activeCmd) {
-            case 'list':    NbMain.loadNotes(_typeArg(st.type));                        break;
+            case 'list':
+                if (_searchQuery) NbMain.search(_searchQuery, _typeArg(st.type));
+                else              NbMain.loadNotes(_typeArg(st.type));
+                break;
             case 'todo':    NbMain.loadNotes('--type todo');                            break;
             case 'add':     /* form lives in opts bar; list/preview untouched */        break;
             case 'cal': {
@@ -745,5 +833,6 @@ const NbNav = (() => {
         drillFolder,
         goUpFolder,
         updateBreadcrumb,
+        setSearchQuery,
     };
 })();

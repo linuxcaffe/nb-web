@@ -47,15 +47,18 @@ const NbMain = (() => {
         }
     }
 
-    async function search(query) {
-        if (!query.trim()) { loadNotes(); return; }
+    async function search(query, typeFilter) {
+        if (!query.trim()) { loadNotes(typeFilter); return; }
         const nb     = NbNav.notebook;
+        const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb, q: query });
+        if (folder) params.set('folder', folder);
         try {
             const r = await fetch('/api/notes?' + params);
             const d = await r.json();
-            renderList(d.notes || []);
-            _setFilterBar(query);
+            let notes = d.notes || [];
+            if (typeFilter) notes = notes.filter(n => n.type === typeFilter.replace('--type ', ''));
+            renderList(notes);
         } catch (e) {
             console.error('search:', e);
         }
@@ -910,6 +913,7 @@ const NbMain = (() => {
 
         input.addEventListener('input', () => {
             clear.hidden = !input.value;
+            NbNav.setSearchQuery(input.value);
             clearTimeout(_searchTimer);
             _searchTimer = setTimeout(() => _dispatchQuery(input.value), 400);
         });
@@ -924,6 +928,7 @@ const NbMain = (() => {
         clear.addEventListener('click', () => {
             input.value = '';
             clear.hidden = true;
+            NbNav.setSearchQuery('');
             loadNotes();
         });
     }

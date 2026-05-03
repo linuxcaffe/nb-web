@@ -468,14 +468,15 @@ body {
 
 /* ── Command output bar ───────────────────────────────────────── */
 #nb-cmd-output-bar {
-  height: var(--filterbar-h);
+  min-height: var(--filterbar-h);
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 12px;
+  padding: 3px 12px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .nb-cmd-output-prompt {
   font-size: 11px;
@@ -484,15 +485,45 @@ body {
   font-weight: 700;
   flex-shrink: 0;
 }
-#nb-cmd-output-text {
+
+/* Token container */
+.nb-cmd-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+/* Plain command word (no filter) */
+.nb-cmd-token {
+  display: inline-flex;
+  align-items: center;
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-muted);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 1px 4px;
+  border-radius: 3px;
   white-space: nowrap;
+  gap: 2px;
 }
+/* Active filter chip — highlighted background, clearable */
+.nb-cmd-token-filter {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.nb-cmd-token-x {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 1px;
+  flex-shrink: 0;
+}
+.nb-cmd-token-x:hover { color: var(--red, #e06c75); }
 /* Keep old filter chip styles for any remaining usage */
 .nb-chip {
   background: var(--accent-dim);
