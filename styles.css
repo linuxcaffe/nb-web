@@ -86,17 +86,7 @@ body {
 .nb-cmd-plugin:hover { color: var(--text-muted); }
 .nb-cmd-plugin.active { color: var(--accent); }
 
-/* Search */
-#nb-search-wrap {
-  flex: 1;
-  min-width: 80px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  margin: 0 4px;
-}
-
-/* Meta buttons (sync, nb/menu) */
+/* Meta buttons (kept for potential future use) */
 #nb-cmd-meta { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 
 /* Logo / menu button */
@@ -116,31 +106,58 @@ body {
 }
 .nb-logo-btn:hover { background: var(--accent-dim); }
 
-/* Search */
+/* Search + tags + icon strip */
 #nb-search-wrap {
-  position: relative;
   display: flex;
   align-items: center;
+  gap: 3px;
   flex: 1;
-  min-width: 80px;
+  min-width: 120px;
+  position: relative;
 }
-#nb-search {
-  width: 100%;
+#nb-search,
+#nb-tags {
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
   font-size: 13px;
-  padding: 5px 28px 5px 10px;
+  padding: 5px 8px;
   outline: none;
   transition: border-color 0.15s;
 }
-#nb-search:focus { border-color: var(--accent); }
-#nb-search::placeholder { color: var(--text-dim); }
-#nb-search-clear {
-  position: absolute; right: 4px;
-  color: var(--text-muted); font-size: 11px;
+#nb-search { flex: 2; min-width: 80px; }
+#nb-tags   { flex: 1; min-width: 60px; }
+#nb-search:focus, #nb-tags:focus { border-color: var(--accent); }
+#nb-search::placeholder, #nb-tags::placeholder { color: var(--text-dim); }
+.nb-search-x {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  flex-shrink: 0;
 }
+.nb-search-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 1px;
+}
+/* Search-bar icon buttons: todo ☑ / tasks ✔ / cal 📅 */
+.nb-search-icon-btn {
+  background: none;
+  border: none;
+  font-size: 15px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  line-height: 1;
+  transition: color 0.12s, background 0.12s;
+}
+.nb-search-icon-btn:hover { background: var(--accent-dim); color: var(--text); }
+.nb-search-icon-btn.active { color: var(--accent); background: var(--accent-dim); }
 
 /* Icon buttons */
 .nb-icon-btn {

@@ -41,6 +41,22 @@ const NbNav = (() => {
         document.querySelectorAll('.nb-cmd').forEach(btn => {
             btn.addEventListener('click', () => activateCmd(btn.dataset.cmd));
         });
+        // Search-bar icon buttons
+        document.getElementById('nb-todo-icon') ?.addEventListener('click', () => {
+            activateCmd(_activeCmd === 'todo' ? 'list' : 'todo');
+        });
+        document.getElementById('nb-tasks-icon')?.addEventListener('click', () => {
+            if (_activeCmd === 'list' && _state.list.type === 'todo') {
+                _state.list.type = 'all';
+                activateCmd('list');
+            } else {
+                _state.list.type = 'todo';
+                activateCmd('list');
+            }
+        });
+        document.getElementById('nb-cal-icon')  ?.addEventListener('click', () => {
+            activateCmd(_activeCmd === 'cal' ? 'list' : 'cal');
+        });
     }
 
     function activateCmd(cmd) {
@@ -53,6 +69,7 @@ const NbNav = (() => {
         document.getElementById('nb-layout').classList.toggle('nb-full-preview', fullPreview);
 
         NbMain.resetSort?.();   // new command context — reset list sort
+        _updateSearchIcons();
         renderOptsBar();
         _executeCmd();
     }
@@ -554,6 +571,7 @@ const NbNav = (() => {
     // ── Output bar (omnipresent token bar) ───────────────────────
 
     let _searchQuery = '';
+    let _tagsQuery   = '';
 
     // Build an ordered list of token descriptors for the current state.
     // Tokens with a clearFn become filter chips with ×.
@@ -593,19 +611,35 @@ const NbNav = (() => {
             }};
         }
 
+        // Helper: tags token
+        function _tagsTok() {
+            if (!_tagsQuery) return null;
+            return { text: `--tags ${_tagsQuery}`, clearFn: () => {
+                _tagsQuery = '';
+                const el = document.getElementById('nb-tags');
+                const cl = document.getElementById('nb-tags-clear');
+                if (el) el.value = '';
+                if (cl) cl.hidden = true;
+                _executeCmd(); _updateOutputBar();
+            }};
+        }
+
         switch (cmd) {
             case 'list': {
                 tokens.push({ text: 'list' });
                 const sc = _scopeTok(); if (sc) tokens.push(sc);
                 if (st.type && st.type !== 'all') tokens.push({ text: `--type ${st.type}`, clearFn: () => {
                     st.type = 'all'; renderOptsBar(); _executeCmd();
+                    _updateSearchIcons();
                 }});
+                const tg = _tagsTok();  if (tg) tokens.push(tg);
                 const sq = _searchTok(); if (sq) tokens.push(sq);
                 break;
             }
             case 'todo': {
                 tokens.push({ text: `todo ${st.status || 'open'}` });
                 const sc = _scopeTok(); if (sc) tokens.push(sc);
+                const tg = _tagsTok();  if (tg) tokens.push(tg);
                 const sq = _searchTok(); if (sq) tokens.push(sq);
                 break;
             }
@@ -676,12 +710,16 @@ const NbNav = (() => {
     }
 
     function _clearOutputBar() {
-        // Clear search
-        _searchQuery = '';
+        // Clear search + tags
+        _searchQuery = ''; _tagsQuery = '';
         const searchEl = document.getElementById('nb-search');
         const clearEl  = document.getElementById('nb-search-clear');
         if (searchEl) searchEl.value = '';
         if (clearEl)  clearEl.hidden = true;
+        const tagsEl = document.getElementById('nb-tags');
+        const tagsCl = document.getElementById('nb-tags-clear');
+        if (tagsEl) tagsEl.value = '';
+        if (tagsCl) tagsCl.hidden = true;
         // Clear folder + scope
         _folder[_activeCmd] = '';
         _scope = 'home';
@@ -706,14 +744,27 @@ const NbNav = (() => {
         _updateOutputBar();
     }
 
+    function setTagsQuery(q) {
+        _tagsQuery = q;
+        _updateOutputBar();
+    }
+
+    function _updateSearchIcons() {
+        document.getElementById('nb-todo-icon') ?.classList.toggle('active', _activeCmd === 'todo');
+        document.getElementById('nb-tasks-icon')?.classList.toggle('active',
+            _activeCmd === 'list' && _state.list.type === 'todo');
+        document.getElementById('nb-cal-icon')  ?.classList.toggle('active', _activeCmd === 'cal');
+    }
+
     // ── Execute command ───────────────────────────────────────────
 
     function _executeCmd() {
         const st = _state[_activeCmd];
         switch (_activeCmd) {
             case 'list':
-                if (_searchQuery) NbMain.search(_searchQuery, _typeArg(st.type));
-                else              NbMain.loadNotes(_typeArg(st.type));
+                if (_tagsQuery)        NbMain.search(_tagsQuery,   _typeArg(st.type));
+                else if (_searchQuery) NbMain.search(_searchQuery, _typeArg(st.type));
+                else                   NbMain.loadNotes(_typeArg(st.type));
                 break;
             case 'todo':    NbMain.loadNotes('--type todo');                            break;
             case 'add':     /* form lives in opts bar; list/preview untouched */        break;
@@ -834,5 +885,6 @@ const NbNav = (() => {
         goUpFolder,
         updateBreadcrumb,
         setSearchQuery,
+        setTagsQuery,
     };
 })();

@@ -17,7 +17,7 @@ const NbMain = (() => {
     function init() {
         NbNav.init();
         _bindSearch();
-        _bindSync();
+        _bindTags();
         _bindAppend();
         _bindPreviewActions();
         _bindListMenu();
@@ -173,6 +173,15 @@ const NbMain = (() => {
 
             ul.appendChild(li);
         });
+
+        // Auto-select first non-folder when current selection left the list
+        if (!fromSort) {
+            const stillPresent = _activeSelector && notes.some(n => n.selector === _activeSelector);
+            if (!stillPresent) {
+                const first = notes.find(n => n.type !== 'folder');
+                if (first) requestAnimationFrame(() => openNote(first.selector));
+            }
+        }
     }
 
     // ── Open / preview note ────────────────────────────────────────
@@ -907,6 +916,32 @@ const NbMain = (() => {
         search(q);
     }
 
+    function _bindTags() {
+        const input = document.getElementById('nb-tags');
+        if (!input) return;
+        const clear = document.getElementById('nb-tags-clear');
+        let _tagsTimer;
+
+        input.addEventListener('input', () => {
+            clear.hidden = !input.value;
+            clearTimeout(_tagsTimer);
+            const raw = input.value.trim();
+            const q   = raw ? (raw.startsWith('#') ? raw : `#${raw}`) : '';
+            NbNav.setTagsQuery(q);
+            _tagsTimer = setTimeout(() => {
+                if (q) search(q);
+                else   loadNotes();
+            }, 400);
+        });
+
+        clear.addEventListener('click', () => {
+            input.value = '';
+            clear.hidden = true;
+            NbNav.setTagsQuery('');
+            loadNotes();
+        });
+    }
+
     function _bindSearch() {
         const input = document.getElementById('nb-search');
         const clear = document.getElementById('nb-search-clear');
@@ -1032,7 +1067,7 @@ const NbMain = (() => {
     }
 
     function _bindSync() {
-        document.getElementById('nb-sync-btn').addEventListener('click', doSync);
+        document.getElementById('nb-sync-btn')?.addEventListener('click', doSync);
     }
 
     // ── Run command (cal / daily / info / weather / notebooks) ─────
