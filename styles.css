@@ -814,6 +814,21 @@ body {
 .nb-panel-dropdown-item:disabled { color: var(--text-dim); cursor: default; }
 .nb-panel-dropdown-sep { height: 1px; background: var(--border); margin: 3px 0; }
 
+/* Sort-active indicator on list hamburger */
+#nb-list-menu-btn.nb-sort-active { color: var(--accent); }
+
+/* Pin indicator in preview toolbar */
+#nb-pin-indicator {
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--accent);
+  user-select: none;
+}
+#nb-pin-indicator:hover { background: var(--accent-dim); }
+#nb-preview-toolbar.nb-pinned .nb-panel-menu-btn { color: var(--accent); }
+
 /* ── Inline rename input (replaces preview title span) ────────── */
 .nb-rename-input {
   background: var(--bg3);

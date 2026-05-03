@@ -5,10 +5,12 @@ const NbMain = (() => {
     let _editing        = false;
     let _searchTimer    = null;
     let _todayInfo      = null;
-    let _lastNotes      = [];   // original load order, for client-side sort
+    let _lastNotes      = [];       // original load order, for client-side sort
     let _sortMode       = 'default';
-    const _history      = [];   // back-stack
-    const _future       = [];   // forward-stack (cleared on any new navigation)
+    let _foldersFirst   = false;
+    let _pinned         = false;
+    const _history      = [];       // back-stack
+    const _future       = [];       // forward-stack (cleared on any new navigation)
 
     // ── Boot ───────────────────────────────────────────────────────
 
@@ -62,8 +64,38 @@ const NbMain = (() => {
         // Output bar is now managed by nav.js / NbNav; no-op here
     }
 
+    function _getSortedNotes(notes) {
+        let result = [...notes];
+        const byTitle = n => (n.title || n.filename || '').toLowerCase();
+        if (_sortMode === 'az')     result.sort((a, b) => byTitle(a).localeCompare(byTitle(b)));
+        if (_sortMode === 'za')     result.sort((a, b) => byTitle(b).localeCompare(byTitle(a)));
+        if (_sortMode === 'newest') result.sort((a, b) => (b.id || 0) - (a.id || 0));
+        if (_sortMode === 'oldest') result.sort((a, b) => (a.id || 0) - (b.id || 0));
+        if (_foldersFirst) {
+            const folders = result.filter(n => n.type === 'folder');
+            const rest    = result.filter(n => n.type !== 'folder');
+            result = [...folders, ...rest];
+        }
+        return result;
+    }
+
+    function _updateSortBtn() {
+        const btn = document.getElementById('nb-list-menu-btn');
+        if (btn) btn.classList.toggle('nb-sort-active', _sortMode !== 'default' || _foldersFirst);
+    }
+
+    function resetSort() {
+        _sortMode     = 'default';
+        _foldersFirst = false;
+        _updateSortBtn();
+        // Caller will trigger loadNotes(), which re-applies the (now default) sort
+    }
+
     function renderList(notes, fromSort = false) {
-        if (!fromSort) { _lastNotes = notes; _sortMode = 'default'; }
+        if (!fromSort) {
+            _lastNotes = notes;
+            notes = _getSortedNotes(notes);   // re-apply current sort to new data
+        }
         const ul      = document.getElementById('nb-list');
         const empty   = document.getElementById('nb-list-empty');
         const countEl = document.getElementById('nb-count');
@@ -142,16 +174,20 @@ const NbMain = (() => {
     // ── Open / preview note ────────────────────────────────────────
 
     async function openNote(selector, pushHistory = true) {
+        // Always update list visual selection — shows where cursor is even when pinned
+        document.querySelectorAll('.nb-list-item').forEach(el => {
+            el.classList.toggle('active', el.dataset.selector === selector);
+        });
+
+        // When pinned, freeze the preview — list browsing doesn't change the note shown
+        if (_pinned) return;
+
         if (pushHistory && _activeSelector && _activeSelector !== selector) {
             _history.push(_activeSelector);
             _future.length = 0;   // new navigation invalidates forward history
         }
         _activeSelector = selector;
         _updateNavBtns();
-
-        document.querySelectorAll('.nb-list-item').forEach(el => {
-            el.classList.toggle('active', el.dataset.selector === selector);
-        });
 
         // Show toolbar
         const toolbar = document.getElementById('nb-preview-toolbar');
@@ -314,16 +350,19 @@ const NbMain = (() => {
         if (!btn) return;
         btn.addEventListener('click', () => {
             _showDropdown(btn, [
+                { label: '📂 Folders first', active: _foldersFirst,
+                  action: () => { _foldersFirst = !_foldersFirst; renderList(_getSortedNotes(_lastNotes), true); _updateSortBtn(); } },
+                'sep',
                 { label: 'Sort: Default', active: _sortMode === 'default',
                   action: () => _applySort('default') },
-                { label: 'Sort: A → Z',  active: _sortMode === 'az',
+                { label: 'Sort: A → Z',   active: _sortMode === 'az',
                   action: () => _applySort('az') },
-                { label: 'Sort: Z → A',  active: _sortMode === 'za',
+                { label: 'Sort: Z → A',   active: _sortMode === 'za',
                   action: () => _applySort('za') },
                 'sep',
-                { label: 'Newest first', active: _sortMode === 'newest',
+                { label: 'Newest first',  active: _sortMode === 'newest',
                   action: () => _applySort('newest') },
-                { label: 'Oldest first', active: _sortMode === 'oldest',
+                { label: 'Oldest first',  active: _sortMode === 'oldest',
                   action: () => _applySort('oldest') },
             ]);
         });
@@ -331,13 +370,16 @@ const NbMain = (() => {
 
     function _applySort(mode) {
         _sortMode = mode;
-        const sorted = [..._lastNotes];
-        const title  = n => (n.title || n.filename || '').toLowerCase();
-        if (mode === 'az')     sorted.sort((a, b) => title(a).localeCompare(title(b)));
-        if (mode === 'za')     sorted.sort((a, b) => title(b).localeCompare(title(a)));
-        if (mode === 'newest') sorted.sort((a, b) => (b.id || 0) - (a.id || 0));
-        if (mode === 'oldest') sorted.sort((a, b) => (a.id || 0) - (b.id || 0));
-        renderList(sorted, true);
+        renderList(_getSortedNotes(_lastNotes), true);
+        _updateSortBtn();
+    }
+
+    function _togglePin() {
+        _pinned = !_pinned;
+        const indicator = document.getElementById('nb-pin-indicator');
+        const toolbar   = document.getElementById('nb-preview-toolbar');
+        if (indicator) indicator.hidden = !_pinned;
+        if (toolbar)   toolbar.classList.toggle('nb-pinned', _pinned);
     }
 
     function _bindPreviewMenu() {
@@ -346,7 +388,11 @@ const NbMain = (() => {
         btn.addEventListener('click', () => {
             const hasNote = !!_activeSelector;
             _showDropdown(btn, [
-                { label: 'Rename…', disabled: !hasNote, action: _doRename },
+                { label: _pinned ? '📌 Unpin preview' : '📌 Pin preview',
+                  disabled: !hasNote,
+                  action: _togglePin },
+                'sep',
+                { label: 'Rename…',  disabled: !hasNote, action: _doRename },
                 { label: 'Move to…', disabled: !hasNote, action: _doMove },
             ]);
         });
@@ -680,6 +726,7 @@ const NbMain = (() => {
         document.getElementById('nb-save-btn').addEventListener('click', _saveNote);
         document.getElementById('nb-cancel-btn').addEventListener('click', _closeEditor);
         document.getElementById('nb-delete-btn').addEventListener('click', _deleteNote);
+        document.getElementById('nb-pin-indicator')?.addEventListener('click', _togglePin);
 
         // Format toolbar
         document.querySelectorAll('[data-fmt]').forEach(btn => {
@@ -1072,7 +1119,7 @@ const NbMain = (() => {
         loadNotes();
     }
 
-    return { init, loadNotes, resetAndLoad, search, openNote, openToday,
+    return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runGrep, doSync };
 })();
 

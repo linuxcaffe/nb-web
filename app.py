@@ -434,6 +434,12 @@ def api_create_note():
         args = ['todo', 'add', target + (title or 'New todo')]
         if tags:  args += ['--tags', ','.join(tags)]
         r = run_nb(*args)
+    elif ntype == 'folder':
+        folder_name = (title or 'newfolder').strip().strip('/')
+        r = run_nb('add', target + folder_name + '/')
+    elif ntype == 'notebook':
+        nb_name = (title or 'notebook').strip()
+        r = run_nb('notebooks', 'add', nb_name)
     else:
         args = ['add', target]
         if title:   args += ['--title', title]

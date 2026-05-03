@@ -51,6 +51,7 @@ const NbNav = (() => {
         const fullPreview = ['cal', 'daily', 'info', 'weather'].includes(cmd);
         document.getElementById('nb-layout').classList.toggle('nb-full-preview', fullPreview);
 
+        NbMain.resetSort?.();   // new command context — reset list sort
         renderOptsBar();
         _executeCmd();
     }
@@ -130,28 +131,40 @@ const NbNav = (() => {
 
     function _renderAddOpts(bar) {
         const st = _state.add;
-        let urlInput, titleInput, actionWrap;
+        let urlInput, titleInput, actionWrap, scopeWrap;
 
-        // Type chips — also toggle URL field visibility
+        // Type chips — toggle URL/scope visibility and title placeholder
         bar.appendChild(_makeChipRow([
             { val: 'note',     label: '📝 Note'     },
             { val: 'bookmark', label: '🔖 Bookmark' },
-            { val: 'todo',     label: '✔ Todo'      },
+            { val: 'todo',     label: '✔ Task'      },
+            { val: 'folder',   label: '📂 Folder'   },
+            { val: 'notebook', label: '📒 Notebook' },
         ], st.type, val => {
             st.type = val;
-            if (urlInput) urlInput.hidden = val !== 'bookmark';
+            if (urlInput)   urlInput.hidden  = val !== 'bookmark';
+            if (scopeWrap)  scopeWrap.hidden = val === 'notebook';
+            if (titleInput) titleInput.placeholder =
+                val === 'folder'   ? 'Folder name…'   :
+                val === 'notebook' ? 'Notebook name…' : 'Title…';
             _updateOutputBar();
         }));
 
         bar.appendChild(_makeSep());
-        bar.appendChild(_makeScopeSelect(() => _updateOutputBar()));
+
+        // Scope select — hidden when creating a notebook (they're top-level)
+        scopeWrap = _makeScopeSelect(() => _updateOutputBar());
+        scopeWrap.hidden = st.type === 'notebook';
+        bar.appendChild(scopeWrap);
+
         bar.appendChild(_makeSep());
 
         // Title input — grows to fill available space
         titleInput = document.createElement('input');
         titleInput.type        = 'text';
         titleInput.className   = 'nb-opt-input nb-add-title';
-        titleInput.placeholder = 'Title…';
+        titleInput.placeholder = st.type === 'folder'   ? 'Folder name…'   :
+                                 st.type === 'notebook' ? 'Notebook name…' : 'Title…';
         titleInput.value       = st.title;
         titleInput.addEventListener('input', () => { st.title = titleInput.value; _markDirty(); });
         titleInput.addEventListener('keydown', e => {
