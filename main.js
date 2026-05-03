@@ -21,6 +21,7 @@ const NbMain = (() => {
         _bindAppend();
         _bindPreviewActions();
         _bindListMenu();
+        _bindSortBtn();
         _bindPreviewMenu();
         _bindKeyboard();
         initDragHandle();
@@ -80,8 +81,8 @@ const NbMain = (() => {
     }
 
     function _updateSortBtn() {
-        const btn = document.getElementById('nb-list-menu-btn');
-        if (btn) btn.classList.toggle('nb-sort-active', _sortMode !== 'default' || _foldersFirst);
+        const btn = document.getElementById('nb-sort-btn');
+        if (btn) btn.classList.toggle('nb-sort-active', _sortMode !== 'default');
     }
 
     function resetSort() {
@@ -351,19 +352,27 @@ const NbMain = (() => {
         btn.addEventListener('click', () => {
             _showDropdown(btn, [
                 { label: '📂 Folders first', active: _foldersFirst,
-                  action: () => { _foldersFirst = !_foldersFirst; renderList(_getSortedNotes(_lastNotes), true); _updateSortBtn(); } },
+                  action: () => {
+                      _foldersFirst = !_foldersFirst;
+                      renderList(_getSortedNotes(_lastNotes), true);
+                      const hbtn = document.getElementById('nb-list-menu-btn');
+                      if (hbtn) hbtn.classList.toggle('nb-sort-active', _foldersFirst);
+                  }},
+            ]);
+        });
+    }
+
+    function _bindSortBtn() {
+        const btn = document.getElementById('nb-sort-btn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            _showDropdown(btn, [
+                { label: 'Default',      active: _sortMode === 'default', action: () => _applySort('default') },
+                { label: 'A → Z',        active: _sortMode === 'az',      action: () => _applySort('az') },
+                { label: 'Z → A',        active: _sortMode === 'za',      action: () => _applySort('za') },
                 'sep',
-                { label: 'Sort: Default', active: _sortMode === 'default',
-                  action: () => _applySort('default') },
-                { label: 'Sort: A → Z',   active: _sortMode === 'az',
-                  action: () => _applySort('az') },
-                { label: 'Sort: Z → A',   active: _sortMode === 'za',
-                  action: () => _applySort('za') },
-                'sep',
-                { label: 'Newest first',  active: _sortMode === 'newest',
-                  action: () => _applySort('newest') },
-                { label: 'Oldest first',  active: _sortMode === 'oldest',
-                  action: () => _applySort('oldest') },
+                { label: 'Newest first', active: _sortMode === 'newest',  action: () => _applySort('newest') },
+                { label: 'Oldest first', active: _sortMode === 'oldest',  action: () => _applySort('oldest') },
             ]);
         });
     }
@@ -1081,6 +1090,48 @@ const NbMain = (() => {
         }
     }
 
+    // ── Cal results ────────────────────────────────────────────────
+
+    async function runCal({ start, end, notebook }) {
+        const params = new URLSearchParams();
+        if (notebook && notebook !== '_all') params.set('notebook', notebook);
+        if (start) params.set('start', start);
+        if (end)   params.set('end',   end);
+
+        const content = document.getElementById('nb-preview-content');
+        document.getElementById('nb-preview-toolbar').hidden = true;
+
+        try {
+            const r = await fetch('/api/cal?' + params);
+            const d = await r.json();
+            const entries = d.entries || [];
+
+            const notes = entries.map(e => {
+                const isDone  = e.done;
+                const isTodo  = e.title.startsWith('[ ]') || isDone;
+                return {
+                    selector:  e.selector,
+                    title:     e.title.replace(/^\[.\]\s*/, ''),   // strip checkbox prefix
+                    filename:  e.title,
+                    type:      isTodo ? 'todo' : 'note',
+                    id:        e.selector.split(':').pop(),
+                    excerpt:   e.date,
+                    indicator: isDone ? '✔' : isTodo ? '○' : '',
+                };
+            });
+
+            renderList(notes);
+
+            if (!notes.length) {
+                content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">No notes in this date range.</div>';
+            } else {
+                content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Select a result to preview.</div>';
+            }
+        } catch (e) {
+            console.error('runCal:', e);
+        }
+    }
+
     // ── Grep ────────────────────────────────────────────────────────
 
     async function runGrep(opts) {
@@ -1120,7 +1171,7 @@ const NbMain = (() => {
     }
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
-             showAddForm, addNote, runCmd, runGrep, doSync };
+             showAddForm, addNote, runCmd, runCal, runGrep, doSync };
 })();
 
 // ── Settings stub (wired up later) ────────────────────────────────

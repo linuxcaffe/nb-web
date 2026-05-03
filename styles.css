@@ -329,6 +329,91 @@ body {
   margin-top: 1px;
 }
 
+/* ── Cal widget (inside opts bar) ──────────────────────────────── */
+.nb-cal-widget {
+  display: flex;
+  gap: 16px;
+  padding: 6px 4px;
+  align-items: flex-start;
+}
+.nb-cal-left { flex-shrink: 0; }
+.nb-cal-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 3px;
+}
+.nb-cal-month-label {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 80px;
+  text-align: center;
+  color: var(--text);
+}
+.nb-cal-nav-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 3px;
+}
+.nb-cal-nav-btn:hover { color: var(--text); background: var(--accent-dim); }
+
+.nb-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 24px);
+  gap: 1px 2px;
+}
+.nb-cal-day {
+  width: 24px;
+  height: 20px;
+  font-size: 11px;
+  text-align: center;
+  line-height: 20px;
+  border-radius: 3px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.nb-cal-day-hdr {
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: default;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.nb-cal-day:not(.nb-cal-day-hdr):not(.nb-cal-empty):hover { background: var(--bg3); color: var(--text); }
+.nb-cal-empty  { cursor: default; }
+.nb-cal-day.today       { color: var(--accent); font-weight: 700; }
+.nb-cal-day.has-notes   { color: var(--text); }
+.nb-cal-day.selected    { background: var(--accent); color: var(--bg1) !important; border-radius: 3px; }
+.nb-cal-day.range-start { background: var(--accent); color: var(--bg1) !important; }
+.nb-cal-day.range-end   { background: var(--accent); color: var(--bg1) !important; }
+.nb-cal-day.in-range    { background: var(--accent-dim); color: var(--text); }
+
+/* Right action column */
+.nb-cal-right {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 22px;   /* align with first day row */
+  flex-shrink: 0;
+}
+.nb-cal-range-item {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.nb-cal-range-item.nb-cal-range-set { color: var(--accent); }
+
 /* Grep pattern input */
 .nb-opt-input {
   background: var(--bg3);
@@ -457,7 +542,19 @@ body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-#nb-count { font-weight: 600; }
+#nb-count { font-weight: 600; flex: 1; }
+
+/* Sort button — pushed to right edge by flex: 1 on #nb-count */
+.nb-list-sort-btn {
+  font-size: 14px;
+  padding: 1px 5px;
+  line-height: 1;
+  border-radius: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.nb-list-sort-btn:hover       { color: var(--text); background: var(--accent-dim); }
+.nb-list-sort-btn.nb-sort-active { color: var(--accent); }
 
 #nb-list {
   flex: 1;
@@ -814,7 +911,7 @@ body {
 .nb-panel-dropdown-item:disabled { color: var(--text-dim); cursor: default; }
 .nb-panel-dropdown-sep { height: 1px; background: var(--border); margin: 3px 0; }
 
-/* Sort-active indicator on list hamburger */
+/* Folders-first active indicator on list hamburger */
 #nb-list-menu-btn.nb-sort-active { color: var(--accent); }
 
 /* Pin indicator in preview toolbar */

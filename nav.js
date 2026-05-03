@@ -11,7 +11,8 @@ const NbNav = (() => {
         list:    { type: 'all' },
         add:     { type: 'note', title: '', url: '', dirty: false },
         todo:    { status: 'open' },
-        cal:     { month: new Date().getMonth() + 1, year: new Date().getFullYear() },
+        cal:     { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
+                   selected: null, start: null, end: null, noteDays: new Set() },
         daily:   { date: '' },
         g:       { all: false, context: 1, pattern: '' },
         info:    {},
@@ -48,7 +49,7 @@ const NbNav = (() => {
             b.classList.toggle('active', b.dataset.cmd === cmd));
 
         // Full-preview layout (no list pane) for output-only commands
-        const fullPreview = ['cal', 'daily', 'info', 'weather'].includes(cmd);
+        const fullPreview = ['daily', 'info', 'weather'].includes(cmd);
         document.getElementById('nb-layout').classList.toggle('nb-full-preview', fullPreview);
 
         NbMain.resetSort?.();   // new command context — reset list sort
@@ -253,46 +254,185 @@ const NbNav = (() => {
         }));
     }
 
-    function _renderAddOpts(bar) {
-        bar.appendChild(_makeChipRow([
-            { val: 'note',     label: '📝 Note'     },
-            { val: 'bookmark', label: '🔖 Bookmark' },
-            { val: 'todo',     label: '✔ Todo'      },
-        ], _state.add.type, val => {
-            _state.add.type = val;
-            _updateOutputBar();
-            NbMain.showAddForm(val);
-        }));
-    }
-
     function _renderCalOpts(bar) {
         const st = _state.cal;
-        const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const label = document.createElement('span');
-        label.className = 'nb-opt-nav-label';
+        const today = new Date().toISOString().slice(0, 10);
 
-        function update() { label.textContent = `${MON[st.month - 1]} ${st.year}`; }
-        function step(d) {
-            st.month += d;
-            if (st.month < 1)  { st.month = 12; st.year--; }
-            if (st.month > 12) { st.month =  1; st.year++; }
-            update(); _updateOutputBar(); _executeCmd();
+        // ── Widget shell ──────────────────────────────────────────
+        const widget = document.createElement('div');
+        widget.className = 'nb-cal-widget';
+
+        // ── Left: mini calendar ───────────────────────────────────
+        const left = document.createElement('div');
+        left.className = 'nb-cal-left';
+
+        // Month header
+        const header = document.createElement('div');
+        header.className = 'nb-cal-header';
+
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'nb-cal-nav-btn';
+        prevBtn.textContent = '‹';
+
+        const monthLabel = document.createElement('span');
+        monthLabel.className = 'nb-cal-month-label';
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'nb-cal-nav-btn';
+        nextBtn.textContent = '›';
+
+        const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        function _monthStr() {
+            return `${MONTHS[st.displayMonth - 1]} ${st.displayYear}`;
         }
-        update();
+        monthLabel.textContent = _monthStr();
+        header.append(prevBtn, monthLabel, nextBtn);
+        left.appendChild(header);
 
-        const wrap = document.createElement('div');
-        wrap.className = 'nb-opts-nav';
-        wrap.append(
-            _makeNavBtn('◀', () => step(-1)),
-            label,
-            _makeNavBtn('▶', () => step(1)),
-            _makeChip('today', false, () => {
-                const n = new Date();
-                st.month = n.getMonth() + 1; st.year = n.getFullYear();
-                update(); _updateOutputBar(); _executeCmd();
-            })
+        // Calendar grid
+        const grid = document.createElement('div');
+        grid.className = 'nb-cal-grid';
+
+        // Weekday header row
+        ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(d => {
+            const cell = document.createElement('span');
+            cell.className = 'nb-cal-day nb-cal-day-hdr';
+            cell.textContent = d;
+            grid.appendChild(cell);
+        });
+
+        function _renderGrid() {
+            while (grid.children.length > 7) grid.removeChild(grid.lastChild);
+            const y = st.displayYear, m = st.displayMonth;
+            const firstDay = new Date(y, m - 1, 1).getDay();
+            const offset = (firstDay + 6) % 7;   // Mon-first
+            const daysInMonth = new Date(y, m, 0).getDate();
+            const pfx = `${y}-${String(m).padStart(2,'0')}`;
+
+            for (let i = 0; i < offset; i++) {
+                const cell = document.createElement('span');
+                cell.className = 'nb-cal-day nb-cal-empty';
+                grid.appendChild(cell);
+            }
+            for (let d = 1; d <= daysInMonth; d++) {
+                const ds = `${pfx}-${String(d).padStart(2,'0')}`;
+                const cell = document.createElement('button');
+                cell.className = 'nb-cal-day';
+                cell.textContent = d;
+                cell.dataset.date = ds;
+                if (ds === today)         cell.classList.add('today');
+                if (st.noteDays?.has(ds)) cell.classList.add('has-notes');
+                if (ds === st.selected)   cell.classList.add('selected');
+                if (ds === st.start)      cell.classList.add('range-start');
+                if (ds === st.end)        cell.classList.add('range-end');
+                if (st.start && st.end && ds > st.start && ds < st.end)
+                    cell.classList.add('in-range');
+                cell.addEventListener('click', () => _selectDay(ds));
+                grid.appendChild(cell);
+            }
+        }
+        _renderGrid();
+        left.appendChild(grid);
+        widget.appendChild(left);
+
+        // ── Right: action column ──────────────────────────────────
+        const right = document.createElement('div');
+        right.className = 'nb-cal-right';
+
+        const startLabel = document.createElement('div');
+        startLabel.className = 'nb-cal-range-item';
+        const endLabel = document.createElement('div');
+        endLabel.className = 'nb-cal-range-item';
+
+        function _updateLabels() {
+            startLabel.textContent = `▶ ${st.start || '–'}`;
+            endLabel.textContent   = `◀ ${st.end   || '–'}`;
+            startLabel.classList.toggle('nb-cal-range-set', !!st.start);
+            endLabel.classList.toggle('nb-cal-range-set',   !!st.end);
+        }
+        _updateLabels();
+
+        function _makeCalBtn(label, onClick) {
+            const b = document.createElement('button');
+            b.className   = 'nb-opt-chip';
+            b.textContent = label;
+            b.addEventListener('click', onClick);
+            return b;
+        }
+
+        right.append(
+            startLabel,
+            endLabel,
+            _makeCalBtn('Start', () => {
+                if (!st.selected) return;
+                st.start = st.selected; st.end = null;
+                _updateLabels(); _renderGrid(); _updateOutputBar();
+                NbMain.runCal({ start: st.start, notebook: _scope });
+            }),
+            _makeCalBtn('End', () => {
+                if (!st.selected) return;
+                st.end = st.selected;
+                if (st.start && st.end < st.start) [st.start, st.end] = [st.end, st.start];
+                _updateLabels(); _renderGrid(); _updateOutputBar();
+                NbMain.runCal({ start: st.start || st.end, end: st.end, notebook: _scope });
+            }),
+            _makeCalBtn('Clear', () => {
+                st.start = null; st.end = null; st.selected = null;
+                _updateLabels(); _renderGrid(); _updateOutputBar();
+                _runMonth();
+            }),
         );
-        bar.appendChild(wrap);
+        widget.appendChild(right);
+        bar.appendChild(widget);
+
+        // ── Month navigation ──────────────────────────────────────
+        function _stepMonth(delta) {
+            st.displayMonth += delta;
+            if (st.displayMonth < 1)  { st.displayMonth = 12; st.displayYear--; }
+            if (st.displayMonth > 12) { st.displayMonth =  1; st.displayYear++; }
+            monthLabel.textContent = _monthStr();
+            _renderGrid(); _updateOutputBar();
+            _loadNoteDays();
+        }
+        prevBtn.addEventListener('click', () => _stepMonth(-1));
+        nextBtn.addEventListener('click', () => _stepMonth(1));
+
+        // ── Select a day ──────────────────────────────────────────
+        function _selectDay(ds) {
+            st.selected = ds;
+            _renderGrid(); _updateOutputBar();
+            const s = st.start || ds;
+            const e = st.end   || ds;
+            NbMain.runCal({ start: s, end: e, notebook: _scope });
+        }
+
+        // ── Run current display month ─────────────────────────────
+        function _runMonth() {
+            const y = st.displayYear, m = st.displayMonth;
+            const pfx = `${y}-${String(m).padStart(2,'0')}`;
+            const last = new Date(y, m, 0).getDate();
+            NbMain.runCal({ start: `${pfx}-01`, end: `${pfx}-${last}`, notebook: _scope });
+        }
+
+        // ── Load note-days for current month (async highlight) ────
+        async function _loadNoteDays() {
+            const y = st.displayYear, m = st.displayMonth;
+            const pfx  = `${y}-${String(m).padStart(2,'0')}`;
+            const last = new Date(y, m, 0).getDate();
+            try {
+                const params = new URLSearchParams({
+                    start: `${pfx}-01`, end: `${pfx}-${last}`,
+                    notebook: (_scope && _scope !== '_all') ? _scope : 'home',
+                });
+                const r = await fetch('/api/cal?' + params);
+                const d = await r.json();
+                st.noteDays = new Set((d.entries || []).map(e => e.date));
+                _renderGrid();
+            } catch(_e) {}
+        }
+
+        _loadNoteDays();
+        _runMonth();
     }
 
     function _renderDailyOpts(bar) {
@@ -445,9 +585,11 @@ const NbNav = (() => {
                 return st.title ? `add "${st.title}"` : 'add';
             }
             case 'cal': {
-                const n = new Date();
-                if (st.month === n.getMonth() + 1 && st.year === n.getFullYear()) return '';
-                return `cal ${st.year}-${String(st.month).padStart(2, '0')}`;
+                const parts = ['cal'];
+                if (st.start) parts.push(`--start ${st.start}`);
+                if (st.end)   parts.push(`--end ${st.end}`);
+                if (!st.start && !st.end && st.selected) parts.push(`--start ${st.selected} --end ${st.selected}`);
+                return parts.join(' ');
             }
             case 'daily':   return st.date ? `daily ${st.date}` : '';
             case 'g': {
@@ -468,7 +610,8 @@ const NbNav = (() => {
         const defaults = {
             list:  { type: 'all' },
             todo:  { status: 'open' },
-            cal:   { month: new Date().getMonth() + 1, year: new Date().getFullYear() },
+            cal:   { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
+                     selected: null, start: null, end: null, noteDays: new Set() },
             daily: { date: '' },
             g:     { all: false, context: 1, pattern: '' },
         };
@@ -486,7 +629,15 @@ const NbNav = (() => {
             case 'list':    NbMain.loadNotes(_typeArg(st.type));                        break;
             case 'todo':    NbMain.loadNotes('--type todo');                            break;
             case 'add':     /* form lives in opts bar; list/preview untouched */        break;
-            case 'cal':     NbMain.runCmd('cal',   { month: st.month, year: st.year }); break;
+            case 'cal': {
+                const y = st.displayYear, m = st.displayMonth;
+                const pfx = `${y}-${String(m).padStart(2,'0')}`;
+                const last = new Date(y, m, 0).getDate();
+                NbMain.runCal({ start: st.start || `${pfx}-01`,
+                                end:   st.end   || `${pfx}-${last}`,
+                                notebook: _scope });
+                break;
+            }
             case 'daily':   NbMain.runCmd('daily', { date: st.date });                 break;
             case 'g':       NbMain.runGrep(st);                                        break;
             case 'info':    NbMain.runCmd('info');                                     break;

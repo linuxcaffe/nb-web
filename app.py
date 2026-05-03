@@ -539,7 +539,46 @@ def api_sync():
 
 
 # ---------------------------------------------------------------------------
-# API: Run read-only nb command (cal, daily, info, weather, notebooks)
+# API: Cal — return structured dated-note entries for a date range
+# ---------------------------------------------------------------------------
+
+_CAL_LINE = re.compile(r'\[([^\]]+)\]\s+(\d{4}-\d{2}-\d{2})\s+(.*)')
+
+@app.route('/api/cal')
+def api_cal():
+    start    = request.args.get('start', '').strip()
+    end      = request.args.get('end',   '').strip()
+    notebook = request.args.get('notebook', '')
+
+    if not start and not end:
+        return jsonify({'error': 'start or end required'}), 400
+
+    args = ['cal']
+    if notebook and notebook not in ('_all', ''):
+        args.append(f'{notebook}:')
+    if start: args += ['--start', start]
+    if end:   args += ['--end',   end]
+
+    r   = run_nb(*args)
+    raw = strip_ansi(r['stdout'])
+
+    entries = []
+    for line in raw.splitlines():
+        m = _CAL_LINE.match(line.strip())
+        if m:
+            title = m.group(3).strip()
+            entries.append({
+                'selector': m.group(1),
+                'date':     m.group(2),
+                'title':    title,
+                'done':     title.startswith('[x]'),
+            })
+
+    return jsonify({'entries': entries})
+
+
+# ---------------------------------------------------------------------------
+# API: Run read-only nb command (daily, info, weather, notebooks)
 # ---------------------------------------------------------------------------
 
 @app.route('/api/run')
