@@ -16,6 +16,27 @@ NB_DIR  = Path(os.environ.get('NB_DIR', Path.home() / '.nb'))
 HOST    = os.environ.get('NB_WEB_HOST', '127.0.0.1')
 PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
 
+# Startup stamp — visible in menu so you can confirm a restart happened
+from datetime import datetime
+_STARTED_AT = datetime.now().strftime('%m-%d %H:%M')
+try:
+    _GIT_REV = subprocess.run(
+        ['git', 'rev-parse', '--short', 'HEAD'],
+        capture_output=True, text=True,
+        cwd=str(Path(__file__).parent),
+    ).stdout.strip() or '—'
+except Exception:
+    _GIT_REV = '—'
+
+
+@app.after_request
+def _dev_no_cache(response):
+    """Prevent stale JS/CSS during development."""
+    if request.path.endswith(('.js', '.css')):
+        response.headers['Cache-Control'] = 'no-cache, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+    return response
+
 
 # ---------------------------------------------------------------------------
 # nb CLI helpers
@@ -128,6 +149,28 @@ def strip_ansi(s):
 # ---------------------------------------------------------------------------
 # API: Notebooks
 # ---------------------------------------------------------------------------
+
+@app.route('/api/task-info')
+def api_task_info():
+    uuid = request.args.get('uuid', '').strip()
+    if not uuid or not re.match(r'^[a-f0-9]{8,}$', uuid):
+        return jsonify({'output': '', 'success': False}), 400
+    try:
+        result = subprocess.run(
+            ['task', f'uuid.startswith:{uuid}', 'information'],
+            capture_output=True, text=True,
+            env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+        )
+        output = strip_ansi(result.stdout.strip())
+        return jsonify({'output': output, 'success': bool(output)})
+    except FileNotFoundError:
+        return jsonify({'output': '', 'success': False, 'error': 'task not found'})
+
+
+@app.route('/api/version')
+def api_version():
+    return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
+
 
 @app.route('/api/notebooks')
 def api_notebooks():
@@ -539,6 +582,121 @@ def api_sync():
 
 
 # ---------------------------------------------------------------------------
+# API: Grep — ripgrep with context, structured per-file results
+# ---------------------------------------------------------------------------
+
+def _resolve_file_to_note(fpath_str):
+    """Resolve a filesystem path to nb note metadata dict, or None."""
+    fpath = Path(fpath_str)
+    if not fpath.exists():
+        return None
+    for nb_dir in NB_DIR.iterdir():
+        if not nb_dir.is_dir() or nb_dir.name.startswith('.'):
+            continue
+        try:
+            fpath.relative_to(nb_dir)   # raises ValueError if not under nb_dir
+        except ValueError:
+            continue
+        nb_name = nb_dir.name
+        fname   = fpath.name
+        idx     = read_index(nb_name)
+        note_id = (idx.index(fname) + 1) if fname in idx else None
+        try:
+            raw = fpath.read_text(errors='replace')
+        except OSError:
+            return None
+        _, body = parse_frontmatter(raw)
+        itype   = classify(fname)
+        return {
+            'notebook':  nb_name,
+            'id':        note_id,
+            'filename':  fname,
+            'selector':  f"{nb_name}:{fname}",
+            'title':     note_title(fname, body),
+            'type':      itype,
+            'indicator': INDICATORS.get(itype, ''),
+        }
+    return None
+
+
+def _parse_rg_json(stdout, limit=100):
+    """Parse ripgrep --json NDJSON output into per-file result dicts."""
+    results = []
+    current = None
+    for raw_line in stdout.splitlines():
+        try:
+            obj = json.loads(raw_line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        t    = obj.get('type')
+        data = obj.get('data', {})
+        if t == 'begin':
+            path = data.get('path', {}).get('text', '')
+            current = {'path': path, 'lines': []}
+        elif t in ('match', 'context') and current is not None:
+            text = data.get('lines', {}).get('text', '').rstrip('\n')
+            current['lines'].append({'text': text, 'match': t == 'match'})
+        elif t == 'end' and current is not None:
+            if current['lines'] and len(results) < limit:
+                note = _resolve_file_to_note(current['path'])
+                if note:
+                    note['lines'] = current['lines']
+                    results.append(note)
+            current = None
+    return results
+
+
+@app.route('/api/grep')
+def api_grep():
+    query    = request.args.get('q', '').strip()
+    notebook = request.args.get('notebook', 'home')
+    before   = int(request.args.get('B', 0))
+    after    = int(request.args.get('A', 0))
+    case_sen = request.args.get('sensitive', '0') == '1'
+    fixed    = request.args.get('fixed', '0') == '1'
+    word     = request.args.get('word', '0') == '1'
+    limit    = int(request.args.get('limit', 100))
+
+    if not query:
+        return jsonify({'results': []})
+
+    search_dir = str(NB_DIR / notebook) if notebook and notebook != '_all' else str(NB_DIR)
+
+    rg_args = ['rg', '--json',
+               f'-B{before}', f'-A{after}',
+               '--glob=!.git', '--glob=!.index']
+    if not case_sen:
+        rg_args.append('--smart-case')
+    if fixed:
+        rg_args.append('--fixed-strings')
+    if word:
+        rg_args.append('--word-regexp')
+    rg_args += ['--', query, search_dir]
+
+    try:
+        proc    = subprocess.run(rg_args, capture_output=True, text=True)
+        results = _parse_rg_json(proc.stdout, limit)
+    except FileNotFoundError:
+        # rg not available — fall back to plain nb search (no context lines)
+        nb_prefix = '' if notebook == '_all' else notebook
+        args = ([f'{nb_prefix}:search', query, '--list']
+                if nb_prefix else ['search', query, '--list'])
+        r = run_nb(*args)
+        results = []
+        pat = re.compile(r'^\[([^\]]+)\]\s+(.+)$')
+        for line in strip_ansi(r['stdout']).splitlines()[:limit]:
+            m = pat.match(line.strip())
+            if m:
+                raw_sel = m.group(1).strip()
+                title   = re.sub(r'^[\U00010000-\U0010ffff✔️✅📌🔖🔒📂🌄]+\s*', '',
+                                 m.group(2).strip()).strip()
+                results.append({'selector': raw_sel, 'title': title,
+                                'type': 'note', 'indicator': '', 'lines': []})
+
+    return jsonify({'results': results})
+
+
+# ---------------------------------------------------------------------------
 # API: Cal — return structured dated-note entries for a date range
 # ---------------------------------------------------------------------------
 
@@ -588,6 +746,9 @@ def api_run():
     if cmd not in ALLOWED:
         return jsonify({'error': f'command not in allowed list: {cmd}'}), 400
     extra = []
+    selector = request.args.get('selector')
+    if selector and cmd == 'info':
+        extra.append(selector)   # nb info <selector>
     for flag in ('month', 'year'):
         v = request.args.get(flag)
         if v: extra += [f'--{flag}', v]

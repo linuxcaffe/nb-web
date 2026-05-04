@@ -26,6 +26,16 @@ const NbMain = (() => {
         _bindKeyboard();
         initDragHandle();
         loadNotes();
+        _loadVersion();
+    }
+
+    async function _loadVersion() {
+        try {
+            const r = await fetch('/api/version');
+            const d = await r.json();
+            const el = document.getElementById('nb-menu-build');
+            if (el) el.textContent = `${d.started}  ${d.rev}`;
+        } catch(_e) {}
     }
 
     // ── Notes list ─────────────────────────────────────────────────
@@ -155,7 +165,17 @@ const NbMain = (() => {
             }
             body.appendChild(titleRow);
 
-            if (note.excerpt) {
+            if (note.grepLines?.length) {
+                const ctx = document.createElement('div');
+                ctx.className = 'nb-list-grep-ctx';
+                note.grepLines.forEach(gl => {
+                    const div = document.createElement('div');
+                    div.className = 'nb-list-grep-line' + (gl.match ? ' nb-grep-match' : '');
+                    div.textContent = gl.text;
+                    ctx.appendChild(div);
+                });
+                body.appendChild(ctx);
+            } else if (note.excerpt) {
                 const exc = document.createElement('div');
                 exc.className = 'nb-list-excerpt';
                 exc.textContent = note.excerpt;
@@ -179,7 +199,7 @@ const NbMain = (() => {
             const stillPresent = _activeSelector && notes.some(n => n.selector === _activeSelector);
             if (!stillPresent) {
                 const first = notes.find(n => n.type !== 'folder');
-                if (first) requestAnimationFrame(() => openNote(first.selector));
+                if (first) openNote(first.selector);
             }
         }
     }
@@ -226,7 +246,12 @@ const NbMain = (() => {
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
 
         const ref = document.getElementById('nb-preview-ref');
-        if (ref) ref.textContent = note.notebook ? `${note.notebook}:${note.id ?? '?'}` : '';
+        if (ref) {
+            ref.textContent = note.notebook ? `${note.notebook}:${note.id ?? '?'}` : '';
+            ref.title = 'Click for nb info';
+            ref.style.cursor = 'pointer';
+            ref.onclick = e => _showInfoPopover(e, note.selector || `${note.notebook}:${note.id}`);
+        }
 
         // Cancel any active editing
         _editing = false;
@@ -259,10 +284,117 @@ const NbMain = (() => {
             });
         });
 
+        // Markdown links: external ones get target=_blank; nb-selector hrefs open the note
+        content.querySelectorAll('.nb-rendered a[href]').forEach(el => {
+            const href = el.getAttribute('href');
+            if (!href) return;
+            if (/^(https?|mailto|ftp):/.test(href)) {
+                el.setAttribute('target', '_blank');
+                el.setAttribute('rel', 'noopener noreferrer');
+            } else if (/^[a-z][a-z0-9_-]*:[^/]/.test(href)) {
+                // nb selector: notebook:id or notebook:filename
+                el.addEventListener('click', e => { e.preventDefault(); openNote(href); });
+                el.classList.add('nb-nb-link');
+            }
+        });
+
+        // uuid8 refs in content → nb info popover (inline code spans included)
+        _wrapUuids(content);
+        content.querySelectorAll('.nb-uuid-ref').forEach(el =>
+            el.addEventListener('click', e => _showInfoPopover(e, el.dataset.uuid)));
+
         // Todo checkboxes
         content.querySelectorAll('.nb-todo-check').forEach(cb => {
             cb.addEventListener('change', () => _toggleTask(note.selector, cb.dataset.task, cb.checked));
         });
+    }
+
+    // Walk text nodes in `root` and wrap 8-hex-char tokens as clickable uuid refs.
+    // Skips code BLOCKS (pre) and links, but intentionally walks inline <code> spans
+    // because nb uuid8 refs are typically written as `678d16d1` backtick style.
+    function _wrapUuids(root) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                let p = node.parentElement;
+                while (p && p !== root) {
+                    if (['PRE','A','SCRIPT','STYLE'].includes(p.tagName))
+                        return NodeFilter.FILTER_REJECT;
+                    p = p.parentElement;
+                }
+                return /\b[a-f0-9]{8}\b/i.test(node.textContent)
+                    ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+            }
+        });
+        const nodes = [];
+        let n;
+        while ((n = walker.nextNode())) nodes.push(n);
+        nodes.forEach(node => {
+            const parts = node.textContent.split(/\b([a-f0-9]{8})\b/i);
+            if (parts.length < 3) return;
+            const frag = document.createDocumentFragment();
+            parts.forEach((part, i) => {
+                if (i % 2 === 1) {
+                    const span = document.createElement('span');
+                    span.className = 'nb-uuid-ref';
+                    span.dataset.uuid = part;
+                    span.textContent = part;
+                    frag.appendChild(span);
+                } else if (part) {
+                    frag.appendChild(document.createTextNode(part));
+                }
+            });
+            node.parentNode.replaceChild(frag, node);
+        });
+    }
+
+    async function _showInfoPopover(e, uuid) {
+        e.stopPropagation();
+        document.querySelector('.nb-info-popover')?.remove();
+
+        const pop = document.createElement('div');
+        pop.className = 'nb-info-popover';
+        pop.textContent = 'Loading…';
+
+        const rect = e.target.getBoundingClientRect();
+        pop.style.top  = (rect.bottom + 6) + 'px';
+        pop.style.left = rect.left + 'px';
+        document.body.appendChild(pop);
+
+        const pr = pop.getBoundingClientRect();
+        if (pr.right > window.innerWidth - 8)
+            pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
+
+        try {
+            const isNbSelector = /^[a-z][a-z0-9_-]*:/.test(uuid);
+            if (isNbSelector) {
+                // notebook:id click from preview toolbar → nb info
+                const r = await fetch('/api/run?cmd=info&selector=' + encodeURIComponent(uuid));
+                const d = await r.json();
+                pop.textContent = d.output || d.stderr || '(no output)';
+            } else {
+                // bare uuid8 in content → Taskwarrior task info
+                const r = await fetch('/api/task-info?uuid=' + encodeURIComponent(uuid));
+                const d = await r.json();
+                if (d.output) {
+                    pop.textContent = d.output;
+                } else {
+                    // fall back to nb info in case it's an nb UUID
+                    const r2 = await fetch('/api/run?cmd=info&selector=' + encodeURIComponent(uuid));
+                    const d2 = await r2.json();
+                    pop.textContent = d2.output || '(no match found)';
+                }
+            }
+        } catch(err) {
+            pop.textContent = 'Error: ' + err;
+        }
+
+        function dismiss(ev) {
+            if (!pop.contains(ev.target)) {
+                pop.remove();
+                document.removeEventListener('click', dismiss, true);
+            }
+        }
+        setTimeout(() => document.addEventListener('click', dismiss, true), 0);
     }
 
     function _renderMarkdown(body) {
@@ -894,6 +1026,23 @@ const NbMain = (() => {
 
     // ── Search ─────────────────────────────────────────────────────
 
+    // Parse CLI-style grep args: "g -B 2 -A 3 -I pattern"
+    function _parseGrepArgs(raw) {
+        const opts = { before: 0, after: 0, caseSensitive: false,
+                       fixed: false, word: false, all: false, invert: false, pattern: '' };
+        let s = raw;
+        s = s.replace(/-B\s*(\d+)/g,  (_, n) => { opts.before = +n; return ''; });
+        s = s.replace(/-A\s*(\d+)/g,  (_, n) => { opts.after  = +n; return ''; });
+        s = s.replace(/-C\s*(\d+)/g,  (_, n) => { opts.before = opts.after = +n; return ''; });
+        s = s.replace(/--all\b/g,     () => { opts.all           = true; return ''; });
+        s = s.replace(/-I\b/g,        () => { opts.caseSensitive = true; return ''; });
+        s = s.replace(/-F\b/g,        () => { opts.fixed         = true; return ''; });
+        s = s.replace(/-w\b/g,        () => { opts.word          = true; return ''; });
+        s = s.replace(/-v\b/g,        () => { opts.invert        = true; return ''; });
+        opts.pattern = s.trim().replace(/\s{2,}/g, ' ');
+        return opts;
+    }
+
     // Matches nb selectors: notebook:id, notebook:filename, or bare id
     // e.g. tasks:87  home:20260430.md  claude:3
     const _selectorPat = /^([a-z][a-z0-9_-]*):(\d+|[\w.-]+\.(?:md|org|txt|adoc))$/i;
@@ -902,6 +1051,14 @@ const NbMain = (() => {
     function _dispatchQuery(raw) {
         const q = raw.trim();
         if (!q) { loadNotes(); return; }
+
+        // Grep shorthand: "g <args>" in search bar — full flag parsing
+        const gMatch = q.match(/^(?:nb\s+)?g\s+(.+)/i);
+        if (gMatch) {
+            const opts = _parseGrepArgs(gMatch[1]);
+            if (opts.pattern) runGrep(opts);
+            return;
+        }
 
         // Direct selector: notebook:id or notebook:filename.md → open immediately
         if (_selectorPat.test(q)) {
@@ -1146,7 +1303,7 @@ const NbMain = (() => {
             const d = await r.json();
             const entries = d.entries || [];
 
-            const notes = entries.map(e => {
+            let notes = entries.map(e => {
                 const isDone  = e.done;
                 const isTodo  = e.title.startsWith('[ ]') || isDone;
                 return {
@@ -1159,6 +1316,16 @@ const NbMain = (() => {
                     indicator: isDone ? '✔' : isTodo ? '○' : '',
                 };
             });
+
+            // Combine with active search/tag filters
+            const sq = NbNav.searchQuery?.trim().toLowerCase();
+            const tq = NbNav.tagsQuery?.trim().toLowerCase().replace(/^#/, '');
+            if (sq || tq) {
+                notes = notes.filter(n => {
+                    const title = (n.title || '').toLowerCase();
+                    return (!sq || title.includes(sq)) && (!tq || title.includes(tq));
+                });
+            }
 
             renderList(notes);
 
@@ -1181,14 +1348,33 @@ const NbMain = (() => {
         }
         _showPreviewLoading();
         const params = new URLSearchParams({ q: opts.pattern });
-        if (opts.all) params.set('notebook', '_all');
-        else          params.set('notebook', NbNav.notebook);
+        params.set('notebook', opts.all ? '_all' : NbNav.notebook);
+        // Context lines: opts.context (symmetric) or opts.before / opts.after (asymmetric)
+        const B = opts.context > 0 ? opts.context : (opts.before || 0);
+        const A = opts.context > 0 ? opts.context : (opts.after  || 0);
+        if (B > 0) params.set('B', B);
+        if (A > 0) params.set('A', A);
+        if (opts.caseSensitive) params.set('sensitive', '1');
+        if (opts.fixed)         params.set('fixed', '1');
+        if (opts.word)          params.set('word',  '1');
+
         try {
-            const r = await fetch('/api/notes?' + params);
+            const r = await fetch('/api/grep?' + params);
             const d = await r.json();
-            renderList(d.notes || []);
-            document.getElementById('nb-preview-content').innerHTML =
-                '<div style="padding:40px;color:var(--text-muted)">Select a result to preview.</div>';
+            const notes = (d.results || []).map(res => ({
+                selector:  res.selector,
+                title:     res.title,
+                type:      res.type || 'note',
+                id:        res.id,
+                indicator: res.indicator || '',
+                excerpt:   null,
+                grepLines: res.lines || [],
+            }));
+            renderList(notes);
+            const content = document.getElementById('nb-preview-content');
+            content.innerHTML = notes.length
+                ? '<div style="padding:40px;color:var(--text-muted)">Select a result to preview.</div>'
+                : '<div style="padding:40px;color:var(--text-muted)">No matches found.</div>';
             document.getElementById('nb-preview-toolbar').hidden = true;
         } catch (e) {
             console.error('runGrep:', e);

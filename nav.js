@@ -11,13 +11,16 @@ const NbNav = (() => {
         list:    { type: 'all' },
         add:     { type: 'note', title: '', url: '', dirty: false },
         todo:    { status: 'open' },
+        tasks:   { status: 'open' },
         cal:     { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
                    selected: null, start: null, end: null, noteDays: new Set() },
         daily:   { date: '' },
-        g:       { all: false, context: 1, pattern: '' },
+        g:       { all: false, context: 0, before: 0, after: 0, pattern: '' },
         info:    {},
         weather: {},
     };
+
+    let _calKeyHandler = null;   // removed when leaving cal mode
 
     // folder drill state (per-command so drill persists)
     const _folder = {};
@@ -41,22 +44,13 @@ const NbNav = (() => {
         document.querySelectorAll('.nb-cmd').forEach(btn => {
             btn.addEventListener('click', () => activateCmd(btn.dataset.cmd));
         });
-        // Search-bar icon buttons
-        document.getElementById('nb-todo-icon') ?.addEventListener('click', () => {
-            activateCmd(_activeCmd === 'todo' ? 'list' : 'todo');
-        });
-        document.getElementById('nb-tasks-icon')?.addEventListener('click', () => {
-            if (_activeCmd === 'list' && _state.list.type === 'todo') {
-                _state.list.type = 'all';
-                activateCmd('list');
-            } else {
-                _state.list.type = 'todo';
-                activateCmd('list');
-            }
-        });
-        document.getElementById('nb-cal-icon')  ?.addEventListener('click', () => {
-            activateCmd(_activeCmd === 'cal' ? 'list' : 'cal');
-        });
+        // Search-bar icon buttons (toggle: click active icon → back to list)
+        document.getElementById('nb-todo-icon') ?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'todo'  ? 'list' : 'todo'));
+        document.getElementById('nb-tasks-icon')?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'tasks' ? 'list' : 'tasks'));
+        document.getElementById('nb-cal-icon')  ?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'cal'   ? 'list' : 'cal'));
     }
 
     function activateCmd(cmd) {
@@ -67,6 +61,12 @@ const NbNav = (() => {
         // Full-preview layout (no list pane) for output-only commands
         const fullPreview = ['daily', 'info', 'weather'].includes(cmd);
         document.getElementById('nb-layout').classList.toggle('nb-full-preview', fullPreview);
+
+        // Clean up cal Enter handler when leaving cal
+        if (_calKeyHandler) {
+            document.removeEventListener('keydown', _calKeyHandler);
+            _calKeyHandler = null;
+        }
 
         NbMain.resetSort?.();   // new command context — reset list sort
         _updateSearchIcons();
@@ -87,6 +87,7 @@ const NbNav = (() => {
         list:    _renderListOpts,
         add:     _renderAddOpts,
         todo:    _renderTodoOpts,
+        tasks:   _renderTasksOpts,
         cal:     _renderCalOpts,
         daily:   _renderDailyOpts,
         g:       _renderGrepOpts,
@@ -271,9 +272,30 @@ const NbNav = (() => {
         }));
     }
 
+    // Tasks = markdown `- [ ]` items (list-level checkboxes), distinct from nb todo (`# [ ]`)
+    function _renderTasksOpts(bar) {
+        bar.appendChild(_makeScopeSelect(() => _executeCmd()));
+        bar.appendChild(_makeSep());
+        bar.appendChild(_makeChipRow([
+            { val: 'open',   label: 'open'   },
+            { val: 'closed', label: 'closed' },
+        ], _state.tasks.status, val => {
+            _state.tasks.status = val;
+            _updateOutputBar();
+            _executeCmd();
+        }));
+    }
+
     function _renderCalOpts(bar) {
         const st = _state.cal;
         const today = new Date().toISOString().slice(0, 10);
+
+        // Default selected to today on first open; clean up any stale Enter handler
+        if (!st.selected) st.selected = today;
+        if (_calKeyHandler) {
+            document.removeEventListener('keydown', _calKeyHandler);
+            _calKeyHandler = null;
+        }
 
         // ── Widget shell ──────────────────────────────────────────
         const widget = document.createElement('div');
@@ -449,7 +471,17 @@ const NbNav = (() => {
         }
 
         _loadNoteDays();
-        _runMonth();
+        // Show today's notes on open (or re-run the current selection)
+        _selectDay(st.selected || today);
+
+        // Enter key selects the currently highlighted day
+        _calKeyHandler = (e) => {
+            if (e.key !== 'Enter') return;
+            if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+            e.preventDefault();
+            _selectDay(st.selected || today);
+        };
+        document.addEventListener('keydown', _calKeyHandler);
     }
 
     function _renderDailyOpts(bar) {
@@ -508,11 +540,11 @@ const NbNav = (() => {
         const ctxLbl = document.createElement('span');
         ctxLbl.className   = 'nb-step-label';
         ctxLbl.textContent = `-C ${st.context}`;
-        ctxLbl.title       = 'Context lines';
+        ctxLbl.title       = 'Context lines (before + after)';
         const btnM = document.createElement('button'); btnM.className = 'nb-step-btn'; btnM.textContent = '−';
         const btnP = document.createElement('button'); btnP.className = 'nb-step-btn'; btnP.textContent = '+';
-        btnM.addEventListener('click', () => { if (st.context > 0) st.context--; ctxLbl.textContent = `-C ${st.context}`; _updateOutputBar(); });
-        btnP.addEventListener('click', () => { if (st.context < 9) st.context++; ctxLbl.textContent = `-C ${st.context}`; _updateOutputBar(); });
+        btnM.addEventListener('click', () => { if (st.context > 0) { st.context--; st.before = st.after = st.context; } ctxLbl.textContent = `-C ${st.context}`; _updateOutputBar(); });
+        btnP.addEventListener('click', () => { if (st.context < 9) { st.context++; st.before = st.after = st.context; } ctxLbl.textContent = `-C ${st.context}`; _updateOutputBar(); });
         stepWrap.append(btnM, ctxLbl, btnP);
         bar.appendChild(stepWrap);
         bar.appendChild(_makeSep());
@@ -643,6 +675,13 @@ const NbNav = (() => {
                 const sq = _searchTok(); if (sq) tokens.push(sq);
                 break;
             }
+            case 'tasks': {
+                tokens.push({ text: `tasks ${st.status || 'open'}` });
+                const sc = _scopeTok(); if (sc) tokens.push(sc);
+                const tg = _tagsTok();  if (tg) tokens.push(tg);
+                const sq = _searchTok(); if (sq) tokens.push(sq);
+                break;
+            }
             case 'add': {
                 const t = st.type === 'bookmark' ? 'bookmark'      :
                           st.type === 'todo'     ? 'todo add'      :
@@ -676,7 +715,12 @@ const NbNav = (() => {
                     st.all = false; renderOptsBar(); _executeCmd();
                 }});
                 if (st.pattern) tokens.push({ text: `"${st.pattern}"` });
-                if (st.context > 0) tokens.push({ text: `-C ${st.context}` });
+                if (st.before > 0 || st.after > 0) {
+                    if (st.before === st.after) tokens.push({ text: `-C ${st.before}` });
+                    else { tokens.push({ text: `-B ${st.before}` }); tokens.push({ text: `-A ${st.after}` }); }
+                } else if (st.context > 0) {
+                    tokens.push({ text: `-C ${st.context}` });
+                }
                 break;
             }
             case 'info':    tokens.push({ text: 'info' });    break;
@@ -729,10 +773,11 @@ const NbNav = (() => {
         const defaults = {
             list:  { type: 'all' },
             todo:  { status: 'open' },
+            tasks: { status: 'open' },
             cal:   { displayYear: now.getFullYear(), displayMonth: now.getMonth() + 1,
                      selected: null, start: null, end: null, noteDays: new Set() },
             daily: { date: '' },
-            g:     { all: false, context: 1, pattern: '' },
+            g:     { all: false, context: 0, before: 0, after: 0, pattern: '' },
         };
         if (defaults[_activeCmd]) Object.assign(_state[_activeCmd], defaults[_activeCmd]);
         renderOptsBar();
@@ -751,8 +796,7 @@ const NbNav = (() => {
 
     function _updateSearchIcons() {
         document.getElementById('nb-todo-icon') ?.classList.toggle('active', _activeCmd === 'todo');
-        document.getElementById('nb-tasks-icon')?.classList.toggle('active',
-            _activeCmd === 'list' && _state.list.type === 'todo');
+        document.getElementById('nb-tasks-icon')?.classList.toggle('active', _activeCmd === 'tasks');
         document.getElementById('nb-cal-icon')  ?.classList.toggle('active', _activeCmd === 'cal');
     }
 
@@ -767,6 +811,11 @@ const NbNav = (() => {
                 else                   NbMain.loadNotes(_typeArg(st.type));
                 break;
             case 'todo':    NbMain.loadNotes('--type todo');                            break;
+            case 'tasks': {
+                const query = _state.tasks.status === 'open' ? '- [ ]' : '- [x]';
+                NbMain.search(query);
+                break;
+            }
             case 'add':     /* form lives in opts bar; list/preview untouched */        break;
             case 'cal': {
                 const y = st.displayYear, m = st.displayMonth;
@@ -877,9 +926,11 @@ const NbNav = (() => {
             _initMenu();
             document.getElementById('nb-cmd-output-clear').addEventListener('click', _clearOutputBar);
         },
-        get notebook()  { return _scope; },
-        get folder()    { return _folder[_activeCmd] || ''; },
-        get activeCmd() { return _activeCmd; },
+        get notebook()     { return _scope; },
+        get folder()       { return _folder[_activeCmd] || ''; },
+        get activeCmd()    { return _activeCmd; },
+        get searchQuery()  { return _searchQuery; },
+        get tagsQuery()    { return _tagsQuery; },
         activateCmd,
         drillFolder,
         goUpFolder,
