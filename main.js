@@ -145,6 +145,11 @@ const NbMain = (() => {
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
             icon.textContent = note.indicator || '';
+            const _iconTip = { '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Todo',
+                               '🔖': 'Bookmark', '🔒': 'Encrypted', '📂': 'Folder',
+                               '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
+                               '📖': 'Ebook', '📄': 'Document' };
+            if (note.indicator) icon.title = _iconTip[note.indicator] || '';
 
             const body = document.createElement('div');
             body.className = 'nb-list-body';

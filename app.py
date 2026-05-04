@@ -367,6 +367,30 @@ def _list_notes(notebook, folder, limit):
     return jsonify({'notes': pinned + unpinned, 'total': len(items)})
 
 
+def _read_excerpt(nb_name, raw_id_or_sel):
+    """Return first non-heading body line for a note identified by id or selector."""
+    try:
+        raw_id = str(raw_id_or_sel).split(':')[-1]
+        if not raw_id.isdigit():
+            return ''
+        idx    = read_index(nb_name)
+        id_num = int(raw_id)
+        if not (1 <= id_num <= len(idx)):
+            return ''
+        fname  = idx[id_num - 1]
+        if not fname:
+            return ''
+        fpath  = NB_DIR / nb_name / fname
+        _, body = parse_frontmatter(fpath.read_text(errors='replace'))
+        for line in body.splitlines():
+            line = line.strip()
+            if line and not line.startswith('#'):
+                return line[:120]
+    except Exception:
+        pass
+    return ''
+
+
 def _search_notes(notebook, folder, query, limit):
     """Full-text search via nb CLI.
 
@@ -410,7 +434,7 @@ def _search_notes(notebook, folder, query, limit):
             'title':     title or raw_sel,
             'type':      itype,
             'indicator': INDICATORS.get(itype, ''),
-            'excerpt':   '',
+            'excerpt':   _read_excerpt(nb_part, raw_sel),
             'updated':   '',
             'pinned':    False,
         })
