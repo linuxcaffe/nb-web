@@ -1417,6 +1417,14 @@ const NbMain = (() => {
         if (start) params.set('start', start);
         if (end)   params.set('end',   end);
 
+        // Pass the primary query to the server — cal plugin greps note content
+        // within the date range (server-side, not title-only).
+        // If both search and tag are active, send search; tag post-filters client-side.
+        const sq = NbNav.searchQuery?.trim();
+        const tq = NbNav.tagsQuery?.trim();
+        const serverQ = sq || tq || '';
+        if (serverQ) params.set('q', serverQ);
+
         const content = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-toolbar').hidden = true;
 
@@ -1430,7 +1438,7 @@ const NbMain = (() => {
                 const isTodo  = e.title.startsWith('[ ]') || isDone;
                 return {
                     selector:  e.selector,
-                    title:     e.title.replace(/^\[.\]\s*/, ''),   // strip checkbox prefix
+                    title:     e.title.replace(/^\[.\]\s*/, ''),
                     filename:  e.title,
                     type:      isTodo ? 'todo' : 'note',
                     id:        e.selector.split(':').pop(),
@@ -1439,14 +1447,11 @@ const NbMain = (() => {
                 };
             });
 
-            // Combine with active search/tag filters
-            const sq = NbNav.searchQuery?.trim().toLowerCase();
-            const tq = NbNav.tagsQuery?.trim().toLowerCase().replace(/^#/, '');
-            if (sq || tq) {
-                notes = notes.filter(n => {
-                    const title = (n.title || '').toLowerCase();
-                    return (!sq || title.includes(sq)) && (!tq || title.includes(tq));
-                });
+            // If both search AND tag are active, the server only ran one of them —
+            // apply the other as a client-side title filter.
+            if (sq && tq) {
+                const tqLower = tq.toLowerCase().replace(/^#/, '');
+                notes = notes.filter(n => (n.title || '').toLowerCase().includes(tqLower));
             }
 
             renderList(notes);

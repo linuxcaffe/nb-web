@@ -787,37 +787,103 @@ def api_grep():
 # API: Cal — return structured dated-note entries for a date range
 # ---------------------------------------------------------------------------
 
-_CAL_LINE = re.compile(r'\[([^\]]+)\]\s+(\d{4}-\d{2}-\d{2})\s+(.*)')
+_CAL_LINE        = re.compile(r'\[([^\]]+)\]\s+(\d{4}-\d{2}-\d{2})\s+(.*)')
+_CAL_GREP_HEADER = re.compile(r'[─\-]{2,}\s+(\d{4}-\d{2}-\d{2})\s+(\S+)\s+[─\-]{2,}')
+_CAL_GREP_MATCH  = re.compile(r'^\d+:(.*)')
+
+
+def _parse_cal_grep(raw, nb_name):
+    """Parse `nb cal … g <term>` output into entry dicts.
+
+    Output format (one block per matching file):
+        ── YYYY-MM-DD  filename.md ──
+        N:matched line content
+        N:another matched line
+    We emit one entry per file, using the first match line for the title/excerpt.
+    """
+    entries = []
+    seen = set()
+    cur_date = cur_fname = cur_excerpt = None
+
+    def _flush():
+        if not cur_fname or cur_fname in seen:
+            return
+        seen.add(cur_fname)
+        # Resolve filename → numeric selector via .index
+        fpath = NB_DIR / nb_name / cur_fname
+        selector = f"{nb_name}:{cur_fname}"   # fallback
+        if fpath.exists():
+            idx = read_index(nb_name)
+            if cur_fname in idx:
+                selector = f"{nb_name}:{idx.index(cur_fname) + 1}"
+        # Derive title from file content (first heading)
+        title = cur_fname
+        try:
+            _, body = parse_frontmatter(fpath.read_text(errors='replace'))
+            title = note_title(cur_fname, body)
+        except OSError:
+            pass
+        entries.append({
+            'selector': selector,
+            'date':     cur_date,
+            'title':    title,
+            'excerpt':  cur_excerpt or '',
+            'done':     False,
+        })
+
+    for line in raw.splitlines():
+        line = line.strip()
+        hm = _CAL_GREP_HEADER.search(line)
+        if hm:
+            _flush()
+            cur_date, cur_fname, cur_excerpt = hm.group(1), hm.group(2), None
+            continue
+        if cur_fname and cur_excerpt is None:
+            mm = _CAL_GREP_MATCH.match(line)
+            if mm:
+                cur_excerpt = mm.group(1).strip()
+    _flush()
+    return entries
+
 
 @app.route('/api/cal')
 def api_cal():
     start    = request.args.get('start', '').strip()
     end      = request.args.get('end',   '').strip()
     notebook = request.args.get('notebook', '')
+    query    = request.args.get('q', '').strip()
 
     if not start and not end:
         return jsonify({'error': 'start or end required'}), 400
 
+    nb_name = notebook if notebook and notebook not in ('_all', '') else 'home'
+
+    # Build args: dates first, then optional notebook scope, then optional grep
     args = ['cal']
-    if notebook and notebook not in ('_all', ''):
-        args.append(f'{notebook}:')
     if start: args += ['--start', start]
     if end:   args += ['--end',   end]
+    if notebook and notebook not in ('_all', ''):
+        args.append(f'{notebook}:')
 
-    r   = run_nb(*args)
-    raw = strip_ansi(r['stdout'])
-
-    entries = []
-    for line in raw.splitlines():
-        m = _CAL_LINE.match(line.strip())
-        if m:
-            title = m.group(3).strip()
-            entries.append({
-                'selector': m.group(1),
-                'date':     m.group(2),
-                'title':    title,
-                'done':     title.startswith('[x]'),
-            })
+    if query:
+        args += ['g', query]
+        r   = run_nb(*args)
+        raw = strip_ansi(r['stdout'])
+        entries = _parse_cal_grep(raw, nb_name)
+    else:
+        r   = run_nb(*args)
+        raw = strip_ansi(r['stdout'])
+        entries = []
+        for line in raw.splitlines():
+            m = _CAL_LINE.match(line.strip())
+            if m:
+                title = m.group(3).strip()
+                entries.append({
+                    'selector': m.group(1),
+                    'date':     m.group(2),
+                    'title':    title,
+                    'done':     title.startswith('[x]'),
+                })
 
     return jsonify({'entries': entries})
 
