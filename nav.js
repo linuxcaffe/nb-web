@@ -9,7 +9,7 @@ const NbNav = (() => {
     // Per-command state (scope-independent options only)
     const _state = {
         list:    { type: 'all' },
-        add:     { type: 'note', title: '', url: '', dirty: false },
+        add:     { type: 'note', title: '', url: '', template: null, dirty: false },
         todo:    { status: 'open' },
         tasks:   { status: 'open' },
         cal:     { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
@@ -150,7 +150,7 @@ const NbNav = (() => {
 
     function _renderAddOpts(bar) {
         const st = _state.add;
-        let urlInput, titleInput, actionWrap, scopeWrap;
+        let urlInput, titleInput, actionWrap, scopeWrap, tmplWrap, tmplSel;
 
         // Type chips — toggle URL/scope visibility and title placeholder
         bar.appendChild(_makeChipRow([
@@ -166,6 +166,11 @@ const NbNav = (() => {
             if (titleInput) titleInput.placeholder =
                 val === 'folder'   ? 'Folder name…'   :
                 val === 'notebook' ? 'Notebook name…' : 'Title…';
+            // Sync template picker visibility
+            if (tmplWrap) {
+                tmplWrap.hidden = !['note','todo'].includes(val);
+                if (tmplWrap.hidden) { st.template = null; tmplSel.value = ''; }
+            }
             _updateOutputBar();
         }));
 
@@ -175,6 +180,45 @@ const NbNav = (() => {
         scopeWrap = _makeScopeSelect(() => _updateOutputBar());
         scopeWrap.hidden = st.type === 'notebook';
         bar.appendChild(scopeWrap);
+
+        bar.appendChild(_makeSep());
+
+        // Template selector (note/todo types only)
+        tmplWrap = document.createElement('span');
+        tmplWrap.className = 'nb-scope-wrap';
+        const tmplIcon = document.createElement('span');
+        tmplIcon.className = 'nb-scope-icon';
+        tmplIcon.textContent = '📋';
+        tmplSel = document.createElement('select');
+        tmplSel.className = 'nb-scope-select';
+        const noneOpt = document.createElement('option');
+        noneOpt.value = ''; noneOpt.textContent = '— template —';
+        tmplSel.appendChild(noneOpt);
+        tmplWrap.append(tmplIcon, tmplSel);
+        tmplWrap.hidden = !['note','todo'].includes(st.type);
+        bar.appendChild(tmplWrap);
+
+        // Load templates async
+        const nb = _scope === '_all' ? 'home' : _scope;
+        fetch(`/api/templates?notebook=${encodeURIComponent(nb)}`)
+            .then(r => r.json())
+            .then(d => {
+                (d.templates || []).forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.path;
+                    opt.textContent = (t.scope === 'local' ? '📒 ' : '🌐 ') + t.name;
+                    tmplSel.appendChild(opt);
+                });
+                if (st.template) tmplSel.value = st.template;
+            })
+            .catch(() => {});
+
+        tmplSel.addEventListener('change', () => {
+            st.template = tmplSel.value || null;
+            _updateOutputBar();
+            if (st.template) NbMain.showTemplatePreview(st.template);
+            else             NbMain.clearTemplatePreview();
+        });
 
         bar.appendChild(_makeSep());
 
@@ -233,9 +277,11 @@ const NbNav = (() => {
         }
 
         function _doCancel() {
-            st.title = ''; st.url = ''; st.dirty = false;
+            st.title = ''; st.url = ''; st.template = null; st.dirty = false;
             titleInput.value = ''; urlInput.value = '';
+            if (tmplSel) tmplSel.value = '';
             actionWrap.hidden = true;
+            NbMain.clearTemplatePreview();
             _updateOutputBar();
         }
 
@@ -244,10 +290,11 @@ const NbNav = (() => {
             saveBtn.textContent = 'Adding…'; saveBtn.disabled = true;
             try {
                 const ok = await NbMain.addNote({
-                    notebook: _scope === '_all' ? 'home' : _scope,
-                    type:  st.type,
-                    title: st.title,
-                    url:   st.url,
+                    notebook:      _scope === '_all' ? 'home' : _scope,
+                    type:          st.type,
+                    title:         st.title,
+                    url:           st.url,
+                    template_path: st.template || '',
                 });
                 if (ok) _doCancel();
             } finally {
@@ -689,6 +736,12 @@ const NbNav = (() => {
                           st.type === 'notebook' ? 'notebooks add' : 'add';
                 tokens.push({ text: t });
                 if (_scope !== 'home' && st.type !== 'notebook') tokens.push({ text: `${_scope}:` });
+                if (st.template) {
+                    const tname = st.template.split('/').pop().replace(/\.md$/, '');
+                    tokens.push({ text: `--template ${tname}`, clearFn: () => {
+                        st.template = null; renderOptsBar();
+                    }});
+                }
                 if (st.title) tokens.push({ text: `"${st.title}"` });
                 if (st.url)   tokens.push({ text: st.url });
                 break;

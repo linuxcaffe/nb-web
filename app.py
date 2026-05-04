@@ -16,6 +16,8 @@ NB_DIR  = Path(os.environ.get('NB_DIR', Path.home() / '.nb'))
 HOST    = os.environ.get('NB_WEB_HOST', '127.0.0.1')
 PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
 
+GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
+
 # Startup stamp — visible in menu so you can confirm a restart happened
 from datetime import datetime
 _STARTED_AT = datetime.now().strftime('%m-%d %H:%M')
@@ -76,7 +78,8 @@ def read_index(notebook, folder=''):
     path = nb_dir_for(notebook) / folder / '.index'
     if not path.exists():
         return []
-    return [l.strip() for l in path.read_text().splitlines() if l.strip()]
+    # Keep blank lines — nb counts every line (including blanks) as an ID position.
+    return [l.strip() for l in path.read_text().splitlines()]
 
 
 def parse_frontmatter(text):
@@ -150,6 +153,65 @@ def strip_ansi(s):
 # API: Notebooks
 # ---------------------------------------------------------------------------
 
+@app.route('/api/templates')
+def api_templates():
+    notebook = request.args.get('notebook', 'home')
+    local_dir  = NB_DIR / notebook / '.templates'
+    global_dir = GLOBAL_TEMPLATES_DIR
+    seen, templates = set(), []
+    for scope, tdir in [('local', local_dir), ('global', global_dir)]:
+        if not tdir.is_dir():
+            continue
+        for f in sorted(tdir.glob('*.md')):
+            if f.name.startswith('.') or f.stem in seen:
+                continue
+            seen.add(f.stem)
+            try:
+                preview = f.read_text(errors='replace')[:200]
+            except OSError:
+                preview = ''
+            templates.append({
+                'name':    f.stem,
+                'path':    str(f),
+                'scope':   scope,
+                'preview': preview,
+            })
+    return jsonify({'templates': templates})
+
+
+@app.route('/api/templates', methods=['POST'])
+def api_save_template():
+    data     = request.get_json() or {}
+    name     = re.sub(r'\s+', '-', re.sub(r'[^\w\s-]', '', data.get('name', '').strip()).strip())
+    content  = data.get('content', '')
+    scope    = data.get('scope', 'global')
+    notebook = data.get('notebook', 'home')
+    if not name:
+        return jsonify({'error': 'name required'}), 400
+    tdir = (NB_DIR / notebook / '.templates') if scope == 'local' else GLOBAL_TEMPLATES_DIR
+    tdir.mkdir(parents=True, exist_ok=True)
+    tpath = tdir / f"{name}.md"
+    tpath.write_text(content)
+    return jsonify({'success': True, 'path': str(tpath), 'scope': scope, 'name': name})
+
+
+@app.route('/api/template')
+def api_get_template():
+    """Return raw content of a template file for preview."""
+    path = request.args.get('path', '').strip()
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    tpath = Path(path)
+    # Safety: must be inside NB_DIR
+    try:
+        tpath.relative_to(NB_DIR)
+    except ValueError:
+        return jsonify({'error': 'invalid path'}), 403
+    if not tpath.exists():
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'content': tpath.read_text(errors='replace'), 'name': tpath.stem})
+
+
 @app.route('/api/task-info')
 def api_task_info():
     uuid = request.args.get('uuid', '').strip()
@@ -207,6 +269,8 @@ def _list_all_notes(limit):
         nb_name = nb_dir.name
         index = read_index(nb_name)
         for fname in reversed(index):
+            if not fname:
+                continue
             fpath = nb_dir / fname
             if not fpath.exists() or fname.startswith('.') or fpath.is_dir():
                 continue
@@ -247,6 +311,8 @@ def _list_notes(notebook, folder, limit):
     items = []
     for pos, fname in enumerate(reversed(index)):   # newest first
         item_id = total - pos                        # ID: last entry = total
+        if not fname:                                # blank line = gap in index
+            continue
         fpath = folder_path / fname
         if not fpath.exists() or fname.startswith('.'):
             continue
@@ -463,6 +529,8 @@ def api_create_note():
 
     target = f"{notebook}:" + (f"{folder}/" if folder else '')
 
+    template_path = data.get('template_path', '').strip()
+
     if ntype == 'bookmark':
         url = data.get('url', '')
         if not url:
@@ -488,6 +556,15 @@ def api_create_note():
         if title:   args += ['--title', title]
         if content: args += ['--content', content]
         if tags:    args += ['--tags', ','.join(tags)]
+        # Validate template path is inside NB_DIR before passing to shell
+        if template_path:
+            tp = Path(template_path)
+            try:
+                tp.relative_to(NB_DIR)
+                if tp.exists():
+                    args += ['--template', template_path]
+            except ValueError:
+                pass
         r = run_nb(*args)
 
     if not nb_ok(r):

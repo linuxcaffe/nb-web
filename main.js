@@ -545,8 +545,9 @@ const NbMain = (() => {
                   disabled: !hasNote,
                   action: _togglePin },
                 'sep',
-                { label: 'Rename…',  disabled: !hasNote, action: _doRename },
-                { label: 'Move to…', disabled: !hasNote, action: _doMove },
+                { label: 'Rename…',           disabled: !hasNote, action: _doRename },
+                { label: 'Move to…',          disabled: !hasNote, action: _doMove },
+                { label: '📋 Save as template…', disabled: !hasNote, action: _doSaveAsTemplate },
             ]);
         });
     }
@@ -656,6 +657,90 @@ const NbMain = (() => {
                 }
             } catch(e) { goBtn.textContent = 'Move'; goBtn.disabled = false; }
         });
+    }
+
+    async function _doSaveAsTemplate() {
+        if (!_activeSelector) return;
+
+        // Remove any existing template-save bar
+        document.getElementById('nb-tmpl-save-bar')?.remove();
+
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const bar = document.createElement('div');
+        bar.id        = 'nb-tmpl-save-bar';
+        bar.className = 'nb-move-bar';
+
+        const lbl = document.createElement('span');
+        lbl.className   = 'nb-move-label';
+        lbl.textContent = 'Save as template:';
+
+        const nameInput = document.createElement('input');
+        nameInput.type        = 'text';
+        nameInput.className   = 'nb-rename-input';
+        nameInput.placeholder = 'template-name';
+        nameInput.style.width = '12em';
+        // Pre-fill from current title
+        const titleText = document.getElementById('nb-preview-title')?.textContent || '';
+        nameInput.value = titleText.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '');
+
+        const scopeSel = document.createElement('select');
+        scopeSel.className = 'nb-scope-select';
+        scopeSel.style.colorScheme = 'dark';
+        [['local', 'Notebook'], ['global', 'Global']].forEach(([v, t]) => {
+            const opt = document.createElement('option');
+            opt.value = v; opt.textContent = t;
+            scopeSel.appendChild(opt);
+        });
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className   = 'nb-tool-btn nb-btn-primary';
+        saveBtn.textContent = 'Save';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className   = 'nb-tool-btn';
+        cancelBtn.textContent = 'Cancel';
+
+        bar.append(lbl, nameInput, scopeSel, saveBtn, cancelBtn);
+        toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
+        nameInput.select();
+        nameInput.focus();
+
+        cancelBtn.addEventListener('click', () => bar.remove());
+
+        async function commit() {
+            const name = nameInput.value.trim();
+            if (!name) { nameInput.focus(); return; }
+            saveBtn.textContent = 'Saving…'; saveBtn.disabled = true;
+            try {
+                // Fetch raw note content
+                const noteResp = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector));
+                const noteData = await noteResp.json();
+                const content  = noteData.raw ?? noteData.body ?? '';
+
+                const nb = _activeSelector.includes(':') ? _activeSelector.split(':')[0] : 'home';
+                const resp = await fetch('/api/templates', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name, content, scope: scopeSel.value, notebook: nb }),
+                });
+                const rd = await resp.json();
+                if (rd.success) {
+                    bar.remove();
+                    // Brief flash in title area
+                    const ref = document.getElementById('nb-preview-ref');
+                    if (ref) { const orig = ref.textContent; ref.textContent = '✓ saved'; setTimeout(() => ref.textContent = orig, 2000); }
+                } else {
+                    alert('Save failed: ' + (rd.error || 'unknown'));
+                    saveBtn.textContent = 'Save'; saveBtn.disabled = false;
+                }
+            } catch(e) { alert('Save error: ' + e); saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
+        }
+
+        nameInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+            if (e.key === 'Escape') bar.remove();
+        });
+        saveBtn.addEventListener('click', commit);
     }
 
     // ── Keyboard navigation ────────────────────────────────────────
@@ -1269,13 +1354,14 @@ const NbMain = (() => {
 
     // ── Add note (called from opts bar form) ───────────────────────
 
-    async function addNote({ notebook, type, title, url }) {
+    async function addNote({ notebook, type, title, url, template_path }) {
         try {
             const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({ notebook, type, title, url,
-                                       tags: [], content: '', comment: '' }),
+                                       tags: [], content: '', comment: '',
+                                       template_path: template_path || '' }),
             });
             const d = await r.json();
             if (d.success) { loadNotes(); return true; }
@@ -1285,6 +1371,31 @@ const NbMain = (() => {
             alert('Add failed: ' + String(e));
             return false;
         }
+    }
+
+    async function showTemplatePreview(path) {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading template…</div>';
+        try {
+            const r = await fetch('/api/template?path=' + encodeURIComponent(path));
+            const d = await r.json();
+            const html = _renderMarkdown(d.content || '');
+            content.innerHTML = `
+                <div style="padding:12px 32px 4px;font-size:11px;color:var(--text-dim);
+                            font-family:var(--font-mono);border-bottom:1px solid var(--border)">
+                    📋 template: ${_esc(d.name || '')}
+                </div>
+                <div class="nb-rendered" style="padding:24px 32px;opacity:0.7">${html}</div>`;
+        } catch(e) {
+            content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
+        }
+    }
+
+    function clearTemplatePreview() {
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
+        document.getElementById('nb-preview-toolbar').hidden = true;
     }
 
     // ── Cal results ────────────────────────────────────────────────
