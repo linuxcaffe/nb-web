@@ -1136,7 +1136,14 @@ const NbMain = (() => {
 
     function _dispatchQuery(raw) {
         const q = raw.trim();
-        if (!q) { loadNotes(); return; }
+        if (!q) {
+            if (NbNav.activeCmd === 'cal') { NbNav.reexecute(); return; }
+            loadNotes();
+            return;
+        }
+
+        // Cal is active — re-run it with the updated search query as a post-filter
+        if (NbNav.activeCmd === 'cal') { NbNav.reexecute(); return; }
 
         // Grep shorthand: "g <args>" in search bar — full flag parsing
         const gMatch = q.match(/^(?:nb\s+)?g\s+(.+)/i);
@@ -1172,8 +1179,9 @@ const NbMain = (() => {
             const q   = raw ? (raw.startsWith('#') ? raw : `#${raw}`) : '';
             NbNav.setTagsQuery(q);
             _tagsTimer = setTimeout(() => {
-                if (q) search(q);
-                else   loadNotes();
+                if (NbNav.activeCmd === 'cal') NbNav.reexecute();
+                else if (q) search(q);
+                else        loadNotes();
             }, 400);
         });
 
@@ -1181,7 +1189,8 @@ const NbMain = (() => {
             input.value = '';
             clear.hidden = true;
             NbNav.setTagsQuery('');
-            loadNotes();
+            if (NbNav.activeCmd === 'cal') NbNav.reexecute();
+            else loadNotes();
         });
     }
 
@@ -1207,7 +1216,8 @@ const NbMain = (() => {
             input.value = '';
             clear.hidden = true;
             NbNav.setSearchQuery('');
-            loadNotes();
+            if (NbNav.activeCmd === 'cal') NbNav.reexecute();
+            else loadNotes();
         });
     }
 

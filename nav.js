@@ -756,6 +756,8 @@ const NbNav = (() => {
                     st.end = null; renderOptsBar(); _executeCmd();
                 }});
                 if (!st.start && !st.end && st.selected) tokens.push({ text: st.selected });
+                const tg = _tagsTok();  if (tg) tokens.push(tg);
+                const sq = _searchTok(); if (sq) tokens.push(sq);
                 break;
             }
             case 'daily':
@@ -984,6 +986,7 @@ const NbNav = (() => {
         get activeCmd()    { return _activeCmd; },
         get searchQuery()  { return _searchQuery; },
         get tagsQuery()    { return _tagsQuery; },
+        reexecute: () => _executeCmd(),
         activateCmd,
         drillFolder,
         goUpFolder,
