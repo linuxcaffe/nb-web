@@ -283,6 +283,10 @@ def _list_all_notes(limit):
             title = meta.get('title') or note_title(fname, body)
             excerpt = next((l.strip()[:120] for l in body.splitlines()
                             if l.strip() and not l.startswith('#')), '')
+            todo_status = None
+            if itype == 'todo':
+                first = next((l.strip() for l in body.splitlines() if l.strip()), '')
+                todo_status = 'closed' if first.startswith('# [x]') else 'open'
             all_items.append({
                 'type':      itype,
                 'indicator': INDICATORS.get(itype, ''),
@@ -293,6 +297,7 @@ def _list_all_notes(limit):
                 'notebook':  nb_name,
                 'updated':   '',
                 'pinned':    False,
+                'status':    todo_status,
             })
     # Sort by filesystem mtime descending, cap at limit
     all_items.sort(key=lambda i: (NB_DIR / i['notebook'] / i['filename']).stat().st_mtime
@@ -337,6 +342,10 @@ def _list_notes(notebook, folder, limit):
             if line and not line.startswith('#'):
                 excerpt = line[:120]
                 break
+        todo_status = None
+        if itype == 'todo':
+            first = next((l.strip() for l in body.splitlines() if l.strip()), '')
+            todo_status = 'closed' if first.startswith('# [x]') else 'open'
         sel_path = (folder + '/' if folder else '') + fname
         items.append({
             'type':      itype,
@@ -348,6 +357,7 @@ def _list_notes(notebook, folder, limit):
             'excerpt':   excerpt,
             'updated':   '',
             'pinned':    meta.get('pinned', '') == 'true',
+            'status':    todo_status,
         })
         if len(items) >= limit:
             break
@@ -851,7 +861,47 @@ def api_rename():
     name     = data.get('name', '').strip()
     if not selector or not name:
         return jsonify({'error': 'selector and name required'}), 400
-    r = run_nb('rename', selector, name, '--force')
+
+    # Read current content so we can update the title-bearing element in place.
+    # nb rename only changes the filename; if the title comes from an H1 or
+    # frontmatter, the displayed title would not change after a plain rename.
+    path_r = run_nb('show', selector, '--path')
+    if not nb_ok(path_r):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        raw = Path(path_r['stdout'].strip()).read_text(errors='replace')
+    except OSError:
+        return jsonify({'error': 'could not read file'}), 404
+
+    meta, body = parse_frontmatter(raw)
+
+    if meta.get('title'):
+        new_raw = re.sub(r'^(title:\s*).*$', lambda m: m.group(1) + name,
+                         raw, count=1, flags=re.MULTILINE)
+        r = run_nb('edit', selector, '--content', new_raw, '--overwrite')
+    else:
+        lines = body.splitlines(keepends=True)
+        updated = False
+        for i, line in enumerate(lines):
+            s = line.strip()
+            if s.startswith('# [ ] ') or s.startswith('# [x] '):
+                lines[i] = s[:6] + name + '\n'   # keep '# [ ] ' / '# [x] ' prefix
+                updated = True
+                break
+            if s.startswith('# '):
+                lines[i] = '# ' + name + '\n'
+                updated = True
+                break
+        if updated:
+            fm_part = ''
+            if raw.startswith('---'):
+                fm_end = raw.find('\n---', 3)
+                fm_part = raw[:fm_end + 4] + '\n'
+            r = run_nb('edit', selector, '--content', fm_part + ''.join(lines), '--overwrite')
+        else:
+            # Title is filename-derived — rename the file
+            r = run_nb('rename', selector, name, '--force')
+
     return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
 
 

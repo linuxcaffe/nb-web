@@ -863,7 +863,7 @@ const NbNav = (() => {
                 else if (_searchQuery) NbMain.search(_searchQuery, _typeArg(st.type));
                 else                   NbMain.loadNotes(_typeArg(st.type));
                 break;
-            case 'todo':    NbMain.loadNotes('--type todo');                            break;
+            case 'todo':    NbMain.loadNotes('--type todo', _state.todo.status);        break;
             case 'tasks': {
                 const query = _state.tasks.status === 'open' ? '- [ ]' : '- [x]';
                 NbMain.search(query);
