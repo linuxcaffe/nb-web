@@ -17,6 +17,7 @@ HOST    = os.environ.get('NB_WEB_HOST', '127.0.0.1')
 PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
 
 GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
+CMDS_FILE            = Path(__file__).parent / 'cmds.txt'
 
 _RE_HEADING = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
 
@@ -922,10 +923,33 @@ def api_cal():
 # API: Run read-only nb command (daily, info, weather, notebooks)
 # ---------------------------------------------------------------------------
 
+@app.route('/api/cmds')
+def api_cmds():
+    items = []
+    try:
+        for line in CMDS_FILE.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line == '---':
+                items.append({'type': 'divider'})
+            elif line.startswith('#'):
+                label = line[1:].strip()
+                if label:
+                    items.append({'type': 'section', 'label': label})
+            elif '|' in line:
+                cmd, _, label = line.partition('|')
+                items.append({'type': 'item', 'cmd': cmd.strip(), 'label': label.strip()})
+    except OSError:
+        pass
+    return jsonify({'items': items})
+
+
 @app.route('/api/run')
 def api_run():
     cmd = request.args.get('cmd', '').strip()
-    ALLOWED = {'info', 'weather', 'cal', 'daily', 'notebooks', 'version'}
+    ALLOWED = {'info', 'weather', 'cal', 'daily', 'notebooks', 'version',
+               'status', 'plugins', 'import', 'export'}
     if cmd not in ALLOWED:
         return jsonify({'error': f'command not in allowed list: {cmd}'}), 400
     extra = []

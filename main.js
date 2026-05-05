@@ -1764,8 +1764,27 @@ const NbMain = (() => {
         loadNotes();
     }
 
+    function showAbout() {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        const build = document.getElementById('nb-menu-build')?.textContent || '–';
+        document.getElementById('nb-preview-content').innerHTML = `
+            <div style="padding:48px 40px;max-width:480px">
+                <h2 style="margin:0 0 .3em">nb-web</h2>
+                <p style="color:var(--text-muted);margin:0 0 1.5em">
+                    A lightweight PWA web interface for
+                    <a href="https://github.com/xwmx/nb" style="color:var(--accent)">nb</a>.
+                </p>
+                <hr style="border:none;border-top:1px solid var(--border);margin:0 0 1.2em">
+                <p style="font-size:13px;color:var(--text-muted)">Build: <code>${_esc(build)}</code></p>
+                <p style="font-size:13px;color:var(--text-muted)">
+                    Edit <code>cmds.txt</code> to customise the sidebar menu.
+                </p>
+            </div>`;
+    }
+
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
-             showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd, doSync };
+             showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
+             doSync, showAbout };
 })();
 
 // ── Settings stub (wired up later) ────────────────────────────────

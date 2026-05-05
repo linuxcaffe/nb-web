@@ -872,11 +872,12 @@ const NbNav = (() => {
 
     // ── Side menu ─────────────────────────────────────────────────
 
-    function _initMenu() {
+    async function _initMenu() {
         const logo    = document.getElementById('nb-logo-btn');
         const overlay = document.getElementById('nb-menu-overlay');
         const menu    = document.getElementById('nb-side-menu');
         const header  = document.getElementById('nb-menu-header');
+        const nav     = document.getElementById('nb-menu-nav');
 
         function open() { menu.classList.add('open'); overlay.removeAttribute('hidden'); }
         function shut() { menu.classList.remove('open'); overlay.setAttribute('hidden', ''); }
@@ -885,18 +886,50 @@ const NbNav = (() => {
         overlay.addEventListener('click', shut);
         header.addEventListener('click', shut);
 
-        // Close on Escape
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape' && menu.classList.contains('open')) shut();
         });
 
-        // Menu items — close drawer then act
-        document.getElementById('nb-menu-settings').addEventListener('click', () => { shut(); NbSettings.open(); });
-        const syncEl = document.getElementById('nb-menu-sync');
-        if (syncEl) syncEl.addEventListener('click', () => { shut(); NbMain.doSync(); });
-        // Remaining items close the menu; their real action can be wired later
-        ['nb-menu-status','nb-menu-import','nb-menu-export','nb-menu-plugins','nb-menu-about']
-            .forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('click', shut); });
+        // Commands that activate a UI view rather than running nb
+        const _UI_CMDS = new Set([
+            'list','add','todo','tasks','cal','templates','g','daily','weather','info'
+        ]);
+
+        function _menuAction(cmd) {
+            shut();
+            if (_UI_CMDS.has(cmd))   activateCmd(cmd);
+            else if (cmd === 'sync') NbMain.doSync();
+            else if (cmd === 'settings') NbSettings.open();
+            else if (cmd === 'about')    NbMain.showAbout();
+            else                         NbMain.runCmd(cmd);
+        }
+
+        // Build menu from cmds.txt via /api/cmds
+        try {
+            const r = await fetch('/api/cmds');
+            const d = await r.json();
+            nav.innerHTML = '';
+            (d.items || []).forEach(item => {
+                if (item.type === 'divider') {
+                    const el = document.createElement('div');
+                    el.className = 'nb-menu-divider';
+                    nav.appendChild(el);
+                } else if (item.type === 'section') {
+                    const el = document.createElement('div');
+                    el.className = 'nb-menu-section-label';
+                    el.textContent = item.label;
+                    nav.appendChild(el);
+                } else if (item.type === 'item') {
+                    const btn = document.createElement('button');
+                    btn.className = 'nb-menu-item';
+                    btn.textContent = item.label;
+                    btn.addEventListener('click', () => _menuAction(item.cmd));
+                    nav.appendChild(btn);
+                }
+            });
+        } catch(e) {
+            console.error('_initMenu: cmds load failed:', e);
+        }
     }
 
     // ── Folder navigation ─────────────────────────────────────────

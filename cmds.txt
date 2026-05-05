@@ -1,0 +1,25 @@
+# Navigate
+list      | 📝  Notes
+add       | ➕  Add
+todo      | ☑   Todos
+cal       | 📅  Calendar
+templates | 📋  Templates
+---
+# Plugins
+daily     | 📓  Daily
+g         | 🔍  Grep
+weather   | 🌤  Weather
+info      | ℹ   Info
+---
+# Notebook
+sync      | ⟳   Sync
+status    | 📊  Status
+---
+# Data
+import    | ↓   Import
+export    | ↑   Export
+---
+# App
+plugins   | 🔌  Plugins
+settings  | ⚙   Settings
+about     | 🛈   About
