@@ -5,6 +5,9 @@ import json
 import os
 import re
 import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -54,7 +57,7 @@ def run_nb(*args, input_text=None, readonly=False):
     result = subprocess.run(
         cmd,
         capture_output=True, text=True,
-        input=input_text,
+        input=input_text if input_text is not None else '',
         env={**os.environ, 'NO_COLOR': '1'},
     )
     return {
@@ -595,8 +598,12 @@ def api_create_note():
     else:
         args = ['add', target]
         if title:   args += ['--title', title]
-        if content: args += ['--content', content]
+        args += ['--content', content or '\n']
         if tags:    args += ['--tags', ','.join(tags)]
+        # Datestamp-prefixed filename keeps the clean title while making notes cal-visible
+        slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
+        dated_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
+        args += ['--filename', dated_filename]
         # Validate template path is inside NB_DIR before passing to shell
         if template_path:
             tp = Path(template_path)
@@ -607,6 +614,10 @@ def api_create_note():
             except ValueError:
                 pass
         r = run_nb(*args)
+        if nb_ok(r):
+            m = re.search(r'\[([^\]]+)\]', r['stdout'])
+            return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
+                            'selector': m.group(1) if m else None})
 
     if not nb_ok(r):
         return jsonify({'success': False, 'error': r['stderr']}), 400
@@ -1049,6 +1060,24 @@ def api_config():
         if nb_ok(r):
             settings[key] = r['stdout']
     return jsonify({'settings': settings})
+
+
+# ---------------------------------------------------------------------------
+# Dev: restart server
+# ---------------------------------------------------------------------------
+
+@app.route('/api/restart', methods=['POST'])
+def api_restart():
+    def _do_restart():
+        time.sleep(0.3)
+        # Close all non-standard fds (including the bound socket) so the
+        # exec'd process can bind port 5001 fresh.
+        for fd in range(3, 256):
+            try: os.close(fd)
+            except OSError: pass
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------------

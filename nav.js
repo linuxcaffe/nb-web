@@ -247,16 +247,27 @@ const NbNav = (() => {
 
         async function _doSubmit() {
             if (!st.title && !st.url) return;
+            if (saveBtn.disabled) return;
             saveBtn.textContent = 'Adding…'; saveBtn.disabled = true;
             try {
-                const ok = await NbMain.addNote({
+                const result = await NbMain.addNote({
                     notebook:      _scope === '_all' ? 'home' : _scope,
                     type:          st.type,
                     title:         st.title,
                     url:           st.url,
                     template_path: st.template || '',
                 });
-                if (ok) _doCancel();
+                if (result) {
+                    if (st.type === 'note' && result.selector) {
+                        // Reset add state, then drop straight into editor for the new note
+                        st.title = ''; st.url = ''; st.template = null; st.dirty = false;
+                        activateCmd('list');
+                        await NbMain.openNote(result.selector);
+                        NbMain.openEditor();
+                    } else {
+                        _doCancel();
+                    }
+                }
             } finally {
                 saveBtn.textContent = 'Add'; saveBtn.disabled = false;
             }
@@ -897,11 +908,24 @@ const NbNav = (() => {
 
         function _menuAction(cmd) {
             shut();
-            if (_UI_CMDS.has(cmd))   activateCmd(cmd);
-            else if (cmd === 'sync') NbMain.doSync();
+            if (_UI_CMDS.has(cmd))       activateCmd(cmd);
+            else if (cmd === 'sync')     NbMain.doSync();
             else if (cmd === 'settings') NbSettings.open();
             else if (cmd === 'about')    NbMain.showAbout();
+            else if (cmd === 'restart')  _restartServer();
             else                         NbMain.runCmd(cmd);
+        }
+
+        async function _restartServer() {
+            const bar = document.getElementById('nb-cmd-output-bar');
+            const tokens = document.getElementById('nb-cmd-output-tokens');
+            bar.hidden = false;
+            tokens.textContent = 'Restarting…';
+            await fetch('/api/restart', { method: 'POST' }).catch(() => {});
+            const poll = () => fetch('/api/notebooks')
+                .then(() => location.reload())
+                .catch(() => setTimeout(poll, 400));
+            setTimeout(poll, 600);
         }
 
         // Build menu from cmds.txt via /api/cmds

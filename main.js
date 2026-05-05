@@ -1416,12 +1416,12 @@ const NbMain = (() => {
                                        template_path: template_path || '' }),
             });
             const d = await r.json();
-            if (d.success) { loadNotes(); return true; }
+            if (d.success) { loadNotes(); return d; }
             alert('Add failed: ' + (d.error || 'unknown'));
-            return false;
+            return null;
         } catch(e) {
             alert('Add failed: ' + String(e));
-            return false;
+            return null;
         }
     }
 
@@ -1784,7 +1784,7 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
-             doSync, showAbout };
+             doSync, showAbout, openEditor: _openEditor };
 })();
 
 // ── Settings stub (wired up later) ────────────────────────────────
