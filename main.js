@@ -1389,29 +1389,229 @@ const NbMain = (() => {
         }
     }
 
-    async function showTemplatePreview(path) {
-        document.getElementById('nb-preview-toolbar').hidden = true;
+    // ── Templates view ─────────────────────────────────────────────
+
+    // Preview-only: shows template content without a create form (used by Add mode)
+    async function _previewTemplate(path, name, scope) {
         const content = document.getElementById('nb-preview-content');
-        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading template…</div>';
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
         try {
             const r = await fetch('/api/template?path=' + encodeURIComponent(path));
             const d = await r.json();
             const html = _renderMarkdown(d.content || '');
+            const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
             content.innerHTML = `
-                <div style="padding:12px 32px 4px;font-size:11px;color:var(--text-dim);
-                            font-family:var(--font-mono);border-bottom:1px solid var(--border)">
-                    📋 template: ${_esc(d.name || '')}
+                <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                            font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                            display:flex;align-items:center;gap:12px">
+                    <span>📋 <strong>${_esc(name)}</strong></span>
+                    <span style="opacity:0.6">${scopeLabel}</span>
                 </div>
-                <div class="nb-rendered" style="padding:24px 32px;opacity:0.7">${html}</div>`;
+                <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${html}</div>`;
         } catch(e) {
             content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
         }
     }
 
-    function clearTemplatePreview() {
-        document.getElementById('nb-preview-content').innerHTML =
-            '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
+    // Populate list pane with available templates when in Add mode
+    async function loadTemplatesForAdd() {
+        const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const list    = document.getElementById('nb-list');
+        const empty   = document.getElementById('nb-list-empty');
+        const countEl = document.getElementById('nb-count');
+
+        list.innerHTML = '';
+        empty.hidden = true;
+        document.getElementById('nb-type-breakdown').textContent = '';
         document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div id="nb-welcome"><h2>Add note</h2><p>Choose a template below, or select (blank).</p></div>';
+
+        try {
+            const r = await fetch(`/api/templates?notebook=${encodeURIComponent(nb)}`);
+            const d = await r.json();
+            const templates = d.templates || [];
+            const curTemplate = NbNav.addTemplate;
+
+            countEl.textContent = templates.length
+                ? `${templates.length} template${templates.length !== 1 ? 's' : ''}`
+                : 'no templates';
+
+            function makeTmplItem(iconText, titleText, excerptText, isActive, onSelect) {
+                const li = document.createElement('li');
+                li.className = 'nb-list-item' + (isActive ? ' active' : '');
+                li.setAttribute('role', 'option');
+                const icon = document.createElement('span');
+                icon.className = 'nb-list-icon';
+                icon.textContent = iconText;
+                const title = document.createElement('span');
+                title.className = 'nb-list-title';
+                title.textContent = titleText;
+                li.append(icon, title);
+                if (excerptText) {
+                    const ex = document.createElement('span');
+                    ex.className = 'nb-list-excerpt';
+                    ex.textContent = excerptText;
+                    li.appendChild(ex);
+                }
+                li.addEventListener('click', () => {
+                    list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                    li.classList.add('active');
+                    onSelect();
+                });
+                return li;
+            }
+
+            // Blank note — always first
+            list.appendChild(makeTmplItem('📝', '(blank note)', '', !curTemplate, () => {
+                NbNav.setAddTemplate(null);
+                document.getElementById('nb-preview-toolbar').hidden = true;
+                document.getElementById('nb-preview-content').innerHTML =
+                    '<div id="nb-welcome"><h2>Add note</h2><p>Choose a template below, or select (blank).</p></div>';
+            }));
+
+            templates.forEach(t => {
+                const scopeLabel = t.scope === 'local' ? nb : 'global';
+                const item = makeTmplItem(
+                    t.scope === 'local' ? '📒' : '🌐',
+                    t.name,
+                    scopeLabel,
+                    t.path === curTemplate,
+                    () => {
+                        NbNav.setAddTemplate(t.path);
+                        _previewTemplate(t.path, t.name, t.scope);
+                    }
+                );
+                item.dataset.templatePath = t.path;
+                list.appendChild(item);
+            });
+
+            // Re-show preview if a template was already selected (e.g. after scope change)
+            if (curTemplate) {
+                const found = templates.find(t => t.path === curTemplate);
+                if (found) _previewTemplate(found.path, found.name, found.scope);
+            }
+        } catch(e) {
+            countEl.textContent = 'error';
+            console.error('loadTemplatesForAdd:', e);
+        }
+    }
+
+    async function runTemplates() {
+        const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const list   = document.getElementById('nb-list');
+        const empty  = document.getElementById('nb-list-empty');
+        const countEl = document.getElementById('nb-count');
+
+        list.innerHTML = '';
+        countEl.textContent = '…';
+        document.getElementById('nb-type-breakdown').textContent = '';
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div id="nb-welcome"><h2>Templates</h2><p>Click a template to preview it.</p></div>';
+
+        try {
+            const r = await fetch(`/api/templates?notebook=${encodeURIComponent(nb)}`);
+            const d = await r.json();
+            const templates = d.templates || [];
+
+            countEl.textContent = `${templates.length} template${templates.length !== 1 ? 's' : ''}`;
+
+            if (!templates.length) {
+                empty.hidden = false;
+                empty.textContent = 'No templates found.';
+                return;
+            }
+            empty.hidden = true;
+
+            templates.forEach(t => {
+                const li = document.createElement('li');
+                li.className = 'nb-list-item';
+                li.setAttribute('role', 'option');
+
+                const icon = document.createElement('span');
+                icon.className = 'nb-list-icon';
+                icon.textContent = t.scope === 'local' ? '📒' : '🌐';
+                icon.title = t.scope === 'local' ? 'Notebook template' : 'Global template';
+
+                const title = document.createElement('span');
+                title.className = 'nb-list-title';
+                title.textContent = t.name;
+
+                const excerpt = document.createElement('span');
+                excerpt.className = 'nb-list-excerpt';
+                excerpt.textContent = t.scope === 'local' ? `${nb}: template` : 'global';
+
+                li.append(icon, title, excerpt);
+                li.addEventListener('click', () => {
+                    list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                    li.classList.add('active');
+                    _openTemplate(t.path, t.name, t.scope);
+                });
+                list.appendChild(li);
+            });
+        } catch(e) {
+            countEl.textContent = 'error';
+            console.error('runTemplates:', e);
+        }
+    }
+
+    async function _openTemplate(path, name, scope) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+        document.getElementById('nb-preview-toolbar').hidden = true;
+
+        try {
+            const r = await fetch('/api/template?path=' + encodeURIComponent(path));
+            const d = await r.json();
+            const html = _renderMarkdown(d.content || '');
+            const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
+            content.innerHTML = `
+                <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                            font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                            display:flex;align-items:center;gap:12px">
+                    <span>📋 <strong>${_esc(name)}</strong></span>
+                    <span style="opacity:0.6">${scopeLabel}</span>
+                </div>
+                <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${html}</div>
+                <div style="padding:10px 32px 14px;border-top:1px solid var(--border);
+                            display:flex;align-items:center;gap:8px">
+                    <input type="text" id="nb-tmpl-title" class="nb-opt-input"
+                           placeholder="Note title…" style="flex:1;min-width:0">
+                    <button id="nb-tmpl-create" class="nb-tool-btn nb-btn-primary">Create note</button>
+                </div>`;
+
+            const titleEl  = document.getElementById('nb-tmpl-title');
+            const createEl = document.getElementById('nb-tmpl-create');
+
+            async function _doCreate() {
+                const title = titleEl.value.trim();
+                if (!title) { titleEl.focus(); return; }
+                createEl.textContent = 'Creating…'; createEl.disabled = true;
+                try {
+                    const ok = await addNote({
+                        notebook:      NbNav.notebook === '_all' ? 'home' : NbNav.notebook,
+                        type:          'note',
+                        title,
+                        url:           '',
+                        template_path: path,
+                    });
+                    if (ok) NbNav.activateCmd('list');
+                } finally {
+                    createEl.textContent = 'Create note'; createEl.disabled = false;
+                }
+            }
+
+            createEl.addEventListener('click', _doCreate);
+            titleEl.addEventListener('keydown', e => {
+                if (e.key === 'Enter')  _doCreate();
+                if (e.key === 'Escape') titleEl.value = '';
+            });
+            requestAnimationFrame(() => titleEl.focus());
+        } catch(e) {
+            content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
+        }
     }
 
     // ── Cal results ────────────────────────────────────────────────
@@ -1529,7 +1729,7 @@ const NbMain = (() => {
     }
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
-             showAddForm, addNote, runCmd, runCal, runGrep, doSync };
+             showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd, doSync };
 })();
 
 // ── Settings stub (wired up later) ────────────────────────────────

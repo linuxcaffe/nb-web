@@ -9,7 +9,8 @@ const NbNav = (() => {
     // Per-command state (scope-independent options only)
     const _state = {
         list:    { type: 'all' },
-        add:     { type: 'note', title: '', url: '', template: null, dirty: false },
+        add:       { type: 'note', title: '', url: '', template: null, dirty: false },
+        templates: {},
         todo:    { status: 'open' },
         tasks:   { status: 'open' },
         cal:     { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
@@ -45,12 +46,14 @@ const NbNav = (() => {
             btn.addEventListener('click', () => activateCmd(btn.dataset.cmd));
         });
         // Search-bar icon buttons (toggle: click active icon → back to list)
-        document.getElementById('nb-todo-icon') ?.addEventListener('click', () =>
-            activateCmd(_activeCmd === 'todo'  ? 'list' : 'todo'));
-        document.getElementById('nb-tasks-icon')?.addEventListener('click', () =>
-            activateCmd(_activeCmd === 'tasks' ? 'list' : 'tasks'));
-        document.getElementById('nb-cal-icon')  ?.addEventListener('click', () =>
-            activateCmd(_activeCmd === 'cal'   ? 'list' : 'cal'));
+        document.getElementById('nb-todo-icon')     ?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'todo'      ? 'list' : 'todo'));
+        document.getElementById('nb-tasks-icon')    ?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'tasks'     ? 'list' : 'tasks'));
+        document.getElementById('nb-cal-icon')      ?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'cal'       ? 'list' : 'cal'));
+        document.getElementById('nb-templates-icon')?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'templates' ? 'list' : 'templates'));
     }
 
     function activateCmd(cmd) {
@@ -84,15 +87,16 @@ const NbNav = (() => {
     }
 
     const _optsRenderers = {
-        list:    _renderListOpts,
-        add:     _renderAddOpts,
-        todo:    _renderTodoOpts,
-        tasks:   _renderTasksOpts,
-        cal:     _renderCalOpts,
-        daily:   _renderDailyOpts,
-        g:       _renderGrepOpts,
-        info:    () => {},
-        weather: () => {},
+        list:      _renderListOpts,
+        add:       _renderAddOpts,
+        todo:      _renderTodoOpts,
+        tasks:     _renderTasksOpts,
+        cal:       _renderCalOpts,
+        daily:     _renderDailyOpts,
+        g:         _renderGrepOpts,
+        templates: _renderTemplatesOpts,
+        info:      () => {},
+        weather:   () => {},
     };
 
     // Scope selector — a compact <select> showing all notebooks + All
@@ -151,9 +155,16 @@ const NbNav = (() => {
 
     function _renderAddOpts(bar) {
         const st = _state.add;
-        let urlInput, titleInput, actionWrap, scopeWrap, tmplWrap, tmplSel;
+        let urlInput, titleInput, actionWrap, scopeWrap;
 
-        // Type chips — toggle URL/scope visibility and title placeholder
+        // Scope select — first/leftmost; hidden when creating a notebook (they're top-level)
+        scopeWrap = _makeScopeSelect(() => { _updateOutputBar(); NbMain.loadTemplatesForAdd(); });
+        scopeWrap.hidden = st.type === 'notebook';
+        bar.appendChild(scopeWrap);
+
+        bar.appendChild(_makeSep());
+
+        // Type chips
         bar.appendChild(_makeChipRow([
             { val: 'note',     label: '📝 Note'     },
             { val: 'bookmark', label: '🔖 Bookmark' },
@@ -167,59 +178,8 @@ const NbNav = (() => {
             if (titleInput) titleInput.placeholder =
                 val === 'folder'   ? 'Folder name…'   :
                 val === 'notebook' ? 'Notebook name…' : 'Title…';
-            // Sync template picker visibility
-            if (tmplWrap) {
-                tmplWrap.hidden = !['note','todo'].includes(val);
-                if (tmplWrap.hidden) { st.template = null; tmplSel.value = ''; }
-            }
             _updateOutputBar();
         }));
-
-        bar.appendChild(_makeSep());
-
-        // Scope select — hidden when creating a notebook (they're top-level)
-        scopeWrap = _makeScopeSelect(() => _updateOutputBar());
-        scopeWrap.hidden = st.type === 'notebook';
-        bar.appendChild(scopeWrap);
-
-        bar.appendChild(_makeSep());
-
-        // Template selector (note/todo types only)
-        tmplWrap = document.createElement('span');
-        tmplWrap.className = 'nb-scope-wrap';
-        const tmplIcon = document.createElement('span');
-        tmplIcon.className = 'nb-scope-icon';
-        tmplIcon.textContent = '📋';
-        tmplSel = document.createElement('select');
-        tmplSel.className = 'nb-scope-select';
-        const noneOpt = document.createElement('option');
-        noneOpt.value = ''; noneOpt.textContent = '— template —';
-        tmplSel.appendChild(noneOpt);
-        tmplWrap.append(tmplIcon, tmplSel);
-        tmplWrap.hidden = !['note','todo'].includes(st.type);
-        bar.appendChild(tmplWrap);
-
-        // Load templates async
-        const nb = _scope === '_all' ? 'home' : _scope;
-        fetch(`/api/templates?notebook=${encodeURIComponent(nb)}`)
-            .then(r => r.json())
-            .then(d => {
-                (d.templates || []).forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t.path;
-                    opt.textContent = (t.scope === 'local' ? '📒 ' : '🌐 ') + t.name;
-                    tmplSel.appendChild(opt);
-                });
-                if (st.template) tmplSel.value = st.template;
-            })
-            .catch(() => {});
-
-        tmplSel.addEventListener('change', () => {
-            st.template = tmplSel.value || null;
-            _updateOutputBar();
-            if (st.template) NbMain.showTemplatePreview(st.template);
-            else             NbMain.clearTemplatePreview();
-        });
 
         bar.appendChild(_makeSep());
 
@@ -280,10 +240,9 @@ const NbNav = (() => {
         function _doCancel() {
             st.title = ''; st.url = ''; st.template = null; st.dirty = false;
             titleInput.value = ''; urlInput.value = '';
-            if (tmplSel) tmplSel.value = '';
             actionWrap.hidden = true;
-            NbMain.clearTemplatePreview();
             _updateOutputBar();
+            NbMain.loadTemplatesForAdd();
         }
 
         async function _doSubmit() {
@@ -302,6 +261,9 @@ const NbNav = (() => {
                 saveBtn.textContent = 'Add'; saveBtn.disabled = false;
             }
         }
+
+        // Populate list pane with templates for this notebook
+        NbMain.loadTemplatesForAdd();
 
         // Focus title immediately when Add is clicked
         requestAnimationFrame(() => titleInput.focus());
@@ -606,6 +568,10 @@ const NbNav = (() => {
         requestAnimationFrame(() => patInput.focus());
     }
 
+    function _renderTemplatesOpts(bar) {
+        bar.appendChild(_makeScopeSelect(() => _executeCmd()));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────
 
     function _typeArg(type) { return type !== 'all' ? `--type ${type}` : null; }
@@ -740,11 +706,18 @@ const NbNav = (() => {
                 if (st.template) {
                     const tname = st.template.split('/').pop().replace(/\.md$/, '');
                     tokens.push({ text: `--template ${tname}`, clearFn: () => {
-                        st.template = null; renderOptsBar();
+                        st.template = null;
+                        NbMain.loadTemplatesForAdd();
+                        _updateOutputBar();
                     }});
                 }
                 if (st.title) tokens.push({ text: `"${st.title}"` });
                 if (st.url)   tokens.push({ text: st.url });
+                break;
+            }
+            case 'templates': {
+                tokens.push({ text: 'templates' });
+                const sc = _scopeTok(); if (sc) tokens.push(sc);
                 break;
             }
             case 'cal': {
@@ -827,13 +800,14 @@ const NbNav = (() => {
         // Reset command-specific state
         const now = new Date();
         const defaults = {
-            list:  { type: 'all' },
-            todo:  { status: 'open' },
-            tasks: { status: 'open' },
-            cal:   { displayYear: now.getFullYear(), displayMonth: now.getMonth() + 1,
-                     selected: null, start: null, end: null, noteDays: new Set() },
-            daily: { date: '' },
-            g:     { all: false, context: 0, before: 0, after: 0, pattern: '' },
+            list:      { type: 'all' },
+            todo:      { status: 'open' },
+            tasks:     { status: 'open' },
+            cal:       { displayYear: now.getFullYear(), displayMonth: now.getMonth() + 1,
+                         selected: null, start: null, end: null, noteDays: new Set() },
+            daily:     { date: '' },
+            g:         { all: false, context: 0, before: 0, after: 0, pattern: '' },
+            templates: {},
         };
         if (defaults[_activeCmd]) Object.assign(_state[_activeCmd], defaults[_activeCmd]);
         renderOptsBar();
@@ -850,10 +824,16 @@ const NbNav = (() => {
         _updateOutputBar();
     }
 
+    function setAddTemplate(path) {
+        _state.add.template = path;
+        _updateOutputBar();
+    }
+
     function _updateSearchIcons() {
-        document.getElementById('nb-todo-icon') ?.classList.toggle('active', _activeCmd === 'todo');
-        document.getElementById('nb-tasks-icon')?.classList.toggle('active', _activeCmd === 'tasks');
-        document.getElementById('nb-cal-icon')  ?.classList.toggle('active', _activeCmd === 'cal');
+        document.getElementById('nb-todo-icon')     ?.classList.toggle('active', _activeCmd === 'todo');
+        document.getElementById('nb-tasks-icon')    ?.classList.toggle('active', _activeCmd === 'tasks');
+        document.getElementById('nb-cal-icon')      ?.classList.toggle('active', _activeCmd === 'cal');
+        document.getElementById('nb-templates-icon')?.classList.toggle('active', _activeCmd === 'templates');
     }
 
     // ── Execute command ───────────────────────────────────────────
@@ -882,10 +862,11 @@ const NbNav = (() => {
                                 notebook: _scope });
                 break;
             }
-            case 'daily':   NbMain.runCmd('daily', { date: st.date });                 break;
-            case 'g':       NbMain.runGrep(st);                                        break;
-            case 'info':    NbMain.runCmd('info');                                     break;
-            case 'weather': NbMain.runCmd('weather');                                  break;
+            case 'daily':     NbMain.runCmd('daily', { date: st.date });               break;
+            case 'g':         NbMain.runGrep(st);                                      break;
+            case 'templates': NbMain.runTemplates();                                   break;
+            case 'info':      NbMain.runCmd('info');                                   break;
+            case 'weather':   NbMain.runCmd('weather');                                break;
         }
     }
 
@@ -988,6 +969,8 @@ const NbNav = (() => {
         get searchQuery()  { return _searchQuery; },
         get tagsQuery()    { return _tagsQuery; },
         reexecute: () => _executeCmd(),
+        get addTemplate() { return _state.add.template; },
+        setAddTemplate,
         activateCmd,
         drillFolder,
         goUpFolder,

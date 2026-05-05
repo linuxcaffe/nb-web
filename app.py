@@ -18,6 +18,8 @@ PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
 
 GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
 
+_RE_HEADING = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
+
 # Startup stamp — visible in menu so you can confirm a restart happened
 from datetime import datetime
 _STARTED_AT = datetime.now().strftime('%m-%d %H:%M')
@@ -282,7 +284,7 @@ def _list_all_notes(limit):
             itype = classify(fname)
             title = meta.get('title') or note_title(fname, body)
             excerpt = next((l.strip()[:120] for l in body.splitlines()
-                            if l.strip() and not l.startswith('#')), '')
+                            if l.strip() and not _RE_HEADING.match(l)), '')
             todo_status = None
             if itype == 'todo':
                 first = next((l.strip() for l in body.splitlines() if l.strip()), '')
@@ -339,7 +341,7 @@ def _list_notes(notebook, folder, limit):
         excerpt = ''
         for line in body.splitlines():
             line = line.strip()
-            if line and not line.startswith('#'):
+            if line and not _RE_HEADING.match(line):
                 excerpt = line[:120]
                 break
         todo_status = None
@@ -384,7 +386,7 @@ def _read_excerpt(nb_name, raw_id_or_sel):
         _, body = parse_frontmatter(fpath.read_text(errors='replace'))
         for line in body.splitlines():
             line = line.strip()
-            if line and not line.startswith('#'):
+            if line and not _RE_HEADING.match(line):
                 return line[:120]
     except Exception:
         pass
