@@ -278,6 +278,11 @@ const NbMain = (() => {
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
 
+        // Highlight active search / tag terms in the rendered preview
+        const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
+            .filter(Boolean).join(' ');
+        if (_hq) _highlightTerms(content.querySelector('.nb-rendered'), _hq);
+
         // Wire wiki-links and tag-links
         content.querySelectorAll('.nb-wiki-link').forEach(el => {
             el.addEventListener('click', () => openNote(el.dataset.selector || el.textContent));
@@ -401,6 +406,37 @@ const NbMain = (() => {
             }
         }
         setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+    }
+
+    function _highlightTerms(container, query) {
+        if (!query || !container) return;
+        const terms = query.match(/"[^"]+"|#\S+|\S+/g) || [];
+        if (!terms.length) return;
+        const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const re = new RegExp(`(${escaped.join('|')})`, 'gi');
+
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        let node;
+        while ((node = walker.nextNode())) nodes.push(node);
+
+        nodes.forEach(textNode => {
+            const text = textNode.nodeValue;
+            if (!re.test(text)) { re.lastIndex = 0; return; }
+            re.lastIndex = 0;
+            const frag = document.createDocumentFragment();
+            let last = 0, m;
+            while ((m = re.exec(text)) !== null) {
+                if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+                const mark = document.createElement('mark');
+                mark.className = 'nb-highlight';
+                mark.textContent = m[0];
+                frag.appendChild(mark);
+                last = m.index + m[0].length;
+            }
+            if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+            textNode.parentNode.replaceChild(frag, textNode);
+        });
     }
 
     function _renderMarkdown(body) {

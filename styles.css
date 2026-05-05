@@ -806,6 +806,15 @@ body {
 #nb-preview-content .nb-rendered td { border: 1px solid var(--border); padding: 6px 10px; }
 #nb-preview-content .nb-rendered th { background: var(--bg3); }
 
+/* Search-term highlights in preview */
+mark.nb-highlight {
+  background: var(--accent-dim);
+  color: var(--text);
+  outline: 2px solid var(--accent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* Clickable wiki-links and tags in rendered content */
 .nb-wiki-link { color: var(--green); cursor: pointer; }
 .nb-wiki-link:hover { text-decoration: underline; }
