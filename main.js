@@ -630,7 +630,7 @@ const NbMain = (() => {
                     body: JSON.stringify({ selector: _activeSelector, name: newName }),
                 });
                 const d = await r.json();
-                if (d.success) { titleEl.textContent = newName; loadNotes(); }
+                if (d.success) { titleEl.textContent = newName; NbNav.reexecute(); }
                 else alert('Rename failed: ' + (d.stderr || 'unknown'));
             } catch(e) { alert('Rename error: ' + e); }
         }
@@ -702,7 +702,7 @@ const NbMain = (() => {
                     document.getElementById('nb-preview-toolbar').hidden = true;
                     document.getElementById('nb-preview-content').innerHTML =
                         '<div id="nb-welcome"><h2>nb-web</h2><p>Note moved.</p></div>';
-                    loadNotes();
+                    NbNav.reexecute();
                 } else {
                     alert('Move failed: ' + (rd.stderr || 'unknown'));
                     goBtn.textContent = 'Move'; goBtn.disabled = false;
@@ -1053,7 +1053,7 @@ const NbMain = (() => {
                 body: JSON.stringify({selector: _activeSelector, content}),
             });
             const d = await r.json();
-            if (d.success) { _closeEditor(); loadNotes(); openNote(_activeSelector); }
+            if (d.success) { _closeEditor(); NbNav.reexecute(); openNote(_activeSelector); }
             else alert('Save failed: ' + (d.stderr || 'unknown error'));
         } finally {
             btn.textContent = 'Save';
@@ -1092,7 +1092,7 @@ const NbMain = (() => {
             document.getElementById('nb-preview-toolbar').hidden = true;
             document.getElementById('nb-preview-content').innerHTML =
                 '<div id="nb-welcome"><h2>nb-web</h2><p>Note deleted.</p></div>';
-            loadNotes();
+            NbNav.reexecute();
         }
     }
 
@@ -1108,7 +1108,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
-                loadNotes();
+                NbNav.reexecute();
                 openNote(_activeSelector);
             } else {
                 alert('Failed: ' + (d.stderr || 'unknown'));
@@ -1363,7 +1363,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
-                loadNotes();
+                NbNav.reexecute();
                 document.getElementById('nb-preview-content').innerHTML =
                     '<div id="nb-welcome"><h2>nb-web</h2><p>Created!</p></div>';
             } else {
@@ -1388,7 +1388,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (!d.success) console.warn('sync stderr:', d.stderr);
-            else loadNotes();
+            else NbNav.reexecute();
         } finally {
             if (btn) btn.classList.remove('nb-spin');
         }
