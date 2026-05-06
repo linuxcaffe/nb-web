@@ -615,13 +615,16 @@ def api_create_note():
                 pass
         r = run_nb(*args)
         if nb_ok(r):
-            m = re.search(r'\[([^\]]+)\]', r['stdout'])
-            return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
-                            'selector': m.group(1) if m else None})
+            pass  # falls through to shared return below
 
     if not nb_ok(r):
         return jsonify({'success': False, 'error': r['stderr']}), 400
-    return jsonify({'success': True, 'output': strip_ansi(r['stdout'])})
+    m = re.search(r'\[([^\]]+)\]', r['stdout'])
+    selector = m.group(1) if m else None
+    if selector and ':' not in selector:
+        selector = f'{notebook}:{selector}'
+    return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
+                    'selector': selector})
 
 
 # ---------------------------------------------------------------------------

@@ -1042,7 +1042,7 @@ const NbMain = (() => {
                 body: JSON.stringify({selector: _activeSelector, content}),
             });
             const d = await r.json();
-            if (d.success) { _closeEditor(); openNote(_activeSelector); }
+            if (d.success) { _closeEditor(); loadNotes(); openNote(_activeSelector); }
             else alert('Save failed: ' + (d.stderr || 'unknown error'));
         } finally {
             btn.textContent = 'Save';

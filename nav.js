@@ -192,7 +192,7 @@ const NbNav = (() => {
         titleInput.value       = st.title;
         titleInput.addEventListener('input', () => { st.title = titleInput.value; _markDirty(); });
         titleInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter'  && st.dirty) _doSubmit();
+            if (e.key === 'Enter'  && st.dirty) _doSave();
             if (e.key === 'Escape')              _doCancel();
         });
         bar.appendChild(titleInput);
@@ -206,7 +206,7 @@ const NbNav = (() => {
         urlInput.hidden      = st.type !== 'bookmark';
         urlInput.addEventListener('input', () => { st.url = urlInput.value; _markDirty(); });
         urlInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter'  && st.dirty) _doSubmit();
+            if (e.key === 'Enter'  && st.dirty) _doSave();
             if (e.key === 'Escape')              _doCancel();
         });
         bar.appendChild(urlInput);
@@ -221,12 +221,19 @@ const NbNav = (() => {
         cancelBtn.textContent = 'Cancel';
         cancelBtn.addEventListener('click', _doCancel);
 
+        const wantsEditor = st.type === 'note' || st.type === 'todo';
+        const editBtn = document.createElement('button');
+        editBtn.className   = 'nb-tool-btn';
+        editBtn.textContent = 'Edit';
+        editBtn.hidden      = !wantsEditor;
+        editBtn.addEventListener('click', _doEdit);
+
         const saveBtn = document.createElement('button');
         saveBtn.className   = 'nb-tool-btn nb-btn-primary';
-        saveBtn.textContent = 'Add';
-        saveBtn.addEventListener('click', _doSubmit);
+        saveBtn.textContent = 'Save';
+        saveBtn.addEventListener('click', _doSave);
 
-        actionWrap.append(cancelBtn, saveBtn);
+        actionWrap.append(cancelBtn, editBtn, saveBtn);
         bar.appendChild(actionWrap);
 
         // ── Local helpers (close over DOM refs) ───────────────────
@@ -237,6 +244,15 @@ const NbNav = (() => {
             _updateOutputBar();
         }
 
+        function _busy(label) {
+            saveBtn.disabled = editBtn.disabled = true;
+            saveBtn.textContent = label;
+        }
+        function _idle() {
+            saveBtn.disabled = editBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+        }
+
         function _doCancel() {
             st.title = ''; st.url = ''; st.template = null; st.dirty = false;
             titleInput.value = ''; urlInput.value = '';
@@ -245,31 +261,46 @@ const NbNav = (() => {
             NbMain.loadTemplatesForAdd();
         }
 
-        async function _doSubmit() {
+        function _noteArgs() {
+            return {
+                notebook:      _scope === '_all' ? 'home' : _scope,
+                type:          st.type,
+                title:         st.title,
+                url:           st.url,
+                template_path: st.template || '',
+            };
+        }
+
+        async function _doSave() {
             if (!st.title && !st.url) return;
             if (saveBtn.disabled) return;
-            saveBtn.textContent = 'Adding…'; saveBtn.disabled = true;
+            _busy('Saving…');
             try {
-                const result = await NbMain.addNote({
-                    notebook:      _scope === '_all' ? 'home' : _scope,
-                    type:          st.type,
-                    title:         st.title,
-                    url:           st.url,
-                    template_path: st.template || '',
-                });
-                if (result) {
-                    if (st.type === 'note' && result.selector) {
-                        // Reset add state, then drop straight into editor for the new note
-                        st.title = ''; st.url = ''; st.template = null; st.dirty = false;
-                        activateCmd('list');
-                        await NbMain.openNote(result.selector);
-                        NbMain.openEditor();
-                    } else {
-                        _doCancel();
-                    }
+                const result = await NbMain.addNote(_noteArgs());
+                if (result) _doCancel();
+            } finally {
+                _idle();
+            }
+        }
+
+        async function _doEdit() {
+            if (!st.title && !st.url) return;
+            if (editBtn.disabled) return;
+            _busy('Opening…');
+            try {
+                const result = await NbMain.addNote(_noteArgs());
+                console.log('[doEdit] result:', result);
+                if (result && result.selector) {
+                    st.title = ''; st.url = ''; st.template = null; st.dirty = false;
+                    activateCmd('list');
+                    await NbMain.openNote(result.selector);
+                    NbMain.openEditor();
+                } else if (result) {
+                    console.warn('[doEdit] no selector returned — falling back to save', result);
+                    _doCancel();
                 }
             } finally {
-                saveBtn.textContent = 'Add'; saveBtn.disabled = false;
+                _idle();
             }
         }
 
