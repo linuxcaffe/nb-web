@@ -496,6 +496,11 @@ def api_note():
 
     tags = re.findall(r'#([\w/-]+)', body)
 
+    todo_status = None
+    if itype == 'todo':
+        first = body.lstrip().splitlines()[0] if body.strip() else ''
+        todo_status = 'closed' if first.startswith('# [x]') else 'open'
+
     return jsonify({
         'selector': selector,
         'notebook': note_notebook or '',
@@ -503,6 +508,7 @@ def api_note():
         'filename': filename,
         'title':    title,
         'type':     itype,
+        'status':   todo_status,
         'indicator': INDICATORS.get(itype, ''),
         'raw':      raw,
         'body':     body,
