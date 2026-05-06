@@ -155,10 +155,14 @@ const NbNav = (() => {
 
     function _renderAddOpts(bar) {
         const st = _state.add;
-        let urlInput, titleInput, actionWrap, scopeWrap;
+        let urlInput, titleInput, actionWrap, scopeWrap, tmplBtn;
+        let _tmplMode = false;
 
         // Scope select — first/leftmost; hidden when creating a notebook (they're top-level)
-        scopeWrap = _makeScopeSelect(() => { _updateOutputBar(); NbMain.loadTemplatesForAdd(); });
+        scopeWrap = _makeScopeSelect(() => {
+            _updateOutputBar();
+            _tmplMode ? NbMain.loadTemplatesForAdd() : NbMain.loadNotes();
+        });
         scopeWrap.hidden = st.type === 'notebook';
         bar.appendChild(scopeWrap);
 
@@ -178,8 +182,29 @@ const NbNav = (() => {
             if (titleInput) titleInput.placeholder =
                 val === 'folder'   ? 'Folder name…'   :
                 val === 'notebook' ? 'Notebook name…' : 'Title…';
+            if (tmplBtn) {
+                tmplBtn.hidden = val !== 'note';
+                if (val !== 'note' && _tmplMode) {
+                    _tmplMode = false;
+                    tmplBtn.classList.remove('active');
+                    NbMain.loadNotes();
+                }
+            }
             _updateOutputBar();
         }));
+
+        // Templates toggle — note type only
+        tmplBtn = document.createElement('button');
+        tmplBtn.className   = 'nb-icon-btn';
+        tmplBtn.textContent = '📋';
+        tmplBtn.title       = 'Toggle templates list';
+        tmplBtn.hidden      = st.type !== 'note';
+        tmplBtn.addEventListener('click', () => {
+            _tmplMode = !_tmplMode;
+            tmplBtn.classList.toggle('active', _tmplMode);
+            _tmplMode ? NbMain.loadTemplatesForAdd() : NbMain.loadNotes();
+        });
+        bar.appendChild(tmplBtn);
 
         bar.appendChild(_makeSep());
 
@@ -257,8 +282,10 @@ const NbNav = (() => {
             st.title = ''; st.url = ''; st.template = null; st.dirty = false;
             titleInput.value = ''; urlInput.value = '';
             actionWrap.hidden = true;
+            _tmplMode = false;
+            tmplBtn.classList.remove('active');
             _updateOutputBar();
-            NbMain.loadTemplatesForAdd();
+            NbMain.loadNotes();
         }
 
         function _noteArgs() {
@@ -303,9 +330,6 @@ const NbNav = (() => {
                 _idle();
             }
         }
-
-        // Populate list pane with templates for this notebook
-        NbMain.loadTemplatesForAdd();
 
         // Focus title immediately when Add is clicked
         requestAnimationFrame(() => titleInput.focus());
