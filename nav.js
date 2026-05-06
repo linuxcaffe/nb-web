@@ -394,7 +394,7 @@ const NbNav = (() => {
         prevBtn.className = 'nb-cal-nav-btn';
         prevBtn.textContent = '‹';
 
-        const monthLabel = document.createElement('span');
+        const monthLabel = document.createElement('div');
         monthLabel.className = 'nb-cal-month-label';
 
         const nextBtn = document.createElement('button');
@@ -402,10 +402,31 @@ const NbNav = (() => {
         nextBtn.textContent = '›';
 
         const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        function _monthStr() {
-            return `${MONTHS[st.displayMonth - 1]} ${st.displayYear}`;
+
+        function _updateMonthLabel() {
+            monthLabel.innerHTML = '';
+            const y = st.displayYear, m = st.displayMonth;
+            const pfx  = `${y}-${String(m).padStart(2,'0')}`;
+            const last = new Date(y, m, 0).getDate();
+            const mBtn = document.createElement('button');
+            mBtn.className = 'nb-cal-label-btn';
+            mBtn.textContent = MONTHS[m - 1];
+            mBtn.addEventListener('click', () => {
+                st.start = `${pfx}-01`; st.end = `${pfx}-${last}`; st.selected = null;
+                _updateLabels(); _renderGrid(); _updateOutputBar();
+                NbMain.runCal({ start: st.start, end: st.end, notebook: _scope });
+            });
+            const yBtn = document.createElement('button');
+            yBtn.className = 'nb-cal-label-btn';
+            yBtn.textContent = y;
+            yBtn.addEventListener('click', () => {
+                st.start = `${y}-01-01`; st.end = `${y}-12-31`; st.selected = null;
+                _updateLabels(); _renderGrid(); _updateOutputBar();
+                NbMain.runCal({ start: st.start, end: st.end, notebook: _scope });
+            });
+            monthLabel.append(mBtn, ' ', yBtn);
         }
-        monthLabel.textContent = _monthStr();
+        _updateMonthLabel();
         header.append(prevBtn, monthLabel, nextBtn);
         left.appendChild(header);
 
@@ -481,6 +502,15 @@ const NbNav = (() => {
         }
 
         right.append(
+            _makeCalBtn('Today', () => {
+                const now = new Date();
+                st.displayYear  = now.getFullYear();
+                st.displayMonth = now.getMonth() + 1;
+                st.start = null; st.end = null; st.selected = today;
+                _updateMonthLabel(); _updateLabels(); _renderGrid(); _updateOutputBar();
+                _loadNoteDays();
+                _selectDay(today);
+            }),
             startLabel,
             endLabel,
             _makeCalBtn('Start', () => {
@@ -501,6 +531,7 @@ const NbNav = (() => {
                 _updateLabels(); _renderGrid(); _updateOutputBar();
                 _runMonth();
             }),
+            _makeScopeSelect(() => { _updateOutputBar(); _runMonth(); }),
         );
         widget.appendChild(right);
         bar.appendChild(widget);
@@ -510,7 +541,7 @@ const NbNav = (() => {
             st.displayMonth += delta;
             if (st.displayMonth < 1)  { st.displayMonth = 12; st.displayYear--; }
             if (st.displayMonth > 12) { st.displayMonth =  1; st.displayYear++; }
-            monthLabel.textContent = _monthStr();
+            _updateMonthLabel();
             _renderGrid(); _updateOutputBar();
             _loadNoteDays();
         }

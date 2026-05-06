@@ -895,6 +895,11 @@ const NbMain = (() => {
                     case 'PageUp':    e.preventDefault(); previewContent.scrollBy(0, -previewContent.clientHeight * 0.85); break;
                     case 'PageDown':  e.preventDefault(); previewContent.scrollBy(0,  previewContent.clientHeight * 0.85); break;
                     case 'ArrowLeft': e.preventDefault(); _setKbPane('list'); break;
+                    case 'Enter': {
+                        const doneBtn = document.getElementById('nb-done-btn');
+                        if (doneBtn && !doneBtn.hidden) { e.preventDefault(); doneBtn.click(); }
+                        break;
+                    }
                 }
             }
         });
@@ -1108,6 +1113,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
+                btn.textContent = 'Done'; btn.disabled = false;
                 NbNav.reexecute();
                 openNote(_activeSelector);
             } else {

@@ -366,7 +366,21 @@ body {
   min-width: 80px;
   text-align: center;
   color: var(--text);
+  display: flex;
+  gap: 4px;
+  justify-content: center;
 }
+.nb-cal-label-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0;
+  border-radius: 3px;
+}
+.nb-cal-label-btn:hover { color: var(--accent); }
 .nb-cal-nav-btn {
   background: none;
   border: none;
@@ -418,7 +432,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  padding-top: 22px;   /* align with first day row */
   flex-shrink: 0;
 }
 .nb-cal-range-item {
