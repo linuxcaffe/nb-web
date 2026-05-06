@@ -9,6 +9,7 @@ const NbMain = (() => {
     let _sortMode       = 'default';
     let _foldersFirst   = false;
     let _pinned         = false;
+    let _listSeq        = 0;        // incremented on every new list request; stale responses are dropped
     const _history      = [];       // back-stack
     const _future       = [];       // forward-stack (cleared on any new navigation)
 
@@ -41,6 +42,7 @@ const NbMain = (() => {
     // ── Notes list ─────────────────────────────────────────────────
 
     async function loadNotes(typeFilter, statusFilter) {
+        const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb });
@@ -49,6 +51,7 @@ const NbMain = (() => {
         try {
             const r = await fetch('/api/notes?' + params);
             const d = await r.json();
+            if (seq !== _listSeq) return;
             let notes = d.notes || [];
             if (typeFilter)   notes = notes.filter(n => n.type   === typeFilter.replace('--type ', ''));
             if (statusFilter) notes = notes.filter(n => n.status === statusFilter);
@@ -60,6 +63,7 @@ const NbMain = (() => {
 
     async function search(query, typeFilter, statusFilter) {
         if (!query.trim()) { loadNotes(typeFilter, statusFilter); return; }
+        const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb, q: query });
@@ -67,6 +71,7 @@ const NbMain = (() => {
         try {
             const r = await fetch('/api/notes?' + params);
             const d = await r.json();
+            if (seq !== _listSeq) return;
             let notes = d.notes || [];
             if (typeFilter)   notes = notes.filter(n => n.type   === typeFilter.replace('--type ', ''));
             if (statusFilter) notes = notes.filter(n => n.status === statusFilter);
@@ -1655,6 +1660,7 @@ const NbMain = (() => {
     // ── Cal results ────────────────────────────────────────────────
 
     async function runCal({ start, end, notebook }) {
+        const seq    = ++_listSeq;
         const params = new URLSearchParams();
         if (notebook && notebook !== '_all') params.set('notebook', notebook);
         if (start) params.set('start', start);
@@ -1697,6 +1703,7 @@ const NbMain = (() => {
                 notes = notes.filter(n => (n.title || '').toLowerCase().includes(tqLower));
             }
 
+            if (seq !== _listSeq) return;
             renderList(notes);
 
             if (!notes.length) {
@@ -1716,6 +1723,7 @@ const NbMain = (() => {
             _showCmdOutput('g', '(enter a pattern above and press run ↵)');
             return;
         }
+        const seq = ++_listSeq;
         _showPreviewLoading();
         const params = new URLSearchParams({ q: opts.pattern });
         params.set('notebook', opts.all ? '_all' : NbNav.notebook);
@@ -1740,6 +1748,7 @@ const NbMain = (() => {
                 excerpt:   null,
                 grepLines: res.lines || [],
             }));
+            if (seq !== _listSeq) return;
             renderList(notes);
             const content = document.getElementById('nb-preview-content');
             content.innerHTML = notes.length
