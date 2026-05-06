@@ -949,6 +949,32 @@ def api_cal():
 
 
 # ---------------------------------------------------------------------------
+# API: Import file(s) into a notebook
+# ---------------------------------------------------------------------------
+
+@app.route('/api/import', methods=['POST'])
+def api_import():
+    import tempfile, shutil
+    f        = request.files.get('file')
+    notebook = request.form.get('notebook', 'home').strip() or 'home'
+    if not f or not f.filename:
+        return jsonify({'success': False, 'error': 'no file provided'}), 400
+
+    safe_name = Path(f.filename).name.replace('/', '_').replace('..', '_')
+    tmp_dir   = Path(tempfile.mkdtemp())
+    tmp_path  = tmp_dir / safe_name
+    try:
+        f.save(str(tmp_path))
+        r = run_nb('import', str(tmp_path), f'{notebook}:')
+        success = r['returncode'] == 0
+        return jsonify({'success': success, 'output': r['stdout'], 'stderr': r['stderr']})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # API: Run read-only nb command (daily, info, weather, notebooks)
 # ---------------------------------------------------------------------------
 

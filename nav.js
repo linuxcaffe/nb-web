@@ -986,11 +986,12 @@ const NbNav = (() => {
 
         function _menuAction(cmd) {
             shut();
-            if (_UI_CMDS.has(cmd))   activateCmd(cmd);
-            else if (cmd === 'sync') NbMain.doSync();
-            else if (cmd === 'about') NbMain.showAbout();
+            if (_UI_CMDS.has(cmd))      activateCmd(cmd);
+            else if (cmd === 'sync')    NbMain.doSync();
+            else if (cmd === 'about')   NbMain.showAbout();
             else if (cmd === 'restart') _restartServer();
-            else                     NbMain.runCmd(cmd);
+            else if (cmd === 'import')  NbMain.doImport();
+            else                        NbMain.runCmd(cmd);
         }
 
         async function _restartServer() {

@@ -1851,9 +1851,37 @@ const NbMain = (() => {
             </div>`;
     }
 
+    function doImport() {
+        const input = document.createElement('input');
+        input.type     = 'file';
+        input.multiple = true;
+        input.addEventListener('change', async () => {
+            const files = [...input.files];
+            if (!files.length) return;
+            _showPreviewLoading();
+            const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+            const lines = [];
+            for (const file of files) {
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('notebook', nb);
+                try {
+                    const r = await fetch('/api/import', { method: 'POST', body: fd });
+                    const d = await r.json();
+                    lines.push(d.success ? `✓ ${file.name}` : `✗ ${file.name}: ${d.error || d.stderr || 'failed'}`);
+                } catch(e) {
+                    lines.push(`✗ ${file.name}: ${e}`);
+                }
+            }
+            _showCmdOutput('import', lines.join('\n'));
+            NbNav.reexecute();
+        });
+        input.click();
+    }
+
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
-             doSync, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
+             doSync, doImport, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing };
 })();
 
