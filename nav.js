@@ -964,7 +964,7 @@ const NbNav = (() => {
 
     // ── Side menu ─────────────────────────────────────────────────
 
-    async function _initMenu() {
+    function _initMenu() {
         const logo    = document.getElementById('nb-logo-btn');
         const overlay = document.getElementById('nb-menu-overlay');
         const menu    = document.getElementById('nb-side-menu');
@@ -982,23 +982,19 @@ const NbNav = (() => {
             if (e.key === 'Escape' && menu.classList.contains('open')) shut();
         });
 
-        // Commands that activate a UI view rather than running nb
-        const _UI_CMDS = new Set([
-            'list','add','todo','cal','templates','g','daily','weather','info'
-        ]);
+        const _UI_CMDS = new Set(['list','add','todo','cal','templates','g','daily','weather','info']);
 
         function _menuAction(cmd) {
             shut();
-            if (_UI_CMDS.has(cmd))       activateCmd(cmd);
-            else if (cmd === 'sync')     NbMain.doSync();
-            else if (cmd === 'settings') NbSettings.open();
-            else if (cmd === 'about')    NbMain.showAbout();
-            else if (cmd === 'restart')  _restartServer();
-            else                         NbMain.runCmd(cmd);
+            if (_UI_CMDS.has(cmd))   activateCmd(cmd);
+            else if (cmd === 'sync') NbMain.doSync();
+            else if (cmd === 'about') NbMain.showAbout();
+            else if (cmd === 'restart') _restartServer();
+            else                     NbMain.runCmd(cmd);
         }
 
         async function _restartServer() {
-            const bar = document.getElementById('nb-cmd-output-bar');
+            const bar    = document.getElementById('nb-cmd-output-bar');
             const tokens = document.getElementById('nb-cmd-output-tokens');
             bar.hidden = false;
             tokens.textContent = 'Restarting…';
@@ -1009,32 +1005,71 @@ const NbNav = (() => {
             setTimeout(poll, 600);
         }
 
-        // Build menu from cmds.txt via /api/cmds
-        try {
-            const r = await fetch('/api/cmds');
-            const d = await r.json();
-            nav.innerHTML = '';
-            (d.items || []).forEach(item => {
-                if (item.type === 'divider') {
-                    const el = document.createElement('div');
-                    el.className = 'nb-menu-divider';
-                    nav.appendChild(el);
-                } else if (item.type === 'section') {
-                    const el = document.createElement('div');
-                    el.className = 'nb-menu-section-label';
-                    el.textContent = item.label;
-                    nav.appendChild(el);
-                } else if (item.type === 'item') {
+        const MENU = [
+            { label: 'About', items: [
+                { label: 'version', cmd: 'version' },
+            ]},
+            { label: 'Help',    cmd: 'help' },
+            { label: 'Import',  cmd: 'import' },
+            { label: 'Export',  cmd: 'export' },
+            { label: 'History', cmd: 'history' },
+            { label: 'Git', items: [
+                { label: 'remote', cmd: 'remote' },
+                { label: 'status', cmd: 'status' },
+                { label: 'sync',   cmd: 'sync' },
+            ]},
+            { label: 'Notebooks', items: [
+                { label: 'use', cmd: 'notebooks' },
+            ]},
+            { label: 'Plugins',   cmd: 'plugins' },
+            { label: 'Settings', items: [
+                { label: 'completions', cmd: 'completions' },
+                { label: 'env',         cmd: 'env' },
+                { label: 'init',        cmd: 'init' },
+                { label: 'set',         cmd: 'set' },
+                { label: 'update',      cmd: 'update' },
+                { label: 'restart server', cmd: 'restart' },
+            ]},
+            { label: 'Templates', cmd: 'templates' },
+            { label: 'Undo',      cmd: 'undo' },
+        ];
+
+        nav.innerHTML = '';
+        MENU.forEach(entry => {
+            if (entry.items) {
+                const group = document.createElement('div');
+                group.className = 'nb-menu-group';
+
+                const hdr = document.createElement('button');
+                hdr.className = 'nb-menu-section';
+                const lbl = document.createElement('span');
+                lbl.textContent = entry.label;
+                const arrow = document.createElement('span');
+                arrow.className = 'nb-menu-arrow';
+                arrow.textContent = '▸';
+                hdr.append(lbl, arrow);
+                hdr.addEventListener('click', () => group.classList.toggle('open'));
+                group.appendChild(hdr);
+
+                const sub = document.createElement('div');
+                sub.className = 'nb-menu-subitems';
+                entry.items.forEach(item => {
                     const btn = document.createElement('button');
-                    btn.className = 'nb-menu-item';
+                    btn.className = 'nb-menu-item nb-menu-subitem';
                     btn.textContent = item.label;
                     btn.addEventListener('click', () => _menuAction(item.cmd));
-                    nav.appendChild(btn);
-                }
-            });
-        } catch(e) {
-            console.error('_initMenu: cmds load failed:', e);
-        }
+                    sub.appendChild(btn);
+                });
+                group.appendChild(sub);
+                nav.appendChild(group);
+            } else {
+                const btn = document.createElement('button');
+                btn.className = 'nb-menu-item nb-menu-toplevel';
+                btn.textContent = entry.label;
+                btn.addEventListener('click', () => _menuAction(entry.cmd));
+                nav.appendChild(btn);
+            }
+        });
     }
 
     // ── Folder navigation ─────────────────────────────────────────
@@ -1100,6 +1135,23 @@ const NbNav = (() => {
             _initCmdBar();
             _initMenu();
             document.getElementById('nb-cmd-output-clear').addEventListener('click', _clearOutputBar);
+
+            const prompt = document.querySelector('.nb-cmd-output-prompt');
+            if (prompt) {
+                prompt.title  = 'Copy command to clipboard';
+                prompt.style.cursor = 'pointer';
+                prompt.addEventListener('click', () => {
+                    const parts = [...document.querySelectorAll('#nb-cmd-output-tokens .nb-cmd-token')]
+                        .map(el => el.childNodes[0]?.textContent?.trim())
+                        .filter(Boolean);
+                    const cmd = 'nb ' + parts.join(' ');
+                    navigator.clipboard.writeText(cmd).then(() => {
+                        const orig = prompt.textContent;
+                        prompt.textContent = '✓';
+                        setTimeout(() => { prompt.textContent = orig; }, 900);
+                    });
+                });
+            }
         },
         get notebook()     { return _scope; },
         get folder()       { return _folder[_activeCmd] || ''; },
