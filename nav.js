@@ -155,14 +155,10 @@ const NbNav = (() => {
 
     function _renderAddOpts(bar) {
         const st = _state.add;
-        let urlInput, titleInput, actionWrap, scopeWrap, editBtn;
-        let _showingTemplates = false;
+        let urlInput, titleInput, actionWrap, scopeWrap;
 
         // Scope select — first/leftmost; hidden when creating a notebook (they're top-level)
-        scopeWrap = _makeScopeSelect(() => {
-            _updateOutputBar();
-            _showingTemplates ? NbMain.loadTemplatesForAdd() : NbMain.loadNotes();
-        });
+        scopeWrap = _makeScopeSelect(() => { _updateOutputBar(); NbMain.loadTemplatesForAdd(); });
         scopeWrap.hidden = st.type === 'notebook';
         bar.appendChild(scopeWrap);
 
@@ -179,24 +175,11 @@ const NbNav = (() => {
             st.type = val;
             if (urlInput)   urlInput.hidden  = val !== 'bookmark';
             if (scopeWrap)  scopeWrap.hidden = val === 'notebook';
-            if (editBtn)    editBtn.hidden   = !(val === 'note' || val === 'todo');
             if (titleInput) titleInput.placeholder =
                 val === 'folder'   ? 'Folder name…'   :
                 val === 'notebook' ? 'Notebook name…' : 'Title…';
             _updateOutputBar();
         }));
-
-        // Templates toggle button
-        const tmplBtn = document.createElement('button');
-        tmplBtn.className = 'nb-tool-btn';
-        tmplBtn.textContent = '📋';
-        tmplBtn.title = 'Browse templates';
-        tmplBtn.addEventListener('click', () => {
-            _showingTemplates = !_showingTemplates;
-            tmplBtn.classList.toggle('active', _showingTemplates);
-            _showingTemplates ? NbMain.loadTemplatesForAdd() : NbMain.loadNotes();
-        });
-        bar.appendChild(tmplBtn);
 
         bar.appendChild(_makeSep());
 
@@ -209,7 +192,7 @@ const NbNav = (() => {
         titleInput.value       = st.title;
         titleInput.addEventListener('input', () => { st.title = titleInput.value; _markDirty(); });
         titleInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter'  && st.dirty) _doSave();
+            if (e.key === 'Enter'  && st.dirty) _doSubmit();
             if (e.key === 'Escape')              _doCancel();
         });
         bar.appendChild(titleInput);
@@ -223,7 +206,7 @@ const NbNav = (() => {
         urlInput.hidden      = st.type !== 'bookmark';
         urlInput.addEventListener('input', () => { st.url = urlInput.value; _markDirty(); });
         urlInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter'  && st.dirty) _doSave();
+            if (e.key === 'Enter'  && st.dirty) _doSubmit();
             if (e.key === 'Escape')              _doCancel();
         });
         bar.appendChild(urlInput);
@@ -238,19 +221,12 @@ const NbNav = (() => {
         cancelBtn.textContent = 'Cancel';
         cancelBtn.addEventListener('click', _doCancel);
 
-        const hasEditor = st.type === 'note' || st.type === 'todo';
-        editBtn = document.createElement('button');
-        editBtn.className   = 'nb-tool-btn';
-        editBtn.textContent = 'Edit';
-        editBtn.hidden      = !hasEditor;
-        editBtn.addEventListener('click', _doEdit);
-
         const saveBtn = document.createElement('button');
         saveBtn.className   = 'nb-tool-btn nb-btn-primary';
-        saveBtn.textContent = 'Save';
-        saveBtn.addEventListener('click', _doSave);
+        saveBtn.textContent = 'Add';
+        saveBtn.addEventListener('click', _doSubmit);
 
-        actionWrap.append(cancelBtn, editBtn, saveBtn);
+        actionWrap.append(cancelBtn, saveBtn);
         bar.appendChild(actionWrap);
 
         // ── Local helpers (close over DOM refs) ───────────────────
@@ -261,65 +237,44 @@ const NbNav = (() => {
             _updateOutputBar();
         }
 
-        function _setBusy(label) {
-            saveBtn.disabled = editBtn.disabled = true;
-            saveBtn.textContent = label;
-        }
-        function _clearBusy() {
-            saveBtn.disabled = editBtn.disabled = false;
-            saveBtn.textContent = 'Save';
-        }
-
         function _doCancel() {
             st.title = ''; st.url = ''; st.template = null; st.dirty = false;
             titleInput.value = ''; urlInput.value = '';
             actionWrap.hidden = true;
-            _showingTemplates = false;
-            tmplBtn.classList.remove('active');
             _updateOutputBar();
-            NbMain.loadNotes();
+            NbMain.loadTemplatesForAdd();
         }
 
-        function _noteArgs() {
-            return {
-                notebook:      _scope === '_all' ? 'home' : _scope,
-                type:          st.type,
-                title:         st.title,
-                url:           st.url,
-                template_path: st.template || '',
-            };
-        }
-
-        async function _doSave() {
+        async function _doSubmit() {
             if (!st.title && !st.url) return;
             if (saveBtn.disabled) return;
-            _setBusy('Saving…');
+            saveBtn.textContent = 'Adding…'; saveBtn.disabled = true;
             try {
-                const result = await NbMain.addNote(_noteArgs());
-                if (result) _doCancel();
+                const result = await NbMain.addNote({
+                    notebook:      _scope === '_all' ? 'home' : _scope,
+                    type:          st.type,
+                    title:         st.title,
+                    url:           st.url,
+                    template_path: st.template || '',
+                });
+                if (result) {
+                    if (st.type === 'note' && result.selector) {
+                        // Reset add state, then drop straight into editor for the new note
+                        st.title = ''; st.url = ''; st.template = null; st.dirty = false;
+                        activateCmd('list');
+                        await NbMain.openNote(result.selector);
+                        NbMain.openEditor();
+                    } else {
+                        _doCancel();
+                    }
+                }
             } finally {
-                _clearBusy();
+                saveBtn.textContent = 'Add'; saveBtn.disabled = false;
             }
         }
 
-        async function _doEdit() {
-            if (!st.title && !st.url) return;
-            if (editBtn.disabled) return;
-            _setBusy('Opening…');
-            try {
-                const result = await NbMain.addNote(_noteArgs());
-                if (result && result.selector) {
-                    st.title = ''; st.url = ''; st.template = null; st.dirty = false;
-                    await NbMain.openNote(result.selector);
-                    activateCmd('list');
-                    NbMain.openEditor(result.selector);
-                } else if (result) {
-                    _doCancel();
-                }
-            } finally {
-                _clearBusy();
-            }
-        }
+        // Populate list pane with templates for this notebook
+        NbMain.loadTemplatesForAdd();
 
         // Focus title immediately when Add is clicked
         requestAnimationFrame(() => titleInput.focus());
@@ -908,7 +863,7 @@ const NbNav = (() => {
                 NbMain.search(query);
                 break;
             }
-            case 'add':     NbMain.loadNotes();                                         break;
+            case 'add':     /* form lives in opts bar; list/preview untouched */        break;
             case 'cal': {
                 const y = st.displayYear, m = st.displayMonth;
                 const pfx = `${y}-${String(m).padStart(2,'0')}`;

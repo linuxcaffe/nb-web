@@ -614,15 +614,14 @@ def api_create_note():
             except ValueError:
                 pass
         r = run_nb(*args)
+        if nb_ok(r):
+            m = re.search(r'\[([^\]]+)\]', r['stdout'])
+            return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
+                            'selector': m.group(1) if m else None})
 
     if not nb_ok(r):
         return jsonify({'success': False, 'error': r['stderr']}), 400
-    m = re.search(r'\[([^\]]+)\]', r['stdout'])
-    selector = m.group(1) if m else None
-    if selector and ':' not in selector:
-        selector = f'{notebook}:{selector}'
-    return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
-                    'selector': selector})
+    return jsonify({'success': True, 'output': strip_ansi(r['stdout'])})
 
 
 # ---------------------------------------------------------------------------
