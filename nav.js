@@ -8,11 +8,10 @@ const NbNav = (() => {
 
     // Per-command state (scope-independent options only)
     const _state = {
-        list:    { type: 'all' },
+        list:    { type: 'all', todoStatus: 'open' },
         add:       { type: 'note', title: '', url: '', template: null, dirty: false },
         templates: {},
         todo:    { status: 'open' },
-        tasks:   { status: 'open' },
         cal:     { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
                    selected: null, start: null, end: null, noteDays: new Set() },
         daily:   { date: '' },
@@ -46,10 +45,6 @@ const NbNav = (() => {
             btn.addEventListener('click', () => activateCmd(btn.dataset.cmd));
         });
         // Search-bar icon buttons (toggle: click active icon → back to list)
-        document.getElementById('nb-todo-icon')     ?.addEventListener('click', () =>
-            activateCmd(_activeCmd === 'todo'      ? 'list' : 'todo'));
-        document.getElementById('nb-tasks-icon')    ?.addEventListener('click', () =>
-            activateCmd(_activeCmd === 'tasks'     ? 'list' : 'tasks'));
         document.getElementById('nb-cal-icon')      ?.addEventListener('click', () =>
             activateCmd(_activeCmd === 'cal'       ? 'list' : 'cal'));
         document.getElementById('nb-templates-icon')?.addEventListener('click', () =>
@@ -94,7 +89,6 @@ const NbNav = (() => {
         list:      _renderListOpts,
         add:       _renderAddOpts,
         todo:      _renderTodoOpts,
-        tasks:     _renderTasksOpts,
         cal:       _renderCalOpts,
         daily:     _renderDailyOpts,
         g:         _renderGrepOpts,
@@ -141,8 +135,16 @@ const NbNav = (() => {
     }
 
     function _renderListOpts(bar) {
-        bar.appendChild(_makeScopeSelect(() => NbMain.loadNotes(_typeArg(_state.list.type))));
+        const st = _state.list;
+
+        function _run() {
+            const status = st.type === 'todo' ? st.todoStatus : null;
+            NbMain.loadNotes(_typeArg(st.type), status);
+        }
+
+        bar.appendChild(_makeScopeSelect(() => { _updateOutputBar(); _run(); }));
         bar.appendChild(_makeSep());
+
         bar.appendChild(_makeChipRow([
             { val: 'all',      label: 'all' },
             { val: 'note',     label: '📝'  },
@@ -150,11 +152,28 @@ const NbNav = (() => {
             { val: 'todo',     label: '✔'   },
             { val: 'folder',   label: '📂'  },
             { val: 'image',    label: '🌄'  },
-        ], _state.list.type, val => {
-            _state.list.type = val;
+        ], st.type, val => {
+            st.type = val;
+            statusWrap.hidden = val !== 'todo';
             _updateOutputBar();
-            NbMain.loadNotes(_typeArg(val));
+            _run();
         }));
+
+        // Status chips — appear only when ✔ todo type is active
+        const statusWrap = document.createElement('span');
+        statusWrap.className = 'nb-opts-chips';
+        statusWrap.hidden = st.type !== 'todo';
+        ['open', 'closed'].forEach(s => {
+            const chip = _makeChip(s, st.todoStatus === s, () => {
+                st.todoStatus = s;
+                statusWrap.querySelectorAll('.nb-opt-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                _updateOutputBar();
+                _run();
+            });
+            statusWrap.appendChild(chip);
+        });
+        bar.appendChild(statusWrap);
     }
 
     function _renderAddOpts(bar) {
@@ -176,7 +195,7 @@ const NbNav = (() => {
         bar.appendChild(_makeChipRow([
             { val: 'note',     label: '📝 Note'     },
             { val: 'bookmark', label: '🔖 Bookmark' },
-            { val: 'todo',     label: '✔ Task'      },
+            { val: 'todo',     label: '✔ Todo'      },
             { val: 'folder',   label: '📂 Folder'   },
             { val: 'notebook', label: '📒 Notebook' },
         ], st.type, val => {
@@ -346,20 +365,6 @@ const NbNav = (() => {
             { val: 'closed', label: 'closed' },
         ], _state.todo.status, val => {
             _state.todo.status = val;
-            _updateOutputBar();
-            _executeCmd();
-        }));
-    }
-
-    // Tasks = markdown `- [ ]` items (list-level checkboxes), distinct from nb todo (`# [ ]`)
-    function _renderTasksOpts(bar) {
-        bar.appendChild(_makeScopeSelect(() => _executeCmd()));
-        bar.appendChild(_makeSep());
-        bar.appendChild(_makeChipRow([
-            { val: 'open',   label: 'open'   },
-            { val: 'closed', label: 'closed' },
-        ], _state.tasks.status, val => {
-            _state.tasks.status = val;
             _updateOutputBar();
             _executeCmd();
         }));
@@ -743,23 +748,20 @@ const NbNav = (() => {
             case 'list': {
                 tokens.push({ text: 'list' });
                 const sc = _scopeTok(); if (sc) tokens.push(sc);
-                if (st.type && st.type !== 'all') tokens.push({ text: `--type ${st.type}`, clearFn: () => {
-                    st.type = 'all'; renderOptsBar(); _executeCmd();
-                    _updateSearchIcons();
-                }});
+                if (st.type && st.type !== 'all') {
+                    const typeText = st.type === 'todo'
+                        ? `todo ${st.todoStatus || 'open'}`
+                        : `--type ${st.type}`;
+                    tokens.push({ text: typeText, clearFn: () => {
+                        st.type = 'all'; renderOptsBar(); _executeCmd();
+                    }});
+                }
                 const tg = _tagsTok();  if (tg) tokens.push(tg);
                 const sq = _searchTok(); if (sq) tokens.push(sq);
                 break;
             }
             case 'todo': {
                 tokens.push({ text: `todo ${st.status || 'open'}` });
-                const sc = _scopeTok(); if (sc) tokens.push(sc);
-                const tg = _tagsTok();  if (tg) tokens.push(tg);
-                const sq = _searchTok(); if (sq) tokens.push(sq);
-                break;
-            }
-            case 'tasks': {
-                tokens.push({ text: `tasks ${st.status || 'open'}` });
                 const sc = _scopeTok(); if (sc) tokens.push(sc);
                 const tg = _tagsTok();  if (tg) tokens.push(tg);
                 const sq = _searchTok(); if (sq) tokens.push(sq);
@@ -869,9 +871,8 @@ const NbNav = (() => {
         // Reset command-specific state
         const now = new Date();
         const defaults = {
-            list:      { type: 'all' },
+            list:      { type: 'all', todoStatus: 'open' },
             todo:      { status: 'open' },
-            tasks:     { status: 'open' },
             cal:       { displayYear: now.getFullYear(), displayMonth: now.getMonth() + 1,
                          selected: null, start: null, end: null, noteDays: new Set() },
             daily:     { date: '' },
@@ -899,8 +900,6 @@ const NbNav = (() => {
     }
 
     function _updateSearchIcons() {
-        document.getElementById('nb-todo-icon')     ?.classList.toggle('active', _activeCmd === 'todo');
-        document.getElementById('nb-tasks-icon')    ?.classList.toggle('active', _activeCmd === 'tasks');
         document.getElementById('nb-cal-icon')      ?.classList.toggle('active', _activeCmd === 'cal');
         document.getElementById('nb-templates-icon')?.classList.toggle('active', _activeCmd === 'templates');
     }
@@ -913,14 +912,10 @@ const NbNav = (() => {
             case 'list':
                 if (_tagsQuery)        NbMain.search(_tagsQuery,   _typeArg(st.type));
                 else if (_searchQuery) NbMain.search(_searchQuery, _typeArg(st.type));
-                else                   NbMain.loadNotes(_typeArg(st.type));
+                else                   NbMain.loadNotes(_typeArg(st.type),
+                                           st.type === 'todo' ? (st.todoStatus || 'open') : null);
                 break;
             case 'todo':    NbMain.loadNotes('--type todo', _state.todo.status);        break;
-            case 'tasks': {
-                const query = _state.tasks.status === 'open' ? '- [ ]' : '- [x]';
-                NbMain.search(query);
-                break;
-            }
             case 'add':     /* form lives in opts bar; list/preview untouched */        break;
             case 'cal': {
                 const y = st.displayYear, m = st.displayMonth;
@@ -961,7 +956,7 @@ const NbNav = (() => {
 
         // Commands that activate a UI view rather than running nb
         const _UI_CMDS = new Set([
-            'list','add','todo','tasks','cal','templates','g','daily','weather','info'
+            'list','add','todo','cal','templates','g','daily','weather','info'
         ]);
 
         function _menuAction(cmd) {
