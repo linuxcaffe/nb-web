@@ -263,6 +263,9 @@ const NbMain = (() => {
         const content = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
 
+        const doneBtn = document.getElementById('nb-done-btn');
+        if (doneBtn) doneBtn.hidden = !(note.type === 'todo' && note.status === 'open');
+
         const ref = document.getElementById('nb-preview-ref');
         if (ref) {
             ref.textContent = note.notebook ? `${note.notebook}:${note.id ?? '?'}` : '';
@@ -1009,6 +1012,7 @@ const NbMain = (() => {
     function _bindPreviewActions() {
         document.getElementById('nb-back-btn').addEventListener('click', _goBack);
         document.getElementById('nb-forward-btn').addEventListener('click', _goForward);
+        document.getElementById('nb-done-btn').addEventListener('click', _markTodoDone);
         document.getElementById('nb-edit-btn').addEventListener('click', () => _openEditor());
         document.getElementById('nb-save-btn').addEventListener('click', _saveNote);
         document.getElementById('nb-cancel-btn').addEventListener('click', _closeEditor);
@@ -1089,6 +1093,29 @@ const NbMain = (() => {
             document.getElementById('nb-preview-content').innerHTML =
                 '<div id="nb-welcome"><h2>nb-web</h2><p>Note deleted.</p></div>';
             loadNotes();
+        }
+    }
+
+    async function _markTodoDone() {
+        if (!_activeSelector) return;
+        const btn = document.getElementById('nb-done-btn');
+        btn.textContent = 'Marking…'; btn.disabled = true;
+        try {
+            const r = await fetch('/api/todo', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ selector: _activeSelector, done: true }),
+            });
+            const d = await r.json();
+            if (d.success) {
+                loadNotes();
+                openNote(_activeSelector);
+            } else {
+                alert('Failed: ' + (d.stderr || 'unknown'));
+                btn.textContent = 'Done'; btn.disabled = false;
+            }
+        } catch(e) {
+            btn.textContent = 'Done'; btn.disabled = false;
         }
     }
 
