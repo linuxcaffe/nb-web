@@ -45,10 +45,8 @@ const NbNav = (() => {
             btn.addEventListener('click', () => activateCmd(btn.dataset.cmd));
         });
         // Search-bar icon buttons (toggle: click active icon → back to list)
-        document.getElementById('nb-cal-icon')      ?.addEventListener('click', () =>
-            activateCmd(_activeCmd === 'cal'       ? 'list' : 'cal'));
-        document.getElementById('nb-templates-icon')?.addEventListener('click', () =>
-            activateCmd(_activeCmd === 'templates' ? 'list' : 'templates'));
+        document.getElementById('nb-cal-icon')?.addEventListener('click', () =>
+            activateCmd(_activeCmd === 'cal' ? 'list' : 'cal'));
     }
 
     function activateCmd(cmd, opts = {}) {
@@ -900,8 +898,7 @@ const NbNav = (() => {
     }
 
     function _updateSearchIcons() {
-        document.getElementById('nb-cal-icon')      ?.classList.toggle('active', _activeCmd === 'cal');
-        document.getElementById('nb-templates-icon')?.classList.toggle('active', _activeCmd === 'templates');
+        document.getElementById('nb-cal-icon')?.classList.toggle('active', _activeCmd === 'cal');
     }
 
     // ── Execute command ───────────────────────────────────────────
