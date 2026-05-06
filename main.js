@@ -205,14 +205,20 @@ const NbMain = (() => {
             const stillPresent = _activeSelector && notes.some(n => n.selector === _activeSelector);
             if (!stillPresent) {
                 const first = notes.find(n => n.type !== 'folder');
-                if (first) openNote(first.selector);
+                if (first) openNote(first.selector, true, { autoSelect: true });
             }
         }
     }
 
     // ── Open / preview note ────────────────────────────────────────
 
-    async function openNote(selector, pushHistory = true) {
+    async function openNote(selector, pushHistory = true, opts = {}) {
+        if (_editing && selector !== _activeSelector) {
+            if (opts.autoSelect) return;   // renderList auto-select: never disrupt editing
+            if (!confirm('Discard unsaved changes?')) return;
+            _closeEditor();
+        }
+
         // Always update list visual selection — shows where cursor is even when pinned
         document.querySelectorAll('.nb-list-item').forEach(el => {
             el.classList.toggle('active', el.dataset.selector === selector);
@@ -258,11 +264,6 @@ const NbMain = (() => {
             ref.style.cursor = 'pointer';
             ref.onclick = e => _showInfoPopover(e, note.selector || `${note.notebook}:${note.id}`);
         }
-
-        // Cancel any active editing
-        _editing = false;
-        document.getElementById('nb-editor-wrap').hidden = true;
-        document.getElementById('nb-preview-content').hidden = false;
 
         let html = '';
 
@@ -1002,7 +1003,7 @@ const NbMain = (() => {
     function _bindPreviewActions() {
         document.getElementById('nb-back-btn').addEventListener('click', _goBack);
         document.getElementById('nb-forward-btn').addEventListener('click', _goForward);
-        document.getElementById('nb-edit-btn').addEventListener('click', _openEditor);
+        document.getElementById('nb-edit-btn').addEventListener('click', () => _openEditor());
         document.getElementById('nb-save-btn').addEventListener('click', _saveNote);
         document.getElementById('nb-cancel-btn').addEventListener('click', _closeEditor);
         document.getElementById('nb-delete-btn').addEventListener('click', _deleteNote);
@@ -1014,12 +1015,12 @@ const NbMain = (() => {
         });
     }
 
-    function _openEditor() {
-        if (!_activeSelector) return;
+    function _openEditor(targetSelector) {
+        const sel = targetSelector || _activeSelector;
+        if (!sel) return;
+        _activeSelector = sel;
         _editing = true;
-        const raw = document.querySelector('#nb-preview-content .nb-rendered');
-        // Get raw content from server (already stored in note data if we cache it)
-        fetch('/api/note?selector=' + encodeURIComponent(_activeSelector))
+        fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
             .then(d => {
                 const ta = document.getElementById('nb-editor');
@@ -1416,7 +1417,7 @@ const NbMain = (() => {
                                        template_path: template_path || '' }),
             });
             const d = await r.json();
-            if (d.success) { loadNotes(); return d; }
+            if (d.success) { return d; }
             alert('Add failed: ' + (d.error || 'unknown'));
             return null;
         } catch(e) {
@@ -1784,7 +1785,8 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
-             doSync, showAbout, openEditor: _openEditor };
+             doSync, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
+             isEditing: () => _editing };
 })();
 
 // ── Settings stub (wired up later) ────────────────────────────────

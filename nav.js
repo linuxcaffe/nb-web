@@ -56,7 +56,11 @@ const NbNav = (() => {
             activateCmd(_activeCmd === 'templates' ? 'list' : 'templates'));
     }
 
-    function activateCmd(cmd) {
+    function activateCmd(cmd, opts = {}) {
+        if (!opts.internal && NbMain.isEditing?.()) {
+            if (!confirm('Discard unsaved changes?')) return;
+            NbMain.closeEditor?.();
+        }
         _activeCmd = cmd;
         document.querySelectorAll('.nb-cmd').forEach(b =>
             b.classList.toggle('active', b.dataset.cmd === cmd));
@@ -316,12 +320,11 @@ const NbNav = (() => {
             _busy('Opening…');
             try {
                 const result = await NbMain.addNote(_noteArgs());
-                console.log('[doEdit] result:', result);
                 if (result && result.selector) {
                     st.title = ''; st.url = ''; st.template = null; st.dirty = false;
-                    activateCmd('list');
+                    activateCmd('list', { internal: true });
                     await NbMain.openNote(result.selector);
-                    NbMain.openEditor();
+                    NbMain.openEditor(result.selector);
                 } else if (result) {
                     console.warn('[doEdit] no selector returned — falling back to save', result);
                     _doCancel();
