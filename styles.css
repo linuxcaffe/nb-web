@@ -639,6 +639,7 @@ body {
 .nb-list-item.active { background: var(--accent-dim); border-left: 2px solid var(--accent); }
 
 .nb-list-icon { font-size: 13px; line-height: 1.5; flex-shrink: 0; width: 18px; }
+.nb-list-pin  { font-size: 9px; flex-shrink: 0; opacity: 0.6; align-self: flex-start; padding-top: 3px; margin-right: 1px; }
 .nb-list-body { flex: 1; min-width: 0; }
 .nb-list-title-row {
   display: flex;
@@ -1183,6 +1184,31 @@ pre.nb-cmd-output {
 }
 
 /* ── Side menu section labels ─────────────────────────────────── */
+
+/* ── Full-screen preview mode ────────────────────────────────── */
+body.nb-fullscreen #nb-cmd-opts-bar,
+body.nb-fullscreen #nb-breadcrumb,
+body.nb-fullscreen #nb-cmd-output-bar,
+body.nb-fullscreen #nb-bottom-bar,
+body.nb-fullscreen #nb-list-pane,
+body.nb-fullscreen #nb-drag-handle { display: none !important; }
+
+body.nb-fullscreen #nb-layout {
+  position: fixed;
+  top: var(--cmd-bar-h, 42px);
+  left: 0; right: 0; bottom: 0;
+  z-index: 20;
+}
+body.nb-fullscreen #nb-preview-pane { flex: 1; max-width: 100%; border: none; }
+body.nb-fullscreen #nb-cmd-bar { cursor: pointer; }
+body.nb-fullscreen #nb-cmd-bar::after {
+  content: '✕ exit full screen';
+  font-size: 10px;
+  color: var(--accent);
+  margin-left: 12px;
+  opacity: 0.7;
+  pointer-events: none;
+}
 
 /* ── Responsive: narrow (tablet/mobile) ───────────────────────── */
 @media (max-width: 700px) {

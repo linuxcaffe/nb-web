@@ -8,7 +8,8 @@ const NbMain = (() => {
     let _lastNotes      = [];       // original load order, for client-side sort
     let _sortMode       = 'default';
     let _foldersFirst   = localStorage.getItem('nb-folders-first') === 'true';
-    let _pinned         = false;
+    let _pinnedSelectors = new Set(JSON.parse(localStorage.getItem('nb-pinned') || '[]'));
+    let _isFullscreen    = false;
     let _listSeq        = 0;        // incremented on every new list request; stale responses are dropped
     const _history      = [];       // back-stack
     const _future       = [];       // forward-stack (cleared on any new navigation)
@@ -98,6 +99,11 @@ const NbMain = (() => {
             const rest    = result.filter(n => n.type !== 'folder');
             result = [...folders, ...rest];
         }
+        if (_pinnedSelectors.size) {
+            const pinned = result.filter(n => _pinnedSelectors.has(n.selector));
+            const rest   = result.filter(n => !_pinnedSelectors.has(n.selector));
+            result = [...pinned, ...rest];
+        }
         return result;
     }
 
@@ -158,6 +164,10 @@ const NbMain = (() => {
                                '📖': 'Ebook', '📄': 'Document' };
             if (note.indicator) icon.title = _iconTip[note.indicator] || '';
 
+            const pinBadge = _pinnedSelectors.has(note.selector)
+                ? Object.assign(document.createElement('span'), { className: 'nb-list-pin', textContent: '📌', title: 'Pinned to top' })
+                : null;
+
             const body = document.createElement('div');
             body.className = 'nb-list-body';
 
@@ -195,6 +205,7 @@ const NbMain = (() => {
                 body.appendChild(exc);
             }
 
+            if (pinBadge) li.appendChild(pinBadge);
             li.appendChild(icon);
             li.appendChild(body);
 
@@ -231,15 +242,13 @@ const NbMain = (() => {
             el.classList.toggle('active', el.dataset.selector === selector);
         });
 
-        // When pinned, freeze the preview — list browsing doesn't change the note shown
-        if (_pinned) return;
-
         if (pushHistory && _activeSelector && _activeSelector !== selector) {
             _history.push(_activeSelector);
             _future.length = 0;   // new navigation invalidates forward history
         }
         _activeSelector = selector;
         _updateNavBtns();
+        document.getElementById('nb-pin-indicator').hidden = !_pinnedSelectors.has(selector);
 
         // Show toolbar
         const toolbar = document.getElementById('nb-preview-toolbar');
@@ -582,11 +591,17 @@ const NbMain = (() => {
     }
 
     function _togglePin() {
-        _pinned = !_pinned;
-        const indicator = document.getElementById('nb-pin-indicator');
-        const toolbar   = document.getElementById('nb-preview-toolbar');
-        if (indicator) indicator.hidden = !_pinned;
-        if (toolbar)   toolbar.classList.toggle('nb-pinned', _pinned);
+        if (!_activeSelector) return;
+        if (_pinnedSelectors.has(_activeSelector)) _pinnedSelectors.delete(_activeSelector);
+        else                                        _pinnedSelectors.add(_activeSelector);
+        localStorage.setItem('nb-pinned', JSON.stringify([..._pinnedSelectors]));
+        document.getElementById('nb-pin-indicator').hidden = !_pinnedSelectors.has(_activeSelector);
+        renderList(_getSortedNotes(_lastNotes), true);
+    }
+
+    function _toggleFullscreen() {
+        _isFullscreen = !_isFullscreen;
+        document.body.classList.toggle('nb-fullscreen', _isFullscreen);
     }
 
     function _bindPreviewMenu() {
@@ -595,9 +610,12 @@ const NbMain = (() => {
         btn.addEventListener('click', () => {
             const hasNote = !!_activeSelector;
             _showDropdown(btn, [
-                { label: _pinned ? '📌 Unpin preview' : '📌 Pin preview',
+                { label: _pinnedSelectors.has(_activeSelector) ? '📌 Unpin from list' : '📌 Pin to list top',
                   disabled: !hasNote,
                   action: _togglePin },
+                { label: _isFullscreen ? '⛶ Exit full screen' : '⛶ Full screen',
+                  disabled: !hasNote,
+                  action: _toggleFullscreen },
                 'sep',
                 { label: 'Rename…',           disabled: !hasNote, action: _doRename },
                 { label: 'Move to…',          disabled: !hasNote, action: _doMove },
@@ -840,7 +858,12 @@ const NbMain = (() => {
             }
         }
 
+        document.getElementById('nb-cmd-bar')?.addEventListener('click', () => {
+            if (_isFullscreen) _toggleFullscreen();
+        });
+
         document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && _isFullscreen) { _toggleFullscreen(); return; }
             // Let inputs handle their own keys
             const tag = document.activeElement?.tagName;
             if (['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
