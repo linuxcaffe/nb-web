@@ -7,7 +7,7 @@ const NbMain = (() => {
     let _todayInfo      = null;
     let _lastNotes      = [];       // original load order, for client-side sort
     let _sortMode       = 'default';
-    let _foldersFirst   = false;
+    let _foldersFirst   = localStorage.getItem('nb-folders-first') === 'true';
     let _pinned         = false;
     let _listSeq        = 0;        // incremented on every new list request; stale responses are dropped
     const _history      = [];       // back-stack
@@ -22,6 +22,7 @@ const NbMain = (() => {
         _bindAppend();
         _bindPreviewActions();
         _bindListMenu();
+        document.getElementById('nb-list-menu-btn')?.classList.toggle('nb-sort-active', _foldersFirst);
         _bindSortBtn();
         _bindPreviewMenu();
         _bindKeyboard();
@@ -550,6 +551,7 @@ const NbMain = (() => {
                 { label: '📂 Folders first', active: _foldersFirst,
                   action: () => {
                       _foldersFirst = !_foldersFirst;
+                      localStorage.setItem('nb-folders-first', _foldersFirst);
                       renderList(_getSortedNotes(_lastNotes), true);
                       const hbtn = document.getElementById('nb-list-menu-btn');
                       if (hbtn) hbtn.classList.toggle('nb-sort-active', _foldersFirst);

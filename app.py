@@ -278,7 +278,16 @@ def _list_all_notes(limit):
             if not fname:
                 continue
             fpath = nb_dir / fname
-            if not fpath.exists() or fname.startswith('.') or fpath.is_dir():
+            if not fpath.exists() or fname.startswith('.'):
+                continue
+            if fpath.is_dir():
+                all_items.append({
+                    'type': 'folder', 'indicator': '📂',
+                    'filename': fname, 'title': fname,
+                    'selector': f"{nb_name}:{fname}/",
+                    'excerpt': '', 'notebook': nb_name,
+                    'updated': '', 'pinned': False, 'status': None,
+                })
                 continue
             try:
                 raw = fpath.read_text(errors='replace')
