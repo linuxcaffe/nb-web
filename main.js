@@ -58,8 +58,8 @@ const NbMain = (() => {
         }
     }
 
-    async function search(query, typeFilter) {
-        if (!query.trim()) { loadNotes(typeFilter); return; }
+    async function search(query, typeFilter, statusFilter) {
+        if (!query.trim()) { loadNotes(typeFilter, statusFilter); return; }
         const nb     = NbNav.notebook;
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb, q: query });
@@ -68,7 +68,8 @@ const NbMain = (() => {
             const r = await fetch('/api/notes?' + params);
             const d = await r.json();
             let notes = d.notes || [];
-            if (typeFilter) notes = notes.filter(n => n.type === typeFilter.replace('--type ', ''));
+            if (typeFilter)   notes = notes.filter(n => n.type   === typeFilter.replace('--type ', ''));
+            if (statusFilter) notes = notes.filter(n => n.status === statusFilter);
             renderList(notes);
         } catch (e) {
             console.error('search:', e);

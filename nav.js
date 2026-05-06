@@ -136,8 +136,7 @@ const NbNav = (() => {
         const st = _state.list;
 
         function _run() {
-            const status = st.type === 'todo' ? st.todoStatus : null;
-            NbMain.loadNotes(_typeArg(st.type), status);
+            _executeCmd();   // honours _searchQuery / _tagsQuery alongside type + status
         }
 
         bar.appendChild(_makeScopeSelect(() => { _updateOutputBar(); _run(); }));
@@ -906,12 +905,13 @@ const NbNav = (() => {
     function _executeCmd() {
         const st = _state[_activeCmd];
         switch (_activeCmd) {
-            case 'list':
-                if (_tagsQuery)        NbMain.search(_tagsQuery,   _typeArg(st.type));
-                else if (_searchQuery) NbMain.search(_searchQuery, _typeArg(st.type));
-                else                   NbMain.loadNotes(_typeArg(st.type),
-                                           st.type === 'todo' ? (st.todoStatus || 'open') : null);
+            case 'list': {
+                const _status = st.type === 'todo' ? (st.todoStatus || 'open') : null;
+                if (_tagsQuery)        NbMain.search(_tagsQuery,   _typeArg(st.type), _status);
+                else if (_searchQuery) NbMain.search(_searchQuery, _typeArg(st.type), _status);
+                else                   NbMain.loadNotes(_typeArg(st.type), _status);
                 break;
+            }
             case 'todo':    NbMain.loadNotes('--type todo', _state.todo.status);        break;
             case 'add':     /* form lives in opts bar; list/preview untouched */        break;
             case 'cal': {
