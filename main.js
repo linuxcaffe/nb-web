@@ -1014,12 +1014,12 @@ const NbMain = (() => {
         });
     }
 
-    function _openEditor() {
-        if (!_activeSelector) return;
+    function _openEditor(targetSelector) {
+        const sel = targetSelector || _activeSelector;
+        if (!sel) return;
+        _activeSelector = sel;
         _editing = true;
-        const raw = document.querySelector('#nb-preview-content .nb-rendered');
-        // Get raw content from server (already stored in note data if we cache it)
-        fetch('/api/note?selector=' + encodeURIComponent(_activeSelector))
+        fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
             .then(d => {
                 const ta = document.getElementById('nb-editor');
@@ -1042,7 +1042,7 @@ const NbMain = (() => {
                 body: JSON.stringify({selector: _activeSelector, content}),
             });
             const d = await r.json();
-            if (d.success) { _closeEditor(); openNote(_activeSelector); }
+            if (d.success) { _closeEditor(); loadNotes(); openNote(_activeSelector); }
             else alert('Save failed: ' + (d.stderr || 'unknown error'));
         } finally {
             btn.textContent = 'Save';
@@ -1416,7 +1416,7 @@ const NbMain = (() => {
                                        template_path: template_path || '' }),
             });
             const d = await r.json();
-            if (d.success) { loadNotes(); return d; }
+            if (d.success) { return d; }
             alert('Add failed: ' + (d.error || 'unknown'));
             return null;
         } catch(e) {
