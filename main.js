@@ -13,6 +13,7 @@ const NbMain = (() => {
     let _listSeq        = 0;        // incremented on every new list request; stale responses are dropped
     const _history      = [];       // back-stack
     const _future       = [];       // forward-stack (cleared on any new navigation)
+    const _wikilinkCache = new Map(); // selector → resolved title
 
     // ── Boot ───────────────────────────────────────────────────────
 
@@ -335,6 +336,7 @@ const NbMain = (() => {
         content.querySelectorAll('.nb-wiki-link').forEach(el => {
             el.addEventListener('click', () => openNote(el.dataset.selector || el.textContent));
         });
+        _resolveWikilinks(content);
         content.querySelectorAll('.nb-tag-link').forEach(el => {
             el.addEventListener('click', () => {
                 const tag = el.textContent;
@@ -697,12 +699,34 @@ const NbMain = (() => {
 </div>`;
     }
 
+    async function _resolveWikilinks(container) {
+        const spans = [...container.querySelectorAll('.nb-wiki-link[data-autolabel]')];
+        if (!spans.length) return;
+        await Promise.all(spans.map(async span => {
+            const sel = span.dataset.selector;
+            if (!sel) return;
+            try {
+                let title;
+                if (_wikilinkCache.has(sel)) {
+                    title = _wikilinkCache.get(sel);
+                } else {
+                    const r = await fetch('/api/note?selector=' + encodeURIComponent(sel));
+                    if (!r.ok) return;
+                    const d = await r.json();
+                    title = d.title || d.filename || sel;
+                    _wikilinkCache.set(sel, title);
+                }
+                if (title && title !== sel) span.textContent = title;
+            } catch(e) { /* leave as-is */ }
+        }));
+    }
+
     function _renderMarkdown(body) {
         if (typeof marked === 'undefined') return `<pre>${_esc(body)}</pre>`;
         // Pre-process wiki-links and hashtags before marked
         let processed = body
             .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) =>
-                `<span class="nb-wiki-link" data-selector="${_esc(target)}">${_esc(label || target)}</span>`)
+                `<span class="nb-wiki-link" data-selector="${_esc(target)}"${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`)
             .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
                 `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
         return marked.parse(processed);
@@ -871,15 +895,30 @@ const NbMain = (() => {
         input.type      = 'text';
         input.className = 'nb-rename-input';
         input.value     = origText;
+
+        const saveBtn   = document.createElement('button');
+        saveBtn.className   = 'nb-tool-btn nb-btn-primary nb-rename-save';
+        saveBtn.textContent = 'Save';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className   = 'nb-tool-btn nb-rename-cancel';
+        cancelBtn.textContent = 'Cancel';
+
         titleEl.style.display = 'none';
         titleEl.parentNode.insertBefore(input, titleEl.nextSibling);
+        titleEl.parentNode.insertBefore(saveBtn,   input.nextSibling);
+        titleEl.parentNode.insertBefore(cancelBtn, saveBtn.nextSibling);
         input.select();
 
-        function cancel() { input.remove(); titleEl.style.display = ''; }
+        function cancel() {
+            [input, saveBtn, cancelBtn].forEach(el => el.remove());
+            titleEl.style.display = '';
+        }
 
         async function commit() {
             const newName = input.value.trim();
-            input.remove(); titleEl.style.display = '';
+            [input, saveBtn, cancelBtn].forEach(el => el.remove());
+            titleEl.style.display = '';
             if (!newName || newName === origText) return;
             try {
                 const r = await fetch('/api/note/rename', {
@@ -897,6 +936,8 @@ const NbMain = (() => {
             if (e.key === 'Enter')  { e.preventDefault(); commit(); }
             if (e.key === 'Escape') cancel();
         });
+        saveBtn.addEventListener('click', commit);
+        cancelBtn.addEventListener('click', cancel);
         input.focus();
     }
 

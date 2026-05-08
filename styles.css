@@ -1197,6 +1197,8 @@ mark.nb-highlight {
   flex: 1;
 }
 
+.nb-rename-save, .nb-rename-cancel { font-size: 11px; padding: 2px 8px; }
+
 /* ── Move-to bar (injected below preview toolbar) ─────────────── */
 .nb-move-bar {
   display: flex;
