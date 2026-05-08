@@ -64,13 +64,14 @@ const NbMain = (() => {
         }
     }
 
-    async function search(query, typeFilter, statusFilter) {
+    async function search(query, typeFilter, statusFilter, tagsQuery) {
         if (!query.trim()) { loadNotes(typeFilter, statusFilter); return; }
         const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb, q: query });
-        if (folder) params.set('folder', folder);
+        if (folder)     params.set('folder', folder);
+        if (tagsQuery)  params.set('tags', tagsQuery);
         try {
             const r = await fetch('/api/notes?' + params);
             const d = await r.json();
@@ -133,6 +134,7 @@ const NbMain = (() => {
         if (!notes.length) {
             empty.hidden = false;
             countEl.textContent = '0 items';
+            document.getElementById('nb-type-breakdown').textContent = '';
             return;
         }
         empty.hidden = true;
@@ -1480,8 +1482,7 @@ const NbMain = (() => {
     function _dispatchQuery(raw) {
         const q = raw.trim();
         if (!q) {
-            if (NbNav.activeCmd === 'cal') { NbNav.reexecute(); return; }
-            loadNotes();
+            NbNav.reexecute();
             return;
         }
 
@@ -1506,7 +1507,7 @@ const NbMain = (() => {
             openNote(`${NbNav.notebook}:${q}`);
             return;
         }
-        search(q);
+        NbNav.reexecute();
     }
 
     function _bindTags() {
@@ -1522,9 +1523,7 @@ const NbMain = (() => {
             const q   = raw ? (raw.startsWith('#') ? raw : `#${raw}`) : '';
             NbNav.setTagsQuery(q);
             _tagsTimer = setTimeout(() => {
-                if (NbNav.activeCmd === 'cal') NbNav.reexecute();
-                else if (q) search(q);
-                else        loadNotes();
+                NbNav.reexecute();
             }, 400);
         });
 
@@ -1532,8 +1531,7 @@ const NbMain = (() => {
             input.value = '';
             clear.hidden = true;
             NbNav.setTagsQuery('');
-            if (NbNav.activeCmd === 'cal') NbNav.reexecute();
-            else loadNotes();
+            NbNav.reexecute();
         });
     }
 

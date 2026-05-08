@@ -281,7 +281,8 @@ def api_notes():
 
     if query:
         nb_arg = '' if notebook == '_all' else notebook
-        return _search_notes(nb_arg, folder, query, limit)
+        tags   = request.args.get('tags', '').strip() or None
+        return _search_notes(nb_arg, folder, query, limit, tags=tags)
     if notebook == '_all':
         return _list_all_notes(limit)
     return _list_notes(notebook, folder, limit)
@@ -427,19 +428,38 @@ def _read_excerpt(nb_name, raw_id_or_sel):
     return ''
 
 
-def _search_notes(notebook, folder, query, limit):
+def _search_notes(notebook, folder, query, limit, tags=None):
     """Full-text search via nb CLI.
 
     nb search --list output format: [selector]  Title
     selector is a bare id (e.g. 41), a path (2026/01-January/7),
     or notebook:id (gbct:1) when using --all.
+
+    When tags is also provided, runs a second search for the tag and
+    returns only items present in both result sets (AND logic).
     """
-    args = [f"{notebook}:search", query, '--list'] if notebook else ['search', query, '--list']
-    r = run_nb(*args)
-    lines = [strip_ansi(l) for l in r['stdout'].splitlines() if l.strip()]
+    def _run_search(q):
+        args = [f"{notebook}:search", q, '--list'] if notebook else ['search', q, '--list']
+        r = run_nb(*args)
+        return [strip_ansi(l) for l in r['stdout'].splitlines() if l.strip()]
+
+    pat   = re.compile(r'^\[([^\]]+)\]\s+(.+)$')
+    lines = _run_search(query)
+
+    # If a tag filter is also active, intersect by selector
+    tag_selectors = None
+    if tags:
+        tag_lines = _run_search(tags)
+        tag_selectors = set()
+        for tl in tag_lines:
+            tm = pat.match(tl.strip())
+            if not tm:
+                continue
+            rs = tm.group(1).strip()
+            sel = rs if ':' in rs else (f"{notebook}:{rs}" if notebook else rs)
+            tag_selectors.add(sel)
+
     items = []
-    # Pattern: [selector]  Title (with optional emoji indicators before title)
-    pat = re.compile(r'^\[([^\]]+)\]\s+(.+)$')
     for line in lines[:limit]:
         m = pat.match(line.strip())
         if not m:
@@ -457,18 +477,25 @@ def _search_notes(notebook, folder, query, limit):
             selector = f"{notebook}:{raw_sel}" if notebook else raw_sel
             nb_part  = notebook
 
-        # Guess type from title suffix / known patterns
-        itype = 'note'
+        # AND logic: skip if not in tag results
+        if tag_selectors is not None and selector not in tag_selectors:
+            continue
+
+        # Guess type and status from line content
+        itype       = 'note'
+        todo_status = None
         if title.endswith(('.bookmark.md', '.bookmark')):
             itype = 'bookmark'
-        elif '[x]' in line or '✅' in line:
-            itype = 'todo'
+        elif '[ ]' in line or '[x]' in line or '✅' in line:
+            itype       = 'todo'
+            todo_status = 'closed' if ('[x]' in line or '✅' in line) else 'open'
 
         items.append({
             'selector':  selector,
             'filename':  raw_sel,
             'title':     title or raw_sel,
             'type':      itype,
+            'status':    todo_status,
             'indicator': INDICATORS.get(itype, ''),
             'excerpt':   _read_excerpt(nb_part, raw_sel),
             'updated':   '',
