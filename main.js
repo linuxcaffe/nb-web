@@ -279,9 +279,17 @@ const NbMain = (() => {
         const editBtn = document.getElementById('nb-edit-btn');
         if (editBtn) editBtn.hidden = (note.type === 'sheet');
 
-        // Clear any stale sheet save handler when navigating away from a sheet
+        // Hide embedded-block Save button on every navigation
+        const _ssb = document.getElementById('nb-sheet-save-btn');
+        if (_ssb) { _ssb.hidden = true; _ssb.onclick = null; }
+
+        // Clean up sheet UI when navigating away from a sheet
         if (note.type !== 'sheet' && _sheetInstance) {
             _sheetInstance = null;
+            document.getElementById('nb-editor-wrap').hidden = true;
+            document.getElementById('nb-editor').hidden = false;
+            document.querySelectorAll('#nb-editor-toolbar [data-fmt]')
+                .forEach(b => b.hidden = false);
             const sb = document.getElementById('nb-save-btn');
             if (sb) sb.onclick = null;
         }
@@ -476,7 +484,10 @@ const NbMain = (() => {
     }
 
     function _renderCsvBlocks(container) {
-        container.querySelectorAll('pre > code.language-csv').forEach((code, i) => {
+        const blocks = container.querySelectorAll('pre > code.language-csv');
+        if (!blocks.length) return;
+
+        blocks.forEach((code) => {
             const pre  = code.parentElement;
             const raw  = code.textContent.trim();
             const rows = raw.split('\n').filter(r => r.trim() !== '').map(r =>
@@ -489,6 +500,54 @@ const NbMain = (() => {
                 worksheets: [{ data: rows.length ? rows : [['']] }],
             });
         });
+
+        // Show Save button in preview toolbar for embedded blocks
+        const btn = document.getElementById('nb-sheet-save-btn');
+        if (btn) { btn.hidden = false; btn.onclick = () => _saveCsvBlocks(); }
+    }
+
+    async function _saveCsvBlocks() {
+        if (!_activeSelector) return;
+        const btn = document.getElementById('nb-sheet-save-btn');
+        btn.textContent = 'Saving…';
+        try {
+            const r  = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector));
+            const d  = await r.json();
+            let raw  = d.raw || d.body || '';
+
+            const hosts = [...document.querySelectorAll('.nb-csv-block')];
+            let blockIdx = 0;
+            raw = raw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
+                const host = hosts[blockIdx++];
+                if (!host?.spreadsheet) return match;
+                const data = host.spreadsheet.worksheets[0].getData();
+                const csv  = data.map(row =>
+                    row.map(cell => {
+                        const s = String(cell ?? '');
+                        return s.includes(',') || s.includes('"') || s.includes('\n')
+                            ? `"${s.replace(/"/g, '""')}"` : s;
+                    }).join(',')
+                ).join('\n');
+                return '```csv\n' + csv + '\n```';
+            });
+
+            const wr = await fetch('/api/note', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({selector: _activeSelector, content: raw}),
+            });
+            const wd = await wr.json();
+            if (wd.success) {
+                btn.textContent = '✓ Saved';
+                setTimeout(() => { btn.textContent = 'Save'; }, 1200);
+            } else {
+                alert('Save failed: ' + (wd.stderr || 'unknown'));
+            }
+        } catch(e) {
+            alert('Save error: ' + e);
+        } finally {
+            if (btn.textContent === 'Saving…') btn.textContent = 'Save';
+        }
     }
 
     let _sheetInstance = null;
@@ -509,27 +568,31 @@ const NbMain = (() => {
                     data: rows.length ? rows : [['']],
                     minDimensions: [6, 8],
                 }],
-                onload: () => {
-                    const saveBtn = document.getElementById('nb-save-btn');
-                    if (saveBtn) { saveBtn.hidden = false; saveBtn.onclick = () => _saveSheet(); }
-                    const cancelBtn = document.getElementById('nb-cancel-btn');
-                    if (cancelBtn) cancelBtn.hidden = true;
-                },
             });
         } catch(e) {
             host.innerHTML = `<div style="padding:40px;color:var(--red)">Sheet init error: ${_esc(String(e))}</div>`;
             return;
         }
 
+        // Show Save/Cancel synchronously — don't rely on async onload
+        document.getElementById('nb-editor-wrap').hidden = false;
+        document.getElementById('nb-editor').hidden = true;
+        document.querySelectorAll('#nb-editor-toolbar [data-fmt]').forEach(b => b.hidden = true);
+        document.getElementById('nb-save-btn').onclick = () => _saveSheet();
+        document.getElementById('nb-cancel-btn').onclick = () => openNote(_activeSelector);
+
     }
 
     async function _saveSheet() {
-        if (!_activeSelector || !_sheetInstance) return;
+        if (!_activeSelector) return;
+        const host = document.getElementById('nb-sheet-host');
+        const spreadsheet = host?.spreadsheet;
+        const ws = spreadsheet?.worksheets?.[0];
+        if (!ws) { alert('Sheet not ready'); return; }
         const btn = document.getElementById('nb-save-btn');
         btn.textContent = 'Saving…';
         try {
-            const ws = Array.isArray(_sheetInstance) ? _sheetInstance[0] : _sheetInstance;
-        const data = ws.getData();
+            const data = ws.getData();
             const csv = data.map(row =>
                 row.map(cell => {
                     const s = String(cell ?? '');
@@ -543,9 +606,16 @@ const NbMain = (() => {
                 body: JSON.stringify({selector: _activeSelector, content: csv}),
             });
             const d = await r.json();
-            if (!d.success) alert('Save failed: ' + (d.stderr || 'unknown error'));
-        } finally {
+            if (d.success) {
+                btn.textContent = '✓ Saved';
+                setTimeout(() => { btn.textContent = 'Save'; }, 1200);
+            } else {
+                alert('Save failed: ' + (d.stderr || 'unknown error'));
+                btn.textContent = 'Save';
+            }
+        } catch(e) {
             btn.textContent = 'Save';
+            throw e;
         }
     }
 
