@@ -155,9 +155,11 @@ def classify(filename, notebook=None):
 
 
 INDICATORS = {
-    'bookmark':  '🔖',
-    'todo':      '✔️',
-    'encrypted': '🔒',
+    'bookmark':    '🔖',
+    'todo':        '✔️',   # fallback when status unknown
+    'todo_open':   '○',
+    'todo_closed': '✔️',
+    'encrypted':   '🔒',
     'image':     '🌄',
     'audio':     '🔉',
     'video':     '📹',
@@ -168,6 +170,12 @@ INDICATORS = {
     'note':      '',
     'file':      '',
 }
+
+def _indicator(itype, todo_status=None):
+    if itype == 'todo' and todo_status:
+        return INDICATORS.get(f'todo_{todo_status}', '✔️')
+    return INDICATORS.get(itype, '')
+
 
 ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 
@@ -338,7 +346,7 @@ def _list_all_notes(limit):
                 todo_status = 'closed' if first.startswith('# [x]') else 'open'
             all_items.append({
                 'type':      itype,
-                'indicator': INDICATORS.get(itype, ''),
+                'indicator': _indicator(itype, todo_status),
                 'filename':  fname,
                 'title':     title,
                 'selector':  f"{nb_name}:{fname}",
@@ -400,7 +408,7 @@ def _list_notes(notebook, folder, limit):
         sel_path = (folder + '/' if folder else '') + fname
         items.append({
             'type':      itype,
-            'indicator': INDICATORS.get(itype, ''),
+            'indicator': _indicator(itype, todo_status),
             'id':        item_id,
             'filename':  fname,
             'title':     title,
@@ -542,7 +550,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
             'title':     title or raw_sel,
             'type':      itype,
             'status':    todo_status,
-            'indicator': INDICATORS.get(itype, ''),
+            'indicator': _indicator(itype, todo_status),
             'excerpt':   _read_excerpt(nb_part, raw_sel),
             'notebook':  nb_part,
             'updated':   '',
@@ -848,7 +856,11 @@ def _resolve_file_to_note(fpath_str):
         except OSError:
             return None
         _, body = parse_frontmatter(raw)
-        itype   = classify(fname, nb_name)
+        itype       = classify(fname, nb_name)
+        todo_status = None
+        if itype == 'todo':
+            first = next((l.strip() for l in body.splitlines() if l.strip()), '')
+            todo_status = 'closed' if first.startswith('# [x]') else 'open'
         return {
             'notebook':  nb_name,
             'id':        note_id,
@@ -856,7 +868,7 @@ def _resolve_file_to_note(fpath_str):
             'selector':  f"{nb_name}:{fname}",
             'title':     note_title(fname, body),
             'type':      itype,
-            'indicator': INDICATORS.get(itype, ''),
+            'indicator': _indicator(itype, todo_status),
         }
     return None
 

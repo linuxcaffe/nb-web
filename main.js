@@ -161,7 +161,7 @@ const NbMain = (() => {
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
             icon.textContent = note.indicator || '';
-            const _iconTip = { '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Todo',
+            const _iconTip = { '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Closed todo',
                                '🔖': 'Bookmark', '🔒': 'Encrypted', '📂': 'Folder',
                                '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
                                '📖': 'Ebook', '📄': 'Document', '🗃️': 'Sheet', '🪪': 'Contact' };
