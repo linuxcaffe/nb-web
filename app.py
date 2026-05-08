@@ -125,6 +125,8 @@ def classify(filename):
         return 'note'
     if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'):
         return 'image'
+    if ext == '.csv':
+        return 'sheet'
     if ext in ('.mp3', '.ogg', '.flac', '.wav', '.m4a'):
         return 'audio'
     if ext in ('.mp4', '.mkv', '.webm', '.avi'):
@@ -144,6 +146,7 @@ INDICATORS = {
     'video':     '📹',
     'ebook':     '📖',
     'document':  '📄',
+    'sheet':     '🗃️',
     'note':      '',
     'file':      '',
 }

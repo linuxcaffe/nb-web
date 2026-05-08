@@ -722,6 +722,23 @@ body {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+  position: relative;
+}
+
+#nb-preview-pane.nb-drop-active::after {
+  content: '⬇ Drop to import';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-dim);
+  border: 2px dashed var(--accent);
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  pointer-events: none;
+  z-index: 10;
 }
 
 #nb-preview-nav {
@@ -788,6 +805,51 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--bg3) transparent;
 }
+
+/* Sheet host — full-width, no prose max-width */
+#nb-sheet-host { width: 100%; height: 100%; }
+#nb-preview-content:has(#nb-sheet-host) { padding: 0; overflow: auto; }
+#nb-preview-content:has(#nb-sheet-host) .nb-rendered { max-width: 100%; height: 100%; }
+
+/* Embedded CSV block in markdown notes */
+.nb-csv-block { margin: 1em 0; overflow: auto; }
+
+/* ── jspreadsheet + jsuites dark-mode overrides ─────────────────
+   Scoped to both standalone sheets and embedded csv blocks        */
+:is(#nb-sheet-host, .nb-csv-block) .jss_worksheet,
+:is(#nb-sheet-host, .nb-csv-block) td,
+:is(#nb-sheet-host, .nb-csv-block) th {
+  background-color: var(--bg2);
+  color: var(--text);
+  border-color: var(--border) !important;
+}
+:is(#nb-sheet-host, .nb-csv-block) thead td,
+:is(#nb-sheet-host, .nb-csv-block) thead th,
+:is(#nb-sheet-host, .nb-csv-block) .jss_col_header { background-color: var(--bg3); color: var(--text-muted); }
+:is(#nb-sheet-host, .nb-csv-block) .jss_row        { background-color: var(--bg3); color: var(--text-muted); }
+:is(#nb-sheet-host, .nb-csv-block) .selected        { background-color: var(--accent-dim) !important; color: var(--text) !important; }
+:is(#nb-sheet-host, .nb-csv-block) .highlight,
+:is(#nb-sheet-host, .nb-csv-block) .selection       { background-color: rgba(91,155,213,0.10) !important; }
+:is(#nb-sheet-host, .nb-csv-block) .highlight-selected { background-color: transparent !important; }
+/* Toolbar */
+:is(#nb-sheet-host, .nb-csv-block) .jss_toolbar,
+:is(#nb-sheet-host, .nb-csv-block) .jtoolbar,
+:is(#nb-sheet-host, .nb-csv-block) .jtoolbar-container { background-color: var(--bg3) !important; border-color: var(--border) !important; color: var(--text) !important; }
+:is(#nb-sheet-host, .nb-csv-block) .jtoolbar-active    { background-color: var(--accent-dim) !important; }
+/* Tab bar */
+:is(#nb-sheet-host, .nb-csv-block) .jtabs,
+:is(#nb-sheet-host, .nb-csv-block) .jtabs-headers,
+:is(#nb-sheet-host, .nb-csv-block) .jtabs-headers-container { background-color: var(--bg3) !important; border-color: var(--border) !important; }
+:is(#nb-sheet-host, .nb-csv-block) .jtabs-selected      { background-color: var(--bg2) !important; color: var(--accent) !important; }
+:is(#nb-sheet-host, .nb-csv-block) .jtabs-content       { background-color: var(--bg2) !important; }
+/* Input editor */
+:is(#nb-sheet-host, .nb-csv-block) input,
+:is(#nb-sheet-host, .nb-csv-block) .jss_input { background-color: var(--bg) !important; color: var(--text) !important; border-color: var(--accent) !important; }
+/* Context menu / dropdowns (global, spawned outside host) */
+.jcontextmenu, .jdropdown-container { background-color: var(--bg3) !important; border-color: var(--border) !important; color: var(--text) !important; }
+.jcontextmenu li:hover, .jdropdown-item:hover { background-color: var(--accent-dim) !important; }
+/* Page/tab selected */
+:is(#nb-sheet-host, .nb-csv-block) .jss_page_selected { background-color: var(--bg2) !important; font-weight: 600; color: var(--accent) !important; }
 
 /* Rendered Markdown */
 #nb-preview-content .nb-rendered { max-width: 720px; }

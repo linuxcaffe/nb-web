@@ -27,6 +27,7 @@ const NbMain = (() => {
         _bindSortBtn();
         _bindPreviewMenu();
         _bindKeyboard();
+        _bindDropImport();
         initDragHandle();
         loadNotes();
         _loadVersion();
@@ -161,7 +162,7 @@ const NbMain = (() => {
             const _iconTip = { '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Todo',
                                '🔖': 'Bookmark', '🔒': 'Encrypted', '📂': 'Folder',
                                '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
-                               '📖': 'Ebook', '📄': 'Document' };
+                               '📖': 'Ebook', '📄': 'Document', '🗃️': 'Sheet' };
             if (note.indicator) icon.title = _iconTip[note.indicator] || '';
 
             const pinBadge = _pinnedSelectors.has(note.selector)
@@ -275,6 +276,15 @@ const NbMain = (() => {
 
         const doneBtn = document.getElementById('nb-done-btn');
         if (doneBtn) doneBtn.hidden = !(note.type === 'todo' && note.status === 'open');
+        const editBtn = document.getElementById('nb-edit-btn');
+        if (editBtn) editBtn.hidden = (note.type === 'sheet');
+
+        // Clear any stale sheet save handler when navigating away from a sheet
+        if (note.type !== 'sheet' && _sheetInstance) {
+            _sheetInstance = null;
+            const sb = document.getElementById('nb-save-btn');
+            if (sb) sb.onclick = null;
+        }
 
         const ref = document.getElementById('nb-preview-ref');
         if (ref) {
@@ -286,7 +296,11 @@ const NbMain = (() => {
 
         let html = '';
 
-        if (note.type === 'bookmark') {
+        if (note.type === 'sheet') {
+            content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
+            _renderSheet(note);
+            return;
+        } else if (note.type === 'bookmark') {
             html = _renderBookmark(note);
         } else if (note.type === 'todo') {
             html = _renderTodo(note);
@@ -297,6 +311,8 @@ const NbMain = (() => {
         }
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
+
+        _renderCsvBlocks(content);
 
         // Highlight active search / tag terms in the rendered preview
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
@@ -457,6 +473,80 @@ const NbMain = (() => {
             if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
             textNode.parentNode.replaceChild(frag, textNode);
         });
+    }
+
+    function _renderCsvBlocks(container) {
+        container.querySelectorAll('pre > code.language-csv').forEach((code, i) => {
+            const pre  = code.parentElement;
+            const raw  = code.textContent.trim();
+            const rows = raw.split('\n').filter(r => r.trim() !== '').map(r =>
+                r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"'))
+            );
+            const host = document.createElement('div');
+            host.className = 'nb-csv-block';
+            pre.replaceWith(host);
+            jspreadsheet(host, {
+                worksheets: [{ data: rows.length ? rows : [['']] }],
+            });
+        });
+    }
+
+    let _sheetInstance = null;
+
+    function _renderSheet(note) {
+        const host = document.getElementById('nb-sheet-host');
+        if (!host) { console.error('nb-sheet-host not found'); return; }
+        if (_sheetInstance) { try { jspreadsheet.destroy(host); } catch(_) {} _sheetInstance = null; }
+
+        const raw = note.raw || note.body || '';
+        const rows = raw.split('\n').filter(r => r.trim() !== '').map(r =>
+            r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"'))
+        );
+
+        try {
+            _sheetInstance = jspreadsheet(host, {
+                worksheets: [{
+                    data: rows.length ? rows : [['']],
+                    minDimensions: [6, 8],
+                }],
+                onload: () => {
+                    const saveBtn = document.getElementById('nb-save-btn');
+                    if (saveBtn) { saveBtn.hidden = false; saveBtn.onclick = () => _saveSheet(); }
+                    const cancelBtn = document.getElementById('nb-cancel-btn');
+                    if (cancelBtn) cancelBtn.hidden = true;
+                },
+            });
+        } catch(e) {
+            host.innerHTML = `<div style="padding:40px;color:var(--red)">Sheet init error: ${_esc(String(e))}</div>`;
+            return;
+        }
+
+    }
+
+    async function _saveSheet() {
+        if (!_activeSelector || !_sheetInstance) return;
+        const btn = document.getElementById('nb-save-btn');
+        btn.textContent = 'Saving…';
+        try {
+            const ws = Array.isArray(_sheetInstance) ? _sheetInstance[0] : _sheetInstance;
+        const data = ws.getData();
+            const csv = data.map(row =>
+                row.map(cell => {
+                    const s = String(cell ?? '');
+                    return s.includes(',') || s.includes('"') || s.includes('\n')
+                        ? `"${s.replace(/"/g, '""')}"` : s;
+                }).join(',')
+            ).join('\n');
+            const r = await fetch('/api/note', {
+                method: 'PUT',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({selector: _activeSelector, content: csv}),
+            });
+            const d = await r.json();
+            if (!d.success) alert('Save failed: ' + (d.stderr || 'unknown error'));
+        } finally {
+            btn.textContent = 'Save';
+        }
     }
 
     function _renderMarkdown(body) {
@@ -1044,7 +1134,7 @@ const NbMain = (() => {
         document.getElementById('nb-forward-btn').addEventListener('click', _goForward);
         document.getElementById('nb-done-btn').addEventListener('click', _markTodoDone);
         document.getElementById('nb-edit-btn').addEventListener('click', () => _openEditor());
-        document.getElementById('nb-save-btn').addEventListener('click', _saveNote);
+        // nb-save-btn onclick is set contextually: _saveNote in _openEditor, _saveSheet in sheet onload
         document.getElementById('nb-cancel-btn').addEventListener('click', _closeEditor);
         document.getElementById('nb-delete-btn').addEventListener('click', _deleteNote);
         document.getElementById('nb-pin-indicator')?.addEventListener('click', _togglePin);
@@ -1067,6 +1157,7 @@ const NbMain = (() => {
                 ta.value = d.raw || d.body || '';
                 document.getElementById('nb-preview-content').hidden = true;
                 document.getElementById('nb-editor-wrap').hidden = false;
+                document.getElementById('nb-save-btn').onclick = _saveNote;
                 ta.focus();
             });
     }
@@ -1851,32 +1942,64 @@ const NbMain = (() => {
             </div>`;
     }
 
+    async function _importFiles(files) {
+        if (!files.length) return;
+        _showPreviewLoading();
+        const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const lines = [];
+        for (const file of files) {
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('notebook', nb);
+            try {
+                const r = await fetch('/api/import', { method: 'POST', body: fd });
+                const d = await r.json();
+                lines.push(d.success ? `✓ ${file.name}` : `✗ ${file.name}: ${d.error || d.stderr || 'failed'}`);
+            } catch(e) {
+                lines.push(`✗ ${file.name}: ${e}`);
+            }
+        }
+        _showCmdOutput('import', lines.join('\n'));
+        NbNav.reexecute();
+    }
+
     function doImport() {
         const input = document.createElement('input');
         input.type     = 'file';
         input.multiple = true;
-        input.addEventListener('change', async () => {
-            const files = [...input.files];
-            if (!files.length) return;
-            _showPreviewLoading();
-            const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
-            const lines = [];
-            for (const file of files) {
-                const fd = new FormData();
-                fd.append('file', file);
-                fd.append('notebook', nb);
-                try {
-                    const r = await fetch('/api/import', { method: 'POST', body: fd });
-                    const d = await r.json();
-                    lines.push(d.success ? `✓ ${file.name}` : `✗ ${file.name}: ${d.error || d.stderr || 'failed'}`);
-                } catch(e) {
-                    lines.push(`✗ ${file.name}: ${e}`);
-                }
-            }
-            _showCmdOutput('import', lines.join('\n'));
-            NbNav.reexecute();
-        });
+        input.addEventListener('change', () => _importFiles([...input.files]));
         input.click();
+    }
+
+    function _bindDropImport() {
+        const pane = document.getElementById('nb-preview-pane');
+        if (!pane) return;
+        let _dragCount = 0;
+
+        pane.addEventListener('dragenter', e => {
+            if (!e.dataTransfer.types.includes('Files')) return;
+            e.preventDefault();
+            _dragCount++;
+            pane.classList.add('nb-drop-active');
+        });
+        pane.addEventListener('dragleave', () => {
+            if (--_dragCount <= 0) {
+                _dragCount = 0;
+                pane.classList.remove('nb-drop-active');
+            }
+        });
+        pane.addEventListener('dragover', e => {
+            if (!e.dataTransfer.types.includes('Files')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        });
+        pane.addEventListener('drop', e => {
+            e.preventDefault();
+            _dragCount = 0;
+            pane.classList.remove('nb-drop-active');
+            const files = [...e.dataTransfer.files];
+            if (files.length) _importFiles(files);
+        });
     }
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
