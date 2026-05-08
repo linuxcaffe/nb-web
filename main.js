@@ -903,12 +903,11 @@ const NbMain = (() => {
     async function _doMove() {
         if (!_activeSelector) return;
 
-        // Remove any existing move bar
         document.getElementById('nb-move-bar')?.remove();
 
-        const r = await fetch('/api/notebooks');
-        const d = await r.json();
-        const notebooks = d.notebooks || [];
+        const [nbData] = await Promise.all([fetch('/api/notebooks').then(r => r.json())]);
+        const notebooks = nbData.notebooks || [];
+        const curNb = _activeSelector.split(':')[0];
 
         const toolbar = document.getElementById('nb-preview-toolbar');
         const bar = document.createElement('div');
@@ -919,16 +918,38 @@ const NbMain = (() => {
         lbl.className   = 'nb-move-label';
         lbl.textContent = 'Move to:';
 
-        const sel = document.createElement('select');
-        sel.className = 'nb-scope-select';
-        sel.style.colorScheme = 'dark';
-        const curNb = _activeSelector.split(':')[0];
+        const nbSel = document.createElement('select');
+        nbSel.className = 'nb-scope-select';
+        nbSel.style.colorScheme = 'dark';
         notebooks.forEach(nb => {
             const opt = document.createElement('option');
             opt.value = nb; opt.textContent = nb;
-            if (nb === curNb) { opt.selected = true; opt.disabled = true; }
-            sel.appendChild(opt);
+            if (nb === curNb) opt.selected = true;
+            nbSel.appendChild(opt);
         });
+
+        const folderSel = document.createElement('select');
+        folderSel.className = 'nb-scope-select';
+        folderSel.style.colorScheme = 'dark';
+
+        async function _populateFolders(nb) {
+            const fd = await fetch(`/api/folders?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
+            const folders = fd.folders || [];
+            folderSel.innerHTML = '';
+            const rootOpt = document.createElement('option');
+            rootOpt.value = ''; rootOpt.textContent = '(none)';
+            folderSel.appendChild(rootOpt);
+            folders.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f; opt.textContent = f + '/';
+                folderSel.appendChild(opt);
+            });
+            folderSel.disabled = folders.length === 0;
+        }
+
+        await _populateFolders(curNb);
+
+        nbSel.addEventListener('change', () => _populateFolders(nbSel.value));
 
         const goBtn = document.createElement('button');
         goBtn.className   = 'nb-tool-btn nb-btn-primary';
@@ -938,14 +959,16 @@ const NbMain = (() => {
         cancelBtn.className   = 'nb-tool-btn';
         cancelBtn.textContent = 'Cancel';
 
-        bar.append(lbl, sel, goBtn, cancelBtn);
+        bar.append(lbl, nbSel, folderSel, goBtn, cancelBtn);
         toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
-        sel.focus();
+        nbSel.focus();
 
         cancelBtn.addEventListener('click', () => bar.remove());
 
         goBtn.addEventListener('click', async () => {
-            const dest = sel.value + ':';
+            const nb     = nbSel.value;
+            const folder = folderSel.value;
+            const dest   = folder ? `${nb}:${folder}/` : `${nb}:`;
             goBtn.textContent = 'Moving…'; goBtn.disabled = true;
             try {
                 const resp = await fetch('/api/note/move', {
@@ -967,6 +990,8 @@ const NbMain = (() => {
                 }
             } catch(e) { goBtn.textContent = 'Move'; goBtn.disabled = false; }
         });
+
+        bar.addEventListener('keydown', e => { if (e.key === 'Escape') bar.remove(); });
     }
 
     async function _doSaveAsTemplate() {

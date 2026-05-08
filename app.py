@@ -268,6 +268,18 @@ def api_notebooks():
     return jsonify({'notebooks': names})
 
 
+@app.route('/api/folders')
+def api_folders():
+    notebook = request.args.get('notebook', 'home')
+    nb_path  = nb_dir_for(notebook)
+    folders  = []
+    if nb_path.exists():
+        for p in sorted(nb_path.iterdir()):
+            if p.is_dir() and not p.name.startswith('.') and (p / '.index').exists():
+                folders.append(p.name)
+    return jsonify({'folders': folders})
+
+
 # ---------------------------------------------------------------------------
 # API: Notes list
 # ---------------------------------------------------------------------------
@@ -336,11 +348,13 @@ def _list_all_notes(limit):
                 'pinned':    False,
                 'status':    todo_status,
             })
-    # Sort by filesystem mtime descending, cap at limit
-    all_items.sort(key=lambda i: (NB_DIR / i['notebook'] / i['filename']).stat().st_mtime
-                   if (NB_DIR / i['notebook'] / i['filename']).exists() else 0, reverse=True)
-    all_items = all_items[:limit]
-    return jsonify({'notes': all_items, 'total': len(all_items)})
+    # Folders always included; only cap the note/file items by mtime
+    folders   = [i for i in all_items if i['type'] == 'folder']
+    non_folders = [i for i in all_items if i['type'] != 'folder']
+    non_folders.sort(key=lambda i: (NB_DIR / i['notebook'] / i['filename']).stat().st_mtime
+                     if (NB_DIR / i['notebook'] / i['filename']).exists() else 0, reverse=True)
+    combined = folders + non_folders[:limit]
+    return jsonify({'notes': combined, 'total': len(combined)})
 
 
 def _list_notes(notebook, folder, limit):
@@ -404,20 +418,30 @@ def _list_notes(notebook, folder, limit):
     return jsonify({'notes': pinned + unpinned, 'total': len(items)})
 
 
-def _read_excerpt(nb_name, raw_id_or_sel):
-    """Return first non-heading body line for a note identified by id or selector."""
+def _resolve_fname(nb_name, raw_id_or_sel):
+    """Return (fname, fpath) for a note identified by id or selector, or (None, None)."""
     try:
         raw_id = str(raw_id_or_sel).split(':')[-1]
         if not raw_id.isdigit():
-            return ''
+            return None, None
         idx    = read_index(nb_name)
         id_num = int(raw_id)
         if not (1 <= id_num <= len(idx)):
-            return ''
-        fname  = idx[id_num - 1]
+            return None, None
+        fname = idx[id_num - 1]
         if not fname:
+            return None, None
+        return fname, NB_DIR / nb_name / fname
+    except Exception:
+        return None, None
+
+
+def _read_excerpt(nb_name, raw_id_or_sel):
+    """Return first non-heading body line for a note identified by id or selector."""
+    try:
+        fname, fpath = _resolve_fname(nb_name, raw_id_or_sel)
+        if not fpath:
             return ''
-        fpath  = NB_DIR / nb_name / fname
         _, body = parse_frontmatter(fpath.read_text(errors='replace'))
         for line in body.splitlines():
             line = line.strip()
@@ -439,7 +463,10 @@ def _search_notes(notebook, folder, query, limit, tags=None):
     returns only items present in both result sets (AND logic).
     """
     def _run_search(q):
-        args = [f"{notebook}:search", q, '--list'] if notebook else ['search', q, '--list']
+        if notebook:
+            args = [f"{notebook}:search", q, '--list']
+        else:
+            args = ['search', q, '--all', '--list']
         r = run_nb(*args)
         return [strip_ansi(l) for l in r['stdout'].splitlines() if l.strip()]
 
@@ -459,17 +486,20 @@ def _search_notes(notebook, folder, query, limit, tags=None):
             sel = rs if ':' in rs else (f"{notebook}:{rs}" if notebook else rs)
             tag_selectors.add(sel)
 
-    items = []
-    for line in lines[:limit]:
+    items      = []
+    seen_sels  = set()
+    for line in lines[:limit * 2]:   # over-read to allow for dedup
         m = pat.match(line.strip())
         if not m:
             continue
         raw_sel = m.group(1).strip()
         title   = m.group(2).strip()
-        # Strip leading indicator emoji from title (e.g. "✅ [x] Todo title")
-        title   = re.sub(r'^[\U00010000-\U0010ffff✔️✅📌🔖🔒📂🌄🔉📹📖📄]\s*', '', title).strip()
+        # Strip leading indicator emoji + variation selectors (e.g. "✅ [x] Todo title")
+        title   = re.sub(r'^[\U00010000-\U0010ffff✔✅📌🔖🔒📂🌄🔉📹📖📄︀-️]+\s*', '', title).strip()
         title   = re.sub(r'^\[[ x]\]\s*', '', title).strip()  # strip [ ] or [x]
-        # Build a full selector: if already has notebook: prefix use as-is, else prepend notebook
+        # Strip "filename · Title" duplicate format nb emits for filename matches
+        title   = re.sub(r'^[^·]+·\s*', '', title).strip() if '·' in title else title
+        # Build a full selector
         if ':' in raw_sel:
             selector = raw_sel
             nb_part  = raw_sel.split(':')[0]
@@ -477,27 +507,44 @@ def _search_notes(notebook, folder, query, limit, tags=None):
             selector = f"{notebook}:{raw_sel}" if notebook else raw_sel
             nb_part  = notebook
 
+        # Deduplicate — nb search emits the same selector for filename + content matches
+        if selector in seen_sels:
+            continue
+        seen_sels.add(selector)
+
         # AND logic: skip if not in tag results
         if tag_selectors is not None and selector not in tag_selectors:
             continue
 
-        # Guess type and status from line content
-        itype       = 'note'
+        if len(items) >= limit:
+            break
+
+        # Classify using actual filename so contacts/sheets get correct type
+        fname, _ = _resolve_fname(nb_part, raw_sel)
+        if fname:
+            itype = classify(fname, nb_part)
+        else:
+            itype = 'note'
+
+        # For todos, also derive status from line content
         todo_status = None
-        if title.endswith(('.bookmark.md', '.bookmark')):
-            itype = 'bookmark'
-        elif '[ ]' in line or '[x]' in line or '✅' in line:
-            itype       = 'todo'
+        if itype == 'todo':
             todo_status = 'closed' if ('[x]' in line or '✅' in line) else 'open'
+        elif itype == 'note':
+            # Fallback: infer todo from line markers (for notebooks where classify can't help)
+            if '[ ]' in line or '[x]' in line or '✅' in line:
+                itype       = 'todo'
+                todo_status = 'closed' if ('[x]' in line or '✅' in line) else 'open'
 
         items.append({
             'selector':  selector,
-            'filename':  raw_sel,
+            'filename':  fname or raw_sel,
             'title':     title or raw_sel,
             'type':      itype,
             'status':    todo_status,
             'indicator': INDICATORS.get(itype, ''),
             'excerpt':   _read_excerpt(nb_part, raw_sel),
+            'notebook':  nb_part,
             'updated':   '',
             'pinned':    False,
         })
@@ -654,7 +701,7 @@ def api_create_note():
         r = run_nb(*args)
     elif ntype == 'folder':
         folder_name = (title or 'newfolder').strip().strip('/')
-        r = run_nb('add', target + folder_name + '/')
+        r = run_nb('folders', 'add', target + folder_name)
     elif ntype == 'notebook':
         nb_name = (title or 'notebook').strip()
         r = run_nb('notebooks', 'add', nb_name)
@@ -1142,7 +1189,12 @@ def _contact_to_md(c):
     if c.get('address'): fm['address'] = c['address']
     if c.get('birthday'):fm['birthday']= c['birthday']
     if c.get('url'):     fm['url']     = c['url']
-    if c.get('tags'):    fm['tags']    = c['tags']
+    if c.get('tags'):
+        raw = c['tags']
+        if isinstance(raw, list):
+            fm['tags'] = [str(t).strip() for t in raw if t]
+        else:
+            fm['tags'] = [t.strip() for t in str(raw).replace(',', ' ').split() if t.strip()]
 
     if _YAML_OK:
         yaml_block = _yaml.dump(fm, allow_unicode=True, default_flow_style=False).rstrip()
@@ -1151,7 +1203,17 @@ def _contact_to_md(c):
 
     body    = c.get('note', '')
     heading = f"# {name}\n\n" if name else ''
-    return f"---\n{yaml_block}\n---\n\n{heading}{body}\n"
+    # Append #hashtag line so nb full-text search finds contacts by tag
+    tag_line = ''
+    if c.get('tags'):
+        raw_tags = c['tags']
+        if isinstance(raw_tags, list):
+            tag_line = '\n\n' + ' '.join(f"#{t}" for t in raw_tags if t)
+        elif isinstance(raw_tags, str):
+            tag_line = '\n\n' + ' '.join(
+                f"#{t.strip()}" for t in raw_tags.replace(',', ' ').split() if t.strip()
+            )
+    return f"---\n{yaml_block}\n---\n\n{heading}{body}{tag_line}\n"
 
 
 # ---------------------------------------------------------------------------
