@@ -162,7 +162,7 @@ const NbMain = (() => {
             const _iconTip = { '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Todo',
                                '🔖': 'Bookmark', '🔒': 'Encrypted', '📂': 'Folder',
                                '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
-                               '📖': 'Ebook', '📄': 'Document', '🗃️': 'Sheet' };
+                               '📖': 'Ebook', '📄': 'Document', '🗃️': 'Sheet', '🪪': 'Contact' };
             if (note.indicator) icon.title = _iconTip[note.indicator] || '';
 
             const pinBadge = _pinnedSelectors.has(note.selector)
@@ -304,7 +304,9 @@ const NbMain = (() => {
 
         let html = '';
 
-        if (note.type === 'sheet') {
+        if (note.type === 'contact') {
+            html = _renderContact(note);
+        } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
             return;
@@ -617,6 +619,80 @@ const NbMain = (() => {
             btn.textContent = 'Save';
             throw e;
         }
+    }
+
+    function _contactFields(field) {
+        if (!field) return [];
+        if (typeof field === 'string') return [{ label: 'email', value: field }];
+        if (Array.isArray(field))      return field.flatMap(_contactFields);
+        if (typeof field === 'object') return Object.entries(field).map(([label, value]) => ({ label, value: String(value) }));
+        return [];
+    }
+
+    function _contactInitials(name) {
+        return (name || '?').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+    }
+
+    function _contactColor(name) {
+        let h = 0;
+        for (let i = 0; i < (name || '').length; i++) h = (h * 31 + (name || '').charCodeAt(i)) & 0xffff;
+        return `hsl(${h % 360},40%,38%)`;
+    }
+
+    function _renderContact(note) {
+        const m    = note.meta || {};
+        const name = m.name || m.fn || note.title || '';
+        const emails  = _contactFields(m.email);
+        const phones  = _contactFields(m.phone);
+        const tags    = Array.isArray(m.tags) ? m.tags : (m.tags ? String(m.tags).split(',').map(t => t.trim()) : []);
+
+        const avatar = `<div class="nb-contact-avatar" style="background:${_contactColor(name)}">${_esc(_contactInitials(name))}</div>`;
+        const sub    = [m.title, m.org].filter(Boolean).map(_esc).join(' · ');
+
+        let rows = '';
+        emails.forEach(({ label, value }) => {
+            rows += `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(label)}</span>` +
+                    `<a class="nb-contact-value" href="mailto:${_esc(value)}">${_esc(value)}</a></div>`;
+        });
+        phones.forEach(({ label, value }) => {
+            const href = 'tel:' + value.replace(/\s/g, '');
+            rows += `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(label)}</span>` +
+                    `<a class="nb-contact-value" href="${_esc(href)}">${_esc(value)}</a></div>`;
+        });
+        if (m.address) {
+            const addr = typeof m.address === 'string' ? m.address
+                : Object.values(m.address).filter(Boolean).join(', ');
+            const mq = `https://maps.google.com/?q=${encodeURIComponent(addr)}`;
+            rows += `<div class="nb-contact-row"><span class="nb-contact-label">address</span>` +
+                    `<a class="nb-contact-value" href="${mq}" target="_blank" rel="noopener">${_esc(addr)}</a></div>`;
+        }
+        if (m.url) {
+            rows += `<div class="nb-contact-row"><span class="nb-contact-label">web</span>` +
+                    `<a class="nb-contact-value" href="${_esc(m.url)}" target="_blank" rel="noopener">${_esc(m.url)}</a></div>`;
+        }
+        if (m.birthday) {
+            rows += `<div class="nb-contact-row"><span class="nb-contact-label">birthday</span>` +
+                    `<span class="nb-contact-value">${_esc(String(m.birthday))}</span></div>`;
+        }
+
+        const tagHtml = tags.length
+            ? `<div class="nb-contact-tags">${tags.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join('')}</div>`
+            : '';
+
+        const bodyHtml = note.body?.trim()
+            ? `<div class="nb-contact-notes">${_renderMarkdown(note.body)}</div>` : '';
+
+        return `<div class="nb-contact-card">
+  <div class="nb-contact-header">${avatar}
+    <div class="nb-contact-name-block">
+      <div class="nb-contact-name">${_esc(name)}</div>
+      ${sub ? `<div class="nb-contact-sub">${sub}</div>` : ''}
+    </div>
+  </div>
+  ${rows ? `<div class="nb-contact-fields">${rows}</div>` : ''}
+  ${tagHtml}
+  ${bodyHtml}
+</div>`;
     }
 
     function _renderMarkdown(body) {

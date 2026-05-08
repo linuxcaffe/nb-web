@@ -54,6 +54,7 @@ const NbNav = (() => {
             if (!confirm('Discard unsaved changes?')) return;
             NbMain.closeEditor?.();
         }
+        if (cmd === 'contacts') { _scope = 'contacts'; cmd = 'list'; }
         _activeCmd = cmd;
         document.querySelectorAll('.nb-cmd').forEach(b =>
             b.classList.toggle('active', b.dataset.cmd === cmd));
@@ -982,7 +983,7 @@ const NbNav = (() => {
             if (e.key === 'Escape' && menu.classList.contains('open')) shut();
         });
 
-        const _UI_CMDS = new Set(['list','add','todo','cal','templates','g','daily','weather','info']);
+        const _UI_CMDS = new Set(['list','add','todo','cal','templates','g','daily','weather','info','contacts']);
 
         function _menuAction(cmd) {
             shut();
@@ -990,7 +991,8 @@ const NbNav = (() => {
             else if (cmd === 'sync')    NbMain.doSync();
             else if (cmd === 'about')   NbMain.showAbout();
             else if (cmd === 'restart') _restartServer();
-            else if (cmd === 'import')  NbMain.doImport();
+            else if (cmd === 'import')   NbMain.doImport();
+            else if (cmd === 'contacts') activateCmd('contacts');
             else                        NbMain.runCmd(cmd);
         }
 
@@ -1011,6 +1013,7 @@ const NbNav = (() => {
                 { label: 'version', cmd: 'version' },
             ]},
             { label: 'Help',    cmd: 'help' },
+            { label: 'Contacts', cmd: 'contacts' },
             { label: 'Import',  cmd: 'import' },
             { label: 'Export',  cmd: 'export' },
             { label: 'History', cmd: 'history' },

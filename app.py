@@ -8,7 +8,14 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
+
+try:
+    import yaml as _yaml
+    _YAML_OK = True
+except ImportError:
+    _YAML_OK = False
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -95,10 +102,18 @@ def parse_frontmatter(text):
         end = text.find('\n---', 3)
         if end != -1:
             block = text[3:end].strip()
-            for line in block.splitlines():
-                if ':' in line:
-                    k, _, v = line.partition(':')
-                    meta[k.strip()] = v.strip()
+            if _YAML_OK:
+                try:
+                    parsed = _yaml.safe_load(block)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except Exception:
+                    pass
+            if not meta:
+                for line in block.splitlines():
+                    if ':' in line:
+                        k, _, v = line.partition(':')
+                        meta[k.strip()] = v.strip()
             text = text[end + 4:].lstrip()
     return meta, text
 
@@ -114,15 +129,17 @@ def note_title(filename, body):
     return Path(filename).stem
 
 
-def classify(filename):
-    """Return item type string based on filename extension."""
+def classify(filename, notebook=None):
+    """Return item type string based on filename extension (and notebook)."""
     f = filename.lower()
     if f.endswith('.bookmark.md'):    return 'bookmark'
     if f.endswith('.todo.md'):        return 'todo'
     if f.endswith('.enc'):            return 'encrypted'
     ext = Path(f).suffix
     if ext in ('.md', '.org', '.txt', '.rst', '.adoc', '.asciidoc', '.latex'):
-        return 'note'
+        return 'contact' if notebook == 'contacts' else 'note'
+    if ext == '.vcf':
+        return 'contact'
     if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'):
         return 'image'
     if ext == '.csv':
@@ -147,6 +164,7 @@ INDICATORS = {
     'ebook':     '📖',
     'document':  '📄',
     'sheet':     '🗃️',
+    'contact':   '🪪',
     'note':      '',
     'file':      '',
 }
@@ -297,7 +315,7 @@ def _list_all_notes(limit):
             except OSError:
                 continue
             meta, body = parse_frontmatter(raw)
-            itype = classify(fname)
+            itype = classify(fname, nb_name)
             title = meta.get('title') or note_title(fname, body)
             excerpt = next((l.strip()[:120] for l in body.splitlines()
                             if l.strip() and not _RE_HEADING.match(l)), '')
@@ -352,7 +370,7 @@ def _list_notes(notebook, folder, limit):
         except OSError:
             continue
         meta, body = parse_frontmatter(raw)
-        itype = classify(fname)
+        itype = classify(fname, notebook)
         title = meta.get('title') or note_title(fname, body)
         excerpt = ''
         for line in body.splitlines():
@@ -503,7 +521,7 @@ def api_note():
 
     meta, body = parse_frontmatter(raw)
     filename = Path(fpath).name
-    itype = classify(filename)
+    itype = classify(filename, note_notebook)
     title = meta.get('title') or note_title(filename, body)
 
     tags = re.findall(r'#([\w/-]+)', body)
@@ -756,7 +774,7 @@ def _resolve_file_to_note(fpath_str):
         except OSError:
             return None
         _, body = parse_frontmatter(raw)
-        itype   = classify(fname)
+        itype   = classify(fname, nb_name)
         return {
             'notebook':  nb_name,
             'id':        note_id,
@@ -964,6 +982,31 @@ def api_import():
         return jsonify({'success': False, 'error': 'no file provided'}), 400
 
     safe_name = Path(f.filename).name.replace('/', '_').replace('..', '_')
+
+    # vCard files → parse into contact notes
+    if safe_name.lower().endswith('.vcf'):
+        try:
+            text     = f.read().decode('utf-8', errors='replace')
+            contacts = _parse_vcard(text)
+            created  = []
+            for c in contacts:
+                md   = _contact_to_md(c)
+                slug = _contact_slug(c.get('name') or c.get('fn', 'contact'))
+                fname = f"{slug}.md"
+                dest  = NB_DIR / 'contacts' / fname
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                # avoid clobbering: append suffix if exists
+                if dest.exists():
+                    import uuid
+                    fname = f"{slug}_{uuid.uuid4().hex[:4]}.md"
+                    dest  = NB_DIR / 'contacts' / fname
+                dest.write_text(md)
+                run_nb('index', 'reconcile', 'contacts:')
+                created.append(c.get('name', fname))
+            return jsonify({'success': True, 'output': f"Imported {len(created)} contact(s): {', '.join(created)}"})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'vCard parse error: {e}'})
+
     tmp_dir   = Path(tempfile.mkdtemp())
     tmp_path  = tmp_dir / safe_name
     try:
@@ -975,6 +1018,113 @@ def api_import():
         return jsonify({'success': False, 'error': str(e)})
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _slug(text):
+    """ASCII slug from arbitrary text."""
+    text = unicodedata.normalize('NFKD', str(text)).encode('ascii', 'ignore').decode()
+    text = re.sub(r'[^\w\s-]', '', text).strip().lower()
+    return re.sub(r'[-\s]+', '_', text) or 'contact'
+
+
+def _contact_slug(name):
+    return _slug(name)[:48]
+
+
+def _parse_vcard(text):
+    """Parse a vCard string (one or many contacts) into list of dicts."""
+    contacts = []
+    card = None
+    # unfold: join lines starting with whitespace to previous line
+    lines = []
+    for raw in text.splitlines():
+        if raw and raw[0] in (' ', '\t') and lines:
+            lines[-1] += raw[1:]
+        else:
+            lines.append(raw)
+
+    for line in lines:
+        line = line.rstrip('\r')
+        if line.upper() == 'BEGIN:VCARD':
+            card = {}
+        elif line.upper() == 'END:VCARD':
+            if card is not None:
+                contacts.append(card)
+            card = None
+        elif card is not None and ':' in line:
+            prop, _, val = line.partition(':')
+            prop_parts   = prop.upper().split(';')
+            prop_name    = prop_parts[0]
+            params       = {}
+            for p in prop_parts[1:]:
+                if '=' in p:
+                    pk, _, pv = p.partition('=')
+                    params[pk] = pv
+                else:
+                    params['TYPE'] = p
+
+            ptype = params.get('TYPE', '').lower().split(',')[0] or 'default'
+
+            if prop_name == 'FN':
+                card['fn'] = val
+            elif prop_name == 'N':
+                parts = val.split(';')
+                given  = parts[1].strip() if len(parts) > 1 else ''
+                family = parts[0].strip()
+                card['given']  = given
+                card['family'] = family
+                card['name']   = f"{given} {family}".strip() or family
+            elif prop_name == 'EMAIL':
+                card.setdefault('email', {})
+                card['email'][ptype or 'email'] = val
+            elif prop_name == 'TEL':
+                card.setdefault('phone', {})
+                card['phone'][ptype or 'phone'] = val
+            elif prop_name == 'ORG':
+                card['org'] = val.split(';')[0].strip()
+            elif prop_name == 'TITLE':
+                card['title'] = val
+            elif prop_name == 'URL':
+                card['url'] = val
+            elif prop_name == 'BDAY':
+                card['birthday'] = val[:10] if len(val) >= 8 else val
+            elif prop_name == 'NOTE':
+                card['note'] = val.replace('\\n', '\n')
+            elif prop_name == 'ADR':
+                parts = (val + ';;;;;;').split(';')
+                addr  = ', '.join(p.strip() for p in parts[2:6] if p.strip())
+                card['address'] = addr
+            elif prop_name == 'CATEGORIES':
+                card['tags'] = [t.strip().lower() for t in val.split(',') if t.strip()]
+
+    return contacts
+
+
+def _contact_to_md(c):
+    """Serialise a parsed vCard dict to nb contact markdown."""
+    import io
+    fm = {}
+    name = c.get('name') or c.get('fn', '')
+    if name:       fm['name']     = name
+    if c.get('given'):   fm['given']   = c['given']
+    if c.get('family'):  fm['family']  = c['family']
+    if c.get('email'):   fm['email']   = c['email']
+    if c.get('phone'):   fm['phone']   = c['phone']
+    if c.get('org'):     fm['org']     = c['org']
+    if c.get('title'):   fm['title']   = c['title']
+    if c.get('address'): fm['address'] = c['address']
+    if c.get('birthday'):fm['birthday']= c['birthday']
+    if c.get('url'):     fm['url']     = c['url']
+    if c.get('tags'):    fm['tags']    = c['tags']
+
+    if _YAML_OK:
+        yaml_block = _yaml.dump(fm, allow_unicode=True, default_flow_style=False).rstrip()
+    else:
+        yaml_block = '\n'.join(f"{k}: {v}" for k, v in fm.items())
+
+    body    = c.get('note', '')
+    heading = f"# {name}\n\n" if name else ''
+    return f"---\n{yaml_block}\n---\n\n{heading}{body}\n"
 
 
 # ---------------------------------------------------------------------------
