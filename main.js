@@ -15,6 +15,13 @@ const NbMain = (() => {
     const _future       = [];       // forward-stack (cleared on any new navigation)
     const _wikilinkCache = new Map(); // selector → resolved title
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
+    let _kbPane         = 'list';   // 'list' | 'preview'
+
+    function _setKbPane(pane) {
+        _kbPane = pane;
+        document.getElementById('nb-list-pane')?.classList.toggle('kb-focus',    pane === 'list');
+        document.getElementById('nb-preview-pane')?.classList.toggle('kb-focus', pane === 'preview');
+    }
 
     // ── Boot ───────────────────────────────────────────────────────
 
@@ -235,7 +242,10 @@ const NbMain = (() => {
             if (!stillPresent) {
                 const first = notes.find(n => n.type !== 'folder' && !_pinnedSelectors.has(n.selector))
                            || notes.find(n => n.type !== 'folder');
-                if (first) openNote(first.selector, true, { autoSelect: true });
+                if (first) {
+                    openNote(first.selector, true, { autoSelect: true });
+                    _setKbPane('list');   // keep keyboard in list so ↑/↓ works immediately
+                }
             }
         }
     }
@@ -1131,16 +1141,7 @@ const NbMain = (() => {
     // ── Keyboard navigation ────────────────────────────────────────
 
     function _bindKeyboard() {
-        let _kbPane = 'list';   // 'list' | 'preview'
-        const listPane    = document.getElementById('nb-list-pane');
-        const previewPane = document.getElementById('nb-preview-pane');
         const previewContent = document.getElementById('nb-preview-content');
-
-        function _setKbPane(pane) {
-            _kbPane = pane;
-            listPane.classList.toggle('kb-focus',    pane === 'list');
-            previewPane.classList.toggle('kb-focus', pane === 'preview');
-        }
         _setKbPane('list');
 
         // Mouse clicks transfer keyboard focus
