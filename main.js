@@ -284,6 +284,7 @@ const NbMain = (() => {
     function renderPreview(note) {
         const content = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
+        document.getElementById('nb-done-bar')?.remove();
 
         const doneBtn = document.getElementById('nb-done-btn');
         if (doneBtn) doneBtn.hidden = !(note.type === 'todo' && note.status === 'open');
@@ -1372,6 +1373,8 @@ const NbMain = (() => {
         if (!sel) return;
         _activeSelector = sel;
         _editing = true;
+        document.getElementById('nb-done-bar')?.remove();
+        document.getElementById('nb-preview-actions').hidden = true;
         fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
             .then(d => {
@@ -1413,6 +1416,7 @@ const NbMain = (() => {
         _editing = false;
         document.getElementById('nb-editor-wrap').hidden = true;
         document.getElementById('nb-preview-content').hidden = false;
+        document.getElementById('nb-preview-actions').hidden = false;
     }
 
     function _applyFmt(fmt) {
@@ -1543,22 +1547,27 @@ const NbMain = (() => {
         doneBtn.className   = 'nb-tool-btn nb-btn-primary';
         doneBtn.textContent = 'Done';
 
+        const editBtn = document.createElement('button');
+        editBtn.className   = 'nb-tool-btn';
+        editBtn.textContent = 'Edit';
+
         const skipBtn = document.createElement('button');
         skipBtn.className   = 'nb-tool-btn';
         skipBtn.textContent = 'Skip';
 
-        bar.append(lbl, sel, doneBtn, skipBtn);
+        bar.append(lbl, sel, doneBtn, editBtn, skipBtn);
         toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
         sel.focus();
 
         const run = async (nugget) => {
-            doneBtn.disabled = skipBtn.disabled = true;
+            doneBtn.disabled = editBtn.disabled = skipBtn.disabled = true;
             doneBtn.textContent = 'Marking…';
             try { await doClose(nugget, note); }
-            finally { doneBtn.textContent = 'Done'; doneBtn.disabled = skipBtn.disabled = false; }
+            finally { doneBtn.textContent = 'Done'; doneBtn.disabled = editBtn.disabled = skipBtn.disabled = false; }
         };
 
         doneBtn.addEventListener('click', () => run(sel.value));
+        editBtn.addEventListener('click', () => { bar.remove(); _openEditor(); });
         skipBtn.addEventListener('click', () => run(''));
         bar.addEventListener('keydown', e => {
             if (e.key === 'Enter')  run(sel.value);
