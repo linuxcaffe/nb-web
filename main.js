@@ -1445,28 +1445,125 @@ const NbMain = (() => {
         }
     }
 
+    // ── Pre-close rules ────────────────────────────────────────────
+    // Each rule: { tags: string[], action: async (note, doClose) => void }
+    // action receives the fetched note and a doClose(nugget) callback.
+    // Rules whose tags intersect the note's tags are run; unmatched todos
+    // close immediately with no UI.
+
+    const _PRE_CLOSE_RULES = [
+        {
+            tags: ['bug', 'rfe'],
+            action: _commitPickerAction,
+        },
+        // Future rules:
+        // { tags: ['timer'],  action: _timeElapsedAction },
+        // { tags: ['remind'], action: _followUpAction },
+    ];
+
     async function _markTodoDone() {
         if (!_activeSelector) return;
-        const btn = document.getElementById('nb-done-btn');
-        btn.textContent = 'Marking…'; btn.disabled = true;
-        try {
-            const r = await fetch('/api/todo', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ selector: _activeSelector, done: true }),
-            });
-            const d = await r.json();
-            if (d.success) {
-                btn.textContent = 'Done'; btn.disabled = false;
-                NbNav.reexecute();
-                openNote(_activeSelector);
-            } else {
-                alert('Failed: ' + (d.stderr || 'unknown'));
-                btn.textContent = 'Done'; btn.disabled = false;
-            }
-        } catch(e) {
-            btn.textContent = 'Done'; btn.disabled = false;
+        document.getElementById('nb-done-bar')?.remove();
+
+        // Fetch note once — used for tag check, passed to action (avoids re-fetch)
+        const nr = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector));
+        const note = await nr.json();
+        const noteTags = (note.tags || []).map(t => t.toLowerCase().replace(/^#/, ''));
+
+        const matched = _PRE_CLOSE_RULES.filter(rule =>
+            rule.tags.some(tag => noteTags.includes(tag))
+        );
+
+        if (!matched.length) {
+            await _doCloseTodo('', note);
+            return;
         }
+
+        // Run first matching rule (extensible to sequential chain later)
+        await matched[0].action(note, _doCloseTodo);
+    }
+
+    async function _doCloseTodo(nugget, note) {
+        if (nugget) {
+            const newContent = (note.raw || note.body || '').trimEnd()
+                + `\n\n> fixed: ${nugget}\n`;
+            await fetch('/api/note', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ selector: _activeSelector, content: newContent }),
+            });
+        }
+        const r = await fetch('/api/todo', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ selector: _activeSelector, done: true }),
+        });
+        const d = await r.json();
+        if (d.success) {
+            document.getElementById('nb-done-bar')?.remove();
+            NbNav.reexecute();
+            openNote(_activeSelector);
+        } else {
+            alert('Failed: ' + (d.stderr || 'unknown'));
+        }
+    }
+
+    async function _commitPickerAction(note, doClose) {
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const bar = document.createElement('div');
+        bar.id = 'nb-done-bar';
+        bar.className = 'nb-move-bar';
+
+        const lbl = document.createElement('span');
+        lbl.className = 'nb-move-label';
+        lbl.textContent = 'Fixed in:';
+
+        const sel = document.createElement('select');
+        sel.className = 'nb-scope-select';
+        sel.style.colorScheme = 'dark';
+        sel.style.flex = '1';
+        sel.style.maxWidth = '420px';
+
+        const noneOpt = document.createElement('option');
+        noneOpt.value = ''; noneOpt.textContent = '(no commit)';
+        sel.appendChild(noneOpt);
+
+        fetch('/api/git/log?n=8').then(r => r.json()).then(d => {
+            (d.commits || []).forEach((c, i) => {
+                const opt = document.createElement('option');
+                const subj = c.subject.length > 72 ? c.subject.slice(0, 69) + '…' : c.subject;
+                opt.value       = `\`${c.hash}\` ${c.subject}`;
+                opt.textContent = `${c.hash}  ${subj}`;
+                sel.appendChild(opt);
+                if (i === 0) opt.selected = true;
+            });
+        });
+
+        const doneBtn = document.createElement('button');
+        doneBtn.className   = 'nb-tool-btn nb-btn-primary';
+        doneBtn.textContent = 'Done';
+
+        const skipBtn = document.createElement('button');
+        skipBtn.className   = 'nb-tool-btn';
+        skipBtn.textContent = 'Skip';
+
+        bar.append(lbl, sel, doneBtn, skipBtn);
+        toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
+        sel.focus();
+
+        const run = async (nugget) => {
+            doneBtn.disabled = skipBtn.disabled = true;
+            doneBtn.textContent = 'Marking…';
+            try { await doClose(nugget, note); }
+            finally { doneBtn.textContent = 'Done'; doneBtn.disabled = skipBtn.disabled = false; }
+        };
+
+        doneBtn.addEventListener('click', () => run(sel.value));
+        skipBtn.addEventListener('click', () => run(''));
+        bar.addEventListener('keydown', e => {
+            if (e.key === 'Enter')  run(sel.value);
+            if (e.key === 'Escape') bar.remove();
+        });
     }
 
     // ── Today / Journal ────────────────────────────────────────────

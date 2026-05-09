@@ -821,6 +821,34 @@ def api_tags():
 
 
 # ---------------------------------------------------------------------------
+# API: Git log (recent commits for Done-with-commit UI)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/git/log')
+def api_git_log():
+    n = min(int(request.args.get('n', 8)), 20)
+    try:
+        result = subprocess.run(
+            ['git', 'log', f'-{n}', '--format=%h\t%s\t%cd', '--date=short'],
+            capture_output=True, text=True,
+            cwd=str(Path(__file__).parent),
+        )
+        commits = []
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split('\t', 2)
+            commits.append({
+                'hash':    parts[0] if len(parts) > 0 else '',
+                'subject': parts[1] if len(parts) > 1 else '',
+                'date':    parts[2] if len(parts) > 2 else '',
+            })
+        return jsonify({'commits': commits})
+    except Exception as e:
+        return jsonify({'commits': [], 'error': str(e)})
+
+
+# ---------------------------------------------------------------------------
 # API: Sync
 # ---------------------------------------------------------------------------
 
