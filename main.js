@@ -1177,6 +1177,14 @@ const NbMain = (() => {
 
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape' && _isFullscreen) { _toggleFullscreen(); return; }
+
+            // Ctrl+Enter: save while editing (before input guard)
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && _editing) {
+                e.preventDefault();
+                document.getElementById('nb-save-btn')?.click();
+                return;
+            }
+
             // Let inputs handle their own keys
             const tag = document.activeElement?.tagName;
             if (['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
@@ -1208,7 +1216,8 @@ const NbMain = (() => {
                         _selectItem(items[Math.min(items.length - 1, Math.max(0, idx) + PAGE)]);
                         break;
                     }
-                    case 'ArrowRight': {
+                    case 'ArrowRight':
+                    case 'Enter': {
                         e.preventDefault();
                         const cur = items[idx];
                         if (cur?.dataset.type === 'folder') {
@@ -1239,6 +1248,28 @@ const NbMain = (() => {
                         break;
                     }
                 }
+            }
+
+            // Global shortcuts — skip while editing or when an inline bar has focus
+            if (_editing) return;
+            if (e.target.closest('#nb-done-bar, .nb-move-bar, .nb-rename-bar')) return;
+            switch (e.key) {
+                case 'Escape': {
+                    const menu = document.getElementById('nb-side-menu');
+                    if (!menu?.classList.contains('open')) {
+                        e.preventDefault();
+                        document.getElementById('nb-logo-btn')?.click();
+                    }
+                    break;
+                }
+                case 'a': e.preventDefault(); NbNav.activateCmd('add');       break;
+                case 'l': e.preventDefault(); NbNav.activateCmd('list');      break;
+                case 'c': e.preventDefault(); document.getElementById('nb-cal-icon')?.click(); break;
+                case 'C': e.preventDefault(); NbNav.activateCmd('contacts');  break;
+                case 's': e.preventDefault(); document.getElementById('nb-search')?.focus();   break;
+                case 'n': e.preventDefault(); document.querySelector('.nb-scope-select')?.focus(); break;
+                case 'p': e.preventDefault(); _setKbPane('preview');          break;
+                case 'e': if (_activeSelector) { e.preventDefault(); _openEditor(); } break;
             }
         });
     }
