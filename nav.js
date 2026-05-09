@@ -1136,6 +1136,15 @@ const NbNav = (() => {
         updateBreadcrumb(_folder[_activeCmd].split('/'));
     }
 
+    function drillFolderInNotebook(notebook, folderName) {
+        _scope = notebook;
+        document.querySelectorAll('.nb-scope-select').forEach(sel => { sel.value = notebook; });
+        _folder[_activeCmd] = folderName;
+        _updateOutputBar();
+        NbMain.loadNotes();
+        updateBreadcrumb([folderName]);
+    }
+
     // ── Public ────────────────────────────────────────────────────
 
     return {
@@ -1172,6 +1181,7 @@ const NbNav = (() => {
         setAddTemplate,
         activateCmd,
         drillFolder,
+        drillFolderInNotebook,
         goUpFolder,
         updateBreadcrumb,
         setSearchQuery,

@@ -586,7 +586,9 @@ def api_note():
             try:
                 rel = p.relative_to(nb_candidate)
                 note_notebook = nb_candidate.name
-                idx = read_index(note_notebook)
+                # For subfolder notes, read the folder's own index
+                folder_rel = '/'.join(rel.parts[:-1]) if len(rel.parts) > 1 else ''
+                idx = read_index(note_notebook, folder_rel)
                 fname_key = rel.name
                 if fname_key in idx:
                     note_id = idx.index(fname_key) + 1

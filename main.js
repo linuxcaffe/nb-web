@@ -14,6 +14,7 @@ const NbMain = (() => {
     const _history      = [];       // back-stack
     const _future       = [];       // forward-stack (cleared on any new navigation)
     const _wikilinkCache = new Map(); // selector → resolved title
+    let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
 
     // ── Boot ───────────────────────────────────────────────────────
 
@@ -214,7 +215,13 @@ const NbMain = (() => {
             li.appendChild(body);
 
             if (note.type === 'folder') {
-                li.addEventListener('click', () => NbNav.drillFolder(note.filename));
+                li.addEventListener('click', () => {
+                    if (NbNav.notebook === '_all' && note.notebook) {
+                        NbNav.drillFolderInNotebook(note.notebook, note.filename);
+                    } else {
+                        NbNav.drillFolder(note.filename);
+                    }
+                });
             } else {
                 li.addEventListener('click', () => openNote(note.selector));
             }
@@ -222,11 +229,12 @@ const NbMain = (() => {
             ul.appendChild(li);
         });
 
-        // Auto-select first non-folder when current selection left the list
-        if (!fromSort) {
+        // Auto-select first non-pinned, non-folder when current selection left the list
+        if (!fromSort && !_noAutoSelect) {
             const stillPresent = _activeSelector && notes.some(n => n.selector === _activeSelector);
             if (!stillPresent) {
-                const first = notes.find(n => n.type !== 'folder');
+                const first = notes.find(n => n.type !== 'folder' && !_pinnedSelectors.has(n.selector))
+                           || notes.find(n => n.type !== 'folder');
                 if (first) openNote(first.selector, true, { autoSelect: true });
             }
         }
@@ -1388,7 +1396,13 @@ const NbMain = (() => {
                 body: JSON.stringify({selector: _activeSelector, content}),
             });
             const d = await r.json();
-            if (d.success) { _closeEditor(); NbNav.reexecute(); openNote(_activeSelector); }
+            if (d.success) {
+                const savedSel = _activeSelector;
+                _closeEditor();
+                _noAutoSelect = true;
+                NbNav.reexecute();
+                openNote(savedSel).finally(() => { _noAutoSelect = false; });
+            }
             else alert('Save failed: ' + (d.stderr || 'unknown error'));
         } finally {
             btn.textContent = 'Save';
@@ -2067,9 +2081,11 @@ const NbMain = (() => {
 
             if (!notes.length) {
                 content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">No notes in this date range.</div>';
-            } else {
-                content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Select a result to preview.</div>';
+            } else if (_activeSelector && notes.some(n => n.selector === _activeSelector)) {
+                // Active note is in the cal results — refresh its preview
+                openNote(_activeSelector, false, { autoSelect: true });
             }
+            // else: auto-select already fired in renderList for the first item
         } catch (e) {
             console.error('runCal:', e);
         }
