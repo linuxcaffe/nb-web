@@ -34,6 +34,49 @@ _RE_HEADING = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not
 # Startup stamp — visible in menu so you can confirm a restart happened
 from datetime import datetime
 _STARTED_AT = datetime.now().strftime('%m-%d %H:%M')
+
+# ---------------------------------------------------------------------------
+# Template variable resolution
+# ---------------------------------------------------------------------------
+
+_weather_cache: dict = {'value': None, 'ts': 0.0}
+
+def _fetch_weather() -> str:
+    if _weather_cache['value'] and time.time() - _weather_cache['ts'] < 3600:
+        return _weather_cache['value']
+    try:
+        import urllib.request
+        url = 'https://wttr.in/?format=%c+%C,+%t+(feels+%f),+%h+humidity,+%w&m'
+        req = urllib.request.Request(url, headers={'User-Agent': 'curl/7.88'})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = resp.read().decode('utf-8', errors='replace').strip()
+        _weather_cache['value'] = result
+        _weather_cache['ts'] = time.time()
+        return result
+    except Exception:
+        return '(weather unavailable)'
+
+
+def _resolve_template_vars(text: str, title: str = '', tags: str = '', content: str = '') -> str:
+    """Resolve {{placeholders}} in a template before note creation.
+
+    Handled vars: {{title}}, {{tags}}, {{content}}, {{date}}, {{day}},
+    {{time}}, {{weather}} ({{weather}} triggers a wttr.in fetch only if present).
+    """
+    now = datetime.now()
+    subs = {
+        '{{title}}':   title,
+        '{{tags}}':    tags,
+        '{{content}}': content,
+        '{{date}}':    now.strftime('%Y-%m-%d'),
+        '{{day}}':     now.strftime('%A, %B %-d, %Y'),
+        '{{time}}':    now.strftime('%H:%M'),
+    }
+    if '{{weather}}' in text:
+        subs['{{weather}}'] = _fetch_weather()
+    for k, v in subs.items():
+        text = text.replace(k, v)
+    return text
 try:
     _GIT_REV = subprocess.run(
         ['git', 'rev-parse', '--short', 'HEAD'],
@@ -716,23 +759,31 @@ def api_create_note():
         nb_name = (title or 'notebook').strip()
         r = run_nb('notebooks', 'add', nb_name)
     else:
-        args = ['add', target]
-        if title:   args += ['--title', title]
-        args += ['--content', content or '\n']
-        if tags:    args += ['--tags', ','.join(tags)]
-        # Datestamp-prefixed filename keeps the clean title while making notes cal-visible
-        slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
-        dated_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
-        args += ['--filename', dated_filename]
-        # Validate template path is inside NB_DIR before passing to shell
+        # Resolve template vars in Python so {{date}}, {{weather}} etc. work
+        # for any template, not just daily-template.
+        note_content = content or '\n'
         if template_path:
             tp = Path(template_path)
             try:
                 tp.relative_to(NB_DIR)
                 if tp.exists():
-                    args += ['--template', template_path]
-            except ValueError:
+                    note_content = _resolve_template_vars(
+                        tp.read_text(errors='replace'),
+                        title=title,
+                        tags=' '.join(f'#{t}' for t in tags) if tags else '',
+                        content=content or '',
+                    )
+            except (ValueError, OSError):
                 pass
+
+        args = ['add', target]
+        if title:   args += ['--title', title]
+        args += ['--content', note_content]
+        if tags:    args += ['--tags', ','.join(tags)]
+        # Datestamp-prefixed filename keeps the clean title while making notes cal-visible
+        slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
+        dated_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
+        args += ['--filename', dated_filename]
         r = run_nb(*args)
         if nb_ok(r):
             pass  # falls through to shared return below
