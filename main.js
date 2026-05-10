@@ -16,6 +16,7 @@ const NbMain = (() => {
     const _wikilinkCache = new Map(); // selector → resolved title
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
     let _kbPane         = 'list';   // 'list' | 'preview'
+    const _pendingDeletes = new Set(); // selectors deleted but possibly not yet gone from server
 
     function _setKbPane(pane) {
         _kbPane = pane;
@@ -65,6 +66,7 @@ const NbMain = (() => {
             const d = await r.json();
             if (seq !== _listSeq) return;
             let notes = d.notes || [];
+            if (_pendingDeletes.size) { notes = notes.filter(n => !_pendingDeletes.has(n.selector)); _pendingDeletes.clear(); }
             if (typeFilter)   notes = notes.filter(n => n.type   === typeFilter.replace('--type ', ''));
             if (statusFilter) notes = notes.filter(n => n.status === statusFilter);
             renderList(notes);
@@ -86,6 +88,7 @@ const NbMain = (() => {
             const d = await r.json();
             if (seq !== _listSeq) return;
             let notes = d.notes || [];
+            if (_pendingDeletes.size) { notes = notes.filter(n => !_pendingDeletes.has(n.selector)); _pendingDeletes.clear(); }
             if (typeFilter)   notes = notes.filter(n => n.type   === typeFilter.replace('--type ', ''));
             if (statusFilter) notes = notes.filter(n => n.status === statusFilter);
             renderList(notes);
@@ -1473,7 +1476,14 @@ const NbMain = (() => {
         const r = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector), {method:'DELETE'});
         const d = await r.json();
         if (d.success) {
+            const deleted = _activeSelector;
             _activeSelector = null;
+            // Remove synchronously from DOM and cache — don't wait for server round-trip
+            document.querySelectorAll('#nb-list .nb-list-item').forEach(el => {
+                if (el.dataset.selector === deleted) el.remove();
+            });
+            _lastNotes = (_lastNotes || []).filter(n => n.selector !== deleted);
+            _pendingDeletes.add(deleted);
             document.getElementById('nb-preview-toolbar').hidden = true;
             document.getElementById('nb-preview-content').innerHTML =
                 '<div id="nb-welcome"><h2>nb-web</h2><p>Note deleted.</p></div>';
@@ -2120,8 +2130,8 @@ const NbMain = (() => {
             const r = await fetch('/api/template?path=' + encodeURIComponent(path));
             const d = await r.json();
             const raw = d.content || '';
-            const html = _renderMarkdown(raw);
             const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
+            let latestRaw = raw;  // local — reset per _openTemplate call, no stale cross-template state
 
             const showPreview = () => {
                 content.innerHTML = `
@@ -2131,17 +2141,25 @@ const NbMain = (() => {
                         <span>📋 <strong>${_esc(name)}</strong></span>
                         <span style="opacity:0.6">${scopeLabel}</span>
                     </div>
-                    <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${_renderMarkdown(
-                        (content._latestRaw !== undefined ? content._latestRaw : raw)
-                    )}</div>
-                    <div style="padding:10px 32px 14px;border-top:1px solid var(--border);
-                                display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <input type="text" id="nb-tmpl-title" class="nb-opt-input"
-                               placeholder="Note title…" style="flex:1;min-width:120px">
-                        <button id="nb-tmpl-create" class="nb-tool-btn nb-btn-primary">Create note</button>
-                        <button id="nb-tmpl-edit"   class="nb-tool-btn">Edit</button>
-                        <button id="nb-tmpl-delete" class="nb-tool-btn nb-btn-danger">Delete</button>
-                    </div>`;
+                    <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${_renderMarkdown(latestRaw)}</div>`;
+
+                // Render CSV blocks; then reclaim the note-save button (we use our own footer btn)
+                _renderCsvBlocks(content.querySelector('.nb-rendered'));
+                const ssb = document.getElementById('nb-sheet-save-btn');
+                if (ssb) { ssb.hidden = true; ssb.onclick = null; }
+                const hasCsvBlocks = !!content.querySelector('.nb-csv-block');
+
+                // Append footer via DOM — innerHTML+= would destroy jspreadsheet instances
+                const footer = document.createElement('div');
+                footer.style.cssText = 'padding:10px 32px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+                footer.innerHTML = `
+                    <input type="text" id="nb-tmpl-title" class="nb-opt-input"
+                           placeholder="Note title…" style="flex:1;min-width:120px">
+                    <button id="nb-tmpl-create" class="nb-tool-btn nb-btn-primary">Create note</button>
+                    ${hasCsvBlocks ? '<button id="nb-tmpl-sheet-save" class="nb-tool-btn">Save sheet</button>' : ''}
+                    <button id="nb-tmpl-edit"   class="nb-tool-btn">Edit</button>
+                    <button id="nb-tmpl-delete" class="nb-tool-btn nb-btn-danger">Delete</button>`;
+                content.appendChild(footer);
 
                 const titleEl  = document.getElementById('nb-tmpl-title');
                 const createEl = document.getElementById('nb-tmpl-create');
@@ -2175,10 +2193,50 @@ const NbMain = (() => {
                     if (dd.success) runTemplates();
                     else alert('Delete failed: ' + (dd.error || 'unknown'));
                 });
+
+                if (hasCsvBlocks) {
+                    document.getElementById('nb-tmpl-sheet-save').addEventListener('click', async () => {
+                        const btn = document.getElementById('nb-tmpl-sheet-save');
+                        btn.textContent = 'Saving…'; btn.disabled = true;
+                        try {
+                            const hosts = [...content.querySelectorAll('.nb-csv-block')];
+                            let blockIdx = 0;
+                            const newRaw = latestRaw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
+                                const host = hosts[blockIdx++];
+                                if (!host?.spreadsheet) return match;
+                                const data = host.spreadsheet.worksheets[0].getData();
+                                const csv  = data.map(row =>
+                                    row.map(cell => {
+                                        const s = String(cell ?? '');
+                                        return s.includes(',') || s.includes('"') || s.includes('\n')
+                                            ? `"${s.replace(/"/g, '""')}"` : s;
+                                    }).join(',')
+                                ).join('\n');
+                                return '```csv\n' + csv + '\n```';
+                            });
+                            const sr = await fetch('/api/template', {
+                                method: 'PUT',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({ path, content: newRaw }),
+                            });
+                            const sd = await sr.json();
+                            if (sd.success) {
+                                latestRaw = newRaw;
+                                btn.textContent = '✓ Saved';
+                                setTimeout(() => { btn.textContent = 'Save sheet'; btn.disabled = false; }, 1400);
+                            } else {
+                                alert('Save failed: ' + (sd.error || 'unknown'));
+                                btn.textContent = 'Save sheet'; btn.disabled = false;
+                            }
+                        } catch(e) {
+                            alert('Save error: ' + e);
+                            btn.textContent = 'Save sheet'; btn.disabled = false;
+                        }
+                    });
+                }
             };
 
             const showEditor = () => {
-                const currentRaw = content._latestRaw !== undefined ? content._latestRaw : raw;
                 content.innerHTML = `
                     <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
                                 font-family:var(--font-mono);border-bottom:1px solid var(--border);
@@ -2190,7 +2248,7 @@ const NbMain = (() => {
                         style="flex:1;width:100%;box-sizing:border-box;padding:16px 32px;
                                border:none;outline:none;resize:none;font-family:var(--font-mono);
                                font-size:13px;background:var(--bg);color:var(--text);
-                               min-height:260px">${_esc(currentRaw)}</textarea>
+                               min-height:260px">${_esc(latestRaw)}</textarea>
                     <div style="padding:10px 32px 14px;border-top:1px solid var(--border);
                                 display:flex;gap:8px">
                         <button id="nb-tmpl-save"   class="nb-tool-btn nb-btn-primary">Save</button>
@@ -2219,7 +2277,7 @@ const NbMain = (() => {
                         });
                         const sd = await sr.json();
                         if (sd.success) {
-                            content._latestRaw = newContent;
+                            latestRaw = newContent;
                             showPreview();
                         } else alert('Save failed: ' + (sd.error || 'unknown'));
                     } finally { btn.textContent = 'Save'; btn.disabled = false; }
