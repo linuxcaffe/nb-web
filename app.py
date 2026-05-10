@@ -275,12 +275,10 @@ def api_save_template():
 
 @app.route('/api/template')
 def api_get_template():
-    """Return raw content of a template file for preview."""
     path = request.args.get('path', '').strip()
     if not path:
         return jsonify({'error': 'path required'}), 400
     tpath = Path(path)
-    # Safety: must be inside NB_DIR
     try:
         tpath.relative_to(NB_DIR)
     except ValueError:
@@ -288,6 +286,40 @@ def api_get_template():
     if not tpath.exists():
         return jsonify({'error': 'not found'}), 404
     return jsonify({'content': tpath.read_text(errors='replace'), 'name': tpath.stem})
+
+
+@app.route('/api/template', methods=['PUT'])
+def api_update_template():
+    data    = request.get_json() or {}
+    path    = data.get('path', '').strip()
+    content = data.get('content', '')
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    tpath = Path(path)
+    try:
+        tpath.relative_to(NB_DIR)
+    except ValueError:
+        return jsonify({'error': 'invalid path'}), 403
+    if not tpath.exists():
+        return jsonify({'error': 'not found'}), 404
+    tpath.write_text(content)
+    return jsonify({'success': True})
+
+
+@app.route('/api/template', methods=['DELETE'])
+def api_delete_template():
+    path = request.args.get('path', '').strip()
+    if not path:
+        return jsonify({'error': 'path required'}), 400
+    tpath = Path(path)
+    try:
+        tpath.relative_to(NB_DIR)
+    except ValueError:
+        return jsonify({'error': 'invalid path'}), 403
+    if not tpath.exists():
+        return jsonify({'error': 'not found'}), 404
+    tpath.unlink()
+    return jsonify({'success': True})
 
 
 @app.route('/api/task-info')

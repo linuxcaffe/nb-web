@@ -2119,50 +2119,116 @@ const NbMain = (() => {
         try {
             const r = await fetch('/api/template?path=' + encodeURIComponent(path));
             const d = await r.json();
-            const html = _renderMarkdown(d.content || '');
+            const raw = d.content || '';
+            const html = _renderMarkdown(raw);
             const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
-            content.innerHTML = `
-                <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
-                            font-family:var(--font-mono);border-bottom:1px solid var(--border);
-                            display:flex;align-items:center;gap:12px">
-                    <span>📋 <strong>${_esc(name)}</strong></span>
-                    <span style="opacity:0.6">${scopeLabel}</span>
-                </div>
-                <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${html}</div>
-                <div style="padding:10px 32px 14px;border-top:1px solid var(--border);
-                            display:flex;align-items:center;gap:8px">
-                    <input type="text" id="nb-tmpl-title" class="nb-opt-input"
-                           placeholder="Note title…" style="flex:1;min-width:0">
-                    <button id="nb-tmpl-create" class="nb-tool-btn nb-btn-primary">Create note</button>
-                </div>`;
 
-            const titleEl  = document.getElementById('nb-tmpl-title');
-            const createEl = document.getElementById('nb-tmpl-create');
+            const showPreview = () => {
+                content.innerHTML = `
+                    <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                                font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                                display:flex;align-items:center;gap:12px">
+                        <span>📋 <strong>${_esc(name)}</strong></span>
+                        <span style="opacity:0.6">${scopeLabel}</span>
+                    </div>
+                    <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${_renderMarkdown(
+                        (content._latestRaw !== undefined ? content._latestRaw : raw)
+                    )}</div>
+                    <div style="padding:10px 32px 14px;border-top:1px solid var(--border);
+                                display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <input type="text" id="nb-tmpl-title" class="nb-opt-input"
+                               placeholder="Note title…" style="flex:1;min-width:120px">
+                        <button id="nb-tmpl-create" class="nb-tool-btn nb-btn-primary">Create note</button>
+                        <button id="nb-tmpl-edit"   class="nb-tool-btn">Edit</button>
+                        <button id="nb-tmpl-delete" class="nb-tool-btn nb-btn-danger">Delete</button>
+                    </div>`;
 
-            async function _doCreate() {
-                const title = titleEl.value.trim();
-                if (!title) { titleEl.focus(); return; }
-                createEl.textContent = 'Creating…'; createEl.disabled = true;
-                try {
-                    const ok = await addNote({
-                        notebook:      NbNav.notebook === '_all' ? 'home' : NbNav.notebook,
-                        type:          'note',
-                        title,
-                        url:           '',
-                        template_path: path,
-                    });
-                    if (ok) NbNav.activateCmd('list');
-                } finally {
-                    createEl.textContent = 'Create note'; createEl.disabled = false;
+                const titleEl  = document.getElementById('nb-tmpl-title');
+                const createEl = document.getElementById('nb-tmpl-create');
+
+                async function _doCreate() {
+                    const title = titleEl.value.trim();
+                    if (!title) { titleEl.focus(); return; }
+                    createEl.textContent = 'Creating…'; createEl.disabled = true;
+                    try {
+                        const ok = await addNote({
+                            notebook:      NbNav.notebook === '_all' ? 'home' : NbNav.notebook,
+                            type:          'note', title, url: '', template_path: path,
+                        });
+                        if (ok) NbNav.activateCmd('list');
+                    } finally { createEl.textContent = 'Create note'; createEl.disabled = false; }
                 }
-            }
+                createEl.addEventListener('click', _doCreate);
+                titleEl.addEventListener('keydown', e => {
+                    if (e.key === 'Enter')  _doCreate();
+                    if (e.key === 'Escape') titleEl.value = '';
+                });
+                requestAnimationFrame(() => titleEl.focus());
 
-            createEl.addEventListener('click', _doCreate);
-            titleEl.addEventListener('keydown', e => {
-                if (e.key === 'Enter')  _doCreate();
-                if (e.key === 'Escape') titleEl.value = '';
-            });
-            requestAnimationFrame(() => titleEl.focus());
+                document.getElementById('nb-tmpl-edit').addEventListener('click', showEditor);
+
+                document.getElementById('nb-tmpl-delete').addEventListener('click', async () => {
+                    if (!confirm(`Delete template "${name}"?`)) return;
+                    const dr = await fetch('/api/template?path=' + encodeURIComponent(path),
+                        { method: 'DELETE' });
+                    const dd = await dr.json();
+                    if (dd.success) runTemplates();
+                    else alert('Delete failed: ' + (dd.error || 'unknown'));
+                });
+            };
+
+            const showEditor = () => {
+                const currentRaw = content._latestRaw !== undefined ? content._latestRaw : raw;
+                content.innerHTML = `
+                    <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                                font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                                display:flex;align-items:center;gap:12px">
+                        <span>✏️ <strong>${_esc(name)}</strong></span>
+                        <span style="opacity:0.6">${scopeLabel}</span>
+                    </div>
+                    <textarea id="nb-tmpl-editor" spellcheck="false"
+                        style="flex:1;width:100%;box-sizing:border-box;padding:16px 32px;
+                               border:none;outline:none;resize:none;font-family:var(--font-mono);
+                               font-size:13px;background:var(--bg);color:var(--text);
+                               min-height:260px">${_esc(currentRaw)}</textarea>
+                    <div style="padding:10px 32px 14px;border-top:1px solid var(--border);
+                                display:flex;gap:8px">
+                        <button id="nb-tmpl-save"   class="nb-tool-btn nb-btn-primary">Save</button>
+                        <button id="nb-tmpl-cancel" class="nb-tool-btn">Cancel</button>
+                    </div>`;
+
+                const ta = document.getElementById('nb-tmpl-editor');
+                ta.focus();
+                ta.addEventListener('keydown', e => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        document.getElementById('nb-tmpl-save')?.click();
+                    }
+                    if (e.key === 'Escape') showPreview();
+                });
+
+                document.getElementById('nb-tmpl-save').addEventListener('click', async () => {
+                    const newContent = ta.value;
+                    const btn = document.getElementById('nb-tmpl-save');
+                    btn.textContent = 'Saving…'; btn.disabled = true;
+                    try {
+                        const sr = await fetch('/api/template', {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ path, content: newContent }),
+                        });
+                        const sd = await sr.json();
+                        if (sd.success) {
+                            content._latestRaw = newContent;
+                            showPreview();
+                        } else alert('Save failed: ' + (sd.error || 'unknown'));
+                    } finally { btn.textContent = 'Save'; btn.disabled = false; }
+                });
+
+                document.getElementById('nb-tmpl-cancel').addEventListener('click', showPreview);
+            };
+
+            showPreview();
         } catch(e) {
             content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
         }
