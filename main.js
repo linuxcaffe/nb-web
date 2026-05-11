@@ -2173,7 +2173,7 @@ const NbMain = (() => {
                             notebook:      NbNav.notebook === '_all' ? 'home' : NbNav.notebook,
                             type:          'note', title, url: '', template_path: path,
                         });
-                        if (ok) NbNav.activateCmd('list');
+                        if (ok) { NbNav.activateCmd('list'); if (ok.selector) openNote(ok.selector); }
                     } finally { createEl.textContent = 'Create note'; createEl.disabled = false; }
                 }
                 createEl.addEventListener('click', _doCreate);

@@ -139,12 +139,25 @@ def read_index(notebook, folder=''):
 
 
 def parse_frontmatter(text):
-    """Return (meta_dict, body_str) from a markdown file."""
+    """Return (meta_dict, body_str) from a markdown file.
+
+    Handles two layouts:
+      - standard: starts with ---\\nyaml\\n---
+      - nb legacy: starts with # Title\\n\\n---\\nyaml\\n---
+    """
     meta = {}
-    if text.startswith('---'):
-        end = text.find('\n---', 3)
+    # Strip a leading heading line that nb used to prepend before the YAML block
+    fm_text = text
+    if not text.startswith('---'):
+        lines = text.splitlines(keepends=True)
+        if lines and lines[0].startswith('# '):
+            rest = ''.join(lines[1:]).lstrip()
+            if rest.startswith('---'):
+                fm_text = rest
+    if fm_text.startswith('---'):
+        end = fm_text.find('\n---', 3)
         if end != -1:
-            block = text[3:end].strip()
+            block = fm_text[3:end].strip()
             if _YAML_OK:
                 try:
                     parsed = _yaml.safe_load(block)
@@ -157,7 +170,7 @@ def parse_frontmatter(text):
                     if ':' in line:
                         k, _, v = line.partition(':')
                         meta[k.strip()] = v.strip()
-            text = text[end + 4:].lstrip()
+            text = fm_text[end + 4:].lstrip()
     return meta, text
 
 
@@ -412,9 +425,10 @@ def _list_all_notes(limit):
                 continue
             meta, body = parse_frontmatter(raw)
             itype = classify(fname, nb_name)
-            title = meta.get('title') or note_title(fname, body)
+            title = meta.get('title') or meta.get('name') or note_title(fname, body)
             excerpt = next((l.strip()[:120] for l in body.splitlines()
-                            if l.strip() and not _RE_HEADING.match(l)), '')
+                            if l.strip() and not _RE_HEADING.match(l)
+                            and not l.strip().startswith('<!--')), '')
             todo_status = None
             if itype == 'todo':
                 first = next((l.strip() for l in body.splitlines() if l.strip()), '')
@@ -469,11 +483,11 @@ def _list_notes(notebook, folder, limit):
             continue
         meta, body = parse_frontmatter(raw)
         itype = classify(fname, notebook)
-        title = meta.get('title') or note_title(fname, body)
+        title = meta.get('title') or meta.get('name') or note_title(fname, body)
         excerpt = ''
         for line in body.splitlines():
             line = line.strip()
-            if line and not _RE_HEADING.match(line):
+            if line and not _RE_HEADING.match(line) and not line.startswith('<!--'):
                 excerpt = line[:120]
                 break
         todo_status = None
@@ -681,7 +695,7 @@ def api_note():
     meta, body = parse_frontmatter(raw)
     filename = Path(fpath).name
     itype = classify(filename, note_notebook)
-    title = meta.get('title') or note_title(filename, body)
+    title = meta.get('title') or meta.get('name') or note_title(filename, body)
 
     tags = re.findall(r'#([\w/-]+)', body)
 
@@ -809,7 +823,10 @@ def api_create_note():
                 pass
 
         args = ['add', target]
-        if title:   args += ['--title', title]
+        # Skip --title when a template is used: {{title}} is already substituted
+        # into the content, and nb prepending "# Title\n\n" breaks YAML frontmatter.
+        if title and not template_path:
+            args += ['--title', title]
         args += ['--content', note_content]
         if tags:    args += ['--tags', ','.join(tags)]
         # Datestamp-prefixed filename keeps the clean title while making notes cal-visible
@@ -818,7 +835,10 @@ def api_create_note():
         args += ['--filename', dated_filename]
         r = run_nb(*args)
         if nb_ok(r):
-            pass  # falls through to shared return below
+            # We control the filename, so build the selector directly — avoids
+            # parsing nb's ID-based output which won't match filename selectors in the list.
+            return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
+                            'selector': f'{notebook}:{dated_filename}'})
 
     if not nb_ok(r):
         return jsonify({'success': False, 'error': r['stderr']}), 400

@@ -54,7 +54,7 @@ const NbNav = (() => {
             if (!confirm('Discard unsaved changes?')) return;
             NbMain.closeEditor?.();
         }
-        if (cmd === 'contacts') { _scope = 'contacts'; cmd = 'list'; }
+        if (cmd === 'contacts') { _scope = 'contacts'; _state.list.type = 'contact'; cmd = 'list'; }
         _activeCmd = cmd;
         document.querySelectorAll('.nb-cmd').forEach(b =>
             b.classList.toggle('active', b.dataset.cmd === cmd));
@@ -148,6 +148,7 @@ const NbNav = (() => {
             { val: 'note',     label: '📝'  },
             { val: 'bookmark', label: '🔖'  },
             { val: 'todo',     label: '✔'   },
+            { val: 'contact',  label: '🪪'  },
             { val: 'folder',   label: '📂'  },
             { val: 'image',    label: '🌄'  },
         ], st.type, val => {
