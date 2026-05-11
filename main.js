@@ -970,15 +970,16 @@ const NbMain = (() => {
             const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
-            if (d.text != null) { _buildHledgerPre(el, d.text, q); return; }
+            const webUrl = d.webUrl || null;
+            if (d.text != null) { _buildHledgerPre(el, d.text, q, webUrl); return; }
             const cmd = d.cmd || 'balance';
             const BALANCE   = new Set(['balance','bal','b']);
             const REGISTER  = new Set(['register','reg','r']);
             const SECTIONED = new Set(['incomestatement','is','balancesheet','bs','cashflow','cf']);
-            if (BALANCE.has(cmd))   _buildHledgerBalance(el, d.data, q);
-            else if (REGISTER.has(cmd))  _buildHledgerRegister(el, d.data, q);
-            else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q);
-            else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q);
+            if (BALANCE.has(cmd))        _buildHledgerBalance(el, d.data, q, webUrl);
+            else if (REGISTER.has(cmd))  _buildHledgerRegister(el, d.data, q, webUrl);
+            else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q, webUrl);
+            else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q, webUrl);
         } catch(e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
         }
@@ -1004,26 +1005,53 @@ const NbMain = (() => {
         return total < -0.001 ? 'nb-hl-neg' : total > 0.001 ? 'nb-hl-pos' : 'nb-hl-zero';
     }
 
-    function _hlHeader(el, q, refresh) {
+    function _hlHeader(el, q, refresh, webUrl) {
         const hdr = document.createElement('div');
         hdr.className = 'nb-hl-header';
         hdr.innerHTML = `<span class="nb-hl-meta">${q ? `<code>${_esc(q)}</code>` : 'hledger'}</span>`;
-        const btn = document.createElement('button');
-        btn.className = 'nb-hl-refresh nb-tw-btn';
-        btn.title = 'Refresh';
-        btn.textContent = '↻';
-        btn.addEventListener('click', refresh);
-        hdr.appendChild(btn);
+
+        const acts = document.createElement('span');
+        acts.className = 'nb-hl-actions';
+
+        if (webUrl) {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
+            addBtn.title = 'Add transaction in hledger-web';
+            addBtn.textContent = '+';
+            addBtn.addEventListener('click', () => window.open(`${webUrl}/add`, 'hledger-web'));
+            acts.appendChild(addBtn);
+
+            const webBtn = document.createElement('button');
+            webBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-web-btn';
+            webBtn.title = 'Open in hledger-web';
+            webBtn.textContent = '⎋';
+            webBtn.addEventListener('click', () => {
+                const args    = (q || '').split(/\s+/);
+                const pattern = args.slice(1).find(a => !a.startsWith('-')) || '';
+                const hash    = pattern ? `#${encodeURIComponent(pattern)}` : '';
+                window.open(`${webUrl}${hash}`, 'hledger-web');
+            });
+            acts.appendChild(webBtn);
+        }
+
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-refresh';
+        refBtn.title = 'Refresh';
+        refBtn.textContent = '↻';
+        refBtn.addEventListener('click', refresh);
+        acts.appendChild(refBtn);
+
+        hdr.appendChild(acts);
         el.appendChild(hdr);
     }
 
     // ── balance / bal / b ─────────────────────────────────────────
-    function _buildHledgerBalance(el, data, q) {
+    function _buildHledgerBalance(el, data, q, webUrl) {
         // data = [rows_array, totals_array]
         const rows   = Array.isArray(data?.[0]) ? data[0] : [];
         const totals = Array.isArray(data?.[1]) ? data[1] : [];
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el));
+        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No accounts matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -1047,10 +1075,10 @@ const NbMain = (() => {
     }
 
     // ── register / reg / r ────────────────────────────────────────
-    function _buildHledgerRegister(el, data, q) {
+    function _buildHledgerRegister(el, data, q, webUrl) {
         const rows = Array.isArray(data) ? data : [];
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el));
+        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No transactions matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -1077,10 +1105,10 @@ const NbMain = (() => {
     }
 
     // ── incomestatement / balancesheet / cashflow ─────────────────
-    function _buildHledgerSectioned(el, data, q) {
+    function _buildHledgerSectioned(el, data, q, webUrl) {
         const subreports = data?.cbrSubreports || [];
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el));
+        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
 
         for (const [sectionName, report] of subreports) {
             const rows   = report?.prRows   || [];
@@ -1115,9 +1143,9 @@ const NbMain = (() => {
     }
 
     // Fallback: plain text in a <pre>
-    function _buildHledgerPre(el, text, q) {
+    function _buildHledgerPre(el, text, q, webUrl) {
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el));
+        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
         el.insertAdjacentHTML('beforeend', `<pre class="nb-hl-pre">${_esc(text)}</pre>`);
     }
 

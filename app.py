@@ -594,12 +594,13 @@ def api_hledger_query():
         stderr = result.stderr.strip()
         if result.returncode != 0:
             return jsonify({'error': stderr or 'hledger error'}), 500
+        web_url = os.environ.get('HLEDGER_WEB_URL', '').rstrip('/')
+        extra   = {'webUrl': web_url} if web_url else {}
         try:
             data = json.loads(result.stdout or 'null')
-            return jsonify({'cmd': cmd, 'data': data})
+            return jsonify({'cmd': cmd, 'data': data, **extra})
         except json.JSONDecodeError:
-            # Command doesn't support JSON — return plain text
-            return jsonify({'cmd': cmd, 'text': result.stdout.strip()})
+            return jsonify({'cmd': cmd, 'text': result.stdout.strip(), **extra})
     except FileNotFoundError:
         return jsonify({'error': 'hledger not found — is it installed?'}), 500
     except subprocess.TimeoutExpired:
