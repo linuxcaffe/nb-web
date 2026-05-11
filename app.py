@@ -520,6 +520,30 @@ def api_task_info():
         return jsonify({'output': '', 'success': False, 'error': 'task not found'})
 
 
+@app.route('/api/task-query')
+def api_task_query():
+    """Run a read-only taskwarrior filter and return exported JSON tasks."""
+    q = request.args.get('q', '').strip()
+    # Block write verbs — this endpoint is read-only
+    if q and re.search(r'\b(add|modify|delete|done|start|stop|annotate|denotate|edit|import|sync|undo|purge)\b', q, re.I):
+        return jsonify({'error': 'Only read filters are allowed'}), 400
+    filter_args = q.split() if q else []
+    try:
+        result = subprocess.run(
+            ['task', 'rc.hooks=off', 'rc.confirmation=no'] + filter_args + ['export'],
+            capture_output=True, text=True,
+            env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+            timeout=10,
+        )
+        # task exits 1 for "no tasks match" — still valid
+        tasks = json.loads(result.stdout or '[]')
+        return jsonify({'tasks': tasks})
+    except FileNotFoundError:
+        return jsonify({'error': 'taskwarrior not found'}), 500
+    except (json.JSONDecodeError, subprocess.TimeoutExpired) as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
@@ -1712,6 +1736,94 @@ def api_move():
         return jsonify({'error': 'selector and dest required'}), 400
     r = run_nb('move', selector, dest, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+# ---------------------------------------------------------------------------
+# API: Note history (git-backed undo)
+# ---------------------------------------------------------------------------
+
+def _nb_root_and_rel(fpath):
+    """Return (nb_root_Path, rel_path_str) for a file inside NB_DIR."""
+    parts = fpath.relative_to(NB_DIR).parts
+    nb_root = NB_DIR / parts[0]
+    rel_path = str(fpath.relative_to(nb_root))
+    return nb_root, rel_path
+
+
+@app.route('/api/note/history')
+def api_note_history():
+    selector = request.args.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath:
+        return jsonify({'error': 'not found'}), 404
+    nb_root, rel_path = _nb_root_and_rel(fpath)
+    r = subprocess.run(
+        ['git', 'log', '--format=%H\t%s\t%cd', '--date=short', '--', rel_path],
+        capture_output=True, text=True, cwd=str(nb_root))
+    commits = []
+    for line in r.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split('\t', 2)
+        commits.append({
+            'hash':    parts[0] if len(parts) > 0 else '',
+            'subject': parts[1] if len(parts) > 1 else '',
+            'date':    parts[2] if len(parts) > 2 else '',
+        })
+    return jsonify({'commits': commits})
+
+
+@app.route('/api/note/version')
+def api_note_version():
+    selector = request.args.get('selector', '').strip()
+    git_hash = request.args.get('hash', '').strip()
+    if not selector or not git_hash:
+        return jsonify({'error': 'selector and hash required'}), 400
+    if not re.match(r'^[0-9a-f]{4,64}$', git_hash):
+        return jsonify({'error': 'invalid hash'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath:
+        return jsonify({'error': 'not found'}), 404
+    nb_root, rel_path = _nb_root_and_rel(fpath)
+    r = subprocess.run(
+        ['git', 'show', f'{git_hash}:{rel_path}'],
+        capture_output=True, text=True, cwd=str(nb_root))
+    if r.returncode != 0:
+        return jsonify({'error': r.stderr.strip()}), 404
+    raw = r.stdout
+    meta, body = parse_frontmatter(raw)
+    title = meta.get('title') or meta.get('name') or note_title(fpath.name, body)
+    return jsonify({'raw': raw, 'body': body, 'meta': meta, 'title': title,
+                    'type': classify(fpath.name, fpath.relative_to(NB_DIR).parts[0]),
+                    'hash': git_hash})
+
+
+@app.route('/api/note/restore', methods=['POST'])
+def api_note_restore():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    git_hash = data.get('hash', '').strip()
+    if not selector or not git_hash:
+        return jsonify({'error': 'selector and hash required'}), 400
+    if not re.match(r'^[0-9a-f]{4,64}$', git_hash):
+        return jsonify({'error': 'invalid hash'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath:
+        return jsonify({'error': 'not found'}), 404
+    nb_root, rel_path = _nb_root_and_rel(fpath)
+    r = subprocess.run(
+        ['git', 'show', f'{git_hash}:{rel_path}'],
+        capture_output=True, text=True, cwd=str(nb_root))
+    if r.returncode != 0:
+        return jsonify({'error': r.stderr.strip()}), 500
+    fpath.write_text(r.stdout)
+    subprocess.run(['git', 'add', '--', rel_path], cwd=str(nb_root))
+    subprocess.run(
+        ['git', 'commit', '-m', f'[nb] Restore: {fpath.name} to {git_hash[:7]}'],
+        cwd=str(nb_root))
+    return jsonify({'success': True})
 
 
 # ---------------------------------------------------------------------------

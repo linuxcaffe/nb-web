@@ -429,6 +429,7 @@ const NbMain = (() => {
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
 
         _renderCsvBlocks(content);
+        _renderTwBlocks(content);
 
         // Highlight active search / tag terms in the rendered preview
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
@@ -822,6 +823,51 @@ const NbMain = (() => {
                 if (title && title !== sel) span.textContent = title;
             } catch(e) { /* leave as-is */ }
         }));
+    }
+
+    // ── tw codeblock renderer ──────────────────────────────────────
+    if (typeof marked !== 'undefined') {
+        marked.use({ renderer: {
+            code({ text, lang }) {
+                if (lang !== 'tw') return false; // default rendering
+                const q = text.trim().replace(/"/g, '&quot;');
+                return `<div class="nb-tw-block" data-query="${q}"><span class="nb-spin">⟳</span></div>`;
+            }
+        }});
+    }
+
+    async function _renderTwBlocks(container) {
+        const blocks = container.querySelectorAll('.nb-tw-block');
+        if (!blocks.length) return;
+        for (const el of blocks) {
+            const q = el.dataset.query || '';
+            try {
+                const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
+                const d = await r.json();
+                if (d.error) { el.textContent = `⚠ ${d.error}`; continue; }
+                const tasks = (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0));
+                if (!tasks.length) { el.innerHTML = '<span class="nb-tw-empty">No matching tasks</span>'; continue; }
+                const fmtDate = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
+                const priLabel = { H: '▲', M: '●', L: '▽' };
+                const rows = tasks.map(t => `<tr>
+                    <td class="nb-tw-id">${t.id || ''}</td>
+                    <td class="nb-tw-desc">${_esc(t.description || '')}</td>
+                    <td class="nb-tw-proj">${_esc(t.project || '')}</td>
+                    <td class="nb-tw-pri">${priLabel[t.priority] || ''}</td>
+                    <td class="nb-tw-due">${fmtDate(t.due)}</td>
+                    <td class="nb-tw-tags">${(t.tags || []).map(g => `<span class="nb-tw-tag">${_esc(g)}</span>`).join('')}</td>
+                </tr>`).join('');
+                el.innerHTML = `<table class="nb-tw-table">
+                    <thead><tr>
+                        <th>ID</th><th>Description</th><th>Project</th>
+                        <th>Pri</th><th>Due</th><th>Tags</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table><div class="nb-tw-meta">${tasks.length} task${tasks.length !== 1 ? 's' : ''}${q ? ` · <code>${_esc(q)}</code>` : ''}</div>`;
+            } catch(e) {
+                el.textContent = `⚠ ${e.message}`;
+            }
+        }
     }
 
     function _renderMarkdown(body) {
