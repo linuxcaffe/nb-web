@@ -298,10 +298,25 @@ const NbMain = (() => {
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
         document.getElementById('nb-done-bar')?.remove();
 
-        const doneBtn = document.getElementById('nb-done-btn');
+        const doneBtn   = document.getElementById('nb-done-btn');
+        const editBtn   = document.getElementById('nb-edit-btn');
+        const openExtBtn = document.getElementById('nb-open-ext-btn');
         if (doneBtn) doneBtn.hidden = !(note.type === 'todo' && note.status === 'open');
-        const editBtn = document.getElementById('nb-edit-btn');
-        if (editBtn) editBtn.hidden = (note.type === 'sheet');
+        if (editBtn) editBtn.hidden = ['sheet','image','audio','video','pdf','ebook','document','archive'].includes(note.type);
+
+        // "Open externally" button — shown for types that benefit from a desktop app
+        const _mediaTypes = new Set(['image','audio','video','pdf','ebook','document','archive','html','file','encrypted']);
+        if (openExtBtn) {
+            openExtBtn.hidden = !_mediaTypes.has(note.type);
+            openExtBtn.onclick = async () => {
+                openExtBtn.textContent = '…'; openExtBtn.disabled = true;
+                try {
+                    await fetch('/api/open', { method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({ selector: note.selector }) });
+                } finally { openExtBtn.textContent = '↗ Open'; openExtBtn.disabled = false; }
+            };
+        }
 
         // Hide embedded-block Save button on every navigation
         const _ssb = document.getElementById('nb-sheet-save-btn');
@@ -326,9 +341,31 @@ const NbMain = (() => {
             ref.onclick = e => _showInfoPopover(e, note.selector || `${note.notebook}:${note.id}`);
         }
 
+        const fileUrl = `/api/file?selector=${encodeURIComponent(note.selector)}`;
         let html = '';
 
-        if (note.type === 'contact') {
+        if (note.type === 'image') {
+            html = `<div style="text-align:center"><img src="${fileUrl}" class="nb-img-preview" alt="${_esc(note.title)}"></div>`;
+        } else if (note.type === 'audio') {
+            html = `<div class="nb-audio-wrap">
+                      <div style="font-size:1.1em;font-weight:600">${_esc(note.title)}</div>
+                      <audio controls class="nb-audio-player"><source src="${fileUrl}"></audio>
+                    </div>`;
+        } else if (note.type === 'video') {
+            const ext = (note.filename || '').split('.').pop().toLowerCase();
+            if (['mp4','webm'].includes(ext)) {
+                html = `<div style="text-align:center"><video controls class="nb-video-player"><source src="${fileUrl}"></video></div>`;
+            } else {
+                html = `<div class="nb-media-card">
+                          <span class="nb-media-icon">📹</span>
+                          <span class="nb-media-name">${_esc(note.filename)}</span>
+                          <span class="nb-media-hint">${_esc(ext.toUpperCase())} — use ↗ Open to play</span>
+                        </div>`;
+            }
+        } else if (note.type === 'pdf') {
+            content.innerHTML = `<embed src="${fileUrl}" type="application/pdf" class="nb-pdf-embed">`;
+            return;
+        } else if (note.type === 'contact') {
             html = _renderContact(note);
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
@@ -338,10 +375,46 @@ const NbMain = (() => {
             html = _renderBookmark(note);
         } else if (note.type === 'todo') {
             html = _renderTodo(note);
+        } else if (note.type === 'html') {
+            content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+            fetch(`/api/preview?selector=${encodeURIComponent(note.selector)}`)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.html) content.innerHTML = `<div class="nb-rendered nb-converted">${d.html}</div>`;
+                    else content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(d.error || 'Cannot preview')}</div>`;
+                });
+            return;
+        } else if (note.type === 'ebook' || note.type === 'document') {
+            content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Converting…</div>';
+            fetch(`/api/preview?selector=${encodeURIComponent(note.selector)}`)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.type === 'html')    content.innerHTML = `<div class="nb-rendered nb-converted">${d.html}</div>`;
+                    else if (d.type === 'unavailable')
+                        content.innerHTML = `<div class="nb-media-card">
+                            <span class="nb-media-icon">${note.type === 'ebook' ? '📖' : '📄'}</span>
+                            <span class="nb-media-name">${_esc(note.filename)}</span>
+                            <span class="nb-media-hint">${_esc(d.error)} — use ↗ Open</span>
+                          </div>`;
+                    else content.innerHTML = `<pre class="nb-archive-listing">${_esc(d.text || d.error || '')}</pre>`;
+                });
+            return;
+        } else if (note.type === 'archive') {
+            content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Reading archive…</div>';
+            fetch(`/api/preview?selector=${encodeURIComponent(note.selector)}`)
+                .then(r => r.json())
+                .then(d => {
+                    const listing = d.text || d.error || '';
+                    const count = listing.split('\n').filter(Boolean).length;
+                    content.innerHTML = `<div style="padding:24px 32px">
+                        <div style="margin-bottom:12px;color:var(--text-muted);font-size:0.85em">📦 ${_esc(note.filename)} — ${count} item${count !== 1 ? 's' : ''}</div>
+                        <pre class="nb-archive-listing">${_esc(listing)}</pre></div>`;
+                });
+            return;
         } else if (['note','file',''].includes(note.type)) {
             html = _renderMarkdown(note.body);
         } else {
-            html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw)}</pre>`;
+            html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw || '')}</pre>`;
         }
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;

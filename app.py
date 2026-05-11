@@ -191,41 +191,78 @@ def classify(filename, notebook=None):
     if f.endswith('.bookmark.md'):    return 'bookmark'
     if f.endswith('.todo.md'):        return 'todo'
     if f.endswith('.enc'):            return 'encrypted'
+    if any(f.endswith(s) for s in ('.tar.gz', '.tar.bz2', '.tar.xz')): return 'archive'
     ext = Path(f).suffix
     if ext in ('.md', '.org', '.txt', '.rst', '.adoc', '.asciidoc', '.latex'):
         return 'contact' if notebook == 'contacts' else 'note'
-    if ext == '.vcf':
-        return 'contact'
-    if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'):
-        return 'image'
-    if ext == '.csv':
-        return 'sheet'
-    if ext in ('.mp3', '.ogg', '.flac', '.wav', '.m4a'):
-        return 'audio'
-    if ext in ('.mp4', '.mkv', '.webm', '.avi'):
-        return 'video'
+    if ext == '.vcf':                 return 'contact'
+    if ext in ('.html', '.htm'):      return 'html'
+    if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'): return 'image'
+    if ext == '.csv':                 return 'sheet'
+    if ext in ('.zip', '.tar', '.tgz', '.7z', '.rar', '.gz', '.bz2'): return 'archive'
+    if ext in ('.mp3', '.ogg', '.flac', '.wav', '.m4a'):  return 'audio'
+    if ext in ('.mp4', '.mkv', '.webm', '.avi'):          return 'video'
     if ext in ('.pdf',):              return 'pdf'
     if ext in ('.epub',):             return 'ebook'
     if ext in ('.docx', '.odt'):      return 'document'
     return 'file'
 
 
+# Types whose content must not be read as text
+BINARY_TYPES = frozenset({'image', 'audio', 'video', 'pdf', 'ebook', 'document', 'encrypted', 'archive'})
+
 INDICATORS = {
     'bookmark':    '🔖',
-    'todo':        '✔️',   # fallback when status unknown
+    'todo':        '✔️',
     'todo_open':   '○',
     'todo_closed': '✔️',
     'encrypted':   '🔒',
-    'image':     '🌄',
-    'audio':     '🔉',
-    'video':     '📹',
-    'ebook':     '📖',
-    'document':  '📄',
-    'sheet':     '🗃️',
-    'contact':   '🪪',
-    'note':      '',
-    'file':      '',
+    'image':       '🌄',
+    'audio':       '🔉',
+    'video':       '📹',
+    'ebook':       '📖',
+    'document':    '📄',
+    'sheet':       '🗃️',
+    'contact':     '🪪',
+    'html':        '🌐',
+    'archive':     '📦',
+    'note':        '',
+    'file':        '',
 }
+
+
+def _sanitize_html(html):
+    """Strip executable content from HTML before inline display."""
+    html = re.sub(r'<script[\s\S]*?</script>',  '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<style[\s\S]*?</style>',    '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<link\b[^>]*>',             '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<iframe[\s\S]*?</iframe>',  '', html, flags=re.IGNORECASE)
+    html = re.sub(r"\s+on\w+\s*=\s*'[^']*'",   '', html, flags=re.IGNORECASE)
+    html = re.sub(r'\s+on\w+\s*=\s*"[^"]*"',   '', html, flags=re.IGNORECASE)
+    return html
+
+
+def _list_archive(fpath):
+    """Return a text listing of an archive's members."""
+    import zipfile, tarfile as _tarfile
+    name = fpath.name.lower()
+    try:
+        if fpath.suffix.lower() == '.zip':
+            with zipfile.ZipFile(fpath) as z:
+                return '\n'.join(sorted(z.namelist()))
+        if any(name.endswith(s) for s in ('.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tar.xz')):
+            with _tarfile.open(fpath) as t:
+                return '\n'.join(sorted(t.getnames()))
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(['atool', '--list', '--', str(fpath)],
+                           capture_output=True, text=True, timeout=15)
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return '(cannot list — install atool for .7z / .rar support)'
 
 def _indicator(itype, todo_status=None):
     if itype == 'todo' and todo_status:
@@ -377,6 +414,96 @@ def api_delete_template():
     return jsonify({'success': True})
 
 
+# ---------------------------------------------------------------------------
+# API: Serve raw file (images, audio, video, PDF …)
+# ---------------------------------------------------------------------------
+
+def _resolve_to_nb_path(selector):
+    """Return Path within NB_DIR for selector, or None on error/traversal."""
+    path_r = run_nb('show', selector, '--path')
+    if not nb_ok(path_r):
+        return None
+    p = Path(path_r['stdout'].strip())
+    try:
+        p.relative_to(NB_DIR)
+    except ValueError:
+        return None
+    return p
+
+
+@app.route('/api/file')
+def api_file():
+    """Serve the raw file so the browser can render it natively."""
+    from flask import send_file as _send_file
+    selector = request.args.get('selector', '')
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': 'not found'}), 404
+    return _send_file(fpath, conditional=True)
+
+
+@app.route('/api/preview')
+def api_preview():
+    """Return a renderable preview for non-text file types."""
+    selector = request.args.get('selector', '')
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': 'not found'}), 404
+
+    itype = classify(fpath.name)
+
+    if itype == 'html':
+        try:
+            html = fpath.read_text(errors='replace')
+            return jsonify({'type': 'html', 'html': _sanitize_html(html)})
+        except OSError as e:
+            return jsonify({'error': str(e)}), 500
+
+    if itype in ('ebook', 'document'):
+        try:
+            r = subprocess.run(
+                ['pandoc', '--to=html5', '--no-highlight', '--', str(fpath)],
+                capture_output=True, text=True, timeout=30)
+            if r.returncode == 0:
+                return jsonify({'type': 'html', 'html': _sanitize_html(r.stdout)})
+            return jsonify({'type': 'unavailable',
+                            'error': f'pandoc failed: {r.stderr.strip()[:200]}'})
+        except FileNotFoundError:
+            return jsonify({'type': 'unavailable', 'error': 'pandoc not installed'})
+        except subprocess.TimeoutExpired:
+            return jsonify({'type': 'unavailable', 'error': 'pandoc timed out'})
+
+    if itype == 'archive':
+        return jsonify({'type': 'listing', 'text': _list_archive(fpath)})
+
+    # Fallback: try reading as text
+    try:
+        return jsonify({'type': 'text', 'text': fpath.read_text(errors='replace')})
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/open', methods=['POST'])
+def api_open():
+    """Open a file in the system's default desktop application (xdg-open)."""
+    data = request.get_json() or {}
+    selector = data.get('selector', '')
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': 'not found'}), 404
+    try:
+        subprocess.Popen(['xdg-open', str(fpath)])
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/task-info')
 def api_task_info():
     uuid = request.args.get('uuid', '').strip()
@@ -461,12 +588,15 @@ def _list_all_notes(limit):
                     'updated': '', 'pinned': False, 'status': None,
                 })
                 continue
-            try:
-                raw = fpath.read_text(errors='replace')
-            except OSError:
-                continue
-            meta, body = parse_frontmatter(raw)
             itype = classify(fname, nb_name)
+            if itype in BINARY_TYPES:
+                meta, body = {}, ''
+            else:
+                try:
+                    raw = fpath.read_text(errors='replace')
+                except OSError:
+                    continue
+                meta, body = parse_frontmatter(raw)
             title = meta.get('title') or meta.get('name') or note_title(fname, body)
             excerpt = next((l.strip()[:120] for l in body.splitlines()
                             if l.strip() and not _RE_HEADING.match(l)
@@ -519,12 +649,15 @@ def _list_notes(notebook, folder, limit):
                 'excerpt': '', 'updated': '',
             })
             continue
-        try:
-            raw  = fpath.read_text(errors='replace')
-        except OSError:
-            continue
-        meta, body = parse_frontmatter(raw)
         itype = classify(fname, notebook)
+        if itype in BINARY_TYPES:
+            meta, body = {}, ''
+        else:
+            try:
+                raw  = fpath.read_text(errors='replace')
+            except OSError:
+                continue
+            meta, body = parse_frontmatter(raw)
         title = meta.get('title') or meta.get('name') or note_title(fname, body)
         excerpt = ''
         for line in body.splitlines():
@@ -729,14 +862,25 @@ def api_note():
     except Exception:
         pass
 
+    filename = Path(fpath).name
+    itype = classify(filename, note_notebook)
+
+    # Don't read binary files as text — frontend fetches /api/file for those
+    if itype in BINARY_TYPES:
+        return jsonify({
+            'selector': selector, 'notebook': note_notebook or '',
+            'id': note_id, 'filename': filename,
+            'title': note_title(filename, ''),
+            'type': itype, 'binary': True,
+            'raw': '', 'body': '', 'tags': [], 'meta': {},
+        })
+
     try:
         raw = Path(fpath).read_text(errors='replace')
     except OSError:
         return jsonify({'error': 'could not read file'}), 404
 
     meta, body = parse_frontmatter(raw)
-    filename = Path(fpath).name
-    itype = classify(filename, note_notebook)
     title = meta.get('title') or meta.get('name') or note_title(filename, body)
 
     tags = re.findall(r'#([\w/-]+)', body)

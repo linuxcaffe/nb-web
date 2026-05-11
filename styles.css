@@ -814,6 +814,38 @@ body {
 /* Embedded CSV block in markdown notes */
 .nb-csv-block { margin: 1em 0; overflow: auto; }
 
+/* ── Media rendering ────────────────────────────────────────────── */
+
+/* PDF — full-height embed, no padding */
+.nb-pdf-embed { width: 100%; height: 100%; border: none; display: block; }
+#nb-preview-content:has(.nb-pdf-embed) { padding: 0; overflow: hidden; }
+
+/* Images */
+.nb-img-preview { max-width: 100%; max-height: 75vh; border-radius: 4px;
+                  display: block; margin: 0 auto; }
+
+/* Audio player */
+.nb-audio-wrap { display: flex; flex-direction: column; align-items: center;
+                 gap: 16px; padding: 40px 32px; }
+.nb-audio-player { width: 100%; max-width: 480px; }
+
+/* Video player */
+.nb-video-player { max-width: 100%; max-height: 72vh; display: block; border-radius: 4px; }
+
+/* Generic media / unsupported type card */
+.nb-media-card { display: flex; flex-direction: column; align-items: center;
+                 gap: 12px; padding: 48px 32px; color: var(--text-muted); text-align: center; }
+.nb-media-card .nb-media-icon { font-size: 3em; }
+.nb-media-card .nb-media-name { font-size: 1em; color: var(--text); word-break: break-all; }
+.nb-media-card .nb-media-hint { font-size: 0.82em; }
+
+/* Converted HTML (ebook / document) */
+.nb-converted { max-width: 720px; }
+
+/* Archive listing */
+.nb-archive-listing { font-family: monospace; font-size: 0.85em; line-height: 1.6;
+                      white-space: pre-wrap; word-break: break-all; }
+
 /* ── jspreadsheet + jsuites dark-mode overrides ─────────────────
    Scoped to both standalone sheets and embedded csv blocks        */
 :is(#nb-sheet-host, .nb-csv-block) .jss_worksheet,
