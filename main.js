@@ -29,7 +29,7 @@ const NbMain = (() => {
 
     // ── Boot ───────────────────────────────────────────────────────
 
-    function init() {
+    async function init() {
         NbNav.init();
         _bindSearch();
         _bindTags();
@@ -42,7 +42,11 @@ const NbMain = (() => {
         _bindKeyboard();
         _bindDropImport();
         initDragHandle();
-        loadNotes();
+        const deepLink = location.hash ? decodeURIComponent(location.hash.slice(1)) : null;
+        if (deepLink) _noAutoSelect = true;
+        await loadNotes();
+        _noAutoSelect = false;
+        if (deepLink) openNote(deepLink);
         _loadVersion();
     }
 
