@@ -63,3 +63,27 @@ itself and re-saving.
 Selecting a template in the Add opts bar loads a read-only preview of the raw
 template content in the preview pane, so you can confirm you have the right one
 before creating a note.
+
+### Default template per notebook
+
+If a notebook's local `.templates/` directory contains **exactly one** template,
+nb-web treats it as that notebook's default and applies it automatically whenever
+you open the **Add** command while that notebook is the active scope. The 📋
+button in the opts bar lights up to show a template is already applied — click it
+to browse all templates or revert to a blank note.
+
+When two or more local templates exist the auto-apply is suppressed and you pick
+manually as usual.
+
+**Setting a default from the Templates view**
+
+Open **Templates**, select any template, then use the notebook selector and
+**📌 Set default** button in the preview footer. This copies the template into
+`~/.nb/<notebook>/.templates/`, making it the auto-default for that notebook
+(or one of the options in the picker if other templates are already there).
+
+**Example: contacts notebook**
+
+Place a single contact template at `~/.nb/contacts/.templates/contact.md`.
+Every time you open **Add** while the contacts notebook is active, nb-web
+silently pre-applies it — just type the contact's name and press Save.

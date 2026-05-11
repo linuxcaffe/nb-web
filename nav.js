@@ -22,7 +22,7 @@ const NbNav = (() => {
     // Per-command state (scope-independent options only)
     const _state = {
         list:    { type: 'all', todoStatus: 'open' },
-        add:       { type: 'note', title: '', url: '', template: null, dirty: false },
+        add:       { type: 'note', title: '', url: '', template: null, templateName: '', dirty: false },
         templates: {},
         todo:    { status: 'open' },
         cal:     { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
@@ -194,9 +194,34 @@ const NbNav = (() => {
         let urlInput, titleInput, actionWrap, scopeWrap, tmplBtn;
         let _tmplMode = false;
 
+        function _syncTmplBtn() {
+            if (!tmplBtn) return;
+            const hasTemplate = !!st.template;
+            tmplBtn.classList.toggle('active', _tmplMode || hasTemplate);
+            tmplBtn.title = hasTemplate
+                ? `Template: ${st.templateName} (click to change)`
+                : 'Use template';
+        }
+
+        async function _applyDefaultTemplate(nb) {
+            try {
+                const r = await fetch(`/api/template/default?notebook=${encodeURIComponent(nb)}`);
+                const d = await r.json();
+                if (d.template) {
+                    st.template     = d.template.path;
+                    st.templateName = d.template.name;
+                } else {
+                    st.template = null; st.templateName = '';
+                }
+                _syncTmplBtn();
+                _updateOutputBar();
+            } catch(e) { /* network error — leave template state unchanged */ }
+        }
+
         // Scope select — first/leftmost; hidden when creating a notebook (they're top-level)
-        scopeWrap = _makeScopeSelect(() => {
+        scopeWrap = _makeScopeSelect(async nb => {
             _updateOutputBar();
+            await _applyDefaultTemplate(nb === '_all' ? 'home' : nb);
             _tmplMode ? NbMain.loadTemplatesForAdd() : NbMain.loadNotes();
         });
         scopeWrap.hidden = st.type === 'notebook';
@@ -222,24 +247,25 @@ const NbNav = (() => {
                 tmplBtn.hidden = val !== 'note';
                 if (val !== 'note' && _tmplMode) {
                     _tmplMode = false;
-                    tmplBtn.classList.remove('active');
+                    st.template = null; st.templateName = '';
+                    _syncTmplBtn();
                     NbMain.loadNotes();
                 }
             }
             _updateOutputBar();
         }));
 
-        // Templates toggle — note type only
+        // Templates toggle — note type only; active when template mode is on OR a template is applied
         tmplBtn = document.createElement('button');
-        tmplBtn.className   = 'nb-icon-btn';
+        tmplBtn.className = 'nb-icon-btn';
         tmplBtn.textContent = '📋';
-        tmplBtn.title       = 'Toggle templates list';
         tmplBtn.hidden      = st.type !== 'note';
         tmplBtn.addEventListener('click', () => {
             _tmplMode = !_tmplMode;
-            tmplBtn.classList.toggle('active', _tmplMode);
+            _syncTmplBtn();
             _tmplMode ? NbMain.loadTemplatesForAdd() : NbMain.loadNotes();
         });
+        _syncTmplBtn();   // reflect any already-applied template
         bar.appendChild(tmplBtn);
 
         bar.appendChild(_makeSep());
@@ -315,11 +341,11 @@ const NbNav = (() => {
         }
 
         function _doCancel() {
-            st.title = ''; st.url = ''; st.template = null; st.dirty = false;
+            st.title = ''; st.url = ''; st.template = null; st.templateName = ''; st.dirty = false;
             titleInput.value = ''; urlInput.value = '';
             actionWrap.hidden = true;
             _tmplMode = false;
-            tmplBtn.classList.remove('active');
+            _syncTmplBtn();
             _updateOutputBar();
             NbMain.loadNotes();
         }
@@ -368,6 +394,11 @@ const NbNav = (() => {
 
         // Focus title immediately when Add is clicked
         requestAnimationFrame(() => titleInput.focus());
+
+        // Auto-apply notebook default template on open (async — won't delay render)
+        if (st.type === 'note' && !st.dirty) {
+            _applyDefaultTemplate(_scope === '_all' ? 'home' : _scope);
+        }
     }
 
     function _renderTodoOpts(bar) {
@@ -938,8 +969,9 @@ const NbNav = (() => {
         _updateOutputBar();
     }
 
-    function setAddTemplate(path) {
-        _state.add.template = path;
+    function setAddTemplate(path, name = '') {
+        _state.add.template     = path;
+        _state.add.templateName = name || (path ? path.split('/').pop().replace(/\.[^.]*$/, '') : '');
         _updateOutputBar();
     }
 
@@ -1187,6 +1219,7 @@ const NbNav = (() => {
             }
         },
         get notebook()     { return _scope; },
+        get notebooks()    { return [..._notebooks]; },
         get folder()       { return _folder[_activeCmd] || ''; },
         get activeCmd()    { return _activeCmd; },
         get searchQuery()  { return _searchQuery; },

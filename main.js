@@ -2151,13 +2151,21 @@ const NbMain = (() => {
                 // Append footer via DOM — innerHTML+= would destroy jspreadsheet instances
                 const footer = document.createElement('div');
                 footer.style.cssText = 'padding:10px 32px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+                const curNb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+                const nbOptions = NbNav.notebooks
+                    .map(n => `<option value="${_esc(n)}"${n === curNb ? ' selected' : ''}>${_esc(n)}</option>`)
+                    .join('');
                 footer.innerHTML = `
                     <input type="text" id="nb-tmpl-title" class="nb-opt-input"
                            placeholder="Note title…" style="flex:1;min-width:120px">
                     <button id="nb-tmpl-create" class="nb-tool-btn nb-btn-primary">Create note</button>
                     ${hasCsvBlocks ? '<button id="nb-tmpl-sheet-save" class="nb-tool-btn">Save sheet</button>' : ''}
                     <button id="nb-tmpl-edit"   class="nb-tool-btn">Edit</button>
-                    <button id="nb-tmpl-delete" class="nb-tool-btn nb-btn-danger">Delete</button>`;
+                    <button id="nb-tmpl-delete" class="nb-tool-btn nb-btn-danger">Delete</button>
+                    <span style="margin-left:auto;display:flex;align-items:center;gap:4px">
+                      <select id="nb-tmpl-default-nb" class="nb-scope-select" title="Target notebook">${nbOptions}</select>
+                      <button id="nb-tmpl-set-default" class="nb-tool-btn" title="Copy to notebook's .templates/ so it auto-applies on Add">📌 Set default</button>
+                    </span>`;
                 content.appendChild(footer);
 
                 const titleEl  = document.getElementById('nb-tmpl-title');
@@ -2191,6 +2199,30 @@ const NbMain = (() => {
                     const dd = await dr.json();
                     if (dd.success) runTemplates();
                     else alert('Delete failed: ' + (dd.error || 'unknown'));
+                });
+
+                document.getElementById('nb-tmpl-set-default').addEventListener('click', async () => {
+                    const btn = document.getElementById('nb-tmpl-set-default');
+                    const nb  = document.getElementById('nb-tmpl-default-nb').value;
+                    btn.textContent = 'Setting…'; btn.disabled = true;
+                    try {
+                        const sr = await fetch('/api/template/default', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ template_path: path, notebook: nb }),
+                        });
+                        const sd = await sr.json();
+                        if (sd.success) {
+                            btn.textContent = '✓ Set';
+                            setTimeout(() => { btn.textContent = '📌 Set default'; btn.disabled = false; }, 1500);
+                        } else {
+                            alert('Failed: ' + (sd.error || 'unknown'));
+                            btn.textContent = '📌 Set default'; btn.disabled = false;
+                        }
+                    } catch(e) {
+                        alert('Error: ' + e);
+                        btn.textContent = '📌 Set default'; btn.disabled = false;
+                    }
                 });
 
                 if (hasCsvBlocks) {

@@ -319,6 +319,48 @@ def api_update_template():
     return jsonify({'success': True})
 
 
+@app.route('/api/template/default')
+def api_get_template_default():
+    """Return the auto-default template for a notebook (exactly one in its .templates/)."""
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'template': None})
+    tmpl_dir = NB_DIR / notebook / '.templates'
+    if not tmpl_dir.is_dir():
+        return jsonify({'template': None})
+    templates = sorted(
+        f for f in tmpl_dir.iterdir()
+        if f.is_file() and not f.name.startswith('.') and f.suffix in ('.md', '.txt', '.org')
+    )
+    if len(templates) == 1:
+        t = templates[0]
+        return jsonify({'template': {'name': t.stem, 'path': str(t)}})
+    return jsonify({'template': None})
+
+
+@app.route('/api/template/default', methods=['POST'])
+def api_set_template_default():
+    """Copy a template into a notebook's .templates/ dir, making it the auto-default."""
+    data          = request.get_json() or {}
+    template_path = data.get('template_path', '').strip()
+    notebook      = data.get('notebook', '').strip()
+    if not template_path or not notebook:
+        return jsonify({'error': 'template_path and notebook required'}), 400
+    src = Path(template_path)
+    try:
+        src.relative_to(NB_DIR)
+    except ValueError:
+        return jsonify({'error': 'invalid path'}), 403
+    if not src.is_file():
+        return jsonify({'error': 'template not found'}), 404
+    dest_dir = NB_DIR / notebook / '.templates'
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src.name
+    import shutil
+    shutil.copy2(src, dest)
+    return jsonify({'success': True, 'path': str(dest)})
+
+
 @app.route('/api/template', methods=['DELETE'])
 def api_delete_template():
     path = request.args.get('path', '').strip()
