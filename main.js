@@ -2,6 +2,8 @@
 
 const NbMain = (() => {
     let _activeSelector = null;
+    let _activeType     = null;   // classify() type of current note
+    let _activeFilename = null;   // original filename for raw export
     let _editing        = false;
     let _searchTimer    = null;
     let _todayInfo      = null;
@@ -294,6 +296,8 @@ const NbMain = (() => {
     }
 
     function renderPreview(note) {
+        _activeType     = note.type;
+        _activeFilename = note.filename;
         const content = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
         document.getElementById('nb-done-bar')?.remove();
@@ -921,6 +925,8 @@ const NbMain = (() => {
                       const hbtn = document.getElementById('nb-list-menu-btn');
                       if (hbtn) hbtn.classList.toggle('nb-sort-active', _foldersFirst);
                   }},
+                'sep',
+                { label: '📥 Import files…', action: doImport },
             ]);
         });
     }
@@ -973,11 +979,177 @@ const NbMain = (() => {
                   disabled: !hasNote,
                   action: _toggleFullscreen },
                 'sep',
-                { label: 'Rename…',           disabled: !hasNote, action: _doRename },
-                { label: 'Move to…',          disabled: !hasNote, action: _doMove },
+                { label: 'Rename…',              disabled: !hasNote, action: _doRename },
+                { label: 'Move to…',             disabled: !hasNote, action: _doMove },
                 { label: '📋 Save as template…', disabled: !hasNote, action: _doSaveAsTemplate },
+                'sep',
+                { label: '⬇ Save as…', disabled: !hasNote, action: _showSaveAsBar },
             ]);
         });
+    }
+
+    function _exportFormats(type) {
+        const mdTypes = ['note', 'todo', 'contact', 'journal', 'template'];
+        if (mdTypes.includes(type)) return [
+            { value: 'md',    label: 'Markdown (.md)' },
+            { value: 'html',  label: 'HTML (.html)' },
+            { value: 'docx',  label: 'Word (.docx)' },
+            { value: 'odt',   label: 'ODT (.odt)' },
+            { value: 'print', label: 'Print / PDF…' },
+        ];
+        if (type === 'sheet') return [
+            { value: 'raw',   label: 'CSV (.csv)' },
+            { value: 'print', label: 'Print spreadsheet…' },
+        ];
+        if (type === 'html') return [
+            { value: 'raw',   label: 'HTML (.html)' },
+            { value: 'print', label: 'Print / PDF…' },
+        ];
+        return [
+            { value: 'raw',   label: 'Download original' },
+            { value: 'print', label: 'Print / PDF…' },
+        ];
+    }
+
+    function _showSaveAsBar() {
+        if (!_activeSelector) return;
+        document.getElementById('nb-export-bar')?.remove();
+
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const bar     = document.createElement('div');
+        bar.id        = 'nb-export-bar';
+        bar.className = 'nb-move-bar';
+
+        const lbl = document.createElement('span');
+        lbl.className   = 'nb-move-label';
+        lbl.textContent = 'Save as:';
+
+        const fmtSel = document.createElement('select');
+        fmtSel.className = 'nb-scope-select';
+        fmtSel.style.colorScheme = 'dark';
+        _exportFormats(_activeType).forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.value; opt.textContent = f.label;
+            fmtSel.appendChild(opt);
+        });
+
+        const nameInput = document.createElement('input');
+        nameInput.type      = 'text';
+        nameInput.className = 'nb-rename-input';
+        nameInput.style.width = '16em';
+
+        const EXT = { md: '.md', html: '.html', docx: '.docx', odt: '.odt' };
+        function updateName() {
+            const fmt  = fmtSel.value;
+            const base = (document.getElementById('nb-preview-title')?.textContent || 'note')
+                .replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '_') || 'note';
+            if (fmt === 'raw') {
+                nameInput.value    = _activeFilename || base;
+                nameInput.disabled = false;
+            } else if (fmt === 'print') {
+                nameInput.value    = base + '.pdf';
+                nameInput.disabled = true;
+            } else {
+                nameInput.value    = base + (EXT[fmt] || '');
+                nameInput.disabled = false;
+            }
+        }
+        fmtSel.addEventListener('change', updateName);
+        updateName();
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className   = 'nb-tool-btn nb-btn-primary';
+        saveBtn.textContent = 'Save';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className   = 'nb-tool-btn';
+        cancelBtn.textContent = '✕';
+
+        bar.append(lbl, fmtSel, nameInput, saveBtn, cancelBtn);
+        toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
+        if (!nameInput.disabled) { nameInput.focus(); nameInput.select(); }
+
+        cancelBtn.addEventListener('click', () => bar.remove());
+
+        async function commit() {
+            const fmt      = fmtSel.value;
+            const filename = nameInput.value.trim() || 'export';
+
+            if (fmt === 'print') {
+                bar.remove();
+                _doPrint();
+                return;
+            }
+
+            const url = fmt === 'raw'
+                ? `/api/file?selector=${encodeURIComponent(_activeSelector)}`
+                : `/api/export?selector=${encodeURIComponent(_activeSelector)}&fmt=${fmt}`;
+
+            const ACCEPT = {
+                md:   { 'text/markdown': ['.md'] },
+                html: { 'text/html': ['.html'] },
+                docx: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] },
+                odt:  { 'application/vnd.oasis.opendocument.text': ['.odt'] },
+            };
+
+            if (window.showSaveFilePicker) {
+                try {
+                    const types = ACCEPT[fmt]
+                        ? [{ description: filename, accept: ACCEPT[fmt] }]
+                        : [];
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: filename,
+                        ...(types.length && { types }),
+                    });
+                    saveBtn.textContent = 'Saving…'; saveBtn.disabled = true;
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const writable = await handle.createWritable();
+                    await resp.body.pipeTo(writable);
+                    await writable.close();
+                    bar.remove();
+                    return;
+                } catch (e) {
+                    if (e.name === 'AbortError') return;
+                    // fall through to anchor download
+                }
+            }
+
+            const a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            bar.remove();
+        }
+
+        saveBtn.addEventListener('click', commit);
+        nameInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter')  commit();
+            if (e.key === 'Escape') bar.remove();
+        });
+    }
+
+    function _doPrint() {
+        const content = document.getElementById('nb-preview-content')?.innerHTML || '';
+        const title   = document.getElementById('nb-preview-title')?.textContent  || '';
+        const win = window.open('', '_blank');
+        win.document.write(`<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><title>${_esc(title)}</title>
+<style>
+  body { font-family: Georgia, serif; max-width: 800px; margin: 2cm auto; color: #000; font-size: 12pt; }
+  h1,h2,h3 { margin-top: 1.4em; }
+  pre, code { font-family: monospace; font-size: 0.88em; background: #f4f4f4; padding: 2px 4px; border-radius: 3px; }
+  pre { padding: 10px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+  img { max-width: 100%; }
+  a { color: #2255aa; }
+  @media print { body { margin: 0; } }
+</style></head><body>${content}</body></html>`);
+        win.document.close();
+        win.focus();
+        setTimeout(() => win.print(), 400);
     }
 
     function _doRename() {
@@ -2564,34 +2736,42 @@ const NbMain = (() => {
     }
 
     function _bindDropImport() {
-        const pane = document.getElementById('nb-preview-pane');
-        if (!pane) return;
-        let _dragCount = 0;
+        const overlay = document.getElementById('nb-drop-overlay');
+        if (!overlay) return;
 
-        pane.addEventListener('dragenter', e => {
-            if (!e.dataTransfer.types.includes('Files')) return;
+        // Capture drag events at document level so they fire even in Epiphany/WebKit
+        document.addEventListener('dragenter', e => {
+            if (!e.dataTransfer?.types.includes('Files')) return;
             e.preventDefault();
-            _dragCount++;
-            pane.classList.add('nb-drop-active');
-        });
-        pane.addEventListener('dragleave', () => {
-            if (--_dragCount <= 0) {
-                _dragCount = 0;
-                pane.classList.remove('nb-drop-active');
-            }
-        });
-        pane.addEventListener('dragover', e => {
-            if (!e.dataTransfer.types.includes('Files')) return;
+            overlay.classList.add('nb-drop-active');
+        }, true);
+
+        document.addEventListener('dragover', e => {
+            if (!e.dataTransfer?.types.includes('Files')) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
-        });
-        pane.addEventListener('drop', e => {
+        }, true);
+
+        // Hide when drag leaves the browser window (relatedTarget is null at window edge)
+        document.addEventListener('dragleave', e => {
+            if (e.relatedTarget === null) overlay.classList.remove('nb-drop-active');
+        }, true);
+
+        overlay.addEventListener('drop', e => {
             e.preventDefault();
-            _dragCount = 0;
-            pane.classList.remove('nb-drop-active');
+            overlay.classList.remove('nb-drop-active');
             const files = [...e.dataTransfer.files];
             if (files.length) _importFiles(files);
         });
+
+        // Also handle drops that land outside the overlay (belt-and-suspenders)
+        document.addEventListener('drop', e => {
+            if (e.target === overlay) return;
+            e.preventDefault();
+            overlay.classList.remove('nb-drop-active');
+            const files = [...e.dataTransfer.files];
+            if (files.length) _importFiles(files);
+        }, true);
     }
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,

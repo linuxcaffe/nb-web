@@ -17,7 +17,7 @@ try:
 except ImportError:
     _YAML_OK = False
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
@@ -434,14 +434,13 @@ def _resolve_to_nb_path(selector):
 @app.route('/api/file')
 def api_file():
     """Serve the raw file so the browser can render it natively."""
-    from flask import send_file as _send_file
     selector = request.args.get('selector', '')
     if not selector:
         return jsonify({'error': 'selector required'}), 400
     fpath = _resolve_to_nb_path(selector)
     if not fpath or not fpath.is_file():
         return jsonify({'error': 'not found'}), 404
-    return _send_file(fpath, conditional=True)
+    return send_file(fpath, conditional=True)
 
 
 @app.route('/api/preview')
@@ -1423,6 +1422,50 @@ def api_import():
         return jsonify({'success': False, 'error': str(e)})
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.route('/api/export')
+def api_export():
+    import io
+    selector = request.args.get('selector', '').strip()
+    fmt      = request.args.get('fmt', 'md').strip().lower()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath:
+        return jsonify({'error': 'not found'}), 404
+
+    stem = fpath.stem
+
+    if fmt == 'md':
+        return send_file(str(fpath), as_attachment=True,
+                         download_name=fpath.name, mimetype='text/markdown')
+
+    FORMAT_MAP = {
+        'html': ('.html', 'text/html'),
+        'docx': ('.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+        'odt':  ('.odt',  'application/vnd.oasis.opendocument.text'),
+    }
+    if fmt not in FORMAT_MAP:
+        return jsonify({'error': f'unsupported format: {fmt}'}), 400
+
+    suffix, mimetype = FORMAT_MAP[fmt]
+    extra = ['--standalone'] if fmt == 'html' else []
+    try:
+        import tempfile
+        tmp = Path(tempfile.mktemp(suffix=suffix))
+        r = subprocess.run(
+            ['pandoc', str(fpath), '-t', fmt, '-o', str(tmp)] + extra,
+            capture_output=True, timeout=30)
+        if r.returncode != 0:
+            return jsonify({'error': r.stderr.decode(errors='replace')}), 500
+        data = tmp.read_bytes()
+        tmp.unlink(missing_ok=True)
+        return send_file(io.BytesIO(data), as_attachment=True,
+                         download_name=f'{stem}{suffix}', mimetype=mimetype)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 def _slug(text):
