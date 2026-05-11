@@ -3271,7 +3271,69 @@ const NbMain = (() => {
              isEditing: () => _editing };
 })();
 
-// ── Settings stub (wired up later) ────────────────────────────────
-const NbSettings = { open() { alert('Settings panel coming soon.'); } };
+// ── nb-web Settings panel ─────────────────────────────────────────
+const NbSettings = (() => {
+    function _field(id, label, value, placeholder) {
+        return `<label style="display:block;margin-bottom:1em">
+            <span style="display:block;font-size:0.8em;color:var(--text-muted);margin-bottom:4px">${label}</span>
+            <input id="${id}" type="text" value="${value}"
+                placeholder="${placeholder}"
+                style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border);
+                       color:var(--text);border-radius:4px;padding:6px 10px;font-size:0.9em">
+        </label>`;
+    }
+
+    async function open() {
+        const previewContent = document.getElementById('nb-preview-content');
+        const previewToolbar = document.getElementById('nb-preview-toolbar');
+        if (!previewContent) return;
+        previewToolbar.hidden = true;
+        previewContent.innerHTML = '<div style="padding:48px 40px;color:var(--text-muted)">Loading…</div>';
+
+        let current = {};
+        try {
+            const r = await fetch('/api/nb-settings');
+            current = await r.json();
+        } catch(e) { /* use defaults */ }
+
+        previewContent.innerHTML = `
+            <div style="padding:48px 40px;max-width:520px">
+                <h2 style="margin:0 0 .3em">nb-web Settings</h2>
+                <p style="color:var(--text-muted);margin:0 0 1.8em;font-size:0.88em">
+                    Persisted in <code>nb-settings.json</code> alongside app.py.
+                </p>
+                <hr style="border:none;border-top:1px solid var(--border);margin:0 0 1.6em">
+                <h3 style="margin:0 0 1em;font-size:0.9em;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)">Integrations</h3>
+                ${_field('nbs-hledger-web', 'hledger-web URL', current.hledger_web_url || '', 'http://localhost:5002')}
+                ${_field('nbs-tw-web', 'tw-web URL', current.tw_web_url || '', 'http://localhost:5000')}
+                <div style="display:flex;gap:8px;margin-top:1.6em">
+                    <button id="nbs-save" class="nb-btn-primary" style="padding:7px 20px">Save</button>
+                    <span id="nbs-status" style="align-self:center;font-size:0.85em;color:var(--text-muted)"></span>
+                </div>
+            </div>`;
+
+        document.getElementById('nbs-save').addEventListener('click', async () => {
+            const status = document.getElementById('nbs-status');
+            const patch = {
+                hledger_web_url: document.getElementById('nbs-hledger-web').value.trim(),
+                tw_web_url:      document.getElementById('nbs-tw-web').value.trim(),
+            };
+            try {
+                const r = await fetch('/api/nb-settings', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(patch),
+                });
+                const d = await r.json();
+                if (d.error) { status.textContent = '✗ ' + d.error; status.style.color = 'var(--accent-neg, #e74c3c)'; }
+                else         { status.textContent = '✓ Saved'; status.style.color = 'var(--accent)'; }
+            } catch(e) {
+                status.textContent = '✗ ' + e.message;
+            }
+        });
+    }
+
+    return { open };
+})();
 
 document.addEventListener('DOMContentLoaded', () => NbMain.init());

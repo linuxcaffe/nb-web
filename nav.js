@@ -1043,8 +1043,9 @@ const NbNav = (() => {
             else if (cmd === 'sync')    NbMain.doSync();
             else if (cmd === 'about')   NbMain.showAbout();
             else if (cmd === 'restart') _restartServer();
-            else if (cmd === 'import')   NbMain.doImport();
-            else if (cmd === 'contacts') activateCmd('contacts');
+            else if (cmd === 'import')      NbMain.doImport();
+            else if (cmd === 'contacts')    activateCmd('contacts');
+            else if (cmd === 'nb-settings') NbSettings.open();
             else                        NbMain.runCmd(cmd);
         }
 
@@ -1079,6 +1080,7 @@ const NbNav = (() => {
             ]},
             { label: 'Plugins',   cmd: 'plugins' },
             { label: 'Settings', items: [
+                { label: 'nb-web settings', cmd: 'nb-settings' },
                 { label: 'completions', cmd: 'completions' },
                 { label: 'env',         cmd: 'env' },
                 { label: 'init',        cmd: 'init' },

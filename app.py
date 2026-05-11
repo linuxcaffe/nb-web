@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -34,6 +35,52 @@ _RE_HEADING = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not
 # Startup stamp — visible in menu so you can confirm a restart happened
 from datetime import datetime
 _STARTED_AT = datetime.now().strftime('%m-%d %H:%M')
+
+# ---------------------------------------------------------------------------
+# Settings (settings.json — persisted, editable via /api/nb-settings)
+# ---------------------------------------------------------------------------
+
+_SETTINGS_PATH = Path(__file__).parent / 'nb-settings.json'
+
+_SETTINGS_SCHEMA = {
+    'hledger_web_url': {'type': str,  'default': '',
+                        'coerce': lambda v: str(v).strip().rstrip('/')},
+    'tw_web_url':      {'type': str,  'default': 'http://localhost:5000',
+                        'coerce': lambda v: str(v).strip().rstrip('/')},
+}
+
+def _load_settings():
+    out = {k: m['default'] for k, m in _SETTINGS_SCHEMA.items()}
+    try:
+        if _SETTINGS_PATH.exists():
+            saved = json.loads(_SETTINGS_PATH.read_text())
+            for key, meta in _SETTINGS_SCHEMA.items():
+                if key in saved:
+                    out[key] = meta['coerce'](saved[key])
+    except Exception:
+        pass
+    return out
+
+def _save_settings(patch):
+    existing = {}
+    try:
+        if _SETTINGS_PATH.exists():
+            existing = json.loads(_SETTINGS_PATH.read_text())
+    except Exception:
+        pass
+    existing.update(patch)
+    fd, tmp = tempfile.mkstemp(dir=_SETTINGS_PATH.parent, prefix='.nb-settings.')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(existing, f, indent=2)
+            f.write('\n')
+        os.rename(tmp, str(_SETTINGS_PATH))
+    except Exception:
+        try: os.unlink(tmp)
+        except Exception: pass
+        raise
+
+_settings = _load_settings()
 
 # ---------------------------------------------------------------------------
 # Template variable resolution
@@ -584,9 +631,24 @@ def api_hledger_query():
     cmd  = args[0].lower()
     if cmd not in _HLEDGER_READ_CMDS:
         return jsonify({'error': f'Command not allowed: {args[0]}'}), 400
+    # Expand ~ in -f / --file args so codeblocks can reference home-dir paths.
+    expanded = [args[0]]
+    i = 1
+    while i < len(args):
+        a = args[i]
+        if a in ('-f', '--file') and i + 1 < len(args):
+            expanded.append(a)
+            expanded.append(os.path.expanduser(args[i + 1]))
+            i += 2
+        elif a.startswith('--file='):
+            expanded.append('--file=' + os.path.expanduser(a[7:]))
+            i += 1
+        else:
+            expanded.append(a)
+            i += 1
     try:
         result = subprocess.run(
-            ['hledger'] + args + ['--output-format', 'json'],
+            ['hledger'] + expanded + ['--output-format', 'json'],
             capture_output=True, text=True,
             env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
             timeout=15,
@@ -594,7 +656,7 @@ def api_hledger_query():
         stderr = result.stderr.strip()
         if result.returncode != 0:
             return jsonify({'error': stderr or 'hledger error'}), 500
-        web_url = os.environ.get('HLEDGER_WEB_URL', '').rstrip('/')
+        web_url = (os.environ.get('HLEDGER_WEB_URL') or _settings.get('hledger_web_url', '')).rstrip('/')
         extra   = {'webUrl': web_url} if web_url else {}
         try:
             data = json.loads(result.stdout or 'null')
@@ -1902,6 +1964,24 @@ def api_config():
         if nb_ok(r):
             settings[key] = r['stdout']
     return jsonify({'settings': settings})
+
+
+@app.route('/api/nb-settings', methods=['GET', 'PATCH'])
+def api_nb_settings():
+    global _settings
+    if request.method == 'PATCH':
+        patch = request.get_json(silent=True) or {}
+        validated = {}
+        for key, val in patch.items():
+            if key not in _SETTINGS_SCHEMA:
+                return jsonify({'error': f'Unknown setting: {key}'}), 400
+            try:
+                validated[key] = _SETTINGS_SCHEMA[key]['coerce'](val)
+            except Exception as e:
+                return jsonify({'error': f'Invalid value for {key}: {e}'}), 400
+        _save_settings(validated)
+        _settings = _load_settings()
+    return jsonify(_settings)
 
 
 # ---------------------------------------------------------------------------
