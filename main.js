@@ -837,37 +837,116 @@ const NbMain = (() => {
     }
 
     async function _renderTwBlocks(container) {
-        const blocks = container.querySelectorAll('.nb-tw-block');
-        if (!blocks.length) return;
-        for (const el of blocks) {
-            const q = el.dataset.query || '';
-            try {
-                const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
-                const d = await r.json();
-                if (d.error) { el.textContent = `⚠ ${d.error}`; continue; }
-                const tasks = (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0));
-                if (!tasks.length) { el.innerHTML = '<span class="nb-tw-empty">No matching tasks</span>'; continue; }
-                const fmtDate = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
-                const priLabel = { H: '▲', M: '●', L: '▽' };
-                const rows = tasks.map(t => `<tr>
-                    <td class="nb-tw-id">${t.id || ''}</td>
-                    <td class="nb-tw-desc">${_esc(t.description || '')}</td>
-                    <td class="nb-tw-proj">${_esc(t.project || '')}</td>
-                    <td class="nb-tw-pri">${priLabel[t.priority] || ''}</td>
-                    <td class="nb-tw-due">${fmtDate(t.due)}</td>
-                    <td class="nb-tw-tags">${(t.tags || []).map(g => `<span class="nb-tw-tag">${_esc(g)}</span>`).join('')}</td>
-                </tr>`).join('');
-                el.innerHTML = `<table class="nb-tw-table">
-                    <thead><tr>
-                        <th>ID</th><th>Description</th><th>Project</th>
-                        <th>Pri</th><th>Due</th><th>Tags</th>
-                    </tr></thead>
-                    <tbody>${rows}</tbody>
-                </table><div class="nb-tw-meta">${tasks.length} task${tasks.length !== 1 ? 's' : ''}${q ? ` · <code>${_esc(q)}</code>` : ''}</div>`;
-            } catch(e) {
-                el.textContent = `⚠ ${e.message}`;
-            }
+        for (const el of container.querySelectorAll('.nb-tw-block'))
+            await _loadTwBlock(el);
+    }
+
+    async function _loadTwBlock(el) {
+        const q = el.dataset.query || '';
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
+            const d = await r.json();
+            if (d.error) { el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(d.error)}</span>`; return; }
+            _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q);
+        } catch(e) {
+            el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(e.message)}</span>`;
         }
+    }
+
+    function _buildTwTable(el, tasks, q) {
+        const todayYmd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+        const soonYmd  = new Date(Date.now() + 3*24*60*60*1000).toISOString().slice(0,10).replace(/-/g,'');
+        const fmtDate  = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
+        const priLabel = { H: '▲', M: '●', L: '▽' };
+        const priCls   = { H: 'nb-tw-pri-h', M: 'nb-tw-pri-m', L: 'nb-tw-pri-l' };
+
+        const rowUrgencyCls = t => {
+            if (t.start) return 'nb-tw-row-started';
+            const due = t.due ? t.due.slice(0,8) : '';
+            if (due && due < todayYmd) return 'nb-tw-row-overdue';
+            if (due && due <= soonYmd)  return 'nb-tw-row-soon';
+            if ((t.urgency || 0) >= 10) return 'nb-tw-row-urgent';
+            return '';
+        };
+
+        const metaHtml = cnt =>
+            `${cnt} task${cnt !== 1 ? 's' : ''}${q ? ` · <code>${_esc(q)}</code>` : ''}`;
+
+        if (!tasks.length) {
+            el.innerHTML = `<div class="nb-tw-header">
+                <span class="nb-tw-meta-inline">${metaHtml(0)}</span>
+                <button class="nb-tw-btn nb-tw-refresh" title="Refresh">↻</button>
+            </div>`;
+            el.querySelector('.nb-tw-refresh').addEventListener('click', () => _loadTwBlock(el));
+            return;
+        }
+
+        const rows = tasks.map(t => {
+            const due    = t.due ? t.due.slice(0,8) : '';
+            const dueCls = due < todayYmd && due ? ' nb-tw-overdue' : due && due <= soonYmd ? ' nb-tw-soon' : '';
+            return `<tr class="${rowUrgencyCls(t)}" data-uuid="${_esc(t.uuid || '')}">
+                <td class="nb-tw-act"><button class="nb-tw-btn nb-tw-done-btn" title="Mark done">✓</button></td>
+                <td class="nb-tw-id">${t.id || ''}</td>
+                <td class="nb-tw-desc">${_esc(t.description || '')}</td>
+                <td class="nb-tw-proj">${_esc(t.project || '')}</td>
+                <td class="nb-tw-pri ${priCls[t.priority] || ''}">${priLabel[t.priority] || ''}</td>
+                <td class="nb-tw-due${dueCls}">${fmtDate(t.due)}</td>
+                <td class="nb-tw-tags">${(t.tags || []).map(g => `<span class="nb-tw-tag">${_esc(g)}</span>`).join('')}</td>
+                <td class="nb-tw-act"><button class="nb-tw-btn nb-tw-toggle-btn" data-started="${!!t.start}" title="${t.start ? 'Stop' : 'Start'}">${t.start ? '◼' : '▶'}</button></td>
+            </tr>`;
+        }).join('');
+
+        el.innerHTML = `<div class="nb-tw-header">
+            <span class="nb-tw-meta-inline">${metaHtml(tasks.length)}</span>
+            <button class="nb-tw-btn nb-tw-refresh" title="Refresh">↻</button>
+        </div>
+        <table class="nb-tw-table">
+            <thead><tr><th></th><th>ID</th><th>Description</th><th>Project</th><th>Pri</th><th>Due</th><th>Tags</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+
+        el.querySelector('.nb-tw-refresh').addEventListener('click', () => _loadTwBlock(el));
+
+        el.querySelectorAll('.nb-tw-done-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const tr = btn.closest('tr');
+                const uuid = tr?.dataset.uuid;
+                if (!uuid) return;
+                btn.disabled = true;
+                const d = await fetch('/api/task-action', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({uuid, action: 'done'}),
+                }).then(r => r.json());
+                if (d.success) {
+                    tr.classList.add('nb-tw-row-done');
+                    setTimeout(() => {
+                        tr.remove();
+                        const remaining = el.querySelectorAll('tbody tr').length;
+                        const meta = el.querySelector('.nb-tw-meta-inline');
+                        if (meta) meta.innerHTML = metaHtml(remaining);
+                        if (!remaining) el.querySelector('tbody').innerHTML =
+                            `<tr><td colspan="8" class="nb-tw-all-done">✓ All done!</td></tr>`;
+                    }, 380);
+                } else { btn.disabled = false; }
+            });
+        });
+
+        el.querySelectorAll('.nb-tw-toggle-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const tr = btn.closest('tr');
+                const uuid = tr?.dataset.uuid;
+                if (!uuid) return;
+                const isStarted = btn.dataset.started === 'true';
+                btn.disabled = true;
+                const d = await fetch('/api/task-action', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({uuid, action: isStarted ? 'stop' : 'start'}),
+                }).then(r => r.json());
+                if (d.success) _loadTwBlock(el);
+                else btn.disabled = false;
+            });
+        });
     }
 
     function _renderMarkdown(body) {

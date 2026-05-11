@@ -1380,42 +1380,82 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 
 /* ── tw codeblock task table ─────────────────────────────────── */
-.nb-tw-block { margin: 1em 0; overflow-x: auto; }
-.nb-tw-empty { color: var(--text-dim); font-size: 0.88em; }
+.nb-tw-block  { margin: 1em 0; }
+.nb-tw-error  { color: var(--red); font-size: 0.88em; }
+.nb-tw-empty  { color: var(--text-dim); font-size: 0.88em; }
+
+.nb-tw-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.nb-tw-meta-inline { font-size: 0.78em; color: var(--text-dim); }
+.nb-tw-meta-inline code { font-family: var(--font-mono); }
+
+/* Action buttons */
+.nb-tw-btn {
+  background: none; border: none; cursor: pointer;
+  padding: 2px 5px; border-radius: 3px;
+  color: var(--text-muted); font-size: 0.85em;
+  transition: color 0.12s, background 0.12s;
+  line-height: 1;
+}
+.nb-tw-btn:hover:not(:disabled) { color: var(--text); background: var(--bg3); }
+.nb-tw-btn:disabled { opacity: 0.4; cursor: default; }
+.nb-tw-done-btn:hover:not(:disabled)   { color: var(--green); }
+.nb-tw-toggle-btn:hover:not(:disabled) { color: var(--accent); }
+.nb-tw-refresh { font-size: 1em; }
+
+/* Table */
 .nb-tw-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85em;
-  line-height: 1.45;
+  width: 100%; border-collapse: collapse;
+  font-size: 0.85em; line-height: 1.45; overflow-x: auto;
 }
 .nb-tw-table th {
-  text-align: left;
-  padding: 4px 10px;
-  background: var(--bg3);
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.82em;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  text-align: left; padding: 4px 10px;
+  background: var(--bg3); color: var(--text-muted);
+  font-weight: 600; font-size: 0.82em;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 .nb-tw-table td {
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-  vertical-align: top;
+  padding: 5px 10px; border-bottom: 1px solid var(--border);
+  color: var(--text); vertical-align: middle;
 }
+.nb-tw-table tbody tr { border-left: 3px solid transparent; transition: background 0.1s; }
 .nb-tw-table tbody tr:hover { background: var(--bg3); }
 .nb-tw-table tbody tr:last-child td { border-bottom: none; }
+
+/* Row urgency indicators */
+.nb-tw-row-overdue { border-left-color: var(--red); }
+.nb-tw-row-soon    { border-left-color: var(--yellow); }
+.nb-tw-row-urgent  { border-left-color: var(--accent); }
+.nb-tw-row-started { border-left-color: var(--green); }
+
+/* Done animation */
+.nb-tw-row-done { opacity: 0; transition: opacity 0.35s; }
+.nb-tw-row-done td { text-decoration: line-through; color: var(--text-dim) !important; }
+
+/* Columns */
+.nb-tw-act  { width: 1.8em; padding: 3px 2px !important; }
 .nb-tw-id   { color: var(--text-dim); font-family: var(--font-mono); font-size: 0.9em; white-space: nowrap; width: 2em; }
 .nb-tw-desc { min-width: 140px; }
 .nb-tw-proj { color: var(--text-muted); white-space: nowrap; }
 .nb-tw-pri  { text-align: center; width: 2em; }
-.nb-tw-due  { white-space: nowrap; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.9em; }
+.nb-tw-due  { white-space: nowrap; font-family: var(--font-mono); font-size: 0.9em; }
 .nb-tw-tags { white-space: nowrap; }
-.nb-tw-tag  { display: inline-block; background: var(--accent-dim); color: var(--accent);
-              border-radius: 3px; padding: 1px 5px; font-size: 0.82em; margin-right: 3px; }
-.nb-tw-meta { font-size: 0.78em; color: var(--text-dim); margin-top: 4px; text-align: right; }
-.nb-tw-meta code { font-family: var(--font-mono); }
+
+/* Priority colours */
+.nb-tw-pri-h { color: var(--red); }
+.nb-tw-pri-m { color: var(--yellow); }
+.nb-tw-pri-l { color: var(--text-dim); }
+
+/* Due date urgency */
+.nb-tw-overdue { color: var(--red) !important; }
+.nb-tw-soon    { color: var(--yellow) !important; }
+
+.nb-tw-tag { display: inline-block; background: var(--accent-dim); color: var(--accent);
+             border-radius: 3px; padding: 1px 5px; font-size: 0.82em; margin-right: 3px; }
+
+.nb-tw-all-done { text-align: center; color: var(--green); padding: 10px !important; font-size: 0.88em; }
 
 /* ── Utility ──────────────────────────────────────────────────── */
 [hidden] { display: none !important; }

@@ -544,6 +544,28 @@ def api_task_query():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/task-action', methods=['POST'])
+def api_task_action():
+    """Perform a single-task action: done, start, or stop."""
+    data   = request.get_json(silent=True) or {}
+    uuid   = data.get('uuid', '').strip()
+    action = data.get('action', '').strip()
+    if not uuid or not re.match(r'^[a-f0-9\-]{8,}$', uuid):
+        return jsonify({'error': 'invalid uuid'}), 400
+    if action not in ('done', 'start', 'stop'):
+        return jsonify({'error': 'action must be done, start, or stop'}), 400
+    try:
+        result = subprocess.run(
+            ['task', 'rc.confirmation=no', f'uuid:{uuid}', action],
+            capture_output=True, text=True,
+            env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+            timeout=10,
+        )
+        return jsonify({'success': result.returncode == 0, 'stderr': result.stderr.strip()})
+    except FileNotFoundError:
+        return jsonify({'error': 'taskwarrior not found'}), 500
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
