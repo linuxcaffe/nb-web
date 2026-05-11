@@ -108,8 +108,8 @@ const NbMain = (() => {
         const byTitle = n => (n.title || n.filename || '').toLowerCase();
         if (_sortMode === 'az')     result.sort((a, b) => byTitle(a).localeCompare(byTitle(b)));
         if (_sortMode === 'za')     result.sort((a, b) => byTitle(b).localeCompare(byTitle(a)));
-        if (_sortMode === 'newest') result.sort((a, b) => (b.id || 0) - (a.id || 0));
-        if (_sortMode === 'oldest') result.sort((a, b) => (a.id || 0) - (b.id || 0));
+        if (_sortMode === 'newest') result.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+        if (_sortMode === 'oldest') result.sort((a, b) => (a.mtime || 0) - (b.mtime || 0));
         if (_foldersFirst) {
             const folders = result.filter(n => n.type === 'folder');
             const rest    = result.filter(n => n.type !== 'folder');

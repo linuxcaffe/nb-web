@@ -607,6 +607,7 @@ def _list_all_notes(limit):
             all_items.append({
                 'type':      itype,
                 'indicator': _indicator(itype, todo_status),
+                'mtime':     fpath.stat().st_mtime,
                 'filename':  fname,
                 'title':     title,
                 'selector':  f"{nb_name}:{fname}",
@@ -673,6 +674,7 @@ def _list_notes(notebook, folder, limit):
             'type':      itype,
             'indicator': _indicator(itype, todo_status),
             'id':        item_id,
+            'mtime':     fpath.stat().st_mtime,
             'filename':  fname,
             'title':     title,
             'selector':  f"{notebook}:{sel_path}",
@@ -807,6 +809,10 @@ def _search_notes(notebook, folder, query, limit, tags=None):
                 itype       = 'todo'
                 todo_status = 'closed' if ('[x]' in line or '✅' in line) else 'open'
 
+        try:
+            fmtime = (NB_DIR / nb_part / fname).stat().st_mtime if fname else 0
+        except OSError:
+            fmtime = 0
         items.append({
             'selector':  selector,
             'filename':  fname or raw_sel,
@@ -814,6 +820,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
             'type':      itype,
             'status':    todo_status,
             'indicator': _indicator(itype, todo_status),
+            'mtime':     fmtime,
             'excerpt':   _read_excerpt(nb_part, raw_sel),
             'notebook':  nb_part,
             'updated':   '',
