@@ -6,6 +6,19 @@ const NbNav = (() => {
 
     let _activeCmd = 'list';
 
+    // Per-notebook defaults applied when switching scope in list view
+    const _NB_DEFAULTS = {
+        contacts: { type: 'contact', sort: 'az'      },
+        nb:       { type: 'todo',    sort: 'default'  },
+    };
+    const _DEFAULT_LIST = { type: 'all', sort: 'default' };
+
+    function _applyNotebookDefaults(nb) {
+        const d = _NB_DEFAULTS[nb] || _DEFAULT_LIST;
+        _state.list.type = d.type;
+        NbMain.resetSort?.(d.sort);
+    }
+
     // Per-command state (scope-independent options only)
     const _state = {
         list:    { type: 'all', todoStatus: 'open' },
@@ -54,7 +67,7 @@ const NbNav = (() => {
             if (!confirm('Discard unsaved changes?')) return;
             NbMain.closeEditor?.();
         }
-        if (cmd === 'contacts') { _scope = 'contacts'; _state.list.type = 'contact'; cmd = 'list'; }
+        if (cmd === 'contacts') { _scope = 'contacts'; cmd = 'list'; }
         _activeCmd = cmd;
         document.querySelectorAll('.nb-cmd').forEach(b =>
             b.classList.toggle('active', b.dataset.cmd === cmd));
@@ -69,7 +82,8 @@ const NbNav = (() => {
             _calKeyHandler = null;
         }
 
-        NbMain.resetSort?.();   // new command context — reset list sort
+        if (cmd === 'list') _applyNotebookDefaults(_scope);
+        else NbMain.resetSort?.();   // non-list commands just reset
         _updateSearchIcons();
         renderOptsBar();
         _executeCmd();
@@ -140,7 +154,7 @@ const NbNav = (() => {
             _executeCmd();   // honours _searchQuery / _tagsQuery alongside type + status
         }
 
-        bar.appendChild(_makeScopeSelect(() => { _updateOutputBar(); _run(); }));
+        bar.appendChild(_makeScopeSelect(nb => { _applyNotebookDefaults(nb); renderOptsBar(); _run(); }));
         bar.appendChild(_makeSep());
 
         bar.appendChild(_makeChipRow([

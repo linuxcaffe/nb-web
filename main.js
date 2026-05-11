@@ -126,11 +126,10 @@ const NbMain = (() => {
         if (btn) btn.classList.toggle('nb-sort-active', _sortMode !== 'default');
     }
 
-    function resetSort() {
-        _sortMode     = 'default';
+    function resetSort(mode = 'default') {
+        _sortMode     = mode;
         _foldersFirst = false;
         _updateSortBtn();
-        // Caller will trigger loadNotes(), which re-applies the (now default) sort
     }
 
     function renderList(notes, fromSort = false) {
