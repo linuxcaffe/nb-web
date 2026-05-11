@@ -5,6 +5,7 @@ const NbMain = (() => {
     let _activeType     = null;   // classify() type of current note
     let _activeFilename = null;   // original filename for raw export
     let _editing        = false;
+    const _undoBuffer   = {};     // selector → raw content before last edit (level-1 undo)
     let _searchTimer    = null;
     let _todayInfo      = null;
     let _lastNotes      = [];       // original load order, for client-side sort
@@ -926,6 +927,15 @@ const NbMain = (() => {
                       if (hbtn) hbtn.classList.toggle('nb-sort-active', _foldersFirst);
                   }},
                 'sep',
+                { label: document.documentElement.getAttribute('data-theme') === 'light'
+                      ? '☾ Dark mode' : '☀ Light mode',
+                  action: () => {
+                      const goLight = document.documentElement.getAttribute('data-theme') !== 'light';
+                      if (goLight) document.documentElement.setAttribute('data-theme', 'light');
+                      else         document.documentElement.removeAttribute('data-theme');
+                      localStorage.setItem('nb-theme', goLight ? 'light' : '');
+                  }},
+                'sep',
                 { label: '📥 Import files…', action: doImport },
             ]);
         });
@@ -983,8 +993,158 @@ const NbMain = (() => {
                 { label: 'Move to…',             disabled: !hasNote, action: _doMove },
                 { label: '📋 Save as template…', disabled: !hasNote, action: _doSaveAsTemplate },
                 'sep',
+                { label: '↩ Undo last edit',
+                  disabled: !hasNote || !_undoBuffer[_activeSelector],
+                  action: _doUndoLastEdit },
+                { label: '🕓 History…',   disabled: !hasNote, action: _showHistoryBar },
+                'sep',
                 { label: '⬇ Save as…', disabled: !hasNote, action: _showSaveAsBar },
             ]);
+        });
+    }
+
+    async function _doUndoLastEdit() {
+        const raw = _undoBuffer[_activeSelector];
+        if (!raw || !_activeSelector) return;
+        if (!confirm('Restore note to its state before the last edit?')) return;
+        const r = await fetch('/api/note', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({selector: _activeSelector, content: raw}),
+        });
+        const d = await r.json();
+        if (d.success) {
+            delete _undoBuffer[_activeSelector];
+            NbNav.reexecute();
+            openNote(_activeSelector);
+        } else {
+            alert('Undo failed: ' + (d.stderr || 'unknown'));
+        }
+    }
+
+    async function _showHistoryBar() {
+        if (!_activeSelector) return;
+        document.getElementById('nb-history-bar')?.remove();
+
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const bar     = document.createElement('div');
+        bar.id        = 'nb-history-bar';
+        bar.className = 'nb-move-bar';
+
+        const lbl = document.createElement('span');
+        lbl.className   = 'nb-move-label';
+        lbl.textContent = 'History:';
+
+        const sel = document.createElement('select');
+        sel.className = 'nb-scope-select';
+        sel.style.colorScheme = 'dark';
+        sel.style.flex = '1';
+        sel.style.maxWidth = '480px';
+
+        const loadingOpt = document.createElement('option');
+        loadingOpt.textContent = 'Loading…';
+        sel.appendChild(loadingOpt);
+        sel.disabled = true;
+
+        const restoreBtn = document.createElement('button');
+        restoreBtn.className   = 'nb-tool-btn nb-btn-primary';
+        restoreBtn.textContent = 'Restore';
+        restoreBtn.disabled    = true;
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className   = 'nb-tool-btn';
+        cancelBtn.textContent = '✕';
+
+        bar.append(lbl, sel, restoreBtn, cancelBtn);
+        toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
+
+        // Show a visual indicator in the ref area
+        const refEl = document.getElementById('nb-preview-ref');
+        const origRef = refEl?.textContent || '';
+
+        function exitHistory() {
+            bar.remove();
+            if (refEl) refEl.textContent = origRef;
+            openNote(_activeSelector);
+        }
+        cancelBtn.addEventListener('click', exitHistory);
+
+        // Fetch commit list
+        let commits = [];
+        try {
+            const r = await fetch('/api/note/history?selector=' + encodeURIComponent(_activeSelector));
+            const d = await r.json();
+            commits = d.commits || [];
+        } catch(e) {
+            sel.options[0].textContent = 'Error loading history';
+            return;
+        }
+
+        sel.innerHTML = '';
+        if (!commits.length) {
+            const o = document.createElement('option');
+            o.textContent = 'No history found';
+            sel.appendChild(o);
+            return;
+        }
+
+        commits.forEach((c, i) => {
+            const o = document.createElement('option');
+            const subj = c.subject.replace(/^\[nb\]\s*/i, '');
+            o.value       = c.hash;
+            o.textContent = `${c.date}  ${c.hash.slice(0,7)}  ${subj}`;
+            if (i === 0) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.disabled = false;
+
+        // Preview selected version immediately
+        async function previewVersion(hash) {
+            restoreBtn.disabled = true;
+            if (refEl) refEl.textContent = hash.slice(0, 7);
+            const content = document.getElementById('nb-preview-content');
+            content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading version…</div>';
+            try {
+                const r = await fetch(`/api/note/version?selector=${encodeURIComponent(_activeSelector)}&hash=${hash}`);
+                const d = await r.json();
+                if (d.error) { content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(d.error)}</div>`; return; }
+                const html = marked.parse(d.body || '');
+                content.innerHTML = `<div class="nb-prose">${html}</div>`;
+                _resolveWikilinks(content);
+                restoreBtn.disabled = false;
+            } catch(e) {
+                content.innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${_esc(String(e))}</div>`;
+            }
+        }
+
+        sel.addEventListener('change', () => previewVersion(sel.value));
+        previewVersion(commits[0].hash);
+
+        restoreBtn.addEventListener('click', async () => {
+            const hash = sel.value;
+            if (!hash) return;
+            const subj = sel.options[sel.selectedIndex]?.textContent || hash;
+            if (!confirm(`Restore note to version: ${subj}?`)) return;
+            restoreBtn.textContent = 'Restoring…'; restoreBtn.disabled = true;
+            try {
+                const r = await fetch('/api/note/restore', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({selector: _activeSelector, hash}),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    delete _undoBuffer[_activeSelector];
+                    exitHistory();
+                    NbNav.reexecute();
+                } else {
+                    alert('Restore failed: ' + (d.error || 'unknown'));
+                    restoreBtn.textContent = 'Restore'; restoreBtn.disabled = false;
+                }
+            } catch(e) {
+                alert('Restore error: ' + e);
+                restoreBtn.textContent = 'Restore'; restoreBtn.disabled = false;
+            }
         });
     }
 
@@ -1657,8 +1817,10 @@ const NbMain = (() => {
         fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
             .then(d => {
+                const raw = d.raw || d.body || '';
+                _undoBuffer[sel] = raw;   // snapshot before editing (level-1 undo)
                 const ta = document.getElementById('nb-editor');
-                ta.value = d.raw || d.body || '';
+                ta.value = raw;
                 document.getElementById('nb-preview-content').hidden = true;
                 document.getElementById('nb-editor-wrap').hidden = false;
                 document.getElementById('nb-save-btn').onclick = _saveNote;
