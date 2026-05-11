@@ -430,6 +430,7 @@ const NbMain = (() => {
 
         _renderCsvBlocks(content);
         _renderTwBlocks(content);
+        _renderHledgerBlocks(content);
 
         // Highlight active search / tag terms in the rendered preview
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
@@ -825,13 +826,19 @@ const NbMain = (() => {
         }));
     }
 
-    // ── tw codeblock renderer ──────────────────────────────────────
+    // ── tw / hledger codeblock renderers ──────────────────────────
     if (typeof marked !== 'undefined') {
         marked.use({ renderer: {
             code({ text, lang }) {
-                if (lang !== 'tw') return false; // default rendering
-                const q = text.trim().replace(/"/g, '&quot;');
-                return `<div class="nb-tw-block" data-query="${q}"><span class="nb-spin">⟳</span></div>`;
+                if (lang === 'tw') {
+                    const q = text.trim().replace(/"/g, '&quot;');
+                    return `<div class="nb-tw-block" data-query="${q}"><span class="nb-spin">⟳</span></div>`;
+                }
+                if (lang === 'hledger') {
+                    const q = text.trim().replace(/"/g, '&quot;');
+                    return `<div class="nb-hl-block" data-query="${q}"><span class="nb-spin">⟳</span></div>`;
+                }
+                return false;
             }
         }});
     }
@@ -947,6 +954,171 @@ const NbMain = (() => {
                 else btn.disabled = false;
             });
         });
+    }
+
+    // ── hledger codeblock ──────────────────────────────────────────
+
+    async function _renderHledgerBlocks(container) {
+        for (const el of container.querySelectorAll('.nb-hl-block'))
+            await _loadHledgerBlock(el);
+    }
+
+    async function _loadHledgerBlock(el) {
+        const q = el.dataset.query || '';
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}`);
+            const d = await r.json();
+            if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
+            if (d.text != null) { _buildHledgerPre(el, d.text, q); return; }
+            const cmd = d.cmd || 'balance';
+            const BALANCE   = new Set(['balance','bal','b']);
+            const REGISTER  = new Set(['register','reg','r']);
+            const SECTIONED = new Set(['incomestatement','is','balancesheet','bs','cashflow','cf']);
+            if (BALANCE.has(cmd))   _buildHledgerBalance(el, d.data, q);
+            else if (REGISTER.has(cmd))  _buildHledgerRegister(el, d.data, q);
+            else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q);
+            else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q);
+        } catch(e) {
+            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
+    // Format an hledger amount array → display string
+    function _hlFmtAmts(amounts) {
+        if (!amounts?.length) return '0';
+        return amounts.map(a => {
+            const qty  = a.aquantity?.floatingPoint ?? 0;
+            const sym  = a.acommodity || '';
+            const prec = a.astyle?.asprecision ?? 2;
+            const abs  = Math.abs(qty).toFixed(prec).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            const sign = qty < 0 ? '−' : '';
+            return a.astyle?.ascommodityside === 'L'
+                ? `${sign}${sym}${abs}`
+                : `${sign}${abs}${sym ? ' ' + sym : ''}`;
+        }).join(' + ');
+    }
+
+    function _hlAmtCls(amounts) {
+        const total = (amounts || []).reduce((s, a) => s + (a.aquantity?.floatingPoint ?? 0), 0);
+        return total < -0.001 ? 'nb-hl-neg' : total > 0.001 ? 'nb-hl-pos' : 'nb-hl-zero';
+    }
+
+    function _hlHeader(el, q, refresh) {
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-hl-header';
+        hdr.innerHTML = `<span class="nb-hl-meta">${q ? `<code>${_esc(q)}</code>` : 'hledger'}</span>`;
+        const btn = document.createElement('button');
+        btn.className = 'nb-hl-refresh nb-tw-btn';
+        btn.title = 'Refresh';
+        btn.textContent = '↻';
+        btn.addEventListener('click', refresh);
+        hdr.appendChild(btn);
+        el.appendChild(hdr);
+    }
+
+    // ── balance / bal / b ─────────────────────────────────────────
+    function _buildHledgerBalance(el, data, q) {
+        // data = [rows_array, totals_array]
+        const rows   = Array.isArray(data?.[0]) ? data[0] : [];
+        const totals = Array.isArray(data?.[1]) ? data[1] : [];
+        el.innerHTML = '';
+        _hlHeader(el, q, () => _loadHledgerBlock(el));
+        if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No accounts matched</div>'); return; }
+
+        const tbody = rows.map(r => {
+            const [name, , depth, amounts] = r;
+            const cls = _hlAmtCls(amounts);
+            return `<tr>
+                <td class="nb-hl-account" style="padding-left:${8 + depth * 16}px">${_esc(name)}</td>
+                <td class="nb-hl-amt ${cls}">${_hlFmtAmts(amounts)}</td>
+            </tr>`;
+        }).join('');
+
+        const totalCls = _hlAmtCls(totals);
+        el.insertAdjacentHTML('beforeend', `<table class="nb-hl-table">
+            <thead><tr><th>Account</th><th class="nb-hl-amt">Balance</th></tr></thead>
+            <tbody>${tbody}</tbody>
+            <tfoot><tr class="nb-hl-total-row">
+                <td>Total</td>
+                <td class="nb-hl-amt ${totalCls}">${_hlFmtAmts(totals)}</td>
+            </tr></tfoot>
+        </table>`);
+    }
+
+    // ── register / reg / r ────────────────────────────────────────
+    function _buildHledgerRegister(el, data, q) {
+        const rows = Array.isArray(data) ? data : [];
+        el.innerHTML = '';
+        _hlHeader(el, q, () => _loadHledgerBlock(el));
+        if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No transactions matched</div>'); return; }
+
+        const tbody = rows.map(r => {
+            const [date, , desc, posting, balance] = r;
+            const account = posting?.paccount || '';
+            const amounts = posting?.pamount  || [];
+            const amtCls  = _hlAmtCls(amounts);
+            const balCls  = _hlAmtCls(balance);
+            const isCont  = date == null;
+            return `<tr class="${isCont ? 'nb-hl-cont' : ''}">
+                <td class="nb-hl-date">${isCont ? '' : _esc(date || '')}</td>
+                <td class="nb-hl-desc">${isCont ? '' : _esc(desc || '')}</td>
+                <td class="nb-hl-account">${_esc(account)}</td>
+                <td class="nb-hl-amt ${amtCls}">${_hlFmtAmts(amounts)}</td>
+                <td class="nb-hl-amt ${balCls}">${_hlFmtAmts(balance)}</td>
+            </tr>`;
+        }).join('');
+
+        el.insertAdjacentHTML('beforeend', `<table class="nb-hl-table">
+            <thead><tr><th>Date</th><th>Description</th><th>Account</th>
+                       <th class="nb-hl-amt">Amount</th><th class="nb-hl-amt">Balance</th></tr></thead>
+            <tbody>${tbody}</tbody>
+        </table>`);
+    }
+
+    // ── incomestatement / balancesheet / cashflow ─────────────────
+    function _buildHledgerSectioned(el, data, q) {
+        const subreports = data?.cbrSubreports || [];
+        el.innerHTML = '';
+        _hlHeader(el, q, () => _loadHledgerBlock(el));
+
+        for (const [sectionName, report] of subreports) {
+            const rows   = report?.prRows   || [];
+            const totals = report?.prTotals;
+
+            el.insertAdjacentHTML('beforeend', `<div class="nb-hl-section">${_esc(sectionName)}</div>`);
+
+            if (!rows.length) {
+                el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty nb-hl-section-empty">—</div>');
+            } else {
+                const tbody = rows.map(r => {
+                    const name    = (r.prrName || [])[0] || '';
+                    const amounts = (r.prrAmounts || [[]])[0] || [];
+                    const cls     = _hlAmtCls(amounts);
+                    return `<tr>
+                        <td class="nb-hl-account">${_esc(name)}</td>
+                        <td class="nb-hl-amt ${cls}">${_hlFmtAmts(amounts)}</td>
+                    </tr>`;
+                }).join('');
+
+                const sectionTotal = (totals?.prrAmounts || [[]])[0] || [];
+                const totCls = _hlAmtCls(sectionTotal);
+                el.insertAdjacentHTML('beforeend', `<table class="nb-hl-table nb-hl-section-table">
+                    <tbody>${tbody}</tbody>
+                    <tfoot><tr class="nb-hl-total-row">
+                        <td>Total ${_esc(sectionName)}</td>
+                        <td class="nb-hl-amt ${totCls}">${_hlFmtAmts(sectionTotal)}</td>
+                    </tr></tfoot>
+                </table>`);
+            }
+        }
+    }
+
+    // Fallback: plain text in a <pre>
+    function _buildHledgerPre(el, text, q) {
+        el.innerHTML = '';
+        _hlHeader(el, q, () => _loadHledgerBlock(el));
+        el.insertAdjacentHTML('beforeend', `<pre class="nb-hl-pre">${_esc(text)}</pre>`);
     }
 
     function _renderMarkdown(body) {

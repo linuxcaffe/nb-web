@@ -566,6 +566,46 @@ def api_task_action():
         return jsonify({'error': 'taskwarrior not found'}), 500
 
 
+_HLEDGER_READ_CMDS = {
+    'balance','bal','b',
+    'register','reg','r',
+    'incomestatement','is',
+    'balancesheet','bs',
+    'cashflow','cf',
+    'accounts','acc','a',
+    'prices','commodities','stats','tags','files',
+}
+
+@app.route('/api/hledger-query')
+def api_hledger_query():
+    """Run a read-only hledger report and return JSON or plain text."""
+    q    = request.args.get('q', '').strip()
+    args = q.split() if q else ['balance']
+    cmd  = args[0].lower()
+    if cmd not in _HLEDGER_READ_CMDS:
+        return jsonify({'error': f'Command not allowed: {args[0]}'}), 400
+    try:
+        result = subprocess.run(
+            ['hledger'] + args + ['--output-format', 'json'],
+            capture_output=True, text=True,
+            env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+            timeout=15,
+        )
+        stderr = result.stderr.strip()
+        if result.returncode != 0:
+            return jsonify({'error': stderr or 'hledger error'}), 500
+        try:
+            data = json.loads(result.stdout or 'null')
+            return jsonify({'cmd': cmd, 'data': data})
+        except json.JSONDecodeError:
+            # Command doesn't support JSON — return plain text
+            return jsonify({'cmd': cmd, 'text': result.stdout.strip()})
+    except FileNotFoundError:
+        return jsonify({'error': 'hledger not found — is it installed?'}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'hledger timed out'}), 500
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
