@@ -1123,18 +1123,24 @@ def _read_excerpt(nb_name, raw_id_or_sel):
 
 
 def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
-    """Fast tag filter via grep — avoids nb search subprocess entirely."""
-    tag = tag_query.strip()
-    if not tag.startswith('#'):
-        tag = '#' + tag
+    """Fast tag filter via grep — supports multiple #tags (AND logic via intersection)."""
+    # Parse all #tag tokens; fall back to treating the whole string as one tag
+    tags = re.findall(r'#[\w/-]+', tag_query)
+    if not tags:
+        raw = tag_query.strip()
+        tags = [raw if raw.startswith('#') else '#' + raw]
 
     search_root = NB_DIR / notebook if notebook else NB_DIR
     try:
-        r = subprocess.run(
-            ['grep', '-rl', tag, str(search_root)],
-            capture_output=True, text=True, timeout=15
-        )
-        matched = r.stdout.splitlines()
+        # Grep each tag separately, then intersect (AND: file must contain all tags)
+        path_sets = []
+        for tag in tags:
+            r = subprocess.run(
+                ['grep', '-rl', tag, str(search_root)],
+                capture_output=True, text=True, timeout=15
+            )
+            path_sets.append(set(r.stdout.splitlines()))
+        matched = list(path_sets[0].intersection(*path_sets[1:])) if path_sets else []
     except Exception:
         matched = []
 

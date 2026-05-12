@@ -467,9 +467,18 @@ const NbMain = (() => {
         _resolveWikilinks(content);
         content.querySelectorAll('.nb-tag-link').forEach(el => {
             el.addEventListener('click', () => {
-                const tag = el.textContent;
-                document.getElementById('nb-search').value = tag;
-                search(tag);
+                const tag      = el.textContent.trim();
+                const norm     = tag.startsWith('#') ? tag : '#' + tag;
+                const tagsEl   = document.getElementById('nb-tags');
+                const tagsCl   = document.getElementById('nb-tags-clear');
+                const current  = NbNav.tagsQuery?.trim() || '';
+                // Cumulative: append if not already in the filter
+                const newQuery = current.includes(norm) ? current
+                               : current ? current + ' ' + norm : norm;
+                tagsEl.value   = newQuery;
+                if (tagsCl) tagsCl.hidden = false;
+                NbNav.setTagsQuery(newQuery);
+                NbNav.reexecute();
             });
         });
 
