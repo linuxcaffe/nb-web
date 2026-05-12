@@ -1358,6 +1358,7 @@ const NbMain = (() => {
                   }},
                 'sep',
                 { label: '📥 Import files…', action: doImport },
+                { label: '🔗 Link file…',   action: doLinkFile },
             ]);
         });
     }
@@ -3291,8 +3292,27 @@ const NbMain = (() => {
             </div>`;
     }
 
+    const _IMPORT_MAX_MB    = 25;   // soft default; server enforces the real limit from settings
+    const _IMPORT_MAX_FILES = 20;
+
     async function _importFiles(files) {
         if (!files.length) return;
+
+        // Client-side quantity guard
+        if (files.length > _IMPORT_MAX_FILES) {
+            _showCmdOutput('import',
+                `✗ Too many files selected (${files.length}). Import at most ${_IMPORT_MAX_FILES} at a time.`);
+            return;
+        }
+
+        // Client-side size guard (avoids sending obviously oversized files)
+        const tooBig = files.filter(f => f.size > _IMPORT_MAX_MB * 1024 * 1024);
+        if (tooBig.length) {
+            _showCmdOutput('import',
+                tooBig.map(f => `✗ ${f.name}: exceeds ${_IMPORT_MAX_MB} MB limit`).join('\n'));
+            return;
+        }
+
         _showPreviewLoading();
         const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
         const lines = [];
@@ -3318,6 +3338,70 @@ const NbMain = (() => {
         input.multiple = true;
         input.addEventListener('change', () => _importFiles([...input.files]));
         input.click();
+    }
+
+    function doLinkFile() {
+        const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+
+        // Build a small inline prompt in the preview area
+        const previewContent = document.getElementById('nb-preview-content');
+        const previewToolbar = document.getElementById('nb-preview-toolbar');
+        if (!previewContent) return;
+        previewToolbar.hidden = true;
+        previewContent.innerHTML = `
+            <div style="padding:48px 40px;max-width:560px">
+                <h2 style="margin:0 0 .3em">Link file into notebook</h2>
+                <p style="color:var(--text-muted);font-size:0.88em;margin:0 0 1.6em">
+                    Creates a symlink in <strong>${_esc(nb)}</strong> pointing at a file on your filesystem.
+                    Edits through nb-web will modify the original file.
+                </p>
+                <label style="display:block;font-size:0.8em;color:var(--text-muted);margin-bottom:4px">
+                    Filesystem path
+                </label>
+                <input id="nb-link-path" type="text"
+                    placeholder="/home/you/project/README.md  or  ~/notes/journal.md"
+                    autocomplete="off" spellcheck="false"
+                    style="width:100%;background:var(--bg3);border:1px solid var(--border);
+                           color:var(--text);border-radius:4px;padding:7px 10px;
+                           font-family:var(--font-mono);font-size:0.88em;box-sizing:border-box">
+                <div style="display:flex;gap:8px;margin-top:1.2em;align-items:center">
+                    <button id="nb-link-btn" class="nb-btn-primary" style="padding:7px 20px">Link</button>
+                    <span id="nb-link-status" style="font-size:0.85em;color:var(--text-muted)"></span>
+                </div>
+            </div>`;
+
+        const pathInput = document.getElementById('nb-link-path');
+        const status    = document.getElementById('nb-link-status');
+        pathInput.focus();
+
+        async function doLink() {
+            const path = pathInput.value.trim();
+            if (!path) { status.textContent = 'Enter a path first'; return; }
+            status.textContent = 'Linking…';
+            status.style.color = '';
+            try {
+                const r = await fetch('/api/link-file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path, notebook: nb }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    status.textContent = `✓ Linked ${d.name}`;
+                    status.style.color = 'var(--accent)';
+                    NbNav.reexecute();
+                } else {
+                    status.textContent = `✗ ${d.error}`;
+                    status.style.color = 'var(--accent-neg, #e5534b)';
+                }
+            } catch(e) {
+                status.textContent = `✗ ${e.message}`;
+                status.style.color = 'var(--accent-neg, #e5534b)';
+            }
+        }
+
+        document.getElementById('nb-link-btn').addEventListener('click', doLink);
+        pathInput.addEventListener('keydown', e => { if (e.key === 'Enter') doLink(); });
     }
 
     function _bindDropImport() {
@@ -3361,7 +3445,7 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
-             doSync, doImport, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
+             doSync, doImport, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing };
 })();
 

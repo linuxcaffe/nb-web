@@ -1044,6 +1044,7 @@ const NbNav = (() => {
             else if (cmd === 'about')   NbMain.showAbout();
             else if (cmd === 'restart') _restartServer();
             else if (cmd === 'import')      NbMain.doImport();
+            else if (cmd === 'link-file')   NbMain.doLinkFile();
             else if (cmd === 'contacts')    activateCmd('contacts');
             else if (cmd === 'nb-settings') NbTerminal.openSettings();
             else if (cmd === 'terminal')    NbTerminal.open();

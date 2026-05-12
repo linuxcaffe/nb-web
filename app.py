@@ -58,6 +58,10 @@ _SETTINGS_SCHEMA = {
                         'coerce': lambda v: str(v).strip()},
     'pty_cwd':         {'type': str,  'default': '',
                         'coerce': lambda v: str(v).strip()},
+    'import_max_mb':   {'type': int,  'default': 25,
+                        'coerce': lambda v: max(1, min(500, int(v)))},
+    'import_max_files':{'type': int,  'default': 20,
+                        'coerce': lambda v: max(1, min(200, int(v)))},
 }
 
 def _load_settings():
@@ -1696,20 +1700,43 @@ def api_cal():
 # API: Import file(s) into a notebook
 # ---------------------------------------------------------------------------
 
+def _nb_notebook_dir(notebook):
+    """Return the Path for a notebook's directory inside NB_DIR."""
+    if notebook in ('home', ''):
+        return NB_DIR / 'home'
+    return NB_DIR / notebook
+
+
 @app.route('/api/import', methods=['POST'])
 def api_import():
-    import tempfile, shutil
     f        = request.files.get('file')
     notebook = request.form.get('notebook', 'home').strip() or 'home'
     if not f or not f.filename:
         return jsonify({'success': False, 'error': 'no file provided'}), 400
 
+    cfg       = _load_settings()
+    max_bytes = cfg['import_max_mb'] * 1024 * 1024
     safe_name = Path(f.filename).name.replace('/', '_').replace('..', '_')
+
+    # Size check — read up to limit+1 bytes to detect overflow without loading all
+    chunk = f.read(max_bytes + 1)
+    if len(chunk) > max_bytes:
+        return jsonify({'success': False,
+                        'error': f'{safe_name} exceeds {cfg["import_max_mb"]} MB limit'}), 400
+    f.stream.seek(0)  # reset for save()
+
+    # Duplicate check — does this name already exist in the target notebook?
+    nb_dir = _nb_notebook_dir(notebook)
+    if nb_dir.exists():
+        existing = {p.name for p in nb_dir.iterdir() if p.is_file() or p.is_symlink()}
+        if safe_name in existing:
+            return jsonify({'success': False,
+                            'error': f'{safe_name} already exists in {notebook} — rename or delete it first'}), 409
 
     # vCard files → parse into contact notes
     if safe_name.lower().endswith('.vcf'):
         try:
-            text     = f.read().decode('utf-8', errors='replace')
+            text     = chunk.decode('utf-8', errors='replace')
             contacts = _parse_vcard(text)
             created  = []
             for c in contacts:
@@ -1718,7 +1745,6 @@ def api_import():
                 fname = f"{slug}.md"
                 dest  = NB_DIR / 'contacts' / fname
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                # avoid clobbering: append suffix if exists
                 if dest.exists():
                     import uuid
                     fname = f"{slug}_{uuid.uuid4().hex[:4]}.md"
@@ -1730,17 +1756,50 @@ def api_import():
         except Exception as e:
             return jsonify({'success': False, 'error': f'vCard parse error: {e}'})
 
-    tmp_dir   = Path(tempfile.mkdtemp())
-    tmp_path  = tmp_dir / safe_name
+    tmp_dir  = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / safe_name
     try:
         f.save(str(tmp_path))
         r = run_nb('import', str(tmp_path), f'{notebook}:')
         success = r['returncode'] == 0
-        return jsonify({'success': success, 'output': r['stdout'], 'stderr': r['stderr']})
+        return jsonify({'success': success, 'output': r['stdout'], 'stderr': r['stderr'],
+                        'error': r['stderr'] if not success else None})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.route('/api/link-file', methods=['POST'])
+def api_link_file():
+    """Create a symlink inside a notebook pointing to an existing filesystem path."""
+    data     = request.get_json(silent=True) or {}
+    src_str  = data.get('path', '').strip()
+    notebook = data.get('notebook', 'home').strip() or 'home'
+
+    if not src_str:
+        return jsonify({'success': False, 'error': 'path is required'}), 400
+
+    src = Path(os.path.expanduser(src_str)).resolve()
+    if not src.exists():
+        return jsonify({'success': False, 'error': f'Path not found: {src}'}), 404
+    if not src.is_file():
+        return jsonify({'success': False, 'error': f'Not a file: {src}'}), 400
+
+    nb_dir = _nb_notebook_dir(notebook)
+    nb_dir.mkdir(parents=True, exist_ok=True)
+    dest = nb_dir / src.name
+
+    if dest.exists() or dest.is_symlink():
+        return jsonify({'success': False,
+                        'error': f'{src.name} already exists in {notebook}'}), 409
+
+    try:
+        os.symlink(src, dest)
+        run_nb('index', 'reconcile', f'{notebook}:')
+        return jsonify({'success': True, 'name': src.name, 'target': str(src)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/export')

@@ -192,6 +192,28 @@
   </div>
 </section>
 
+<!-- ── Import ────────────────────────────────────────────────────── -->
+<section id="sec-import">
+  <h2>Import</h2>
+
+  <div class="field">
+    <label for="import-max-mb">Max file size (MB)</label>
+    <input type="number" id="import-max-mb" min="1" max="500" step="1">
+    <p class="hint">Files larger than this are rejected before upload. Default: 25 MB.</p>
+  </div>
+
+  <div class="field">
+    <label for="import-max-files">Max files per batch</label>
+    <input type="number" id="import-max-files" min="1" max="200" step="1">
+    <p class="hint">Drag-and-drop or picker selections above this count are rejected. Default: 20.</p>
+  </div>
+
+  <div class="row">
+    <button class="save-btn" id="save-import">Save</button>
+    <span class="status" id="status-import"></span>
+  </div>
+</section>
+
 <!-- ── nb settings (read-only view) ────────────────────────────── -->
 <section id="sec-nb">
   <h2>nb settings (read-only)</h2>
@@ -240,11 +262,13 @@
     try {
       const r = await fetch('/api/nb-settings');
       const d = await r.json();
-      document.getElementById('hledger-web-url').value = d.hledger_web_url || '';
-      document.getElementById('tw-web-url').value      = d.tw_web_url      || '';
-      document.getElementById('pty-height').value      = d.pty_height      || 320;
-      document.getElementById('pty-cwd').value         = d.pty_cwd         || '';
-      document.getElementById('pty-init').value        = d.pty_init        || '';
+      document.getElementById('hledger-web-url').value  = d.hledger_web_url  || '';
+      document.getElementById('tw-web-url').value       = d.tw_web_url       || '';
+      document.getElementById('pty-height').value       = d.pty_height       || 320;
+      document.getElementById('pty-cwd').value          = d.pty_cwd          || '';
+      document.getElementById('pty-init').value         = d.pty_init         || '';
+      document.getElementById('import-max-mb').value    = d.import_max_mb    || 25;
+      document.getElementById('import-max-files').value = d.import_max_files || 20;
     } catch(e) {
       console.error('Failed to load nb-web settings', e);
     }
@@ -253,11 +277,13 @@
   async function saveNbWebSettings(keys, statusId) {
     const status = document.getElementById(statusId);
     const all = {
-      hledger_web_url: document.getElementById('hledger-web-url').value.trim(),
-      tw_web_url:      document.getElementById('tw-web-url').value.trim(),
-      pty_height:      parseInt(document.getElementById('pty-height').value) || 320,
-      pty_cwd:         document.getElementById('pty-cwd').value.trim(),
-      pty_init:        document.getElementById('pty-init').value,
+      hledger_web_url:  document.getElementById('hledger-web-url').value.trim(),
+      tw_web_url:       document.getElementById('tw-web-url').value.trim(),
+      pty_height:       parseInt(document.getElementById('pty-height').value)       || 320,
+      pty_cwd:          document.getElementById('pty-cwd').value.trim(),
+      pty_init:         document.getElementById('pty-init').value,
+      import_max_mb:    parseInt(document.getElementById('import-max-mb').value)    || 25,
+      import_max_files: parseInt(document.getElementById('import-max-files').value) || 20,
     };
     const patch = {};
     keys.forEach(k => { patch[k] = all[k]; });
@@ -282,6 +308,8 @@
     saveNbWebSettings(['hledger_web_url', 'tw_web_url'], 'status-integrations'));
   document.getElementById('save-terminal').addEventListener('click', () =>
     saveNbWebSettings(['pty_height', 'pty_cwd', 'pty_init'], 'status-terminal'));
+  document.getElementById('save-import').addEventListener('click', () =>
+    saveNbWebSettings(['import_max_mb', 'import_max_files'], 'status-import'));
 
   // ── Load nb CLI settings (read-only) ──────────────────────────
   async function loadNbSettings() {
