@@ -187,6 +187,19 @@ def nb_ok(r):
 # File-system helpers (fast reads; writes always go through CLI)
 # ---------------------------------------------------------------------------
 
+def _safe_notebook(name: str) -> str | None:
+    """Return name if it's a safe single path component, else None.
+
+    Guards against path traversal via notebook=../../etc in URL params.
+    """
+    if not name or '/' in name or '\\' in name or name.startswith('.'):
+        return None
+    # Reject any component that would traverse upward
+    if Path(name).parts != (name,):
+        return None
+    return name
+
+
 def nb_dir_for(notebook):
     return NB_DIR / notebook
 
@@ -664,11 +677,17 @@ def api_hledger_query():
     while i < len(args):
         a = args[i]
         if a in ('-f', '--file') and i + 1 < len(args):
+            resolved = Path(os.path.expanduser(args[i + 1])).resolve()
+            if not resolved.is_relative_to(Path.home()):
+                return jsonify({'error': f'File path must be within home directory'}), 403
             expanded.append(a)
-            expanded.append(os.path.expanduser(args[i + 1]))
+            expanded.append(str(resolved))
             i += 2
         elif a.startswith('--file='):
-            expanded.append('--file=' + os.path.expanduser(a[7:]))
+            resolved = Path(os.path.expanduser(a[7:])).resolve()
+            if not resolved.is_relative_to(Path.home()):
+                return jsonify({'error': f'File path must be within home directory'}), 403
+            expanded.append(f'--file={resolved}')
             i += 1
         else:
             expanded.append(a)
@@ -758,6 +777,15 @@ def api_version():
 def ws_pty(ws):
     """WebSocket PTY: open a shell in the browser terminal panel."""
     import pty, select, fcntl, termios, struct
+
+    # Reject connections from non-localhost origins (CSRF guard)
+    origin = request.environ.get('HTTP_ORIGIN', '')
+    if origin:
+        from urllib.parse import urlparse
+        parsed = urlparse(origin)
+        if parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
+            ws.send('\r\n[pty] Connection rejected: cross-origin request\r\n')
+            return
 
     first = ws.receive(timeout=10)
     if not first:
@@ -882,6 +910,8 @@ def api_notes():
     folder   = request.args.get('folder', '')
     query    = request.args.get('q', '').strip()
     limit    = int(request.args.get('limit', 200))
+    if notebook != '_all' and not _safe_notebook(notebook):
+        return jsonify({'error': 'invalid notebook'}), 400
 
     tags = request.args.get('tags', '').strip() or None
     if query:
@@ -1848,6 +1878,8 @@ def api_grep():
     if not query:
         return jsonify({'results': []})
 
+    if notebook and notebook != '_all' and not _safe_notebook(notebook):
+        return jsonify({'error': 'invalid notebook'}), 400
     search_dir = str(NB_DIR / notebook) if notebook and notebook != '_all' else str(NB_DIR)
 
     rg_args = ['rg', '--json',
@@ -1862,7 +1894,7 @@ def api_grep():
     rg_args += ['--', query, search_dir]
 
     try:
-        proc    = subprocess.run(rg_args, capture_output=True, text=True)
+        proc    = subprocess.run(rg_args, capture_output=True, text=True, timeout=30)
         results = _parse_rg_json(proc.stdout, limit)
     except FileNotFoundError:
         # rg not available — fall back to plain nb search (no context lines)
@@ -2004,6 +2036,8 @@ def _nb_notebook_dir(notebook):
 def api_import():
     f        = request.files.get('file')
     notebook = request.form.get('notebook', 'home').strip() or 'home'
+    if not _safe_notebook(notebook):
+        return jsonify({'success': False, 'error': 'invalid notebook'}), 400
     if not f or not f.filename:
         return jsonify({'success': False, 'error': 'no file provided'}), 400
 
@@ -2070,6 +2104,8 @@ def api_link_file():
     src_str  = data.get('path', '').strip()
     notebook = data.get('notebook', 'home').strip() or 'home'
 
+    if not _safe_notebook(notebook):
+        return jsonify({'success': False, 'error': 'invalid notebook'}), 400
     if not src_str:
         return jsonify({'success': False, 'error': 'path is required'}), 400
 
@@ -2125,11 +2161,14 @@ def api_export():
     extra = ['--standalone'] if fmt == 'html' else []
     try:
         import tempfile
-        tmp = Path(tempfile.mktemp(suffix=suffix))
+        tmp_fd, tmp_str = tempfile.mkstemp(suffix=suffix)
+        os.close(tmp_fd)
+        tmp = Path(tmp_str)
         r = subprocess.run(
             ['pandoc', str(fpath), '-t', fmt, '-o', str(tmp)] + extra,
             capture_output=True, timeout=30)
         if r.returncode != 0:
+            tmp.unlink(missing_ok=True)
             return jsonify({'error': r.stderr.decode(errors='replace')}), 500
         data = tmp.read_bytes()
         tmp.unlink(missing_ok=True)
