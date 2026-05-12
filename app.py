@@ -191,13 +191,25 @@ def nb_dir_for(notebook):
     return NB_DIR / notebook
 
 
+_index_cache: dict = {}   # (notebook, folder) -> (mtime, [filenames])
+
 def read_index(notebook, folder=''):
     """Return ordered list of filenames from .index for a notebook/folder."""
     path = nb_dir_for(notebook) / folder / '.index'
     if not path.exists():
         return []
-    # Keep blank lines — nb counts every line (including blanks) as an ID position.
-    return [l.strip() for l in path.read_text().splitlines()]
+    try:
+        mtime = path.stat().st_mtime
+        key = (notebook, folder)
+        hit = _index_cache.get(key)
+        if hit and hit[0] == mtime:
+            return hit[1]
+        # Keep blank lines — nb counts every line (including blanks) as an ID position.
+        lines = [l.strip() for l in path.read_text().splitlines()]
+        _index_cache[key] = (mtime, lines)
+        return lines
+    except OSError:
+        return []
 
 
 def parse_frontmatter(text):
@@ -871,17 +883,40 @@ def api_notes():
     query    = request.args.get('q', '').strip()
     limit    = int(request.args.get('limit', 200))
 
+    tags = request.args.get('tags', '').strip() or None
     if query:
         nb_arg = '' if notebook == '_all' else notebook
-        tags   = request.args.get('tags', '').strip() or None
         return _search_notes(nb_arg, folder, query, limit, tags=tags)
+    if tags:
+        # Tags-only filter: use grep instead of nb search (much faster)
+        nb_arg = '' if notebook == '_all' else notebook
+        return _grep_tag_notes(nb_arg, tags, limit)
     if notebook == '_all':
         return _list_all_notes(limit)
     return _list_notes(notebook, folder, limit)
 
 
-def _list_all_notes(limit):
-    """Aggregate recent notes across all non-archived notebooks."""
+_all_notes_cache: dict = {}   # {'sig': tuple, 'data': list[dict]}
+
+def _index_sig() -> tuple:
+    """Tuple of .index mtimes across all notebooks — changes when any note is added/removed."""
+    sigs = []
+    try:
+        for nb_dir in sorted(NB_DIR.iterdir()):
+            if not nb_dir.is_dir() or nb_dir.name.startswith('.'):
+                continue
+            idx = nb_dir / '.index'
+            try:
+                sigs.append(idx.stat().st_mtime)
+            except OSError:
+                sigs.append(0.0)
+    except Exception:
+        pass
+    return tuple(sigs)
+
+
+def _build_all_notes() -> list:
+    """Read every notebook and return a sorted list of note dicts."""
     all_items = []
     for nb_dir in sorted(NB_DIR.iterdir()):
         if not nb_dir.is_dir() or nb_dir.name.startswith('.'):
@@ -897,6 +932,7 @@ def _list_all_notes(limit):
             if fpath.is_dir():
                 all_items.append({
                     'type': 'folder', 'indicator': '📂',
+                    'mtime': 0,
                     'filename': fname, 'title': fname,
                     'selector': f"{nb_name}:{fname}/",
                     'excerpt': '', 'notebook': nb_name,
@@ -920,10 +956,14 @@ def _list_all_notes(limit):
             if itype == 'todo':
                 first = next((l.strip() for l in body.splitlines() if l.strip()), '')
                 todo_status = 'closed' if first.startswith('# [x]') else 'open'
+            try:
+                mtime = fpath.stat().st_mtime
+            except OSError:
+                mtime = 0
             all_items.append({
                 'type':      itype,
                 'indicator': _indicator(itype, todo_status),
-                'mtime':     fpath.stat().st_mtime,
+                'mtime':     mtime,
                 'filename':  fname,
                 'title':     title,
                 'selector':  f"{nb_name}:{fname}",
@@ -933,13 +973,24 @@ def _list_all_notes(limit):
                 'pinned':    False,
                 'status':    todo_status,
             })
-    # Folders always included; only cap the note/file items by mtime
-    folders   = [i for i in all_items if i['type'] == 'folder']
+    # Sort non-folders by mtime using the already-fetched value (no extra stat())
+    folders     = [i for i in all_items if i['type'] == 'folder']
     non_folders = [i for i in all_items if i['type'] != 'folder']
-    non_folders.sort(key=lambda i: (NB_DIR / i['notebook'] / i['filename']).stat().st_mtime
-                     if (NB_DIR / i['notebook'] / i['filename']).exists() else 0, reverse=True)
-    combined = folders + non_folders[:limit]
-    return jsonify({'notes': combined, 'total': len(combined)})
+    non_folders.sort(key=lambda i: i.get('mtime', 0), reverse=True)
+    return folders + non_folders
+
+
+def _list_all_notes(limit):
+    """Aggregate recent notes across all non-archived notebooks (index-sig-cached)."""
+    sig = _index_sig()
+    if _all_notes_cache.get('sig') == sig:
+        combined = _all_notes_cache['data']
+    else:
+        combined = _build_all_notes()
+        _all_notes_cache['sig']  = sig
+        _all_notes_cache['data'] = combined
+    sliced = combined[:limit]
+    return jsonify({'notes': sliced, 'total': len(sliced)})
 
 
 def _list_notes(notebook, folder, limit):
@@ -1041,6 +1092,121 @@ def _read_excerpt(nb_name, raw_id_or_sel):
     return ''
 
 
+def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
+    """Fast tag filter via grep — avoids nb search subprocess entirely."""
+    tag = tag_query.strip()
+    if not tag.startswith('#'):
+        tag = '#' + tag
+
+    search_root = NB_DIR / notebook if notebook else NB_DIR
+    try:
+        r = subprocess.run(
+            ['grep', '-rl', tag, str(search_root)],
+            capture_output=True, text=True, timeout=15
+        )
+        matched = r.stdout.splitlines()
+    except Exception:
+        matched = []
+
+    items      = []
+    seen_sels  = set()
+
+    for path_str in matched:
+        if len(items) >= limit:
+            break
+        fpath = Path(path_str)
+        fname = fpath.name
+        try:
+            rel = fpath.relative_to(NB_DIR)
+        except ValueError:
+            continue
+        nb_name = rel.parts[0]
+        # Skip files inside hidden subdirectories
+        if any(p.startswith('.') for p in rel.parts[1:-1]):
+            continue
+
+        ann_match    = False
+        parent_fname = _sidecar_parent(fname)
+        if parent_fname:
+            ann_match = True
+            # Rebuild path_in_nb pointing at the parent file
+            middle = rel.parts[1:-1]
+            path_in_nb = '/'.join(middle + (parent_fname,)) if middle else parent_fname
+            fname  = parent_fname
+            fpath  = fpath.parent / parent_fname
+        elif fname.startswith('.'):
+            continue   # other hidden file (e.g. .index)
+        else:
+            path_in_nb = '/'.join(rel.parts[1:])
+
+        sel = f"{nb_name}:{path_in_nb}"
+        if sel in seen_sels:
+            continue
+        seen_sels.add(sel)
+
+        if not fpath.exists():
+            continue
+
+        itype = classify(fname, nb_name)
+        try:
+            mtime = fpath.stat().st_mtime
+        except OSError:
+            mtime = 0
+
+        if itype in BINARY_TYPES:
+            title   = note_title(fname, '')
+            excerpt = ''
+            todo_status = None
+        else:
+            try:
+                raw  = fpath.read_text(errors='replace')
+                meta, body = parse_frontmatter(raw)
+                title   = meta.get('title') or meta.get('name') or note_title(fname, body)
+                excerpt = next((l.strip()[:120] for l in body.splitlines()
+                                if l.strip() and not _RE_HEADING.match(l)
+                                and not l.strip().startswith('<!--')), '')
+                todo_status = None
+                if itype == 'todo':
+                    first = next((l.strip() for l in body.splitlines() if l.strip()), '')
+                    todo_status = 'closed' if first.startswith('# [x]') else 'open'
+            except Exception:
+                title = note_title(fname, '')
+                excerpt = ''
+                todo_status = None
+
+        items.append({
+            'selector':        sel,
+            'filename':        fname,
+            'title':           title,
+            'type':            itype,
+            'status':          todo_status,
+            'indicator':       _indicator(itype, todo_status),
+            'mtime':           mtime,
+            'excerpt':         excerpt,
+            'notebook':        nb_name,
+            'updated':         '',
+            'pinned':          False,
+            'annotation_match': ann_match,
+        })
+
+    return jsonify({'notes': items, 'total': len(items), 'query': tag_query})
+
+
+_sidecar_scan_cache: dict = {}   # root_str -> (scan_time, [Path])
+_SIDECAR_SCAN_TTL = 30           # re-scan at most every 30 s
+
+def _scan_sidecars(root: Path) -> list:
+    """Return cached list of annotation sidecar Paths under root."""
+    key = str(root)
+    now = time.time()
+    hit = _sidecar_scan_cache.get(key)
+    if hit and now - hit[0] < _SIDECAR_SCAN_TTL:
+        return hit[1]
+    paths = list(root.rglob('.*.annotations.md'))
+    _sidecar_scan_cache[key] = (now, paths)
+    return paths
+
+
 def _search_notes(notebook, folder, query, limit, tags=None):
     """Full-text search via nb CLI.
 
@@ -1130,18 +1296,77 @@ def _search_notes(notebook, folder, query, limit, tags=None):
         except OSError:
             fmtime = 0
         items.append({
-            'selector':  selector,
-            'filename':  fname or raw_sel,
-            'title':     title or raw_sel,
-            'type':      itype,
-            'status':    todo_status,
-            'indicator': _indicator(itype, todo_status),
-            'mtime':     fmtime,
-            'excerpt':   _read_excerpt(nb_part, raw_sel),
-            'notebook':  nb_part,
-            'updated':   '',
-            'pinned':    False,
+            'selector':        selector,
+            'filename':        fname or raw_sel,
+            'title':           title or raw_sel,
+            'type':            itype,
+            'status':          todo_status,
+            'indicator':       _indicator(itype, todo_status),
+            'mtime':           fmtime,
+            'excerpt':         _read_excerpt(nb_part, raw_sel),
+            'notebook':        nb_part,
+            'updated':         '',
+            'pinned':          False,
+            'annotation_match': False,
         })
+
+    # --- Supplemental: grep annotation sidecars (hidden dotfiles nb search skips) ---
+    if len(items) < limit:
+        ann_root  = NB_DIR / notebook if notebook else NB_DIR
+        q_lower   = query.lower()
+        tag_lower = tags.lower() if tags else None
+        try:
+            for ann_path in _scan_sidecars(ann_root):
+                if len(items) >= limit:
+                    break
+                try:
+                    text = ann_path.read_text(errors='replace')
+                    if q_lower not in text.lower():
+                        continue
+                    parent_fname = _sidecar_parent(ann_path.name)
+                    if not parent_fname:
+                        continue
+                    try:
+                        nb_name = ann_path.relative_to(NB_DIR).parts[0]
+                    except ValueError:
+                        continue
+                    try:
+                        idx    = read_index(nb_name)
+                        id_num = idx.index(parent_fname) + 1
+                    except (ValueError, Exception):
+                        continue
+                    sel = f"{nb_name}:{id_num}"
+                    if sel in seen_sels:
+                        continue
+                    # Tag filter: must appear in tag_selectors OR in sidecar text
+                    if tag_selectors is not None and sel not in tag_selectors:
+                        if not (tag_lower and tag_lower in text.lower()):
+                            continue
+                    seen_sels.add(sel)
+                    itype = classify(parent_fname, nb_name)
+                    try:
+                        fmtime = (NB_DIR / nb_name / parent_fname).stat().st_mtime
+                    except OSError:
+                        fmtime = 0
+                    items.append({
+                        'selector':         sel,
+                        'filename':         parent_fname,
+                        'title':            note_title(parent_fname, ''),
+                        'type':             itype,
+                        'status':           None,
+                        'indicator':        _indicator(itype, None),
+                        'mtime':            fmtime,
+                        'excerpt':          text[:120],
+                        'notebook':         nb_name,
+                        'updated':          '',
+                        'pinned':           False,
+                        'annotation_match': True,
+                    })
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
     return jsonify({'notes': items, 'total': len(items), 'query': query})
 
 
@@ -1211,6 +1436,9 @@ def api_note():
     title = meta.get('title') or meta.get('name') or note_title(filename, body)
 
     tags = re.findall(r'#([\w/-]+)', body)
+    if annotation_text:
+        ann_tags = re.findall(r'#([\w/-]+)', annotation_text)
+        tags = list(dict.fromkeys(tags + ann_tags))  # merge, dedupe, preserve order
 
     todo_status = None
     if itype == 'todo':
@@ -1239,6 +1467,8 @@ def api_note():
 # Annotations (sidecar .filename.annotations.md)
 # ---------------------------------------------------------------------------
 
+_SIDECAR_RE = re.compile(r'^\.(.*?)\.annotations\.md$')
+
 def _annotation_path(note_path: str) -> Path:
     p = Path(note_path)
     return p.parent / f'.{p.name}.annotations.md'
@@ -1248,6 +1478,11 @@ def _read_annotation(note_path: str) -> str | None:
     if ap.exists():
         return ap.read_text(errors='replace').strip() or None
     return None
+
+def _sidecar_parent(fname: str) -> str | None:
+    """If fname is an annotation sidecar, return the parent filename. Otherwise None."""
+    m = _SIDECAR_RE.match(fname or '')
+    return m.group(1) if m else None
 
 
 @app.route('/api/note/annotate', methods=['POST', 'DELETE'])
@@ -1262,9 +1497,13 @@ def api_note_annotate():
     fpath = path_r['stdout'].strip()
     ap    = _annotation_path(fpath)
 
+    def _bust_sidecar_cache():
+        _sidecar_scan_cache.clear()
+
     if request.method == 'DELETE':
         if ap.exists():
             ap.unlink()
+            _bust_sidecar_cache()
         return jsonify({'ok': True})
 
     # POST — write annotation
@@ -1273,9 +1512,13 @@ def api_note_annotate():
     if not content:
         if ap.exists():
             ap.unlink()
+            _bust_sidecar_cache()
         return jsonify({'ok': True, 'annotation': None})
 
+    existed = ap.exists()
     ap.write_text(content + '\n')
+    if not existed:
+        _bust_sidecar_cache()   # new sidecar file; invalidate scan list
     return jsonify({'ok': True, 'annotation': content})
 
 

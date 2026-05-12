@@ -665,6 +665,12 @@ body {
   cursor: default;
   user-select: all;   /* easy to copy */
 }
+.nb-list-ann-badge {
+  font-size: 10px;
+  flex-shrink: 0;
+  opacity: 0.55;
+  cursor: default;
+}
 .nb-list-excerpt {
   font-size: 11px;
   color: var(--text-muted);

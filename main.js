@@ -61,12 +61,13 @@ const NbMain = (() => {
 
     // ── Notes list ─────────────────────────────────────────────────
 
-    async function loadNotes(typeFilter, statusFilter) {
+    async function loadNotes(typeFilter, statusFilter, tagsFilter) {
         const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb });
-        if (folder) params.set('folder', folder);
+        if (folder)      params.set('folder', folder);
+        if (tagsFilter)  params.set('tags', tagsFilter);
 
         try {
             const r = await fetch('/api/notes?' + params);
@@ -199,6 +200,14 @@ const NbMain = (() => {
             title.className = 'nb-list-title';
             title.textContent = note.title || note.filename;
             titleRow.appendChild(title);
+
+            if (note.annotation_match) {
+                const annBadge = document.createElement('span');
+                annBadge.className = 'nb-list-ann-badge';
+                annBadge.textContent = '📎';
+                annBadge.title = 'Found via annotation';
+                titleRow.appendChild(annBadge);
+            }
 
             if (note.id) {
                 const idEl = document.createElement('span');

@@ -988,12 +988,11 @@ const NbNav = (() => {
                 const _status = st.type === 'todo' ? (st.todoStatus || 'open') : null;
                 if (_searchQuery && _tagsQuery)
                     NbMain.search(_searchQuery, _typeArg(st.type), _status, _tagsQuery);
-                else if (_tagsQuery)
-                    NbMain.search(_tagsQuery,   _typeArg(st.type), _status);
                 else if (_searchQuery)
                     NbMain.search(_searchQuery, _typeArg(st.type), _status);
                 else
-                    NbMain.loadNotes(_typeArg(st.type), _status);
+                    // tags-only (or no filter): server handles tag grep, client applies type
+                    NbMain.loadNotes(_typeArg(st.type), _status, _tagsQuery || '');
                 break;
             }
             case 'todo':    NbMain.loadNotes('--type todo', _state.todo.status);        break;
