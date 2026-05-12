@@ -18,6 +18,7 @@ const NbMain = (() => {
     const _future       = [];       // forward-stack (cleared on any new navigation)
     const _wikilinkCache = new Map(); // selector → resolved title
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
+    let _listDisplayMode = 'title';  // 'title' | 'filename' — resets on every new fetch
     let _kbPane         = 'list';   // 'list' | 'preview'
     const _pendingDeletes = new Set(); // selectors deleted but possibly not yet gone from server
 
@@ -62,6 +63,7 @@ const NbMain = (() => {
     // ── Notes list ─────────────────────────────────────────────────
 
     async function loadNotes(typeFilter, statusFilter, tagsFilter) {
+        _listDisplayMode = 'title';
         const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const folder = NbNav.folder;
@@ -85,6 +87,7 @@ const NbMain = (() => {
 
     async function search(query, typeFilter, statusFilter, tagsQuery) {
         if (!query.trim()) { loadNotes(typeFilter, statusFilter); return; }
+        _listDisplayMode = 'title';
         const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const folder = NbNav.folder;
@@ -198,7 +201,9 @@ const NbMain = (() => {
 
             const title = document.createElement('span');
             title.className = 'nb-list-title';
-            title.textContent = note.title || note.filename;
+            title.textContent = _listDisplayMode === 'filename'
+                ? note.filename
+                : (note.title || note.filename);
             titleRow.appendChild(title);
 
             if (note.annotation_match) {
@@ -228,11 +233,16 @@ const NbMain = (() => {
                     ctx.appendChild(div);
                 });
                 body.appendChild(ctx);
-            } else if (note.excerpt) {
-                const exc = document.createElement('div');
-                exc.className = 'nb-list-excerpt';
-                exc.textContent = note.excerpt;
-                body.appendChild(exc);
+            } else {
+                const excerptText = _listDisplayMode === 'filename'
+                    ? (note.title !== note.filename ? note.title : '')
+                    : note.excerpt;
+                if (excerptText) {
+                    const exc = document.createElement('div');
+                    exc.className = 'nb-list-excerpt';
+                    exc.textContent = excerptText;
+                    body.appendChild(exc);
+                }
             }
 
             if (pinBadge) li.appendChild(pinBadge);
@@ -1441,6 +1451,11 @@ const NbMain = (() => {
                       renderList(_getSortedNotes(_lastNotes), true);
                       const hbtn = document.getElementById('nb-list-menu-btn');
                       if (hbtn) hbtn.classList.toggle('nb-sort-active', _foldersFirst);
+                  }},
+                { label: _listDisplayMode === 'filename' ? '🏷 Show titles' : '📄 Show filenames',
+                  action: () => {
+                      _listDisplayMode = _listDisplayMode === 'filename' ? 'title' : 'filename';
+                      renderList(_getSortedNotes(_lastNotes), true);
                   }},
                 'sep',
                 { label: document.documentElement.getAttribute('data-theme') === 'light'
