@@ -364,9 +364,9 @@ const NbMain = (() => {
         const ref = document.getElementById('nb-preview-ref');
         if (ref) {
             ref.textContent = note.notebook ? `${note.notebook}:${note.id ?? '?'}` : '';
-            ref.title = 'Click for nb info';
-            ref.style.cursor = 'pointer';
-            ref.onclick = e => _showInfoPopover(e, note.selector || `${note.notebook}:${note.id}`);
+            ref.title = note.notebook ? `Go to ${note.notebook} notebook` : '';
+            ref.style.cursor = note.notebook ? 'pointer' : 'default';
+            ref.onclick = note.notebook ? () => NbNav.switchNotebook(note.notebook) : null;
         }
 
         const fileUrl = `/api/file?selector=${encodeURIComponent(note.selector)}`;

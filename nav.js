@@ -1257,6 +1257,13 @@ const NbNav = (() => {
         drillFolder,
         drillFolderInNotebook,
         goUpFolder,
+        switchNotebook(nb) {
+            if (!nb || nb === _scope) return;
+            _scope = nb;
+            _folder[_activeCmd] = '';
+            document.querySelectorAll('.nb-scope-select').forEach(sel => { sel.value = nb; });
+            activateCmd('list');
+        },
         updateBreadcrumb,
         setSearchQuery,
         setTagsQuery,
