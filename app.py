@@ -1187,6 +1187,9 @@ def api_note():
     filename = Path(fpath).name
     itype = classify(filename, note_notebook)
 
+    # Annotation sidecar: .filename.annotations.md in same directory
+    annotation_text = _read_annotation(fpath)
+
     # Don't read binary files as text — frontend fetches /api/file for those
     if itype in BINARY_TYPES:
         return jsonify({
@@ -1195,6 +1198,8 @@ def api_note():
             'title': note_title(filename, ''),
             'type': itype, 'binary': True,
             'raw': '', 'body': '', 'tags': [], 'meta': {},
+            'annotation': annotation_text,
+            'path': fpath,
         })
 
     try:
@@ -1226,7 +1231,52 @@ def api_note():
         'meta':     meta,
         'tags':     tags,
         'path':     fpath,
+        'annotation': annotation_text,
     })
+
+
+# ---------------------------------------------------------------------------
+# Annotations (sidecar .filename.annotations.md)
+# ---------------------------------------------------------------------------
+
+def _annotation_path(note_path: str) -> Path:
+    p = Path(note_path)
+    return p.parent / f'.{p.name}.annotations.md'
+
+def _read_annotation(note_path: str) -> str | None:
+    ap = _annotation_path(note_path)
+    if ap.exists():
+        return ap.read_text(errors='replace').strip() or None
+    return None
+
+
+@app.route('/api/note/annotate', methods=['POST', 'DELETE'])
+def api_note_annotate():
+    selector = request.args.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+
+    path_r = run_nb('show', selector, '--path')
+    if not nb_ok(path_r):
+        return jsonify({'error': 'not found'}), 404
+    fpath = path_r['stdout'].strip()
+    ap    = _annotation_path(fpath)
+
+    if request.method == 'DELETE':
+        if ap.exists():
+            ap.unlink()
+        return jsonify({'ok': True})
+
+    # POST — write annotation
+    data    = request.get_json(silent=True) or {}
+    content = data.get('content', '').strip()
+    if not content:
+        if ap.exists():
+            ap.unlink()
+        return jsonify({'ok': True, 'annotation': None})
+
+    ap.write_text(content + '\n')
+    return jsonify({'ok': True, 'annotation': content})
 
 
 # ---------------------------------------------------------------------------

@@ -373,6 +373,7 @@ const NbMain = (() => {
             }
         } else if (note.type === 'pdf') {
             content.innerHTML = `<embed src="${fileUrl}" type="application/pdf" class="nb-pdf-embed">`;
+            _appendAnnotation(content, note);
             return;
         } else if (note.type === 'contact') {
             html = _renderContact(note);
@@ -391,6 +392,7 @@ const NbMain = (() => {
                 .then(d => {
                     if (d.html) content.innerHTML = `<div class="nb-rendered nb-converted">${d.html}</div>`;
                     else content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(d.error || 'Cannot preview')}</div>`;
+                    _appendAnnotation(content, note);
                 });
             return;
         } else if (note.type === 'ebook' || note.type === 'document') {
@@ -406,6 +408,7 @@ const NbMain = (() => {
                             <span class="nb-media-hint">${_esc(d.error)} — use ↗ Open</span>
                           </div>`;
                     else content.innerHTML = `<pre class="nb-archive-listing">${_esc(d.text || d.error || '')}</pre>`;
+                    _appendAnnotation(content, note);
                 });
             return;
         } else if (note.type === 'archive') {
@@ -418,6 +421,7 @@ const NbMain = (() => {
                     content.innerHTML = `<div style="padding:24px 32px">
                         <div style="margin-bottom:12px;color:var(--text-muted);font-size:0.85em">📦 ${_esc(note.filename)} — ${count} item${count !== 1 ? 's' : ''}</div>
                         <pre class="nb-archive-listing">${_esc(listing)}</pre></div>`;
+                    _appendAnnotation(content, note);
                 });
             return;
         } else if (['note','file',''].includes(note.type)) {
@@ -473,6 +477,88 @@ const NbMain = (() => {
         content.querySelectorAll('.nb-todo-check').forEach(cb => {
             cb.addEventListener('change', () => _toggleTask(note.selector, cb.dataset.task, cb.checked));
         });
+
+        _appendAnnotation(content, note);
+    }
+
+    // ── Annotation footnote ────────────────────────────────────────────────
+
+    function _appendAnnotation(container, note) {
+        const foot = document.createElement('div');
+        foot.className = 'nb-annotation-foot';
+        container.appendChild(foot);
+        _renderAnnotationFoot(foot, note, note.annotation || null);
+    }
+
+    function _renderAnnotationFoot(foot, note, text) {
+        if (text) {
+            foot.innerHTML = `
+                <div class="nb-ann-bar">
+                    <span class="nb-ann-label">📝 Annotation</span>
+                    <span class="nb-ann-actions">
+                        <button class="nb-ann-edit-btn nb-tw-btn">Edit</button>
+                        <button class="nb-ann-del-btn nb-tw-btn">Delete</button>
+                    </span>
+                </div>
+                <div class="nb-ann-body nb-rendered">${_renderMarkdown(text)}</div>`;
+
+            foot.querySelector('.nb-ann-edit-btn').addEventListener('click', () =>
+                _editAnnotation(foot, note, text));
+            foot.querySelector('.nb-ann-del-btn').addEventListener('click', () =>
+                _deleteAnnotation(foot, note));
+        } else {
+            foot.innerHTML = `
+                <div class="nb-ann-bar nb-ann-empty">
+                    <button class="nb-ann-add-btn nb-tw-btn">+ Add annotation</button>
+                </div>`;
+            foot.querySelector('.nb-ann-add-btn').addEventListener('click', () =>
+                _editAnnotation(foot, note, ''));
+        }
+    }
+
+    function _editAnnotation(foot, note, current) {
+        foot.innerHTML = `
+            <div class="nb-ann-bar">
+                <span class="nb-ann-label">📝 Annotation</span>
+            </div>
+            <textarea class="nb-ann-editor" placeholder="Markdown supported…" spellcheck="true">${_esc(current)}</textarea>
+            <div class="nb-ann-editor-footer">
+                <button class="nb-ann-save-btn nb-btn-primary">Save</button>
+                <button class="nb-ann-cancel-btn nb-tw-btn">Cancel</button>
+                <span class="nb-ann-status"></span>
+            </div>`;
+
+        const ta     = foot.querySelector('.nb-ann-editor');
+        const status = foot.querySelector('.nb-ann-status');
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+
+        foot.querySelector('.nb-ann-cancel-btn').addEventListener('click', () =>
+            _renderAnnotationFoot(foot, note, current || null));
+
+        foot.querySelector('.nb-ann-save-btn').addEventListener('click', async () => {
+            const body = ta.value.trim();
+            status.textContent = 'Saving…';
+            try {
+                const r = await fetch(`/api/note/annotate?selector=${encodeURIComponent(note.selector)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: body }),
+                });
+                const d = await r.json();
+                if (d.ok) _renderAnnotationFoot(foot, note, d.annotation);
+                else { status.textContent = '✗ ' + (d.error || 'failed'); }
+            } catch(e) { status.textContent = '✗ ' + e.message; }
+        });
+    }
+
+    async function _deleteAnnotation(foot, note) {
+        if (!confirm('Delete annotation?')) return;
+        try {
+            await fetch(`/api/note/annotate?selector=${encodeURIComponent(note.selector)}`,
+                { method: 'DELETE' });
+            _renderAnnotationFoot(foot, note, null);
+        } catch(e) { /* silent */ }
     }
 
     // Walk text nodes in `root` and wrap 8-hex-char tokens as clickable uuid refs.

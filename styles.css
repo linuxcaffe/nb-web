@@ -1563,6 +1563,59 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-hl-form-status { font-size: 0.82em; color: var(--text-muted); }
 .nb-hl-btn-active  { color: var(--accent) !important; }
 
+/* ── Annotation footnote ──────────────────────────────────────── */
+.nb-annotation-foot {
+  border-top: 1px solid var(--border);
+  margin-top: 2em;
+  padding: 10px 32px 24px;
+}
+.nb-ann-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.nb-ann-label {
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.nb-ann-actions { display: flex; gap: 6px; }
+.nb-ann-empty   { margin-bottom: 0; }
+.nb-ann-add-btn { color: var(--text-dim); font-size: 0.85em; }
+.nb-ann-add-btn:hover { color: var(--accent); }
+.nb-ann-body {
+  font-size: 0.88em;
+  color: var(--text-muted);
+  line-height: 1.6;
+  padding: 0;
+}
+.nb-ann-body p:first-child { margin-top: 0; }
+.nb-ann-editor {
+  width: 100%;
+  min-height: 100px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.nb-ann-editor:focus { outline: 1px solid var(--accent); }
+.nb-ann-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.nb-ann-status { font-size: 0.82em; color: var(--text-muted); }
+
 /* ── Utility ──────────────────────────────────────────────────── */
 [hidden] { display: none !important; }
 .nb-spin { animation: spin 1s linear infinite; display: inline-block; }
