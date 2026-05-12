@@ -862,8 +862,8 @@ const NbMain = (() => {
     }
 
     function _buildTwTable(el, tasks, q) {
-        const todayYmd = new Date().toISOString().slice(0,10).replace(/-/g,'');
-        const soonYmd  = new Date(Date.now() + 3*24*60*60*1000).toISOString().slice(0,10).replace(/-/g,'');
+        const todayYmd = _localDateStr().replace(/-/g,'');
+        const soonYmd  = _localDateStr(3).replace(/-/g,'');
         const fmtDate  = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
         const priLabel = { H: '▲', M: '●', L: '▽' };
         const priCls   = { H: 'nb-tw-pri-h', M: 'nb-tw-pri-m', L: 'nb-tw-pri-l' };
@@ -1056,7 +1056,7 @@ const NbMain = (() => {
         }
         trigger?.classList.add('nb-hl-btn-active');
 
-        const today = new Date().toISOString().slice(0, 10);
+        const today = _localDateStr();
 
         function makePostingRow() {
             const row = document.createElement('div');
@@ -3263,6 +3263,13 @@ const NbMain = (() => {
 
     function _esc(s) {
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Returns local YYYY-MM-DD, optionally offset by daysAhead.
+    // Uses local time, not UTC, so dates are correct for any timezone.
+    function _localDateStr(daysAhead = 0) {
+        const d = new Date(Date.now() + daysAhead * 86400000);
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     }
 
     function resetAndLoad() {
