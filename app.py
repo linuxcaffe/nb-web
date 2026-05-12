@@ -18,9 +18,14 @@ try:
 except ImportError:
     _YAML_OK = False
 
+import shlex
+import shutil
+
 from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask_sock import Sock
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+sock = Sock(app)
 
 NB_BIN  = os.environ.get('NB_BIN', 'nb')
 NB_DIR  = Path(os.environ.get('NB_DIR', Path.home() / '.nb'))
@@ -47,6 +52,12 @@ _SETTINGS_SCHEMA = {
                         'coerce': lambda v: str(v).strip().rstrip('/')},
     'tw_web_url':      {'type': str,  'default': 'http://localhost:5000',
                         'coerce': lambda v: str(v).strip().rstrip('/')},
+    'pty_height':      {'type': int,  'default': 320,
+                        'coerce': lambda v: max(60, min(1200, int(v)))},
+    'pty_init':        {'type': str,  'default': '',
+                        'coerce': lambda v: str(v).strip()},
+    'pty_cwd':         {'type': str,  'default': '',
+                        'coerce': lambda v: str(v).strip()},
 }
 
 def _load_settings():
@@ -725,6 +736,105 @@ def api_hledger_add():
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
+
+
+@sock.route('/ws/pty')
+def ws_pty(ws):
+    """WebSocket PTY: open a shell in the browser terminal panel."""
+    import pty, select, fcntl, termios, struct
+
+    first = ws.receive(timeout=10)
+    if not first:
+        return
+    try:
+        payload  = json.loads(first)
+        cwd_str  = payload.get('cwd',  '').strip()
+        init_str = payload.get('init', '').strip()
+        cols     = int(payload.get('cols', 80))
+        rows     = int(payload.get('rows', 24))
+    except Exception:
+        cwd_str = init_str = ''
+        cols, rows = 80, 24
+
+    cwd = None
+    if cwd_str:
+        p = Path(cwd_str).expanduser()
+        cwd = str(p) if p.is_dir() else None
+
+    master_fd, slave_fd = pty.openpty()
+    winsize = struct.pack('HHHH', rows, cols, 0, 0)
+    fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
+
+    shell_bin = os.environ.get('SHELL') or shutil.which('bash') or 'sh'
+
+    def _preexec():
+        os.setsid()
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+    try:
+        proc = subprocess.Popen(
+            [shell_bin],
+            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+            close_fds=True, cwd=cwd,
+            env={**os.environ, 'TERM': 'xterm-256color'},
+            preexec_fn=_preexec,
+        )
+    except Exception as e:
+        os.close(master_fd); os.close(slave_fd)
+        ws.send(f'\r\n[pty] Failed to start shell: {e}\r\n')
+        return
+
+    if init_str:
+        time.sleep(0.15)
+        for line in init_str.splitlines():
+            line = line.strip()
+            if line:
+                os.write(master_fd, (line + '\n').encode())
+                time.sleep(0.05)
+
+    os.close(slave_fd)
+    try:
+        while True:
+            r, _, _ = select.select([master_fd], [], [], 0.05)
+            if r:
+                try:
+                    data = os.read(master_fd, 4096)
+                except OSError:
+                    break
+                if not data:
+                    break
+                ws.send(data.decode('utf-8', errors='replace'))
+            try:
+                inp = ws.receive(timeout=0)
+                if inp:
+                    if inp.startswith('\x00resize:'):
+                        # Resize message: \x00resize:cols,rows
+                        try:
+                            c, r2 = inp[8:].split(',')
+                            ws2 = struct.pack('HHHH', int(r2), int(c), 0, 0)
+                            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, ws2)
+                        except Exception:
+                            pass
+                    else:
+                        os.write(master_fd, inp.encode('utf-8'))
+            except Exception:
+                pass
+            if proc.poll() is not None:
+                try:
+                    while True:
+                        r2, _, _ = select.select([master_fd], [], [], 0.1)
+                        if not r2:
+                            break
+                        data = os.read(master_fd, 4096)
+                        if data:
+                            ws.send(data.decode('utf-8', errors='replace'))
+                except OSError:
+                    pass
+                break
+    finally:
+        try: os.close(master_fd)
+        except OSError: pass
+        proc.wait()
 
 
 @app.route('/api/notebooks')

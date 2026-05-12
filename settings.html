@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nb-web Settings</title>
+  <style>
+    /* Inherit CSS vars from the parent frame's document.documentElement */
+    :root {
+      --bg:        #1a1e24;
+      --bg2:       #22272e;
+      --bg3:       #2b3038;
+      --border:    rgba(255,255,255,0.08);
+      --text:      #cdd9e5;
+      --text-muted: rgba(205,217,229,0.5);
+      --text-dim:  rgba(205,217,229,0.3);
+      --accent:    #3d8fd4;
+      --font-mono: 'JetBrains Mono','Fira Code',monospace;
+    }
+    [data-theme="light"] {
+      --bg:        #f5f5f5;
+      --bg2:       #ffffff;
+      --bg3:       #ebebeb;
+      --border:    #dedede;
+      --text:      #1a1a1a;
+      --text-muted: rgba(26,26,26,0.5);
+      --text-dim:  rgba(26,26,26,0.3);
+      --accent:    #3d8fd4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      padding: 36px 44px 60px;
+      line-height: 1.6;
+    }
+    h1 { font-size: 1.3rem; margin-bottom: .2em; }
+    .subtitle { color: var(--text-muted); font-size: 0.85em; margin-bottom: 2em; }
+
+    section { margin-bottom: 2.4em; }
+    h2 {
+      font-size: 0.72em;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 5px;
+      margin-bottom: 1.2em;
+    }
+
+    .field { margin-bottom: 1.1em; }
+    label {
+      display: block;
+      font-size: 0.82em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    input[type="text"], input[type="number"], textarea {
+      width: 100%; max-width: 480px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 0.9em;
+      font-family: inherit;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+      outline: 1px solid var(--accent);
+    }
+    textarea { resize: vertical; min-height: 60px; font-family: var(--font-mono); font-size: 0.85em; }
+    input[type="number"] { width: 7em; }
+
+    .hint { font-size: 0.78em; color: var(--text-dim); margin-top: 3px; }
+
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    button.save-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 7px 20px;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    button.save-btn:hover { opacity: .88; }
+
+    .status {
+      font-size: 0.82em;
+      color: var(--text-muted);
+      min-width: 6em;
+    }
+    .status.ok  { color: #57ab5a; }
+    .status.err { color: #e5534b; }
+
+    .theme-toggle {
+      display: flex; gap: 8px;
+    }
+    .theme-btn {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 5px 14px;
+      cursor: pointer;
+      font-size: 0.88em;
+    }
+    .theme-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .nb-setting-row {
+      display: flex; align-items: baseline; gap: 12px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88em;
+    }
+    .nb-setting-key   { width: 180px; flex-shrink: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.9em; }
+    .nb-setting-value { color: var(--text); }
+    .nb-settings-loading { color: var(--text-dim); font-size: 0.88em; }
+  </style>
+</head>
+<body>
+
+<h1>nb-web Settings</h1>
+<p class="subtitle">Saved to <code>nb-settings.json</code> alongside app.py.</p>
+
+<!-- ── Integrations ─────────────────────────────────────────────── -->
+<section id="sec-integrations">
+  <h2>Integrations</h2>
+
+  <div class="field">
+    <label for="hledger-web-url">hledger-web URL</label>
+    <input type="text" id="hledger-web-url" placeholder="http://localhost:5002" autocomplete="off">
+    <p class="hint">Enables ⎋ (open in hledger-web) button on hledger codeblocks. Leave blank if not running hledger-web.</p>
+  </div>
+
+  <div class="field">
+    <label for="tw-web-url">tw-web URL</label>
+    <input type="text" id="tw-web-url" placeholder="http://localhost:5000" autocomplete="off">
+    <p class="hint">Used by tw codeblock launcher and nb: annotation links.</p>
+  </div>
+
+  <div class="row">
+    <button class="save-btn" id="save-integrations">Save</button>
+    <span class="status" id="status-integrations"></span>
+  </div>
+</section>
+
+<!-- ── Appearance ───────────────────────────────────────────────── -->
+<section id="sec-appearance">
+  <h2>Appearance</h2>
+  <div class="field">
+    <label>Page theme</label>
+    <div class="theme-toggle">
+      <button class="theme-btn" id="theme-dark">☾ Dark</button>
+      <button class="theme-btn" id="theme-light">☀ Light</button>
+    </div>
+    <p class="hint">Stored in browser localStorage. Only the content area switches; nav and menus stay dark.</p>
+  </div>
+</section>
+
+<!-- ── Terminal ─────────────────────────────────────────────────── -->
+<section id="sec-terminal">
+  <h2>Terminal</h2>
+
+  <div class="field">
+    <label for="pty-height">Default panel height (px)</label>
+    <input type="number" id="pty-height" min="60" max="1200" step="10">
+  </div>
+
+  <div class="field">
+    <label for="pty-cwd">Starting directory</label>
+    <input type="text" id="pty-cwd" placeholder="~/notes  (blank = home)" autocomplete="off">
+  </div>
+
+  <div class="field">
+    <label for="pty-init">Init script</label>
+    <textarea id="pty-init" placeholder="One shell command per line, run on terminal open"></textarea>
+    <p class="hint">Example: <code>source ~/.profile</code></p>
+  </div>
+
+  <div class="row">
+    <button class="save-btn" id="save-terminal">Save</button>
+    <span class="status" id="status-terminal"></span>
+  </div>
+</section>
+
+<!-- ── nb settings (read-only view) ────────────────────────────── -->
+<section id="sec-nb">
+  <h2>nb settings (read-only)</h2>
+  <div id="nb-settings-list" class="nb-settings-loading">Loading…</div>
+  <p class="hint" style="margin-top:.8em">
+    Change with <code>nb settings set &lt;key&gt; &lt;value&gt;</code> in your terminal.
+  </p>
+</section>
+
+<script>
+  // ── Sync theme with parent frame ──────────────────────────────
+  function _getTheme() {
+    try { return window.parent.document.documentElement.getAttribute('data-theme') || ''; }
+    catch { return localStorage.getItem('nb-theme') || ''; }
+  }
+  function _applyTheme(t) {
+    if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    else               document.documentElement.removeAttribute('data-theme');
+  }
+  _applyTheme(_getTheme());
+
+  // ── Theme buttons ─────────────────────────────────────────────
+  function _updateThemeBtns() {
+    const t = _getTheme();
+    document.getElementById('theme-dark').classList.toggle('active', t !== 'light');
+    document.getElementById('theme-light').classList.toggle('active', t === 'light');
+  }
+  _updateThemeBtns();
+
+  function _setTheme(t) {
+    try {
+      const parent = window.parent.document.documentElement;
+      if (t === 'light') parent.setAttribute('data-theme', 'light');
+      else               parent.removeAttribute('data-theme');
+      window.parent.localStorage.setItem('nb-theme', t);
+    } catch {}
+    _applyTheme(t);
+    localStorage.setItem('nb-theme', t);
+    _updateThemeBtns();
+  }
+  document.getElementById('theme-dark').addEventListener('click',  () => _setTheme(''));
+  document.getElementById('theme-light').addEventListener('click', () => _setTheme('light'));
+
+  // ── Load nb-web settings ──────────────────────────────────────
+  async function loadNbWebSettings() {
+    try {
+      const r = await fetch('/api/nb-settings');
+      const d = await r.json();
+      document.getElementById('hledger-web-url').value = d.hledger_web_url || '';
+      document.getElementById('tw-web-url').value      = d.tw_web_url      || '';
+      document.getElementById('pty-height').value      = d.pty_height      || 320;
+      document.getElementById('pty-cwd').value         = d.pty_cwd         || '';
+      document.getElementById('pty-init').value        = d.pty_init        || '';
+    } catch(e) {
+      console.error('Failed to load nb-web settings', e);
+    }
+  }
+
+  async function saveNbWebSettings(keys, statusId) {
+    const status = document.getElementById(statusId);
+    const all = {
+      hledger_web_url: document.getElementById('hledger-web-url').value.trim(),
+      tw_web_url:      document.getElementById('tw-web-url').value.trim(),
+      pty_height:      parseInt(document.getElementById('pty-height').value) || 320,
+      pty_cwd:         document.getElementById('pty-cwd').value.trim(),
+      pty_init:        document.getElementById('pty-init').value,
+    };
+    const patch = {};
+    keys.forEach(k => { patch[k] = all[k]; });
+    status.textContent = 'Saving…';
+    status.className = 'status';
+    try {
+      const r = await fetch('/api/nb-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const d = await r.json();
+      if (d.error) { status.textContent = '✗ ' + d.error; status.className = 'status err'; }
+      else         { status.textContent = '✓ Saved';       status.className = 'status ok'; }
+    } catch(e) {
+      status.textContent = '✗ ' + e.message;
+      status.className = 'status err';
+    }
+  }
+
+  document.getElementById('save-integrations').addEventListener('click', () =>
+    saveNbWebSettings(['hledger_web_url', 'tw_web_url'], 'status-integrations'));
+  document.getElementById('save-terminal').addEventListener('click', () =>
+    saveNbWebSettings(['pty_height', 'pty_cwd', 'pty_init'], 'status-terminal'));
+
+  // ── Load nb CLI settings (read-only) ──────────────────────────
+  async function loadNbSettings() {
+    const el = document.getElementById('nb-settings-list');
+    try {
+      const r = await fetch('/api/config');
+      const d = await r.json();
+      const entries = Object.entries(d.settings || {});
+      if (!entries.length) { el.textContent = 'No settings returned.'; return; }
+      el.innerHTML = entries.map(([k, v]) =>
+        `<div class="nb-setting-row">
+          <span class="nb-setting-key">${k}</span>
+          <span class="nb-setting-value">${v || '<em style="color:var(--text-dim)">not set</em>'}</span>
+        </div>`).join('');
+    } catch(e) {
+      el.textContent = 'Could not load nb settings.';
+    }
+  }
+
+  loadNbWebSettings();
+  loadNbSettings();
+</script>
+</body>
+</html>

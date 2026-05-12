@@ -1045,7 +1045,8 @@ const NbNav = (() => {
             else if (cmd === 'restart') _restartServer();
             else if (cmd === 'import')      NbMain.doImport();
             else if (cmd === 'contacts')    activateCmd('contacts');
-            else if (cmd === 'nb-settings') NbSettings.open();
+            else if (cmd === 'nb-settings') NbTerminal.openSettings();
+            else if (cmd === 'terminal')    NbTerminal.open();
             else                        NbMain.runCmd(cmd);
         }
 
@@ -1079,6 +1080,7 @@ const NbNav = (() => {
                 { label: 'use', cmd: 'notebooks' },
             ]},
             { label: 'Plugins',   cmd: 'plugins' },
+            { label: 'Terminal',  cmd: 'terminal' },
             { label: 'Settings', items: [
                 { label: 'nb-web settings', cmd: 'nb-settings' },
                 { label: 'completions', cmd: 'completions' },

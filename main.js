@@ -2099,6 +2099,8 @@ const NbMain = (() => {
                 case 'n': e.preventDefault(); document.querySelector('.nb-scope-select')?.focus(); break;
                 case 'p': e.preventDefault(); _setKbPane('preview');          break;
                 case 'e': if (_activeSelector) { e.preventDefault(); _openEditor(); } break;
+                case 't': e.preventDefault(); NbTerminal.open();               break;
+                case ',': e.preventDefault(); NbTerminal.openSettings();       break;
             }
         });
     }
@@ -3363,69 +3365,97 @@ const NbMain = (() => {
              isEditing: () => _editing };
 })();
 
-// ── nb-web Settings panel ─────────────────────────────────────────
-const NbSettings = (() => {
-    function _field(id, label, value, placeholder) {
-        return `<label style="display:block;margin-bottom:1em">
-            <span style="display:block;font-size:0.8em;color:var(--text-muted);margin-bottom:4px">${label}</span>
-            <input id="${id}" type="text" value="${value}"
-                placeholder="${placeholder}"
-                style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border);
-                       color:var(--text);border-radius:4px;padding:6px 10px;font-size:0.9em">
-        </label>`;
+// ── Terminal + Settings-in-preview ────────────────────────────────
+const NbTerminal = (() => {
+    let _term = null;
+    let _ws   = null;
+
+    function _previewEl()  { return document.getElementById('nb-preview-content'); }
+    function _toolbarEl()  { return document.getElementById('nb-preview-toolbar'); }
+
+    function openSettings() {
+        const el = _previewEl();
+        if (!el) return;
+        _toolbarEl().hidden = true;
+        el.innerHTML = '<iframe src="/settings.html" style="width:100%;height:100%;min-height:600px;border:none"></iframe>';
     }
 
     async function open() {
-        const previewContent = document.getElementById('nb-preview-content');
-        const previewToolbar = document.getElementById('nb-preview-toolbar');
-        if (!previewContent) return;
-        previewToolbar.hidden = true;
-        previewContent.innerHTML = '<div style="padding:48px 40px;color:var(--text-muted)">Loading…</div>';
+        const el = _previewEl();
+        if (!el) return;
 
-        let current = {};
-        try {
-            const r = await fetch('/api/nb-settings');
-            current = await r.json();
-        } catch(e) { /* use defaults */ }
+        // Toggle off if already showing terminal
+        if (el.querySelector('#nb-pty-wrap')) {
+            close();
+            return;
+        }
 
-        previewContent.innerHTML = `
-            <div style="padding:48px 40px;max-width:520px">
-                <h2 style="margin:0 0 .3em">nb-web Settings</h2>
-                <p style="color:var(--text-muted);margin:0 0 1.8em;font-size:0.88em">
-                    Persisted in <code>nb-settings.json</code> alongside app.py.
-                </p>
-                <hr style="border:none;border-top:1px solid var(--border);margin:0 0 1.6em">
-                <h3 style="margin:0 0 1em;font-size:0.9em;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)">Integrations</h3>
-                ${_field('nbs-hledger-web', 'hledger-web URL', current.hledger_web_url || '', 'http://localhost:5002')}
-                ${_field('nbs-tw-web', 'tw-web URL', current.tw_web_url || '', 'http://localhost:5000')}
-                <div style="display:flex;gap:8px;margin-top:1.6em">
-                    <button id="nbs-save" class="nb-btn-primary" style="padding:7px 20px">Save</button>
-                    <span id="nbs-status" style="align-self:center;font-size:0.85em;color:var(--text-muted)"></span>
+        _toolbarEl().hidden = true;
+
+        // Lazy-load xterm
+        if (!window.Terminal) {
+            await Promise.all([
+                new Promise(r => { const s = document.createElement('script'); s.src = '/xterm.js'; s.onload = r; document.head.appendChild(s); }),
+                new Promise(r => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/xterm.css'; l.onload = r; document.head.appendChild(l); }),
+            ]);
+        }
+
+        // Load terminal settings
+        let cfg = { pty_height: 320, pty_cwd: '', pty_init: '' };
+        try { const r = await fetch('/api/nb-settings'); Object.assign(cfg, await r.json()); } catch {}
+        const initH = parseInt(localStorage.getItem('nb-pty-height') || '0') || cfg.pty_height;
+
+        el.innerHTML = `
+            <div id="nb-pty-wrap" style="display:flex;flex-direction:column;height:100%;background:#0a0a0a">
+                <div id="nb-pty-titlebar" style="display:flex;align-items:center;justify-content:space-between;
+                     padding:4px 12px;background:#111;color:#aaa;font-size:12px;flex-shrink:0">
+                    <span>terminal</span>
+                    <button id="nb-pty-close" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1.1em;padding:2px 6px">×</button>
                 </div>
+                <div id="nb-pty-container" style="flex:1;overflow:hidden;padding:4px 6px"></div>
             </div>`;
 
-        document.getElementById('nbs-save').addEventListener('click', async () => {
-            const status = document.getElementById('nbs-status');
-            const patch = {
-                hledger_web_url: document.getElementById('nbs-hledger-web').value.trim(),
-                tw_web_url:      document.getElementById('nbs-tw-web').value.trim(),
-            };
-            try {
-                const r = await fetch('/api/nb-settings', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(patch),
-                });
-                const d = await r.json();
-                if (d.error) { status.textContent = '✗ ' + d.error; status.style.color = 'var(--accent-neg, #e74c3c)'; }
-                else         { status.textContent = '✓ Saved'; status.style.color = 'var(--accent)'; }
-            } catch(e) {
-                status.textContent = '✗ ' + e.message;
-            }
+        document.getElementById('nb-pty-close').addEventListener('click', close);
+
+        const container = document.getElementById('nb-pty-container');
+        const term = new window.Terminal({
+            rows: 24, cols: 80,
+            fontSize: 13,
+            fontFamily: "'JetBrains Mono','Fira Code',monospace",
+            theme: { background: '#0a0a0a', foreground: '#d4d4d8' },
+            convertEol: true, scrollback: 500,
+        });
+        _term = term;
+        term.open(container);
+        term.focus();
+
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(`${proto}://${location.host}/ws/pty`);
+        _ws = ws;
+
+        ws.onopen = () => {
+            const cols = term.cols, rows = term.rows;
+            ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init: cfg.pty_init || '', cols, rows }));
+        };
+        ws.onmessage = e => term.write(e.data);
+        ws.onclose   = ()  => term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n');
+        ws.onerror   = ()  => term.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
+
+        term.onData(data => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
+        term.onResize(({ cols, rows }) => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(`\x00resize:${cols},${rows}`);
         });
     }
 
-    return { open };
+    function close() {
+        if (_ws)   { _ws.close();   _ws   = null; }
+        if (_term) { _term.dispose(); _term = null; }
+        const el = _previewEl();
+        if (el) el.innerHTML = '';
+        _toolbarEl().hidden = false;
+    }
+
+    return { open, close, openSettings };
 })();
 
 document.addEventListener('DOMContentLoaded', () => NbMain.init());
