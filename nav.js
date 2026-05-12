@@ -67,7 +67,29 @@ const NbNav = (() => {
             if (!confirm('Discard unsaved changes?')) return;
             NbMain.closeEditor?.();
         }
-        if (cmd === 'contacts') { _scope = 'contacts'; cmd = 'list'; }
+        const isContactsShortcut = (cmd === 'contacts');
+        if (isContactsShortcut) { _scope = 'contacts'; cmd = 'list'; }
+
+        // Explicit user navigation to List: clear transient filters so the
+        // list always opens clean, regardless of what command was active.
+        if (cmd === 'list' && !opts.internal && !isContactsShortcut) {
+            // Coming from contacts scope: reset back to home
+            if (_scope === 'contacts') _scope = 'home';
+            // Coming from a different command: clear search + tags
+            if (_activeCmd !== 'list') {
+                _searchQuery = '';
+                _tagsQuery   = '';
+                ['nb-search', 'nb-tags'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = '';
+                });
+                ['nb-search-clear', 'nb-tags-clear'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.hidden = true;
+                });
+            }
+        }
+
         _activeCmd = cmd;
         document.querySelectorAll('.nb-cmd').forEach(b =>
             b.classList.toggle('active', b.dataset.cmd === cmd));
