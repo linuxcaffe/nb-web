@@ -669,6 +669,59 @@ def api_hledger_query():
         return jsonify({'error': 'hledger timed out'}), 500
 
 
+@app.route('/api/hledger-add', methods=['POST'])
+def api_hledger_add():
+    """Append a new transaction to LEDGER_FILE; validates and rolls back on error."""
+    data      = request.get_json(silent=True) or {}
+    date      = data.get('date', '').strip()
+    desc      = data.get('description', '').strip()
+    postings  = [p for p in data.get('postings', [])
+                 if str(p.get('account', '')).strip()]
+
+    if not date or not desc:
+        return jsonify({'error': 'Date and description are required'}), 400
+    if not postings:
+        return jsonify({'error': 'At least one posting is required'}), 400
+
+    ledger_env = os.environ.get('LEDGER_FILE', '')
+    if not ledger_env:
+        return jsonify({'error': 'LEDGER_FILE not set — cannot write'}), 400
+    ledger_path = Path(os.path.expanduser(ledger_env))
+    if not ledger_path.exists():
+        return jsonify({'error': f'Ledger file not found: {ledger_path}'}), 400
+
+    # Build journal entry text
+    lines = [f'{date} {desc}']
+    for p in postings:
+        account = str(p.get('account', '')).strip()
+        amount  = str(p.get('amount',  '')).strip()
+        lines.append(f'    {account}    {amount}' if amount else f'    {account}')
+    entry = '\n'.join(lines) + '\n'
+
+    original_size = ledger_path.stat().st_size
+    try:
+        with open(ledger_path, 'a') as f:
+            f.write('\n' + entry)
+
+        result = subprocess.run(
+            ['hledger', '-f', str(ledger_path), 'check'],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            with open(ledger_path, 'r+') as f:
+                f.truncate(original_size)
+            return jsonify({'error': result.stderr.strip() or 'Validation failed'}), 400
+
+        return jsonify({'ok': True})
+    except Exception as e:
+        try:
+            with open(ledger_path, 'r+') as f:
+                f.truncate(original_size)
+        except Exception:
+            pass
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})

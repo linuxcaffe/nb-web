@@ -1013,14 +1013,16 @@ const NbMain = (() => {
         const acts = document.createElement('span');
         acts.className = 'nb-hl-actions';
 
-        if (webUrl) {
-            const addBtn = document.createElement('button');
-            addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
-            addBtn.title = 'Add transaction in hledger-web';
-            addBtn.textContent = '+';
-            addBtn.addEventListener('click', () => window.open(`${webUrl}/add`, 'hledger-web'));
-            acts.appendChild(addBtn);
+        // + always shows — opens inline add form (no hledger-web needed)
+        const addBtn = document.createElement('button');
+        addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
+        addBtn.title = 'Add transaction';
+        addBtn.textContent = '+';
+        addBtn.addEventListener('click', () => _showHledgerAddForm(el, q, addBtn));
+        acts.appendChild(addBtn);
 
+        // ⎋ only when hledger-web URL is configured
+        if (webUrl) {
             const webBtn = document.createElement('button');
             webBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-web-btn';
             webBtn.title = 'Open in hledger-web';
@@ -1043,6 +1045,96 @@ const NbMain = (() => {
 
         hdr.appendChild(acts);
         el.appendChild(hdr);
+    }
+
+    function _showHledgerAddForm(el, q, trigger) {
+        const existing = el.querySelector('.nb-hl-addform');
+        if (existing) {
+            existing.remove();
+            trigger?.classList.remove('nb-hl-btn-active');
+            return;
+        }
+        trigger?.classList.add('nb-hl-btn-active');
+
+        const today = new Date().toISOString().slice(0, 10);
+
+        function makePostingRow() {
+            const row = document.createElement('div');
+            row.className = 'nb-hl-posting-row';
+            row.innerHTML = `
+                <input type="text" class="nb-hl-inp nb-hl-acc-inp" placeholder="account:name" autocomplete="off" spellcheck="false">
+                <input type="text" class="nb-hl-inp nb-hl-amt-inp" placeholder="amount (blank to auto-balance)">
+                <button class="nb-tw-btn nb-hl-rm-row" title="Remove posting">✕</button>`;
+            row.querySelector('.nb-hl-rm-row').addEventListener('click', () => {
+                if (form.querySelectorAll('.nb-hl-posting-row').length > 2) row.remove();
+            });
+            return row;
+        }
+
+        const form = document.createElement('div');
+        form.className = 'nb-hl-addform';
+        form.innerHTML = `
+            <div class="nb-hl-addform-top">
+                <input type="date" class="nb-hl-inp nb-hl-date-inp" value="${today}">
+                <input type="text" class="nb-hl-inp nb-hl-desc-inp" placeholder="Description" autocomplete="off">
+            </div>
+            <div class="nb-hl-postings"></div>
+            <div class="nb-hl-addform-footer">
+                <button class="nb-tw-btn nb-hl-btn nb-hl-add-row">+ posting</button>
+                <button class="nb-btn-primary nb-hl-save-btn">Save</button>
+                <button class="nb-tw-btn nb-hl-cancel-btn">Cancel</button>
+                <span class="nb-hl-form-status"></span>
+            </div>`;
+
+        const postingsEl = form.querySelector('.nb-hl-postings');
+        postingsEl.appendChild(makePostingRow());
+        postingsEl.appendChild(makePostingRow());
+
+        form.querySelector('.nb-hl-add-row').addEventListener('click', () =>
+            postingsEl.appendChild(makePostingRow()));
+
+        form.querySelector('.nb-hl-cancel-btn').addEventListener('click', () => {
+            form.remove();
+            trigger?.classList.remove('nb-hl-btn-active');
+        });
+
+        form.querySelector('.nb-hl-save-btn').addEventListener('click', async () => {
+            const status = form.querySelector('.nb-hl-form-status');
+            const date   = form.querySelector('.nb-hl-date-inp').value;
+            const desc   = form.querySelector('.nb-hl-desc-inp').value.trim();
+            const postings = [...form.querySelectorAll('.nb-hl-posting-row')].map(r => ({
+                account: r.querySelector('.nb-hl-acc-inp').value.trim(),
+                amount:  r.querySelector('.nb-hl-amt-inp').value.trim(),
+            })).filter(p => p.account);
+
+            if (!date || !desc) { status.textContent = 'Date and description required'; return; }
+            if (!postings.length) { status.textContent = 'At least one posting required'; return; }
+
+            status.textContent = 'Saving…';
+            status.style.color = '';
+            try {
+                const r = await fetch('/api/hledger-add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date, description: desc, postings }),
+                });
+                const d = await r.json();
+                if (d.error) {
+                    status.textContent = '✗ ' + d.error;
+                    status.style.color = 'var(--accent-neg, #e74c3c)';
+                } else {
+                    form.remove();
+                    trigger?.classList.remove('nb-hl-btn-active');
+                    await _loadHledgerBlock(el);
+                }
+            } catch(e) {
+                status.textContent = '✗ ' + e.message;
+                status.style.color = 'var(--accent-neg, #e74c3c)';
+            }
+        });
+
+        el.querySelector('.nb-hl-header').insertAdjacentElement('afterend', form);
+        form.querySelector('.nb-hl-desc-inp')?.focus();
     }
 
     // ── balance / bal / b ─────────────────────────────────────────

@@ -1530,6 +1530,39 @@ body.nb-fullscreen #nb-cmd-bar::after {
   border-radius: 4px; overflow-x: auto; white-space: pre;
 }
 
+/* ── hledger inline add form ──────────────────────────────────── */
+.nb-hl-addform {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.nb-hl-addform-top {
+  display: flex; gap: 8px; margin-bottom: 8px;
+}
+.nb-hl-inp {
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text); border-radius: 3px;
+  padding: 5px 8px; font-size: 0.85em;
+  font-family: var(--font-mono);
+}
+.nb-hl-inp:focus { outline: 1px solid var(--accent); }
+.nb-hl-date-inp  { width: 9.5em; flex-shrink: 0; }
+.nb-hl-desc-inp  { flex: 1; font-family: inherit; }
+.nb-hl-posting-row {
+  display: flex; gap: 6px; margin-bottom: 5px; align-items: center;
+}
+.nb-hl-acc-inp { flex: 2; }
+.nb-hl-amt-inp { flex: 1; }
+.nb-hl-rm-row  { opacity: 0.4; padding: 2px 5px; font-size: 0.8em; }
+.nb-hl-rm-row:hover { opacity: 1; }
+.nb-hl-addform-footer {
+  display: flex; align-items: center; gap: 8px; margin-top: 8px;
+}
+.nb-hl-form-status { font-size: 0.82em; color: var(--text-muted); }
+.nb-hl-btn-active  { color: var(--accent) !important; }
+
 /* ── Utility ──────────────────────────────────────────────────── */
 [hidden] { display: none !important; }
 .nb-spin { animation: spin 1s linear infinite; display: inline-block; }
