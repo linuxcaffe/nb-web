@@ -301,8 +301,9 @@ const NbNav = (() => {
         titleInput.value       = st.title;
         titleInput.addEventListener('input', () => { st.title = titleInput.value; _markDirty(); });
         titleInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter'  && st.dirty) _doSave();
-            if (e.key === 'Escape')              _doCancel();
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && st.dirty) _doEdit();
+            else if (e.key === 'Enter'  && st.dirty) _doSave();
+            if (e.key === 'Escape')                  _doCancel();
         });
         bar.appendChild(titleInput);
 
@@ -315,8 +316,9 @@ const NbNav = (() => {
         urlInput.hidden      = st.type !== 'bookmark';
         urlInput.addEventListener('input', () => { st.url = urlInput.value; _markDirty(); });
         urlInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter'  && st.dirty) _doSave();
-            if (e.key === 'Escape')              _doCancel();
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && st.dirty) _doEdit();
+            else if (e.key === 'Enter'  && st.dirty) _doSave();
+            if (e.key === 'Escape')                  _doCancel();
         });
         bar.appendChild(urlInput);
 
@@ -388,7 +390,10 @@ const NbNav = (() => {
             _busy('Saving…');
             try {
                 const result = await NbMain.addNote(_noteArgs());
-                if (result) _doCancel();
+                if (result) {
+                    _doCancel();
+                    if (result.selector) NbMain.openNote(result.selector);
+                }
             } finally {
                 _idle();
             }
