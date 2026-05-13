@@ -325,6 +325,7 @@ const NbMain = (() => {
         const content = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
         document.getElementById('nb-done-bar')?.remove();
+        document.getElementById('nb-preview-actions').hidden = false;
 
         const doneBtn   = document.getElementById('nb-done-btn');
         const editBtn   = document.getElementById('nb-edit-btn');
@@ -2363,22 +2364,38 @@ const NbMain = (() => {
         });
     }
 
+    // Single source of truth for preview-pane button visibility.
+    // Prevents the double-row situation where preview-actions and editor-toolbar
+    // are simultaneously visible, or the done-bar stacks on top of them.
+    function _setPaneMode(mode) {
+        document.getElementById('nb-done-bar')?.remove();
+        const previewActions = document.getElementById('nb-preview-actions');
+        const editorWrap     = document.getElementById('nb-editor-wrap');
+        const previewContent = document.getElementById('nb-preview-content');
+        if (mode === 'edit') {
+            previewActions.hidden = true;
+            editorWrap.hidden     = false;
+            previewContent.hidden = true;
+        } else {
+            previewActions.hidden = false;
+            editorWrap.hidden     = true;
+            previewContent.hidden = false;
+        }
+    }
+
     function _openEditor(targetSelector) {
         const sel = targetSelector || _activeSelector;
         if (!sel) return;
         _activeSelector = sel;
         _editing = true;
-        document.getElementById('nb-done-bar')?.remove();
-        document.getElementById('nb-preview-actions').hidden = true;
+        _setPaneMode('edit');
         fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
             .then(d => {
                 const raw = d.raw || d.body || '';
-                _undoBuffer[sel] = raw;   // snapshot before editing (level-1 undo)
+                _undoBuffer[sel] = raw;
                 const ta = document.getElementById('nb-editor');
                 ta.value = raw;
-                document.getElementById('nb-preview-content').hidden = true;
-                document.getElementById('nb-editor-wrap').hidden = false;
                 document.getElementById('nb-save-btn').onclick = _saveNote;
                 ta.focus();
             });
@@ -2411,9 +2428,7 @@ const NbMain = (() => {
 
     function _closeEditor() {
         _editing = false;
-        document.getElementById('nb-editor-wrap').hidden = true;
-        document.getElementById('nb-preview-content').hidden = false;
-        document.getElementById('nb-preview-actions').hidden = false;
+        _setPaneMode('preview');
     }
 
     function _applyFmt(fmt) {
@@ -2560,6 +2575,7 @@ const NbMain = (() => {
         skipBtn.textContent = 'Skip';
 
         bar.append(lbl, sel, doneBtn, editBtn, skipBtn);
+        document.getElementById('nb-preview-actions').hidden = true;
         toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
         sel.focus();
 
@@ -2575,7 +2591,10 @@ const NbMain = (() => {
         skipBtn.addEventListener('click', () => run(''));
         bar.addEventListener('keydown', e => {
             if (e.key === 'Enter')  run(sel.value);
-            if (e.key === 'Escape') bar.remove();
+            if (e.key === 'Escape') {
+                bar.remove();
+                document.getElementById('nb-preview-actions').hidden = false;
+            }
         });
     }
 
@@ -2791,16 +2810,19 @@ const NbMain = (() => {
         document.getElementById('nf-save').addEventListener('click', () => _submitAdd(type));
 
         // Enter → Create; Ctrl+Enter → Create and open editor
-        content.addEventListener('keydown', e => {
-            if (e.target.tagName === 'BUTTON') return;
-            if (e.key === 'Enter' && !e.shiftKey) {
-                if (e.ctrlKey || e.metaKey) {
-                    e.preventDefault();
-                    _submitAdd(type, true);
-                } else if (e.target.tagName !== 'TEXTAREA') {
-                    e.preventDefault();
-                    _submitAdd(type, false);
-                }
+        // Attach directly to each input (not delegated) to avoid interference
+        // from the global document keydown guard that returns early for INPUTs.
+        ['nf-title', 'nf-tags', 'nf-url', 'nf-comment'].forEach(id => {
+            document.getElementById(id)?.addEventListener('keydown', e => {
+                if (e.key !== 'Enter' || e.shiftKey) return;
+                e.preventDefault();
+                _submitAdd(type, e.ctrlKey || e.metaKey);
+            });
+        });
+        document.getElementById('nf-content')?.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                _submitAdd(type, true);
             }
         });
     }
