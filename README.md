@@ -2,6 +2,14 @@
 A lightweight PWA web interface for [nb](https://github.com/xwmx/nb) — the
 plain-text, git-backed, CLI note-taking tool.
 
+## Related
+
+| Project | What it is |
+|---|---|
+| [nb](https://github.com/xwmx/nb) | The CLI note-taking tool nb-web wraps — notes, todos, bookmarks, plain-text, git-backed |
+| [tw-web](https://github.com/linuxcaffe/tw-web) | Sister app: web interface for [Taskwarrior](https://taskwarrior.org/). Same Epiphany PWA packaging; designed to run alongside nb-web |
+| [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) | nb plugin that adds a live hledger query block type, rendered and launchable in nb-web |
+
 ## Templates
 
 nb-web supports nb's template system when adding notes. Templates are plain
