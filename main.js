@@ -2815,15 +2815,18 @@ const NbMain = (() => {
         ['nf-title', 'nf-tags', 'nf-url', 'nf-comment'].forEach(id => {
             document.getElementById(id)?.addEventListener('keydown', e => {
                 if (e.key !== 'Enter' || e.shiftKey) return;
+                const btn = document.getElementById('nf-save');
+                if (btn?.disabled) return;   // guard against key-repeat during async submit
                 e.preventDefault();
                 _submitAdd(type, e.ctrlKey || e.metaKey);
             });
         });
         document.getElementById('nf-content')?.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                _submitAdd(type, true);
-            }
+            if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+            const btn = document.getElementById('nf-save');
+            if (btn?.disabled) return;
+            e.preventDefault();
+            _submitAdd(type, true);
         });
     }
 
@@ -2855,13 +2858,17 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
-                NbNav.reexecute();
+                // Switch to list and refresh — reexecute() is a no-op when _activeCmd==='add'
+                _noAutoSelect = true;
+                NbNav.activateCmd('list', { internal: true });
                 if (andEdit && d.selector) {
                     await openNote(d.selector);
+                    _noAutoSelect = false;
                     _openEditor(d.selector);
+                } else if (d.selector) {
+                    openNote(d.selector).finally(() => { _noAutoSelect = false; });
                 } else {
-                    document.getElementById('nb-preview-content').innerHTML =
-                        '<div id="nb-welcome"><h2>nb-web</h2><p>Created!</p></div>';
+                    _noAutoSelect = false;
                 }
             } else {
                 alert('Create failed: ' + (d.error || 'unknown'));
