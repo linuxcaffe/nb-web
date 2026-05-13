@@ -593,7 +593,7 @@ def api_open():
 @app.route('/api/task-info')
 def api_task_info():
     uuid = request.args.get('uuid', '').strip()
-    if not uuid or not re.match(r'^[a-f0-9]{8,}$', uuid):
+    if not uuid or not re.match(r'^[a-f0-9]{7,}$', uuid):
         return jsonify({'output': '', 'success': False}), 400
     try:
         result = subprocess.run(
@@ -601,7 +601,7 @@ def api_task_info():
             capture_output=True, text=True,
             env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
         )
-        output = strip_ansi(result.stdout.strip())
+        output = strip_ansi(result.stdout.strip()) if result.returncode == 0 else ''
         return jsonify({'output': output, 'success': bool(output)})
     except FileNotFoundError:
         return jsonify({'output': '', 'success': False, 'error': 'task not found'})
@@ -1811,7 +1811,7 @@ def api_git_log():
     n = min(int(request.args.get('n', 8)), 20)
     try:
         result = subprocess.run(
-            ['git', 'log', f'-{n}', '--format=%h\t%s\t%cd', '--date=short'],
+            ['git', 'log', f'-{n}', '--format=%h\t%s\t%cd', '--date=short', '--abbrev=8'],
             capture_output=True, text=True,
             cwd=str(Path(__file__).parent),
         )

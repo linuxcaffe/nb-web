@@ -589,7 +589,7 @@ const NbMain = (() => {
         } catch(e) { /* silent */ }
     }
 
-    // Walk text nodes in `root` and wrap 8-hex-char tokens as clickable uuid refs.
+    // Walk text nodes in `root` and wrap 7-8-hex-char tokens as clickable uuid refs.
     // Skips code BLOCKS (pre) and links, but intentionally walks inline <code> spans
     // because nb uuid8 refs are typically written as `678d16d1` backtick style.
     function _wrapUuids(root) {
@@ -601,7 +601,7 @@ const NbMain = (() => {
                         return NodeFilter.FILTER_REJECT;
                     p = p.parentElement;
                 }
-                return /\b[a-f0-9]{8}\b/i.test(node.textContent)
+                return /\b[a-f0-9]{7,8}\b/i.test(node.textContent)
                     ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
             }
         });
@@ -609,7 +609,7 @@ const NbMain = (() => {
         let n;
         while ((n = walker.nextNode())) nodes.push(n);
         nodes.forEach(node => {
-            const parts = node.textContent.split(/\b([a-f0-9]{8})\b/i);
+            const parts = node.textContent.split(/\b([a-f0-9]{7,8})\b/i);
             if (parts.length < 3) return;
             const frag = document.createDocumentFragment();
             parts.forEach((part, i) => {
