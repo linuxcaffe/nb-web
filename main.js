@@ -2789,9 +2789,23 @@ const NbMain = (() => {
             content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
         });
         document.getElementById('nf-save').addEventListener('click', () => _submitAdd(type));
+
+        // Enter → Create; Ctrl+Enter → Create and open editor
+        content.addEventListener('keydown', e => {
+            if (e.target.tagName === 'BUTTON') return;
+            if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    _submitAdd(type, true);
+                } else if (e.target.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                    _submitAdd(type, false);
+                }
+            }
+        });
     }
 
-    async function _submitAdd(type) {
+    async function _submitAdd(type, andEdit = false) {
         const titleEl   = document.getElementById('nf-title');
         const tagsEl    = document.getElementById('nf-tags');
         const contentEl = document.getElementById('nf-content');
@@ -2820,8 +2834,13 @@ const NbMain = (() => {
             const d = await r.json();
             if (d.success) {
                 NbNav.reexecute();
-                document.getElementById('nb-preview-content').innerHTML =
-                    '<div id="nb-welcome"><h2>nb-web</h2><p>Created!</p></div>';
+                if (andEdit && d.selector) {
+                    await openNote(d.selector);
+                    _openEditor(d.selector);
+                } else {
+                    document.getElementById('nb-preview-content').innerHTML =
+                        '<div id="nb-welcome"><h2>nb-web</h2><p>Created!</p></div>';
+                }
             } else {
                 alert('Create failed: ' + (d.error || 'unknown'));
                 btn.textContent = 'Create'; btn.disabled = false;
