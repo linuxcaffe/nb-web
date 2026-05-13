@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=nb-web
+Comment=nb note-taking web interface
+Exec=/home/djp/dev/nb-web/nb-web-launch.sh
+Icon=/home/djp/dev/nb-web/logo-512.png
+Terminal=false
+Type=Application
+Categories=Office;Utility;
+Keywords=nb;notes;notebook;markdown;productivity;
+StartupNotify=true

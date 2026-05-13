@@ -138,5 +138,9 @@
 <script src="marked.min.js"></script>
 <script src="nav.js"></script>
 <script src="main.js"></script>
+<script>
+  if ('serviceWorker' in navigator)
+    navigator.serviceWorker.register('/sw.js');
+</script>
 </body>
 </html>
