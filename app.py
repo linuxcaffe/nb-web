@@ -1764,6 +1764,48 @@ def api_tags():
 # API: Git log (recent commits for Done-with-commit UI)
 # ---------------------------------------------------------------------------
 
+@app.route('/api/git/show')
+def api_git_show():
+    """Look up a commit hash across known git repos and return formatted details."""
+    h = request.args.get('hash', '').strip()
+    if not re.match(r'^[0-9a-f]{7,40}$', h):
+        return jsonify({'error': 'invalid hash'}), 400
+
+    # Search: nb-web dir first, then each notebook (nb uses git for version control)
+    search_dirs = [Path(__file__).parent]
+    try:
+        for d in NB_DIR.iterdir():
+            if d.is_dir() and not d.name.startswith('.') and (d / '.git').exists():
+                search_dirs.append(d)
+    except Exception:
+        pass
+
+    for repo in search_dirs:
+        try:
+            r = subprocess.run(
+                ['git', 'show', '-s',
+                 '--format=commit %H%nauthor %an%ndate   %ad%n%n    %s%n%n%b',
+                 '--date=short', h],
+                capture_output=True, text=True, cwd=str(repo), timeout=5,
+            )
+            if r.returncode != 0 or not r.stdout.strip():
+                continue
+            # Append brief file-change stat
+            stat_r = subprocess.run(
+                ['git', 'show', '--stat', '--format=', h],
+                capture_output=True, text=True, cwd=str(repo), timeout=5,
+            )
+            stat = stat_r.stdout.strip() if stat_r.returncode == 0 else ''
+            text = r.stdout.strip()
+            if stat:
+                text += '\n\n' + stat
+            return jsonify({'text': text, 'repo': repo.name})
+        except Exception:
+            continue
+
+    return jsonify({'error': f'Commit {h} not found in known repos'}), 404
+
+
 @app.route('/api/git/log')
 def api_git_log():
     n = min(int(request.args.get('n', 8)), 20)

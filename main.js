@@ -635,38 +635,51 @@ const NbMain = (() => {
         pop.className = 'nb-info-popover';
         pop.textContent = 'Loading…';
 
+        // Initial position: below element, left-aligned
         const rect = e.target.getBoundingClientRect();
         pop.style.top  = (rect.bottom + 6) + 'px';
         pop.style.left = rect.left + 'px';
         document.body.appendChild(pop);
 
+        // Smart repositioning: flip up if below viewport, flip left if off right edge
         const pr = pop.getBoundingClientRect();
         if (pr.right > window.innerWidth - 8)
             pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
+        if (pr.bottom > window.innerHeight - 8)
+            pop.style.top = Math.max(8, rect.top - pr.height - 6) + 'px';
 
         try {
             const isNbSelector = /^[a-z][a-z0-9_-]*:/.test(uuid);
             if (isNbSelector) {
-                // notebook:id click from preview toolbar → nb info
                 const r = await fetch('/api/run?cmd=info&selector=' + encodeURIComponent(uuid));
                 const d = await r.json();
                 pop.textContent = d.output || d.stderr || '(no output)';
             } else {
-                // bare uuid8 in content → Taskwarrior task info
-                const r = await fetch('/api/task-info?uuid=' + encodeURIComponent(uuid));
-                const d = await r.json();
-                if (d.output) {
-                    pop.textContent = d.output;
+                // Try Taskwarrior first, then git commit, then nb info
+                const tw = await fetch('/api/task-info?uuid=' + encodeURIComponent(uuid));
+                const td = await tw.json();
+                if (td.output) {
+                    pop.textContent = td.output;
                 } else {
-                    // fall back to nb info in case it's an nb UUID
-                    const r2 = await fetch('/api/run?cmd=info&selector=' + encodeURIComponent(uuid));
-                    const d2 = await r2.json();
-                    pop.textContent = d2.output || '(no match found)';
+                    const gr = await fetch('/api/git/show?hash=' + encodeURIComponent(uuid));
+                    const gd = await gr.json();
+                    if (gd.text) {
+                        pop.textContent = gd.text + (gd.repo ? `\n\n(${gd.repo})` : '');
+                    } else {
+                        const r2 = await fetch('/api/run?cmd=info&selector=' + encodeURIComponent(uuid));
+                        const d2 = await r2.json();
+                        pop.textContent = d2.output || '(no match found)';
+                    }
                 }
             }
         } catch(err) {
             pop.textContent = 'Error: ' + err;
         }
+
+        // Reposition vertically after content is known (height may have changed)
+        const pr2 = pop.getBoundingClientRect();
+        if (pr2.bottom > window.innerHeight - 8)
+            pop.style.top = Math.max(8, rect.top - pr2.height - 6) + 'px';
 
         function dismiss(ev) {
             if (!pop.contains(ev.target)) {
