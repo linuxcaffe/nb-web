@@ -1624,8 +1624,8 @@ body.nb-fullscreen #nb-cmd-bar::after {
 
 /* ── Import / Export / Move panel (lives in preview pane) ────── */
 #nb-action-panel {
-  display: flex;
-  flex-direction: column;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
 }
 .nb-dlg-header {
   display: flex;

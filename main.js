@@ -3536,66 +3536,48 @@ const NbTerminal = (() => {
 const NbDialog = (() => {
     let _tab = 'import';
 
-    function _panel()   { return document.getElementById('nb-action-panel'); }
-    function _body()    { return _panel()?.querySelector('.nb-dlg-body'); }
-    function _content() { return document.getElementById('nb-preview-content'); }
+    function _panel() { return document.getElementById('nb-action-panel'); }
+    function _body()  { return _panel()?.querySelector('.nb-dlg-body'); }
 
     function open(tab) {
         _tab = tab || 'import';
+        _panel()?.remove();
 
-        const content = _content();
-        if (!content) return;
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const pane    = document.getElementById('nb-preview-pane');
+        if (!pane) return;
 
-        // Build panel
         const panel = document.createElement('div');
         panel.id = 'nb-action-panel';
 
         const header = document.createElement('div');
         header.className = 'nb-dlg-header';
-
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
         [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move']].forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
-            btn.dataset.tab = id;
-            btn.textContent = label;
+            btn.dataset.tab = id; btn.textContent = label;
             btn.addEventListener('click', () => { _tab = id; _updateTabs(); _renderTab(); });
             tabsEl.appendChild(btn);
         });
-
         const closeBtn = document.createElement('button');
         closeBtn.className = 'nb-dlg-close'; closeBtn.textContent = '✕';
         closeBtn.setAttribute('aria-label', 'Close');
         closeBtn.addEventListener('click', close);
-
         header.append(tabsEl, closeBtn);
 
         const body = document.createElement('div');
         body.className = 'nb-dlg-body';
-
         panel.append(header, body);
-        content.innerHTML = '';
-        content.appendChild(panel);
 
-        document.getElementById('nb-preview-toolbar').hidden = false;
-
+        // Sibling of preview-content — toolbar stays, content shows below
+        toolbar.insertAdjacentElement('afterend', panel);
+        toolbar.hidden = false;
         _renderTab();
     }
 
-    function close() {
-        if (!_panel()) return;
-        const content = _content();
-        if (!content) return;
-        content.innerHTML = '';
-        const sel = NbMain.activeSelector();
-        if (sel) {
-            NbMain.openNote(sel);
-        } else {
-            document.getElementById('nb-preview-toolbar').hidden = true;
-            content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
-        }
-    }
+    function close() { _panel()?.remove(); }
 
     function _updateTabs() {
         _panel()?.querySelectorAll('.nb-dlg-tab').forEach(btn =>
@@ -3650,39 +3632,86 @@ const NbDialog = (() => {
         let folderSel = await _buildFolderPicker(currentNb);
         body.innerHTML = '';
 
-        const dropZone = document.createElement('div');
-        dropZone.className = 'nb-dlg-drop-zone';
-        dropZone.textContent = 'Drop files here or click to browse';
-        dropZone.tabIndex = 0;
-
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file'; fileInput.multiple = true; fileInput.style.display = 'none';
-
-        function _go(files) {
-            const nb = nbSel.value; const folder = folderSel.value;
-            _content().innerHTML = '';
-            NbMain.importFiles(files, nb, folder);
-        }
-
-        dropZone.addEventListener('click',    () => fileInput.click());
-        dropZone.addEventListener('keydown',  e  => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
-        dropZone.addEventListener('dragover', e  => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-        dropZone.addEventListener('dragleave',    () => dropZone.classList.remove('drag-over'));
-        dropZone.addEventListener('drop',     e  => { e.preventDefault(); dropZone.classList.remove('drag-over'); _go([...e.dataTransfer.files]); });
-        fileInput.addEventListener('change',      () => _go([...fileInput.files]));
-
-        const folderRow = _row('Folder:', folderSel);
+        // Row 1: notebook + folder on same line
+        const destRow = _row('Into:', nbSel, folderSel);
         nbSel.addEventListener('change', async () => {
             const next = await _buildFolderPicker(nbSel.value);
-            folderRow.replaceChild(next, folderSel);
+            destRow.replaceChild(next, folderSel);
             folderSel = next;
         });
 
-        const { row: btnRow, btn: browseBtn, cancel: cancelBtn } = _btnRow('Browse…');
-        browseBtn.addEventListener('click', () => fileInput.click());
+        // Hidden file input — drag-drop code preserved, visual zone removed
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file'; fileInput.multiple = true; fileInput.style.display = 'none';
+        function _goImport(files) {
+            close();
+            NbMain.importFiles(files, nbSel.value, folderSel.value);
+        }
+        fileInput.addEventListener('change', () => _goImport([...fileInput.files]));
+
+        // Link mode toggle — switches between copy-import and symlink
+        let linkMode = false;
+        const linkBtn = document.createElement('button');
+        linkBtn.className = 'nb-tool-btn'; linkBtn.textContent = '🔗'; linkBtn.type = 'button';
+        linkBtn.title = 'Switch to symlink mode';
+
+        // Row 2a (import): annotation input + link toggle
+        const annInput = document.createElement('input');
+        annInput.type = 'text'; annInput.className = 'nb-rename-input';
+        annInput.placeholder = 'Annotation'; annInput.style.flex = '1';
+        const annRow = document.createElement('div');
+        annRow.className = 'nb-dlg-row';
+        annRow.append(annInput, linkBtn);
+
+        // Row 2b (link): path input
+        const pathInput = document.createElement('input');
+        pathInput.type = 'text'; pathInput.className = 'nb-rename-input';
+        pathInput.placeholder = '/path/to/file'; pathInput.style.flex = '1';
+        const pathRow = _row('Path:', pathInput);
+        pathRow.style.display = 'none';
+
+        // Row 3: action + cancel
+        const actionBtn = document.createElement('button');
+        actionBtn.className = 'nb-tool-btn nb-btn-primary'; actionBtn.textContent = 'Browse…';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(actionBtn, cancelBtn);
+
+        actionBtn.addEventListener('click', async () => {
+            if (!linkMode) {
+                fileInput.click();
+            } else {
+                const path = pathInput.value.trim();
+                if (!path) { pathInput.focus(); return; }
+                actionBtn.textContent = 'Linking…'; actionBtn.disabled = true;
+                try {
+                    const r = await fetch('/api/link-file', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path, notebook: nbSel.value }),
+                    });
+                    const d = await r.json();
+                    if (d.success) { close(); NbNav.reexecute(); }
+                    else { alert('Link failed: ' + (d.error || 'unknown')); actionBtn.textContent = 'Link file'; actionBtn.disabled = false; }
+                } catch(e) { actionBtn.textContent = 'Link file'; actionBtn.disabled = false; }
+            }
+        });
+        pathInput.addEventListener('keydown', e => { if (e.key === 'Enter') actionBtn.click(); });
         cancelBtn.addEventListener('click', close);
 
-        body.append(dropZone, fileInput, _row('Into:', nbSel), folderRow, btnRow);
+        linkBtn.addEventListener('click', () => {
+            linkMode = !linkMode;
+            linkBtn.classList.toggle('active', linkMode);
+            linkBtn.title = linkMode ? 'Switch to import (copy) mode' : 'Switch to symlink mode';
+            annRow.style.display = linkMode ? 'none' : '';
+            pathRow.style.display = linkMode ? '' : 'none';
+            actionBtn.textContent = linkMode ? 'Link file' : 'Browse…';
+            (linkMode ? pathInput : annInput).focus();
+        });
+
+        body.append(fileInput, destRow, annRow, pathRow, btnRow);
     }
 
     // ── Export tab ─────────────────────────────────────────────
@@ -3694,6 +3723,12 @@ const NbDialog = (() => {
             return;
         }
 
+        // Row 1: Filename (full width)
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
+        const nameRow = _row('Filename:', nameInput);
+
+        // Row 2: Format (left) — Save + Cancel (right)
         const fmtSel = document.createElement('select');
         fmtSel.className = 'nb-scope-select';
         NbMain.exportFormats(NbMain.activeType()).forEach(f => {
@@ -3701,9 +3736,15 @@ const NbDialog = (() => {
             opt.value = f.value; opt.textContent = f.label;
             fmtSel.appendChild(opt);
         });
-
-        const nameInput = document.createElement('input');
-        nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'nb-tool-btn nb-btn-primary'; saveBtn.textContent = 'Save';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const spacer = document.createElement('span');
+        spacer.className = 'nb-spacer';
+        const fmtRow = document.createElement('div');
+        fmtRow.className = 'nb-dlg-row';
+        fmtRow.append(fmtSel, spacer, saveBtn, cancelBtn);
 
         const EXT = { md: '.md', html: '.html', docx: '.docx', odt: '.odt' };
         function updateName() {
@@ -3717,8 +3758,6 @@ const NbDialog = (() => {
         }
         fmtSel.addEventListener('change', updateName);
         updateName();
-
-        const { row: btnRow, btn: saveBtn, cancel: cancelBtn } = _btnRow('Save');
         cancelBtn.addEventListener('click', close);
 
         async function commit() {
@@ -3756,7 +3795,7 @@ const NbDialog = (() => {
         saveBtn.addEventListener('click', commit);
         nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
 
-        body.append(_row('Format:', fmtSel), _row('Filename:', nameInput), btnRow);
+        body.append(nameRow, fmtRow);
         if (!nameInput.disabled) { nameInput.focus(); nameInput.select(); }
     }
 
@@ -3775,14 +3814,22 @@ const NbDialog = (() => {
         let folderSel = await _buildFolderPicker(curNb);
         body.innerHTML = '';
 
-        const folderRow = _row('Folder:', folderSel);
+        // Row 1: notebook + folder on same line
+        const destRow = _row('Into:', nbSel, folderSel);
         nbSel.addEventListener('change', async () => {
             const next = await _buildFolderPicker(nbSel.value);
-            folderRow.replaceChild(next, folderSel);
+            destRow.replaceChild(next, folderSel);
             folderSel = next;
         });
 
-        const { row: btnRow, btn: moveBtn, cancel: cancelBtn } = _btnRow('Move');
+        // Row 2: Move + Cancel
+        const moveBtn = document.createElement('button');
+        moveBtn.className = 'nb-tool-btn nb-btn-primary'; moveBtn.textContent = 'Move';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(moveBtn, cancelBtn);
         cancelBtn.addEventListener('click', close);
 
         moveBtn.addEventListener('click', async () => {
@@ -3806,7 +3853,7 @@ const NbDialog = (() => {
             } catch (e) { moveBtn.textContent = 'Move'; moveBtn.disabled = false; }
         });
 
-        body.append(_row('Notebook:', nbSel), folderRow, btnRow);
+        body.append(destRow, btnRow);
         nbSel.focus();
     }
 
@@ -3818,17 +3865,6 @@ const NbDialog = (() => {
         lbl.className = 'nb-dlg-lbl'; lbl.textContent = label;
         row.append(lbl, ...els);
         return row;
-    }
-
-    function _btnRow(primaryLabel) {
-        const row = document.createElement('div');
-        row.className = 'nb-dlg-row nb-dlg-btn-row';
-        const btn = document.createElement('button');
-        btn.className = 'nb-tool-btn nb-btn-primary'; btn.textContent = primaryLabel;
-        const cancel = document.createElement('button');
-        cancel.className = 'nb-tool-btn'; cancel.textContent = 'Cancel';
-        row.append(btn, cancel);
-        return { row, btn, cancel };
     }
 
     function init() {
