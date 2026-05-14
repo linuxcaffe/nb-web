@@ -3284,7 +3284,7 @@ const NbMain = (() => {
     const _IMPORT_MAX_MB    = 25;   // soft default; server enforces the real limit from settings
     const _IMPORT_MAX_FILES = 20;
 
-    async function _importFiles(files, notebookOverride) {
+    async function _importFiles(files, notebookOverride, folderOverride) {
         if (!files.length) return;
 
         // Client-side quantity guard
@@ -3303,12 +3303,14 @@ const NbMain = (() => {
         }
 
         _showPreviewLoading();
-        const nb = notebookOverride || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook);
+        const nb     = notebookOverride || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook);
+        const folder = folderOverride || '';
         const lines = [];
         for (const file of files) {
             const fd = new FormData();
             fd.append('file', file);
             fd.append('notebook', nb);
+            if (folder) fd.append('folder', folder);
             try {
                 const r = await fetch('/api/import', { method: 'POST', body: fd });
                 const d = await r.json();
@@ -3428,7 +3430,7 @@ const NbMain = (() => {
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
              doSync, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
-             importFiles: (files, nb) => _importFiles(files, nb),
+             importFiles: (files, nb, folder) => _importFiles(files, nb, folder),
              exportFormats: _exportFormats,
              doPrint: _doPrint,
              clearNote,
@@ -3530,29 +3532,80 @@ const NbTerminal = (() => {
     return { open, close, openSettings };
 })();
 
-// ── Import / Export / Move dialog ─────────────────────────────
+// ── Import / Export / Move panel ──────────────────────────────
 const NbDialog = (() => {
     let _tab = 'import';
 
-    function _dlg()  { return document.getElementById('nb-action-dialog'); }
-    function _body() { return document.getElementById('nb-dlg-body'); }
+    function _panel()   { return document.getElementById('nb-action-panel'); }
+    function _body()    { return _panel()?.querySelector('.nb-dlg-body'); }
+    function _content() { return document.getElementById('nb-preview-content'); }
 
     function open(tab) {
         _tab = tab || 'import';
-        _updateTabs();
+
+        const content = _content();
+        if (!content) return;
+
+        // Build panel
+        const panel = document.createElement('div');
+        panel.id = 'nb-action-panel';
+
+        const header = document.createElement('div');
+        header.className = 'nb-dlg-header';
+
+        const tabsEl = document.createElement('div');
+        tabsEl.className = 'nb-dlg-tabs';
+        [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move']].forEach(([id, label]) => {
+            const btn = document.createElement('button');
+            btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
+            btn.dataset.tab = id;
+            btn.textContent = label;
+            btn.addEventListener('click', () => { _tab = id; _updateTabs(); _renderTab(); });
+            tabsEl.appendChild(btn);
+        });
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'nb-dlg-close'; closeBtn.textContent = '✕';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.addEventListener('click', close);
+
+        header.append(tabsEl, closeBtn);
+
+        const body = document.createElement('div');
+        body.className = 'nb-dlg-body';
+
+        panel.append(header, body);
+        content.innerHTML = '';
+        content.appendChild(panel);
+
+        document.getElementById('nb-preview-toolbar').hidden = false;
+
         _renderTab();
-        _dlg().showModal();
     }
 
-    function close() { _dlg().close(); }
+    function close() {
+        if (!_panel()) return;
+        const content = _content();
+        if (!content) return;
+        content.innerHTML = '';
+        const sel = NbMain.activeSelector();
+        if (sel) {
+            NbMain.openNote(sel);
+        } else {
+            document.getElementById('nb-preview-toolbar').hidden = true;
+            content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
+        }
+    }
 
     function _updateTabs() {
-        _dlg().querySelectorAll('.nb-dlg-tab').forEach(btn =>
+        _panel()?.querySelectorAll('.nb-dlg-tab').forEach(btn =>
             btn.classList.toggle('active', btn.dataset.tab === _tab));
     }
 
     function _renderTab() {
-        _body().innerHTML = '';
+        const body = _body();
+        if (!body) return;
+        body.innerHTML = '';
         if (_tab === 'import')      _renderImport();
         else if (_tab === 'export') _renderExport();
         else if (_tab === 'move')   _renderMove();
@@ -3594,6 +3647,7 @@ const NbDialog = (() => {
         body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
         const currentNb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
         const nbSel = await _buildNbPicker(currentNb);
+        let folderSel = await _buildFolderPicker(currentNb);
         body.innerHTML = '';
 
         const dropZone = document.createElement('div');
@@ -3604,7 +3658,11 @@ const NbDialog = (() => {
         const fileInput = document.createElement('input');
         fileInput.type = 'file'; fileInput.multiple = true; fileInput.style.display = 'none';
 
-        function _go(files) { close(); NbMain.importFiles(files, nbSel.value); }
+        function _go(files) {
+            const nb = nbSel.value; const folder = folderSel.value;
+            _content().innerHTML = '';
+            NbMain.importFiles(files, nb, folder);
+        }
 
         dropZone.addEventListener('click',    () => fileInput.click());
         dropZone.addEventListener('keydown',  e  => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
@@ -3613,11 +3671,18 @@ const NbDialog = (() => {
         dropZone.addEventListener('drop',     e  => { e.preventDefault(); dropZone.classList.remove('drag-over'); _go([...e.dataTransfer.files]); });
         fileInput.addEventListener('change',      () => _go([...fileInput.files]));
 
-        const { row: btnRow, btn: browseBtn, cancel: cancelBtn } = _btnRow('Browse files…');
+        const folderRow = _row('Folder:', folderSel);
+        nbSel.addEventListener('change', async () => {
+            const next = await _buildFolderPicker(nbSel.value);
+            folderRow.replaceChild(next, folderSel);
+            folderSel = next;
+        });
+
+        const { row: btnRow, btn: browseBtn, cancel: cancelBtn } = _btnRow('Browse…');
         browseBtn.addEventListener('click', () => fileInput.click());
         cancelBtn.addEventListener('click', close);
 
-        body.append(dropZone, fileInput, _row('Into:', nbSel), btnRow);
+        body.append(dropZone, fileInput, _row('Into:', nbSel), folderRow, btnRow);
     }
 
     // ── Export tab ─────────────────────────────────────────────
@@ -3767,11 +3832,11 @@ const NbDialog = (() => {
     }
 
     function init() {
-        const dlg = _dlg();
-        document.getElementById('nb-dlg-close').addEventListener('click', close);
-        dlg.querySelectorAll('.nb-dlg-tab').forEach(btn =>
-            btn.addEventListener('click', () => { _tab = btn.dataset.tab; _updateTabs(); _renderTab(); }));
-        dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && _panel()) {
+                e.preventDefault(); e.stopPropagation(); close();
+            }
+        }, true);
     }
 
     return { open, close, init };

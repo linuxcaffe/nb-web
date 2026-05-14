@@ -2084,8 +2084,11 @@ def _nb_notebook_dir(notebook):
 def api_import():
     f        = request.files.get('file')
     notebook = request.form.get('notebook', 'home').strip() or 'home'
+    folder   = request.form.get('folder', '').strip().strip('/')
     if not _safe_notebook(notebook):
         return jsonify({'success': False, 'error': 'invalid notebook'}), 400
+    if folder and ('..' in folder or folder.startswith('/')):
+        return jsonify({'success': False, 'error': 'invalid folder'}), 400
     if not f or not f.filename:
         return jsonify({'success': False, 'error': 'no file provided'}), 400
 
@@ -2135,7 +2138,8 @@ def api_import():
     tmp_path = tmp_dir / safe_name
     try:
         f.save(str(tmp_path))
-        r = run_nb('import', str(tmp_path), f'{notebook}:')
+        target = f'{notebook}:{folder}/' if folder else f'{notebook}:'
+        r = run_nb('import', str(tmp_path), target)
         success = r['returncode'] == 0
         return jsonify({'success': success, 'output': r['stdout'], 'stderr': r['stderr'],
                         'error': r['stderr'] if not success else None})
