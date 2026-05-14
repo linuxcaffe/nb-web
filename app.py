@@ -21,7 +21,7 @@ except ImportError:
 import shlex
 import shutil
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 from flask_sock import Sock
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -2611,6 +2611,24 @@ def api_restart():
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
+
+
+@app.route('/sw.js')
+def serve_sw():
+    """Serve sw.js with the current git hash as the cache key.
+    Ensures every commit auto-invalidates the SW cache without manual bumps."""
+    try:
+        rev = subprocess.check_output(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            cwd=str(Path(__file__).parent), text=True
+        ).strip()
+    except Exception:
+        rev = 'dev'
+    content = (Path(__file__).parent / 'sw.js').read_text()
+    content = re.sub(r"const CACHE = 'nb-web-[^']*'",
+                     f"const CACHE = 'nb-web-{rev}'", content)
+    return Response(content, mimetype='application/javascript',
+                    headers={'Cache-Control': 'no-store'})
 
 
 @app.errorhandler(404)
