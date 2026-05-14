@@ -2080,8 +2080,87 @@ def _nb_notebook_dir(notebook):
     return NB_DIR / notebook
 
 
+@app.route('/api/browse-path', methods=['POST'])
+def api_browse_path():
+    """Open a native OS file dialog and return selected paths."""
+    data     = request.get_json(silent=True) or {}
+    multiple = data.get('multiple', True)
+
+    # Try tkinter (most common on Linux with a display)
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.lift()
+        root.attributes('-topmost', True)
+        if multiple:
+            paths = list(filedialog.askopenfilenames(title='Select files', parent=root))
+        else:
+            p = filedialog.askopenfilename(title='Select file', parent=root)
+            paths = [p] if p else []
+        root.destroy()
+        return jsonify({'paths': paths})
+    except Exception:
+        pass
+
+    # Try zenity (GNOME)
+    try:
+        cmd = ['zenity', '--file-selection', '--title=Select files']
+        if multiple:
+            cmd += ['--multiple', '--separator=\n']
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if r.returncode == 0:
+            paths = [p.strip() for p in r.stdout.strip().splitlines() if p.strip()]
+        else:
+            paths = []   # user cancelled
+        return jsonify({'paths': paths})
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    # Try kdialog (KDE)
+    try:
+        cmd = ['kdialog', '--getopenfilename', str(Path.home())]
+        if multiple:
+            cmd.append('--multiple')
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        paths = [p.strip() for p in r.stdout.strip().split() if p.strip()] if r.returncode == 0 else []
+        return jsonify({'paths': paths})
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    return jsonify({'paths': None, 'error': 'no native file dialog available'})
+
+
 @app.route('/api/import', methods=['POST'])
 def api_import():
+    # ── Path-based import (native file browser) ──────────────
+    if request.is_json:
+        data     = request.get_json()
+        paths    = data.get('paths', [])
+        notebook = (data.get('notebook') or 'home').strip()
+        folder   = (data.get('folder')   or '').strip().strip('/')
+        if not _safe_notebook(notebook):
+            return jsonify({'success': False, 'error': 'invalid notebook'}), 400
+        if folder and ('..' in folder or folder.startswith('/')):
+            return jsonify({'success': False, 'error': 'invalid folder'}), 400
+        target = f'{notebook}:{folder}/' if folder else f'{notebook}:'
+        lines = []
+        for path_str in paths:
+            p = Path(path_str)
+            if not p.exists():
+                lines.append(f'✗ {p.name}: not found')
+                continue
+            r = run_nb('import', str(p), target)
+            lines.append(f'✓ {p.name}' if r['returncode'] == 0
+                         else f'✗ {p.name}: {r["stderr"].strip() or "failed"}')
+        return jsonify({'success': True, 'lines': lines})
+
+    # ── Upload-based import (browser file picker fallback) ───
     f        = request.files.get('file')
     notebook = request.form.get('notebook', 'home').strip() or 'home'
     folder   = request.form.get('folder', '').strip().strip('/')

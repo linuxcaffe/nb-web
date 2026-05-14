@@ -3281,8 +3281,30 @@ const NbMain = (() => {
             </div>`;
     }
 
-    const _IMPORT_MAX_MB    = 25;   // soft default; server enforces the real limit from settings
+    const _IMPORT_MAX_MB    = 25;
     const _IMPORT_MAX_FILES = 20;
+
+    async function _importPaths(paths, notebookOverride, folderOverride) {
+        if (!paths || !paths.length) return;
+        _showPreviewLoading();
+        const nb     = notebookOverride || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook);
+        const folder = folderOverride || '';
+        try {
+            const r = await fetch('/api/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths, notebook: nb, folder }),
+            });
+            const d = await r.json();
+            const text = d.lines ? d.lines.join('\n')
+                       : d.success ? '✓ Imported'
+                       : `✗ ${d.error || 'failed'}`;
+            _showCmdOutput('import', text);
+        } catch(e) {
+            _showCmdOutput('import', `✗ ${e}`);
+        }
+        NbNav.reexecute();
+    }
 
     async function _importFiles(files, notebookOverride, folderOverride) {
         if (!files.length) return;
@@ -3431,6 +3453,7 @@ const NbMain = (() => {
              doSync, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
              importFiles: (files, nb, folder) => _importFiles(files, nb, folder),
+             importPaths: (paths, nb, folder) => _importPaths(paths, nb, folder),
              exportFormats: _exportFormats,
              doPrint: _doPrint,
              clearNote,
@@ -3623,6 +3646,19 @@ const NbDialog = (() => {
         return sel;
     }
 
+    // ── Native file picker helper ───────────────────────────────
+    async function _browseNative(multiple = true) {
+        try {
+            const r = await fetch('/api/browse-path', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ multiple }),
+            });
+            const d = await r.json();
+            return Array.isArray(d.paths) ? d.paths : null; // null = unavailable
+        } catch(e) { return null; }
+    }
+
     // ── Import tab ─────────────────────────────────────────────
     async function _renderImport() {
         const body = _body();
@@ -3640,16 +3676,15 @@ const NbDialog = (() => {
             folderSel = next;
         });
 
-        // Hidden file input — drag-drop code preserved, visual zone removed
+        // Hidden file input — fallback when native dialog unavailable
         const fileInput = document.createElement('input');
         fileInput.type = 'file'; fileInput.multiple = true; fileInput.style.display = 'none';
-        function _goImport(files) {
+        fileInput.addEventListener('change', () => {
             close();
-            NbMain.importFiles(files, nbSel.value, folderSel.value);
-        }
-        fileInput.addEventListener('change', () => _goImport([...fileInput.files]));
+            NbMain.importFiles([...fileInput.files], nbSel.value, folderSel.value);
+        });
 
-        // Link mode toggle — switches between copy-import and symlink
+        // Link mode toggle
         let linkMode = false;
         const linkBtn = document.createElement('button');
         linkBtn.className = 'nb-tool-btn'; linkBtn.textContent = '🔗'; linkBtn.type = 'button';
@@ -3663,11 +3698,21 @@ const NbDialog = (() => {
         annRow.className = 'nb-dlg-row';
         annRow.append(annInput, linkBtn);
 
-        // Row 2b (link): path input
+        // Row 2b (link): path input + browse button
         const pathInput = document.createElement('input');
         pathInput.type = 'text'; pathInput.className = 'nb-rename-input';
         pathInput.placeholder = '/path/to/file'; pathInput.style.flex = '1';
-        const pathRow = _row('Path:', pathInput);
+        const pathBrowseBtn = document.createElement('button');
+        pathBrowseBtn.className = 'nb-tool-btn'; pathBrowseBtn.textContent = '📂';
+        pathBrowseBtn.type = 'button'; pathBrowseBtn.title = 'Browse…';
+        pathBrowseBtn.addEventListener('click', async () => {
+            pathBrowseBtn.disabled = true;
+            const paths = await _browseNative(false);
+            pathBrowseBtn.disabled = false;
+            if (paths && paths.length) pathInput.value = paths[0];
+            pathInput.focus();
+        });
+        const pathRow = _row('Path:', pathInput, pathBrowseBtn);
         pathRow.style.display = 'none';
 
         // Row 3: action + cancel
@@ -3681,7 +3726,16 @@ const NbDialog = (() => {
 
         actionBtn.addEventListener('click', async () => {
             if (!linkMode) {
-                fileInput.click();
+                actionBtn.disabled = true; actionBtn.textContent = 'Choosing…';
+                const paths = await _browseNative(true);
+                actionBtn.disabled = false; actionBtn.textContent = 'Browse…';
+                if (paths === null) {
+                    fileInput.click();          // native unavailable — fall back
+                } else if (paths.length) {
+                    close();
+                    NbMain.importPaths(paths, nbSel.value, folderSel.value);
+                }
+                // empty = user cancelled — do nothing
             } else {
                 const path = pathInput.value.trim();
                 if (!path) { pathInput.focus(); return; }
