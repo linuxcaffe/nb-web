@@ -2086,34 +2086,13 @@ def api_browse_path():
     data     = request.get_json(silent=True) or {}
     multiple = data.get('multiple', True)
 
-    # Try tkinter (most common on Linux with a display)
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.lift()
-        root.attributes('-topmost', True)
-        if multiple:
-            paths = list(filedialog.askopenfilenames(title='Select files', parent=root))
-        else:
-            p = filedialog.askopenfilename(title='Select file', parent=root)
-            paths = [p] if p else []
-        root.destroy()
-        return jsonify({'paths': paths})
-    except Exception:
-        pass
-
-    # Try zenity (GNOME)
+    # Try zenity first (GNOME — GTK theme, looks native)
     try:
         cmd = ['zenity', '--file-selection', '--title=Select files']
         if multiple:
             cmd += ['--multiple', '--separator=\n']
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if r.returncode == 0:
-            paths = [p.strip() for p in r.stdout.strip().splitlines() if p.strip()]
-        else:
-            paths = []   # user cancelled
+        paths = [p.strip() for p in r.stdout.strip().splitlines() if p.strip()] if r.returncode == 0 else []
         return jsonify({'paths': paths})
     except FileNotFoundError:
         pass
@@ -2130,6 +2109,28 @@ def api_browse_path():
         return jsonify({'paths': paths})
     except FileNotFoundError:
         pass
+    except Exception:
+        pass
+
+    # Fallback: tkinter (may look dated at HiDPI but works)
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.lift()
+        root.attributes('-topmost', True)
+        try:
+            root.tk.call('tk', 'scaling', 2.0)   # HiDPI hint
+        except Exception:
+            pass
+        if multiple:
+            paths = list(filedialog.askopenfilenames(title='Select files', parent=root))
+        else:
+            p = filedialog.askopenfilename(title='Select file', parent=root)
+            paths = [p] if p else []
+        root.destroy()
+        return jsonify({'paths': paths})
     except Exception:
         pass
 
