@@ -2148,6 +2148,14 @@ const NbMain = (() => {
                 return;
             }
 
+            // Escape from inputs: blur and park focus on menu button
+            if (e.key === 'Escape' && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) {
+                e.preventDefault();
+                document.activeElement.blur();
+                document.getElementById('nb-logo-btn')?.focus();
+                return;
+            }
+
             // Let inputs handle their own keys
             const tag = document.activeElement?.tagName;
             if (['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
@@ -2233,7 +2241,7 @@ const NbMain = (() => {
                 case 'n': e.preventDefault(); document.querySelector('.nb-scope-select')?.focus(); break;
                 case 'p': e.preventDefault(); _setKbPane('preview');          break;
                 case 'e': if (_activeSelector) { e.preventDefault(); _openEditor(); } break;
-                case 't': e.preventDefault(); NbTerminal.open();               break;
+                case 'T': e.preventDefault(); NbTerminal.open();               break;
                 case ',': e.preventDefault(); NbTerminal.openSettings();       break;
             }
         });
@@ -3709,7 +3717,7 @@ const NbTerminal = (() => {
             ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init: cfg.pty_init || '', cols, rows }));
         };
         ws.onmessage = e => term.write(e.data);
-        ws.onclose   = ()  => term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n');
+        ws.onclose   = ()  => { term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); setTimeout(close, 1500); };
         ws.onerror   = ()  => term.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
 
         term.onData(data => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
