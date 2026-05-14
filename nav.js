@@ -1069,7 +1069,8 @@ const NbNav = (() => {
             else if (cmd === 'sync')    NbMain.doSync();
             else if (cmd === 'about')   NbMain.showAbout();
             else if (cmd === 'restart') _restartServer();
-            else if (cmd === 'import')      NbMain.doImport();
+            else if (cmd === 'import')      NbDialog.open('import');
+            else if (cmd === 'export')      NbDialog.open('export');
             else if (cmd === 'link-file')   NbMain.doLinkFile();
             else if (cmd === 'contacts')    activateCmd('contacts');
             else if (cmd === 'nb-settings') NbTerminal.openSettings();

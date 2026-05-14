@@ -1490,7 +1490,7 @@ const NbMain = (() => {
                       localStorage.setItem('nb-theme', goLight ? 'light' : '');
                   }},
                 'sep',
-                { label: '📥 Import files…', action: doImport },
+                { label: '📥 Import files…', action: () => NbDialog.open('import') },
                 { label: '🔗 Link file…',   action: doLinkFile },
             ]);
         });
@@ -1545,7 +1545,7 @@ const NbMain = (() => {
                   action: _toggleFullscreen },
                 'sep',
                 { label: 'Rename…',              disabled: !hasNote, action: _doRename },
-                { label: 'Move to…',             disabled: !hasNote, action: _doMove },
+                { label: 'Move to…',             disabled: !hasNote, action: () => NbDialog.open('move') },
                 { label: '📋 Save as template…', disabled: !hasNote, action: _doSaveAsTemplate },
                 'sep',
                 { label: '↩ Undo last edit',
@@ -1553,7 +1553,7 @@ const NbMain = (() => {
                   action: _doUndoLastEdit },
                 { label: '🕓 History…',   disabled: !hasNote, action: _showHistoryBar },
                 'sep',
-                { label: '⬇ Save as…', disabled: !hasNote, action: _showSaveAsBar },
+                { label: '⬇ Save as…', disabled: !hasNote, action: () => NbDialog.open('export') },
             ]);
         });
     }
@@ -1726,125 +1726,6 @@ const NbMain = (() => {
         ];
     }
 
-    function _showSaveAsBar() {
-        if (!_activeSelector) return;
-        document.getElementById('nb-export-bar')?.remove();
-
-        const toolbar = document.getElementById('nb-preview-toolbar');
-        const bar     = document.createElement('div');
-        bar.id        = 'nb-export-bar';
-        bar.className = 'nb-move-bar';
-
-        const lbl = document.createElement('span');
-        lbl.className   = 'nb-move-label';
-        lbl.textContent = 'Save as:';
-
-        const fmtSel = document.createElement('select');
-        fmtSel.className = 'nb-scope-select';
-        fmtSel.style.colorScheme = 'dark';
-        _exportFormats(_activeType).forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f.value; opt.textContent = f.label;
-            fmtSel.appendChild(opt);
-        });
-
-        const nameInput = document.createElement('input');
-        nameInput.type      = 'text';
-        nameInput.className = 'nb-rename-input';
-        nameInput.style.width = '16em';
-
-        const EXT = { md: '.md', html: '.html', docx: '.docx', odt: '.odt' };
-        function updateName() {
-            const fmt  = fmtSel.value;
-            const base = (document.getElementById('nb-preview-title')?.textContent || 'note')
-                .replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '_') || 'note';
-            if (fmt === 'raw') {
-                nameInput.value    = _activeFilename || base;
-                nameInput.disabled = false;
-            } else if (fmt === 'print') {
-                nameInput.value    = base + '.pdf';
-                nameInput.disabled = true;
-            } else {
-                nameInput.value    = base + (EXT[fmt] || '');
-                nameInput.disabled = false;
-            }
-        }
-        fmtSel.addEventListener('change', updateName);
-        updateName();
-
-        const saveBtn = document.createElement('button');
-        saveBtn.className   = 'nb-tool-btn nb-btn-primary';
-        saveBtn.textContent = 'Save';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className   = 'nb-tool-btn';
-        cancelBtn.textContent = '✕';
-
-        bar.append(lbl, fmtSel, nameInput, saveBtn, cancelBtn);
-        toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
-        if (!nameInput.disabled) { nameInput.focus(); nameInput.select(); }
-
-        cancelBtn.addEventListener('click', () => bar.remove());
-
-        async function commit() {
-            const fmt      = fmtSel.value;
-            const filename = nameInput.value.trim() || 'export';
-
-            if (fmt === 'print') {
-                bar.remove();
-                _doPrint();
-                return;
-            }
-
-            const url = fmt === 'raw'
-                ? `/api/file?selector=${encodeURIComponent(_activeSelector)}`
-                : `/api/export?selector=${encodeURIComponent(_activeSelector)}&fmt=${fmt}`;
-
-            const ACCEPT = {
-                md:   { 'text/markdown': ['.md'] },
-                html: { 'text/html': ['.html'] },
-                docx: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] },
-                odt:  { 'application/vnd.oasis.opendocument.text': ['.odt'] },
-            };
-
-            if (window.showSaveFilePicker) {
-                try {
-                    const types = ACCEPT[fmt]
-                        ? [{ description: filename, accept: ACCEPT[fmt] }]
-                        : [];
-                    const handle = await window.showSaveFilePicker({
-                        suggestedName: filename,
-                        ...(types.length && { types }),
-                    });
-                    saveBtn.textContent = 'Saving…'; saveBtn.disabled = true;
-                    const resp = await fetch(url);
-                    if (!resp.ok) throw new Error(await resp.text());
-                    const writable = await handle.createWritable();
-                    await resp.body.pipeTo(writable);
-                    await writable.close();
-                    bar.remove();
-                    return;
-                } catch (e) {
-                    if (e.name === 'AbortError') return;
-                    // fall through to anchor download
-                }
-            }
-
-            const a = document.createElement('a');
-            a.href = url; a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            bar.remove();
-        }
-
-        saveBtn.addEventListener('click', commit);
-        nameInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter')  commit();
-            if (e.key === 'Escape') bar.remove();
-        });
-    }
-
     function _doPrint() {
         const content = document.getElementById('nb-preview-content')?.innerHTML || '';
         const title   = document.getElementById('nb-preview-title')?.textContent  || '';
@@ -1922,98 +1803,11 @@ const NbMain = (() => {
         input.focus();
     }
 
-    async function _doMove() {
-        if (!_activeSelector) return;
-
-        document.getElementById('nb-move-bar')?.remove();
-
-        const [nbData] = await Promise.all([fetch('/api/notebooks').then(r => r.json())]);
-        const notebooks = nbData.notebooks || [];
-        const curNb = _activeSelector.split(':')[0];
-
-        const toolbar = document.getElementById('nb-preview-toolbar');
-        const bar = document.createElement('div');
-        bar.id        = 'nb-move-bar';
-        bar.className = 'nb-move-bar';
-
-        const lbl = document.createElement('span');
-        lbl.className   = 'nb-move-label';
-        lbl.textContent = 'Move to:';
-
-        const nbSel = document.createElement('select');
-        nbSel.className = 'nb-scope-select';
-        nbSel.style.colorScheme = 'dark';
-        notebooks.forEach(nb => {
-            const opt = document.createElement('option');
-            opt.value = nb; opt.textContent = nb;
-            if (nb === curNb) opt.selected = true;
-            nbSel.appendChild(opt);
-        });
-
-        const folderSel = document.createElement('select');
-        folderSel.className = 'nb-scope-select';
-        folderSel.style.colorScheme = 'dark';
-
-        async function _populateFolders(nb) {
-            const fd = await fetch(`/api/folders?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
-            const folders = fd.folders || [];
-            folderSel.innerHTML = '';
-            const rootOpt = document.createElement('option');
-            rootOpt.value = ''; rootOpt.textContent = '(none)';
-            folderSel.appendChild(rootOpt);
-            folders.forEach(f => {
-                const opt = document.createElement('option');
-                opt.value = f; opt.textContent = f + '/';
-                folderSel.appendChild(opt);
-            });
-            folderSel.disabled = folders.length === 0;
-        }
-
-        await _populateFolders(curNb);
-
-        nbSel.addEventListener('change', () => _populateFolders(nbSel.value));
-
-        const goBtn = document.createElement('button');
-        goBtn.className   = 'nb-tool-btn nb-btn-primary';
-        goBtn.textContent = 'Move';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className   = 'nb-tool-btn';
-        cancelBtn.textContent = 'Cancel';
-
-        bar.append(lbl, nbSel, folderSel, goBtn, cancelBtn);
-        toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
-        nbSel.focus();
-
-        cancelBtn.addEventListener('click', () => bar.remove());
-
-        goBtn.addEventListener('click', async () => {
-            const nb     = nbSel.value;
-            const folder = folderSel.value;
-            const dest   = folder ? `${nb}:${folder}/` : `${nb}:`;
-            goBtn.textContent = 'Moving…'; goBtn.disabled = true;
-            try {
-                const resp = await fetch('/api/note/move', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ selector: _activeSelector, dest }),
-                });
-                const rd = await resp.json();
-                if (rd.success) {
-                    bar.remove();
-                    _activeSelector = null;
-                    document.getElementById('nb-preview-toolbar').hidden = true;
-                    document.getElementById('nb-preview-content').innerHTML =
-                        '<div id="nb-welcome"><h2>nb-web</h2><p>Note moved.</p></div>';
-                    NbNav.reexecute();
-                } else {
-                    alert('Move failed: ' + (rd.stderr || 'unknown'));
-                    goBtn.textContent = 'Move'; goBtn.disabled = false;
-                }
-            } catch(e) { goBtn.textContent = 'Move'; goBtn.disabled = false; }
-        });
-
-        bar.addEventListener('keydown', e => { if (e.key === 'Escape') bar.remove(); });
+    function clearNote(msg) {
+        _activeSelector = null;
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            `<div id="nb-welcome"><h2>nb-web</h2><p>${msg || ''}</p></div>`;
     }
 
     async function _doSaveAsTemplate() {
@@ -3490,7 +3284,7 @@ const NbMain = (() => {
     const _IMPORT_MAX_MB    = 25;   // soft default; server enforces the real limit from settings
     const _IMPORT_MAX_FILES = 20;
 
-    async function _importFiles(files) {
+    async function _importFiles(files, notebookOverride) {
         if (!files.length) return;
 
         // Client-side quantity guard
@@ -3509,7 +3303,7 @@ const NbMain = (() => {
         }
 
         _showPreviewLoading();
-        const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const nb = notebookOverride || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook);
         const lines = [];
         for (const file of files) {
             const fd = new FormData();
@@ -3525,14 +3319,6 @@ const NbMain = (() => {
         }
         _showCmdOutput('import', lines.join('\n'));
         NbNav.reexecute();
-    }
-
-    function doImport() {
-        const input = document.createElement('input');
-        input.type     = 'file';
-        input.multiple = true;
-        input.addEventListener('change', () => _importFiles([...input.files]));
-        input.click();
     }
 
     function doLinkFile() {
@@ -3640,8 +3426,15 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
-             doSync, doImport, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
-             isEditing: () => _editing };
+             doSync, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
+             isEditing: () => _editing,
+             importFiles: (files, nb) => _importFiles(files, nb),
+             exportFormats: _exportFormats,
+             doPrint: _doPrint,
+             clearNote,
+             activeSelector: () => _activeSelector,
+             activeType:     () => _activeType,
+             activeFilename: () => _activeFilename };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────
@@ -3737,4 +3530,251 @@ const NbTerminal = (() => {
     return { open, close, openSettings };
 })();
 
-document.addEventListener('DOMContentLoaded', () => NbMain.init());
+// ── Import / Export / Move dialog ─────────────────────────────
+const NbDialog = (() => {
+    let _tab = 'import';
+
+    function _dlg()  { return document.getElementById('nb-action-dialog'); }
+    function _body() { return document.getElementById('nb-dlg-body'); }
+
+    function open(tab) {
+        _tab = tab || 'import';
+        _updateTabs();
+        _renderTab();
+        _dlg().showModal();
+    }
+
+    function close() { _dlg().close(); }
+
+    function _updateTabs() {
+        _dlg().querySelectorAll('.nb-dlg-tab').forEach(btn =>
+            btn.classList.toggle('active', btn.dataset.tab === _tab));
+    }
+
+    function _renderTab() {
+        _body().innerHTML = '';
+        if (_tab === 'import')      _renderImport();
+        else if (_tab === 'export') _renderExport();
+        else if (_tab === 'move')   _renderMove();
+    }
+
+    // ── Shared pickers ─────────────────────────────────────────
+    async function _buildNbPicker(defaultNb) {
+        const { notebooks } = await fetch('/api/notebooks').then(r => r.json());
+        const sel = document.createElement('select');
+        sel.className = 'nb-scope-select';
+        (notebooks || []).forEach(nb => {
+            const opt = document.createElement('option');
+            opt.value = nb; opt.textContent = nb;
+            if (nb === defaultNb) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        return sel;
+    }
+
+    async function _buildFolderPicker(nb) {
+        const { folders } = await fetch(`/api/folders?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
+        const sel = document.createElement('select');
+        sel.className = 'nb-scope-select';
+        const none = document.createElement('option');
+        none.value = ''; none.textContent = '(root)';
+        sel.appendChild(none);
+        (folders || []).forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f; opt.textContent = f + '/';
+            sel.appendChild(opt);
+        });
+        sel.disabled = !(folders || []).length;
+        return sel;
+    }
+
+    // ── Import tab ─────────────────────────────────────────────
+    async function _renderImport() {
+        const body = _body();
+        body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
+        const currentNb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const nbSel = await _buildNbPicker(currentNb);
+        body.innerHTML = '';
+
+        const dropZone = document.createElement('div');
+        dropZone.className = 'nb-dlg-drop-zone';
+        dropZone.textContent = 'Drop files here or click to browse';
+        dropZone.tabIndex = 0;
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file'; fileInput.multiple = true; fileInput.style.display = 'none';
+
+        function _go(files) { close(); NbMain.importFiles(files, nbSel.value); }
+
+        dropZone.addEventListener('click',    () => fileInput.click());
+        dropZone.addEventListener('keydown',  e  => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+        dropZone.addEventListener('dragover', e  => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+        dropZone.addEventListener('dragleave',    () => dropZone.classList.remove('drag-over'));
+        dropZone.addEventListener('drop',     e  => { e.preventDefault(); dropZone.classList.remove('drag-over'); _go([...e.dataTransfer.files]); });
+        fileInput.addEventListener('change',      () => _go([...fileInput.files]));
+
+        const { row: btnRow, btn: browseBtn, cancel: cancelBtn } = _btnRow('Browse files…');
+        browseBtn.addEventListener('click', () => fileInput.click());
+        cancelBtn.addEventListener('click', close);
+
+        body.append(dropZone, fileInput, _row('Into:', nbSel), btnRow);
+    }
+
+    // ── Export tab ─────────────────────────────────────────────
+    function _renderExport() {
+        const body     = _body();
+        const selector = NbMain.activeSelector();
+        if (!selector) {
+            body.innerHTML = '<p class="nb-dlg-empty">No note selected — open a note first.</p>';
+            return;
+        }
+
+        const fmtSel = document.createElement('select');
+        fmtSel.className = 'nb-scope-select';
+        NbMain.exportFormats(NbMain.activeType()).forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.value; opt.textContent = f.label;
+            fmtSel.appendChild(opt);
+        });
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
+
+        const EXT = { md: '.md', html: '.html', docx: '.docx', odt: '.odt' };
+        function updateName() {
+            const fmt  = fmtSel.value;
+            const base = (document.getElementById('nb-preview-title')?.textContent || 'note')
+                .replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '_') || 'note';
+            nameInput.disabled = fmt === 'print';
+            nameInput.value = fmt === 'raw'   ? (NbMain.activeFilename() || base)
+                            : fmt === 'print' ? base + '.pdf'
+                            :                   base + (EXT[fmt] || '');
+        }
+        fmtSel.addEventListener('change', updateName);
+        updateName();
+
+        const { row: btnRow, btn: saveBtn, cancel: cancelBtn } = _btnRow('Save');
+        cancelBtn.addEventListener('click', close);
+
+        async function commit() {
+            const fmt = fmtSel.value;
+            if (fmt === 'print') { close(); NbMain.doPrint(); return; }
+            const filename = nameInput.value.trim() || 'export';
+            const url = fmt === 'raw'
+                ? `/api/file?selector=${encodeURIComponent(selector)}`
+                : `/api/export?selector=${encodeURIComponent(selector)}&fmt=${fmt}`;
+            if (window.showSaveFilePicker) {
+                const ACCEPT = {
+                    md:   { 'text/markdown': ['.md'] },
+                    html: { 'text/html': ['.html'] },
+                    docx: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] },
+                    odt:  { 'application/vnd.oasis.opendocument.text': ['.odt'] },
+                };
+                try {
+                    const types = ACCEPT[fmt] ? [{ description: filename, accept: ACCEPT[fmt] }] : [];
+                    const handle = await window.showSaveFilePicker({ suggestedName: filename, ...(types.length && { types }) });
+                    saveBtn.textContent = 'Saving…'; saveBtn.disabled = true;
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const writable = await handle.createWritable();
+                    await resp.body.pipeTo(writable);
+                    await writable.close();
+                    close(); return;
+                } catch (e) { if (e.name === 'AbortError') return; }
+            }
+            const a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            close();
+        }
+
+        saveBtn.addEventListener('click', commit);
+        nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
+
+        body.append(_row('Format:', fmtSel), _row('Filename:', nameInput), btnRow);
+        if (!nameInput.disabled) { nameInput.focus(); nameInput.select(); }
+    }
+
+    // ── Move tab ───────────────────────────────────────────────
+    async function _renderMove() {
+        const body     = _body();
+        const selector = NbMain.activeSelector();
+        if (!selector) {
+            body.innerHTML = '<p class="nb-dlg-empty">No note selected — open a note first.</p>';
+            return;
+        }
+
+        body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
+        const curNb = selector.split(':')[0];
+        const nbSel = await _buildNbPicker(curNb);
+        let folderSel = await _buildFolderPicker(curNb);
+        body.innerHTML = '';
+
+        const folderRow = _row('Folder:', folderSel);
+        nbSel.addEventListener('change', async () => {
+            const next = await _buildFolderPicker(nbSel.value);
+            folderRow.replaceChild(next, folderSel);
+            folderSel = next;
+        });
+
+        const { row: btnRow, btn: moveBtn, cancel: cancelBtn } = _btnRow('Move');
+        cancelBtn.addEventListener('click', close);
+
+        moveBtn.addEventListener('click', async () => {
+            const dest = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
+            moveBtn.textContent = 'Moving…'; moveBtn.disabled = true;
+            try {
+                const resp = await fetch('/api/note/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector, dest }),
+                });
+                const rd = await resp.json();
+                if (rd.success) {
+                    close();
+                    NbMain.clearNote('Note moved.');
+                    NbNav.reexecute();
+                } else {
+                    alert('Move failed: ' + (rd.stderr || 'unknown'));
+                    moveBtn.textContent = 'Move'; moveBtn.disabled = false;
+                }
+            } catch (e) { moveBtn.textContent = 'Move'; moveBtn.disabled = false; }
+        });
+
+        body.append(_row('Notebook:', nbSel), folderRow, btnRow);
+        nbSel.focus();
+    }
+
+    // ── DOM helpers ────────────────────────────────────────────
+    function _row(label, ...els) {
+        const row = document.createElement('div');
+        row.className = 'nb-dlg-row';
+        const lbl = document.createElement('span');
+        lbl.className = 'nb-dlg-lbl'; lbl.textContent = label;
+        row.append(lbl, ...els);
+        return row;
+    }
+
+    function _btnRow(primaryLabel) {
+        const row = document.createElement('div');
+        row.className = 'nb-dlg-row nb-dlg-btn-row';
+        const btn = document.createElement('button');
+        btn.className = 'nb-tool-btn nb-btn-primary'; btn.textContent = primaryLabel;
+        const cancel = document.createElement('button');
+        cancel.className = 'nb-tool-btn'; cancel.textContent = 'Cancel';
+        row.append(btn, cancel);
+        return { row, btn, cancel };
+    }
+
+    function init() {
+        const dlg = _dlg();
+        document.getElementById('nb-dlg-close').addEventListener('click', close);
+        dlg.querySelectorAll('.nb-dlg-tab').forEach(btn =>
+            btn.addEventListener('click', () => { _tab = btn.dataset.tab; _updateTabs(); _renderTab(); }));
+        dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
+    }
+
+    return { open, close, init };
+})();
+
+document.addEventListener('DOMContentLoaded', () => { NbMain.init(); NbDialog.init(); });

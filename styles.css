@@ -1622,6 +1622,95 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-ann-status { font-size: 0.82em; color: var(--text-muted); }
 
+/* ── Import / Export / Move dialog ───────────────────────────── */
+#nb-action-dialog {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0;
+  min-width: 360px;
+  max-width: 500px;
+  width: 90vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,.45);
+}
+#nb-action-dialog::backdrop { background: rgba(0,0,0,.5); }
+.nb-dlg-header {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  border-radius: 8px 8px 0 0;
+}
+.nb-dlg-tabs { display: flex; flex: 1; }
+.nb-dlg-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 10px 16px;
+  transition: color .15s, border-color .15s;
+}
+.nb-dlg-tab:hover { color: var(--text); }
+.nb-dlg-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.nb-dlg-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 8px 14px;
+  border-radius: 0 8px 0 0;
+  transition: color .15s, background .15s;
+}
+.nb-dlg-close:hover { color: var(--text); background: var(--bg3); }
+.nb-dlg-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 120px;
+}
+.nb-dlg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nb-dlg-lbl {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 72px;
+  flex-shrink: 0;
+}
+.nb-dlg-btn-row { margin-top: 4px; justify-content: flex-end; }
+.nb-dlg-drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 6px;
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.nb-dlg-drop-zone:hover,
+.nb-dlg-drop-zone:focus,
+.nb-dlg-drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--bg2);
+  outline: none;
+}
+.nb-dlg-loading,
+.nb-dlg-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 16px 0;
+  margin: 0;
+}
+
 /* ── Utility ──────────────────────────────────────────────────── */
 [hidden] { display: none !important; }
 .nb-spin { animation: spin 1s linear infinite; display: inline-block; }
