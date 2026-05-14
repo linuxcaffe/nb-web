@@ -1085,7 +1085,15 @@ const NbNav = (() => {
             tokens.textContent = 'Restarting…';
             await fetch('/api/restart', { method: 'POST' }).catch(() => {});
             const poll = () => fetch('/api/notebooks')
-                .then(() => location.reload())
+                .then(async () => {
+                    // Full SW + cache flush so the reload always gets fresh assets
+                    if ('serviceWorker' in navigator) {
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        await Promise.all(regs.map(r => r.unregister()));
+                    }
+                    await Promise.all((await caches.keys()).map(k => caches.delete(k)));
+                    location.reload();
+                })
                 .catch(() => setTimeout(poll, 400));
             setTimeout(poll, 600);
         }
