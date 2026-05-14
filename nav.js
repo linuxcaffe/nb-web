@@ -67,6 +67,7 @@ const NbNav = (() => {
             if (!confirm('Discard unsaved changes?')) return;
             NbMain.closeEditor?.();
         }
+        if (!opts.internal) NbDialog.close?.();
         const isContactsShortcut = (cmd === 'contacts');
         if (isContactsShortcut) { _scope = 'contacts'; cmd = 'list'; }
 

@@ -314,6 +314,7 @@ const NbMain = (() => {
             if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
             const d = await r.json();
             renderPreview(d);
+            if (NbDialog.isOpen()) NbDialog.refresh();
         } catch (e) {
             content.innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${_esc(String(e))}</div>`;
         }
@@ -3921,6 +3922,12 @@ const NbDialog = (() => {
         return row;
     }
 
+    function isOpen() { return !!_panel(); }
+
+    function refresh() {
+        if (_tab === 'export' || _tab === 'move') _renderTab();
+    }
+
     function init() {
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape' && _panel()) {
@@ -3929,7 +3936,7 @@ const NbDialog = (() => {
         }, true);
     }
 
-    return { open, close, init };
+    return { open, close, isOpen, refresh, init };
 })();
 
 document.addEventListener('DOMContentLoaded', () => { NbMain.init(); NbDialog.init(); });
