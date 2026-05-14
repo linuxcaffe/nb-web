@@ -68,6 +68,10 @@ const NbNav = (() => {
             NbMain.closeEditor?.();
         }
         if (!opts.internal) NbDialog.close?.();
+        if (cmd === 'add' && !opts.internal) {
+            const pa = document.getElementById('nb-preview-actions');
+            if (pa) pa.hidden = true;
+        }
         const isContactsShortcut = (cmd === 'contacts');
         if (isContactsShortcut) { _scope = 'contacts'; cmd = 'list'; }
 

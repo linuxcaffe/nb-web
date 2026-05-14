@@ -1545,7 +1545,7 @@ const NbMain = (() => {
                   disabled: !hasNote,
                   action: _toggleFullscreen },
                 'sep',
-                { label: 'Rename…',              disabled: !hasNote, action: _doRename },
+                { label: 'Rename…',              disabled: !hasNote, action: () => NbDialog.open('rename') },
                 { label: 'Move to…',             disabled: !hasNote, action: () => NbDialog.open('move') },
                 { label: '📋 Save as template…', disabled: !hasNote, action: _doSaveAsTemplate },
                 'sep',
@@ -1749,60 +1749,6 @@ const NbMain = (() => {
         setTimeout(() => win.print(), 400);
     }
 
-    function _doRename() {
-        if (!_activeSelector) return;
-        const titleEl  = document.getElementById('nb-preview-title');
-        const origText = titleEl.textContent;
-
-        const input = document.createElement('input');
-        input.type      = 'text';
-        input.className = 'nb-rename-input';
-        input.value     = origText;
-
-        const saveBtn   = document.createElement('button');
-        saveBtn.className   = 'nb-tool-btn nb-btn-primary nb-rename-save';
-        saveBtn.textContent = 'Save';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className   = 'nb-tool-btn nb-rename-cancel';
-        cancelBtn.textContent = 'Cancel';
-
-        titleEl.style.display = 'none';
-        titleEl.parentNode.insertBefore(input, titleEl.nextSibling);
-        titleEl.parentNode.insertBefore(saveBtn,   input.nextSibling);
-        titleEl.parentNode.insertBefore(cancelBtn, saveBtn.nextSibling);
-        input.select();
-
-        function cancel() {
-            [input, saveBtn, cancelBtn].forEach(el => el.remove());
-            titleEl.style.display = '';
-        }
-
-        async function commit() {
-            const newName = input.value.trim();
-            [input, saveBtn, cancelBtn].forEach(el => el.remove());
-            titleEl.style.display = '';
-            if (!newName || newName === origText) return;
-            try {
-                const r = await fetch('/api/note/rename', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ selector: _activeSelector, name: newName }),
-                });
-                const d = await r.json();
-                if (d.success) { titleEl.textContent = newName; NbNav.reexecute(); }
-                else alert('Rename failed: ' + (d.stderr || 'unknown'));
-            } catch(e) { alert('Rename error: ' + e); }
-        }
-
-        input.addEventListener('keydown', e => {
-            if (e.key === 'Enter')  { e.preventDefault(); commit(); }
-            if (e.key === 'Escape') cancel();
-        });
-        saveBtn.addEventListener('click', commit);
-        cancelBtn.addEventListener('click', cancel);
-        input.focus();
-    }
 
     function clearNote(msg) {
         _activeSelector = null;
@@ -2018,7 +1964,7 @@ const NbMain = (() => {
 
             // Global shortcuts — skip while editing or when an inline bar has focus
             if (_editing) return;
-            if (e.target.closest('#nb-done-bar, .nb-move-bar, .nb-rename-bar')) return;
+            if (e.target.closest('#nb-done-bar, .nb-move-bar, #nb-action-panel')) return;
             switch (e.key) {
                 case 'Escape': {
                     const menu = document.getElementById('nb-side-menu');
@@ -3551,6 +3497,9 @@ const NbTerminal = (() => {
         const el = _previewEl();
         if (el) el.innerHTML = '';
         _toolbarEl().hidden = false;
+        NbNav.reexecute();
+        const sel = NbMain.activeSelector();
+        if (sel) NbMain.openNote(sel, false);
     }
 
     return { open, close, openSettings };
@@ -3578,7 +3527,7 @@ const NbDialog = (() => {
         header.className = 'nb-dlg-header';
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
-        [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move']].forEach(([id, label]) => {
+        [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move'], ['rename','✏ Rename']].forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
             btn.dataset.tab = id; btn.textContent = label;
@@ -3612,9 +3561,10 @@ const NbDialog = (() => {
         const body = _body();
         if (!body) return;
         body.innerHTML = '';
-        if (_tab === 'import')      _renderImport();
-        else if (_tab === 'export') _renderExport();
-        else if (_tab === 'move')   _renderMove();
+        if (_tab === 'import')       _renderImport();
+        else if (_tab === 'export')  _renderExport();
+        else if (_tab === 'move')    _renderMove();
+        else if (_tab === 'rename')  _renderRename();
     }
 
     // ── Shared pickers ─────────────────────────────────────────
@@ -3912,6 +3862,58 @@ const NbDialog = (() => {
         nbSel.focus();
     }
 
+    // ── Rename tab ─────────────────────────────────────────────
+    function _renderRename() {
+        const body     = _body();
+        const selector = NbMain.activeSelector();
+        if (!selector) {
+            body.innerHTML = '<p class="nb-dlg-empty">No note selected — open a note first.</p>';
+            return;
+        }
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
+        nameInput.value = document.getElementById('nb-preview-title')?.textContent || '';
+        const nameRow = _row('Name:', nameInput);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'nb-tool-btn nb-btn-primary'; saveBtn.textContent = 'Rename';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(saveBtn, cancelBtn);
+        cancelBtn.addEventListener('click', close);
+
+        async function commit() {
+            const newName = nameInput.value.trim();
+            if (!newName) { nameInput.focus(); return; }
+            saveBtn.textContent = 'Renaming…'; saveBtn.disabled = true;
+            try {
+                const r = await fetch('/api/note/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector, name: newName }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    close();
+                    document.getElementById('nb-preview-title').textContent = newName;
+                    NbNav.reexecute();
+                } else {
+                    alert('Rename failed: ' + (d.stderr || 'unknown'));
+                    saveBtn.textContent = 'Rename'; saveBtn.disabled = false;
+                }
+            } catch(e) { saveBtn.textContent = 'Rename'; saveBtn.disabled = false; }
+        }
+
+        saveBtn.addEventListener('click', commit);
+        nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
+
+        body.append(nameRow, btnRow);
+        nameInput.focus(); nameInput.select();
+    }
+
     // ── DOM helpers ────────────────────────────────────────────
     function _row(label, ...els) {
         const row = document.createElement('div');
@@ -3925,7 +3927,7 @@ const NbDialog = (() => {
     function isOpen() { return !!_panel(); }
 
     function refresh() {
-        if (_tab === 'export' || _tab === 'move') _renderTab();
+        if (_tab === 'export' || _tab === 'move' || _tab === 'rename') _renderTab();
     }
 
     function init() {
