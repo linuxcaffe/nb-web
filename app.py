@@ -2150,16 +2150,21 @@ def api_import():
         if folder and ('..' in folder or folder.startswith('/')):
             return jsonify({'success': False, 'error': 'invalid folder'}), 400
         target = f'{notebook}:{folder}/' if folder else f'{notebook}:'
-        lines = []
+        lines = []; selectors = []
         for path_str in paths:
             p = Path(path_str)
             if not p.exists():
                 lines.append(f'✗ {p.name}: not found')
                 continue
             r = run_nb('import', str(p), target)
-            lines.append(f'✓ {p.name}' if r['returncode'] == 0
-                         else f'✗ {p.name}: {r["stderr"].strip() or "failed"}')
-        return jsonify({'success': True, 'lines': lines})
+            if r['returncode'] == 0:
+                lines.append(f'✓ {p.name}')
+                m = re.search(r'\[(\d+)\]', strip_ansi(r['stdout']))
+                if m:
+                    selectors.append(f'{notebook}:{m.group(1)}')
+            else:
+                lines.append(f'✗ {p.name}: {r["stderr"].strip() or "failed"}')
+        return jsonify({'success': True, 'lines': lines, 'selectors': selectors})
 
     # ── Upload-based import (browser file picker fallback) ───
     f        = request.files.get('file')

@@ -1693,6 +1693,19 @@ body.nb-fullscreen #nb-cmd-bar::after {
   background: var(--bg2);
   outline: none;
 }
+.nb-dlg-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 0;
+}
+.nb-dlg-file-item {
+  font-size: 12px;
+  color: var(--green, #4ade80);
+  background: var(--bg3);
+  border-radius: 3px;
+  padding: 2px 7px;
+}
 .nb-dlg-loading,
 .nb-dlg-empty {
   color: var(--text-muted);

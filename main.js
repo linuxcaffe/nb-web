@@ -3619,7 +3619,9 @@ const NbDialog = (() => {
         let folderSel = await _buildFolderPicker(currentNb);
         body.innerHTML = '';
 
-        // Row 1: notebook + folder on same line
+        let _selPaths = [], _selFiles = [], _linkMode = false;
+
+        // Row 1: destination
         const destRow = _row('Into:', nbSel, folderSel);
         nbSel.addEventListener('change', async () => {
             const next = await _buildFolderPicker(nbSel.value);
@@ -3627,29 +3629,19 @@ const NbDialog = (() => {
             folderSel = next;
         });
 
-        // Hidden file input — fallback when native dialog unavailable
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file'; fileInput.multiple = true; fileInput.style.display = 'none';
-        fileInput.addEventListener('change', () => {
-            close();
-            NbMain.importFiles([...fileInput.files], nbSel.value, folderSel.value);
-        });
+        // File list — appears after picker returns files
+        const fileListEl = document.createElement('div');
+        fileListEl.className = 'nb-dlg-file-list';
+        fileListEl.hidden = true;
 
-        // Link mode toggle
-        let linkMode = false;
-        const linkBtn = document.createElement('button');
-        linkBtn.className = 'nb-tool-btn'; linkBtn.textContent = '🔗'; linkBtn.type = 'button';
-        linkBtn.title = 'Switch to symlink mode';
-
-        // Row 2a (import): annotation input + link toggle
+        // Annotation row — appears alongside file list
         const annInput = document.createElement('input');
         annInput.type = 'text'; annInput.className = 'nb-rename-input';
-        annInput.placeholder = 'Annotation'; annInput.style.flex = '1';
-        const annRow = document.createElement('div');
-        annRow.className = 'nb-dlg-row';
-        annRow.append(annInput, linkBtn);
+        annInput.placeholder = 'Annotation…'; annInput.style.flex = '1';
+        const annRow = _row('Note:', annInput);
+        annRow.hidden = true;
 
-        // Row 2b (link): path input + browse button
+        // Link mode: path input row
         const pathInput = document.createElement('input');
         pathInput.type = 'text'; pathInput.className = 'nb-rename-input';
         pathInput.placeholder = '/path/to/file'; pathInput.style.flex = '1';
@@ -3664,59 +3656,135 @@ const NbDialog = (() => {
             pathInput.focus();
         });
         const pathRow = _row('Path:', pathInput, pathBrowseBtn);
-        pathRow.style.display = 'none';
+        pathRow.hidden = true;
 
-        // Row 3: action + cancel
-        const actionBtn = document.createElement('button');
-        actionBtn.className = 'nb-tool-btn nb-btn-primary'; actionBtn.textContent = 'Browse…';
+        // Hidden browser file input fallback
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file'; fileInput.multiple = true; fileInput.style.display = 'none';
+        fileInput.addEventListener('change', () => {
+            _selFiles = [...fileInput.files];
+            _selPaths = [];
+            _showSelected(_selFiles.map(f => f.name));
+        });
+
+        function _showSelected(names) {
+            fileListEl.innerHTML = '';
+            names.forEach(n => {
+                const s = document.createElement('span');
+                s.className = 'nb-dlg-file-item';
+                s.textContent = '✓ ' + n;
+                fileListEl.appendChild(s);
+            });
+            fileListEl.hidden = false;
+            annRow.hidden = false;
+            importBtn.disabled = false;
+            browseBtn.textContent = 'Change…';
+            annInput.focus();
+        }
+
+        // Buttons
+        const importBtn = document.createElement('button');
+        importBtn.className = 'nb-tool-btn nb-btn-primary'; importBtn.textContent = 'Import';
+        importBtn.type = 'button'; importBtn.disabled = true;
+
+        const linkActionBtn = document.createElement('button');
+        linkActionBtn.className = 'nb-tool-btn nb-btn-primary'; linkActionBtn.textContent = 'Link file';
+        linkActionBtn.type = 'button'; linkActionBtn.hidden = true;
+
+        const browseBtn = document.createElement('button');
+        browseBtn.className = 'nb-tool-btn'; browseBtn.textContent = 'Browse…';
+        browseBtn.type = 'button';
+
+        const linkBtn = document.createElement('button');
+        linkBtn.className = 'nb-tool-btn'; linkBtn.textContent = '🔗';
+        linkBtn.type = 'button'; linkBtn.title = 'Switch to symlink mode';
+
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
-        const btnRow = document.createElement('div');
-        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
-        btnRow.append(actionBtn, cancelBtn);
-
-        actionBtn.addEventListener('click', async () => {
-            if (!linkMode) {
-                actionBtn.disabled = true; actionBtn.textContent = 'Choosing…';
-                const paths = await _browseNative(true);
-                actionBtn.disabled = false; actionBtn.textContent = 'Browse…';
-                if (paths === null) {
-                    fileInput.click();          // native unavailable — fall back
-                } else if (paths.length) {
-                    close();
-                    NbMain.importPaths(paths, nbSel.value, folderSel.value);
-                }
-                // empty = user cancelled — do nothing
-            } else {
-                const path = pathInput.value.trim();
-                if (!path) { pathInput.focus(); return; }
-                actionBtn.textContent = 'Linking…'; actionBtn.disabled = true;
-                try {
-                    const r = await fetch('/api/link-file', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path, notebook: nbSel.value }),
-                    });
-                    const d = await r.json();
-                    if (d.success) { close(); NbNav.reexecute(); }
-                    else { alert('Link failed: ' + (d.error || 'unknown')); actionBtn.textContent = 'Link file'; actionBtn.disabled = false; }
-                } catch(e) { actionBtn.textContent = 'Link file'; actionBtn.disabled = false; }
-            }
-        });
-        pathInput.addEventListener('keydown', e => { if (e.key === 'Enter') actionBtn.click(); });
         cancelBtn.addEventListener('click', close);
 
-        linkBtn.addEventListener('click', () => {
-            linkMode = !linkMode;
-            linkBtn.classList.toggle('active', linkMode);
-            linkBtn.title = linkMode ? 'Switch to import (copy) mode' : 'Switch to symlink mode';
-            annRow.style.display = linkMode ? 'none' : '';
-            pathRow.style.display = linkMode ? '' : 'none';
-            actionBtn.textContent = linkMode ? 'Link file' : 'Browse…';
-            (linkMode ? pathInput : annInput).focus();
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(importBtn, linkActionBtn, browseBtn, linkBtn, cancelBtn);
+
+        browseBtn.addEventListener('click', async () => {
+            browseBtn.disabled = true;
+            const prev = browseBtn.textContent;
+            browseBtn.textContent = 'Choosing…';
+            const paths = await _browseNative(true);
+            browseBtn.disabled = false; browseBtn.textContent = prev;
+            if (paths === null) { fileInput.click(); }
+            else if (paths.length) {
+                _selPaths = paths; _selFiles = [];
+                _showSelected(paths.map(p => p.split('/').pop()));
+            }
         });
 
-        body.append(fileInput, destRow, annRow, pathRow, btnRow);
+        importBtn.addEventListener('click', async () => {
+            const ann = annInput.value.trim();
+            importBtn.disabled = true; importBtn.textContent = 'Importing…';
+            try {
+                if (_selPaths.length) {
+                    const resp = await fetch('/api/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ paths: _selPaths, notebook: nbSel.value, folder: folderSel.value }),
+                    });
+                    const d = await resp.json();
+                    if (d.success) {
+                        if (ann && d.selectors?.length) {
+                            await Promise.all(d.selectors.map(sel =>
+                                fetch(`/api/note/annotate?selector=${encodeURIComponent(sel)}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ content: ann }),
+                                }).catch(() => {})
+                            ));
+                        }
+                        close(); NbNav.reexecute();
+                    } else {
+                        alert('Import failed');
+                        importBtn.disabled = false; importBtn.textContent = 'Import';
+                    }
+                } else if (_selFiles.length) {
+                    close();
+                    NbMain.importFiles(_selFiles, nbSel.value, folderSel.value);
+                }
+            } catch(e) { importBtn.disabled = false; importBtn.textContent = 'Import'; }
+        });
+        annInput.addEventListener('keydown', e => { if (e.key === 'Enter') importBtn.click(); });
+
+        linkActionBtn.addEventListener('click', async () => {
+            const path = pathInput.value.trim();
+            if (!path) { pathInput.focus(); return; }
+            linkActionBtn.textContent = 'Linking…'; linkActionBtn.disabled = true;
+            try {
+                const r = await fetch('/api/link-file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path, notebook: nbSel.value }),
+                });
+                const d = await r.json();
+                if (d.success) { close(); NbNav.reexecute(); }
+                else { alert('Link failed: ' + (d.error || 'unknown')); linkActionBtn.textContent = 'Link file'; linkActionBtn.disabled = false; }
+            } catch(e) { linkActionBtn.textContent = 'Link file'; linkActionBtn.disabled = false; }
+        });
+        pathInput.addEventListener('keydown', e => { if (e.key === 'Enter') linkActionBtn.click(); });
+
+        linkBtn.addEventListener('click', () => {
+            _linkMode = !_linkMode;
+            linkBtn.classList.toggle('active', _linkMode);
+            linkBtn.title = _linkMode ? 'Switch to import (copy) mode' : 'Switch to symlink mode';
+            pathRow.hidden  = !_linkMode;
+            fileListEl.hidden = _linkMode;
+            annRow.hidden   = _linkMode;
+            importBtn.hidden    = _linkMode;
+            linkActionBtn.hidden = !_linkMode;
+            browseBtn.hidden = _linkMode;
+            (_linkMode ? pathInput : annInput).focus();
+        });
+
+        body.append(fileInput, destRow, fileListEl, annRow, pathRow, btnRow);
     }
 
     // ── Export tab ─────────────────────────────────────────────
