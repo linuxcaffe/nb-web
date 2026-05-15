@@ -1857,14 +1857,25 @@ const NbMain = (() => {
         const count = _selectedSelectors.size;
         if (!confirm(`Delete ${count} item${count !== 1 ? 's' : ''}? This cannot be undone.`)) return;
         const selectors = [..._selectedSelectors];
-        _clearSelection();
+
+        // Clear selection state without calling openNote (active note may be one being deleted)
+        _selectedSelectors.clear();
+        _lastClickedIdx = -1;
+        document.querySelectorAll('#nb-list .nb-list-item.selected').forEach(el => el.classList.remove('selected'));
+        clearNote('Deleting…');
+        NbNav.updateOutputBar?.();
+
         let failed = 0;
         for (const sel of selectors) {
             try {
                 const r = await fetch('/api/note?selector=' + encodeURIComponent(sel), { method: 'DELETE' });
                 const d = await r.json();
                 if (!d.success) failed++;
-                else _pendingDeletes.add(sel);
+                else {
+                    _pendingDeletes.add(sel);
+                    // Remove from DOM immediately — don't wait for reexecute
+                    document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
+                }
             } catch { failed++; }
         }
         if (failed) alert(`${failed} deletion${failed !== 1 ? 's' : ''} failed.`);
