@@ -21,6 +21,8 @@ const NbMain = (() => {
     let _listDisplayMode = 'title';  // 'title' | 'filename' — resets on every new fetch
     let _kbPane         = 'list';   // 'list' | 'preview'
     const _pendingDeletes = new Set(); // selectors deleted but possibly not yet gone from server
+    const _selectedSelectors = new Set(); // multi-select
+    let _lastClickedIdx = -1;             // anchor for shift-click range
 
     function _setKbPane(pane) {
         _kbPane = pane;
@@ -250,7 +252,8 @@ const NbMain = (() => {
             li.appendChild(body);
 
             if (note.type === 'folder') {
-                li.addEventListener('click', () => {
+                li.addEventListener('click', e => {
+                    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
                     if (NbNav.notebook === '_all' && note.notebook) {
                         NbNav.drillFolderInNotebook(note.notebook, note.filename);
                     } else {
@@ -258,7 +261,17 @@ const NbMain = (() => {
                     }
                 });
             } else {
-                li.addEventListener('click', () => openNote(note.selector));
+                li.addEventListener('click', e => {
+                    if (e.ctrlKey || e.metaKey) {
+                        _toggleSelection(note.selector, notes.indexOf(note));
+                    } else if (e.shiftKey) {
+                        _rangeSelection(notes.indexOf(note), notes);
+                    } else {
+                        _clearSelection();
+                        _lastClickedIdx = notes.indexOf(note);
+                        openNote(note.selector);
+                    }
+                });
             }
 
             ul.appendChild(li);
@@ -1750,6 +1763,115 @@ const NbMain = (() => {
     }
 
 
+    // ── Multi-select ───────────────────────────────────────────────
+
+    function _clearSelection() {
+        if (!_selectedSelectors.size) return;
+        _selectedSelectors.clear();
+        _lastClickedIdx = -1;
+        document.querySelectorAll('#nb-list .nb-list-item.selected')
+            .forEach(el => el.classList.remove('selected'));
+        const actions = document.getElementById('nb-preview-actions');
+        if (actions) actions.hidden = !_activeSelector;
+        if (_activeSelector) openNote(_activeSelector, false);
+        else clearNote();
+        NbNav.updateOutputBar?.();
+    }
+
+    function _toggleSelection(selector, idx) {
+        if (_selectedSelectors.has(selector)) _selectedSelectors.delete(selector);
+        else _selectedSelectors.add(selector);
+        _lastClickedIdx = idx;
+        _updateSelectionUI();
+    }
+
+    function _rangeSelection(toIdx, notes) {
+        const from = _lastClickedIdx < 0 ? toIdx : Math.min(_lastClickedIdx, toIdx);
+        const to   = _lastClickedIdx < 0 ? toIdx : Math.max(_lastClickedIdx, toIdx);
+        for (let i = from; i <= to; i++) {
+            if (notes[i]?.type !== 'folder') _selectedSelectors.add(notes[i].selector);
+        }
+        _updateSelectionUI();
+    }
+
+    function _updateSelectionUI() {
+        document.querySelectorAll('#nb-list .nb-list-item').forEach(el =>
+            el.classList.toggle('selected', _selectedSelectors.has(el.dataset.selector)));
+        if (_selectedSelectors.size > 0) _renderMultiSelectView();
+        else {
+            document.getElementById('nb-preview-actions')?.removeAttribute('hidden');
+            if (_activeSelector) openNote(_activeSelector, false);
+        }
+        NbNav.updateOutputBar?.();
+    }
+
+    function _renderMultiSelectView() {
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const content = document.getElementById('nb-preview-content');
+        const count   = _selectedSelectors.size;
+
+        toolbar.hidden = false;
+        document.getElementById('nb-preview-title').textContent =
+            `${count} item${count !== 1 ? 's' : ''} selected`;
+        document.getElementById('nb-pin-indicator').hidden = true;
+        document.getElementById('nb-preview-actions').hidden = true;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'nb-multisel-wrap';
+
+        const actRow = document.createElement('div');
+        actRow.className = 'nb-multisel-actions';
+        const delBtn = document.createElement('button');
+        delBtn.className = 'nb-tool-btn nb-btn-danger';
+        delBtn.textContent = `Delete ${count}`;
+        const clrBtn = document.createElement('button');
+        clrBtn.className = 'nb-tool-btn'; clrBtn.textContent = '✕ Clear';
+        actRow.append(delBtn, clrBtn);
+        delBtn.addEventListener('click', _bulkDelete);
+        clrBtn.addEventListener('click', _clearSelection);
+        wrap.appendChild(actRow);
+
+        [..._selectedSelectors].forEach(sel => {
+            const note = _lastNotes.find(n => n.selector === sel);
+            const row  = document.createElement('div');
+            row.className = 'nb-multisel-item';
+            const rmBtn = document.createElement('button');
+            rmBtn.className = 'nb-multisel-rm'; rmBtn.textContent = '×';
+            rmBtn.title = 'Remove from selection';
+            rmBtn.addEventListener('click', () => { _selectedSelectors.delete(sel); _updateSelectionUI(); });
+            const titleEl = document.createElement('span');
+            titleEl.className = 'nb-multisel-title';
+            titleEl.textContent = note?.title || note?.filename || sel;
+            const selEl = document.createElement('span');
+            selEl.className = 'nb-multisel-sel'; selEl.textContent = sel;
+            row.append(rmBtn, titleEl, selEl);
+            wrap.appendChild(row);
+        });
+
+        content.hidden = false;
+        content.innerHTML = '';
+        content.appendChild(wrap);
+    }
+
+    async function _bulkDelete() {
+        const count = _selectedSelectors.size;
+        if (!confirm(`Delete ${count} item${count !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+        const selectors = [..._selectedSelectors];
+        _clearSelection();
+        let failed = 0;
+        for (const sel of selectors) {
+            try {
+                const r = await fetch('/api/note?selector=' + encodeURIComponent(sel), { method: 'DELETE' });
+                const d = await r.json();
+                if (!d.success) failed++;
+                else _pendingDeletes.add(sel);
+            } catch { failed++; }
+        }
+        if (failed) alert(`${failed} deletion${failed !== 1 ? 's' : ''} failed.`);
+        clearNote(failed === 0 ? `${count} items deleted.` : 'Some deletions failed.');
+        NbNav.reexecute();
+    }
+
     function clearNote(msg) {
         _activeSelector = null;
         document.getElementById('nb-preview-toolbar').hidden = true;
@@ -1967,6 +2089,7 @@ const NbMain = (() => {
             if (e.target.closest('#nb-done-bar, .nb-move-bar, #nb-action-panel')) return;
             switch (e.key) {
                 case 'Escape': {
+                    if (_selectedSelectors.size) { e.preventDefault(); _clearSelection(); break; }
                     const menu = document.getElementById('nb-side-menu');
                     if (!menu?.classList.contains('open')) {
                         e.preventDefault();
@@ -3406,7 +3529,10 @@ const NbMain = (() => {
              clearNote,
              activeSelector: () => _activeSelector,
              activeType:     () => _activeType,
-             activeFilename: () => _activeFilename };
+             activeFilename: () => _activeFilename,
+             selectedSelectors: () => _selectedSelectors,
+             clearSelection: _clearSelection,
+             deselect: sel => { _selectedSelectors.delete(sel); _updateSelectionUI(); } };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────

@@ -67,7 +67,7 @@ const NbNav = (() => {
             if (!confirm('Discard unsaved changes?')) return;
             NbMain.closeEditor?.();
         }
-        if (!opts.internal) NbDialog.close?.();
+        if (!opts.internal) { NbDialog.close?.(); NbMain.clearSelection?.(); }
         if (cmd === 'add' && !opts.internal) {
             const pa = document.getElementById('nb-preview-actions');
             if (pa) pa.hidden = true;
@@ -934,6 +934,17 @@ const NbNav = (() => {
             case 'weather': tokens.push({ text: 'weather' }); break;
             default:        tokens.push({ text: _activeCmd || 'list' }); break;
         }
+
+        // Selection tokens — appended after cmd tokens
+        const selSet = NbMain.selectedSelectors?.();
+        if (selSet?.size > 0) {
+            tokens.push({ text: '·' });   // visual separator, non-clearable
+            [...selSet].forEach(s => tokens.push({
+                text: s,
+                clearFn: () => NbMain.deselect?.(s),
+            }));
+        }
+
         return tokens;
     }
 
@@ -1251,11 +1262,17 @@ const NbNav = (() => {
                 prompt.title  = 'Copy command to clipboard';
                 prompt.style.cursor = 'pointer';
                 prompt.addEventListener('click', () => {
-                    const parts = [...document.querySelectorAll('#nb-cmd-output-tokens .nb-cmd-token')]
-                        .map(el => el.childNodes[0]?.textContent?.trim())
-                        .filter(Boolean);
-                    const cmd = 'nb ' + parts.join(' ');
-                    navigator.clipboard.writeText(cmd).then(() => {
+                    const selSet = NbMain.selectedSelectors?.();
+                    let text;
+                    if (selSet?.size > 0) {
+                        text = [...selSet].join(' ');   // just the selectors for CLI use
+                    } else {
+                        const parts = [...document.querySelectorAll('#nb-cmd-output-tokens .nb-cmd-token')]
+                            .map(el => el.childNodes[0]?.textContent?.trim())
+                            .filter(Boolean);
+                        text = 'nb ' + parts.join(' ');
+                    }
+                    navigator.clipboard.writeText(text).then(() => {
                         const orig = prompt.textContent;
                         prompt.textContent = '✓';
                         setTimeout(() => { prompt.textContent = orig; }, 900);
@@ -1286,5 +1303,6 @@ const NbNav = (() => {
         updateBreadcrumb,
         setSearchQuery,
         setTagsQuery,
+        updateOutputBar: _updateOutputBar,
     };
 })();
