@@ -2554,6 +2554,32 @@ def api_move():
     return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
 
 
+@app.route('/api/note/export-bulk', methods=['POST'])
+def api_export_bulk():
+    import io
+    data      = request.get_json() or {}
+    selectors = data.get('selectors', [])
+    if not selectors:
+        return jsonify({'error': 'selectors required'}), 400
+
+    parts = []
+    for sel in selectors:
+        fpath = _resolve_to_nb_path(sel)
+        if fpath and fpath.exists():
+            content = fpath.read_text(errors='replace').strip()
+            title   = fpath.stem
+        else:
+            content = '*(not found)*'
+            title   = sel
+        parts.append(f'# {title}\n\n{content}')
+
+    compiled = '\n\n---\n\n'.join(parts)
+    buf = io.BytesIO(compiled.encode('utf-8'))
+    return send_file(buf, as_attachment=True,
+                     download_name='nb-export.md',
+                     mimetype='text/markdown')
+
+
 # ---------------------------------------------------------------------------
 # API: Note history (git-backed undo)
 # ---------------------------------------------------------------------------

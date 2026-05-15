@@ -1821,12 +1821,20 @@ const NbMain = (() => {
 
         const actRow = document.createElement('div');
         actRow.className = 'nb-multisel-actions';
+        const moveBtn = document.createElement('button');
+        moveBtn.className = 'nb-tool-btn';
+        moveBtn.textContent = `Move ${count}`;
+        moveBtn.addEventListener('click', () => NbDialog.open('move', [..._selectedSelectors]));
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'nb-tool-btn';
+        exportBtn.textContent = `Export ${count}`;
+        exportBtn.addEventListener('click', () => NbDialog.open('export', [..._selectedSelectors]));
         const delBtn = document.createElement('button');
         delBtn.className = 'nb-tool-btn nb-btn-danger';
         delBtn.textContent = `Delete ${count}`;
         const clrBtn = document.createElement('button');
         clrBtn.className = 'nb-tool-btn'; clrBtn.textContent = '✕ Clear';
-        actRow.append(delBtn, clrBtn);
+        actRow.append(moveBtn, exportBtn, delBtn, clrBtn);
         delBtn.addEventListener('click', _bulkDelete);
         clrBtn.addEventListener('click', _clearSelection);
         wrap.appendChild(actRow);
@@ -3645,12 +3653,14 @@ const NbTerminal = (() => {
 // ── Import / Export / Move panel ──────────────────────────────
 const NbDialog = (() => {
     let _tab = 'import';
+    let _bulkSelectors = null; // null = single-note mode, array = bulk mode
 
     function _panel() { return document.getElementById('nb-action-panel'); }
     function _body()  { return _panel()?.querySelector('.nb-dlg-body'); }
 
-    function open(tab) {
+    function open(tab, bulkSelectors = null) {
         _tab = tab || 'import';
+        _bulkSelectors = bulkSelectors?.length ? bulkSelectors : null;
         _panel()?.remove();
 
         const toolbar = document.getElementById('nb-preview-toolbar');
@@ -3664,7 +3674,9 @@ const NbDialog = (() => {
         header.className = 'nb-dlg-header';
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
-        [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move'], ['rename','✏ Rename']].forEach(([id, label]) => {
+        const allTabs = [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move'], ['rename','✏ Rename']];
+        const tabDefs = _bulkSelectors ? allTabs.filter(([id]) => id === 'export' || id === 'move') : allTabs;
+        tabDefs.forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
             btn.dataset.tab = id; btn.textContent = label;
@@ -3687,7 +3699,7 @@ const NbDialog = (() => {
         _renderTab();
     }
 
-    function close() { _panel()?.remove(); }
+    function close() { _bulkSelectors = null; _panel()?.remove(); }
 
     function _updateTabs() {
         _panel()?.querySelectorAll('.nb-dlg-tab').forEach(btn =>
@@ -3926,6 +3938,7 @@ const NbDialog = (() => {
 
     // ── Export tab ─────────────────────────────────────────────
     function _renderExport() {
+        if (_bulkSelectors?.length) { _renderExportBulk(); return; }
         const body     = _body();
         const selector = NbMain.activeSelector();
         if (!selector) {
@@ -4009,22 +4022,82 @@ const NbDialog = (() => {
         if (!nameInput.disabled) { nameInput.focus(); nameInput.select(); }
     }
 
+    // ── Bulk export ────────────────────────────────────────────
+    function _renderExportBulk() {
+        const body  = _body();
+        const count = _bulkSelectors.length;
+
+        const infoEl = document.createElement('p');
+        infoEl.className = 'nb-dlg-info';
+        infoEl.textContent = `${count} note${count !== 1 ? 's' : ''} will be compiled into one Markdown document.`;
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
+        nameInput.value = 'nb-export.md';
+        const nameRow = _row('Filename:', nameInput);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'nb-tool-btn nb-btn-primary'; saveBtn.textContent = `Export ${count}`;
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(saveBtn, cancelBtn);
+        cancelBtn.addEventListener('click', close);
+
+        saveBtn.addEventListener('click', async () => {
+            const filename = nameInput.value.trim() || 'nb-export.md';
+            const payload  = JSON.stringify({ selectors: _bulkSelectors });
+            const headers  = { 'Content-Type': 'application/json' };
+            if (window.showSaveFilePicker) {
+                try {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: filename,
+                        types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }],
+                    });
+                    saveBtn.textContent = 'Exporting…'; saveBtn.disabled = true;
+                    const resp = await fetch('/api/note/export-bulk', { method: 'POST', headers, body: payload });
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const writable = await handle.createWritable();
+                    await resp.body.pipeTo(writable);
+                    await writable.close();
+                    close(); return;
+                } catch (e) { if (e.name === 'AbortError') return; }
+            }
+            saveBtn.textContent = 'Exporting…'; saveBtn.disabled = true;
+            const resp = await fetch('/api/note/export-bulk', { method: 'POST', headers, body: payload });
+            const blob = await resp.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob); a.download = filename;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(a.href);
+            close();
+        });
+
+        body.append(infoEl, nameRow, btnRow);
+        nameInput.focus(); nameInput.select();
+    }
+
     // ── Move tab ───────────────────────────────────────────────
     async function _renderMove() {
-        const body     = _body();
-        const selector = NbMain.activeSelector();
-        if (!selector) {
+        const body      = _body();
+        const selectors = _bulkSelectors?.length ? _bulkSelectors
+                        : NbMain.activeSelector()  ? [NbMain.activeSelector()]
+                        : null;
+        if (!selectors) {
             body.innerHTML = '<p class="nb-dlg-empty">No note selected — open a note first.</p>';
             return;
         }
+        const isBulk = selectors.length > 1;
+        const count  = selectors.length;
 
         body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
-        const curNb = selector.split(':')[0];
+        const curNb = selectors[0].split(':')[0];
         const nbSel = await _buildNbPicker(curNb);
         let folderSel = await _buildFolderPicker(curNb);
         body.innerHTML = '';
 
-        // Row 1: notebook + folder on same line
+        // Row 1: notebook + folder
         const destRow = _row('Into:', nbSel, folderSel);
         nbSel.addEventListener('change', async () => {
             const next = await _buildFolderPicker(nbSel.value);
@@ -4034,7 +4107,8 @@ const NbDialog = (() => {
 
         // Row 2: Move + Cancel
         const moveBtn = document.createElement('button');
-        moveBtn.className = 'nb-tool-btn nb-btn-primary'; moveBtn.textContent = 'Move';
+        moveBtn.className = 'nb-tool-btn nb-btn-primary';
+        moveBtn.textContent = isBulk ? `Move ${count} items` : 'Move';
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
         const btnRow = document.createElement('div');
@@ -4045,22 +4119,29 @@ const NbDialog = (() => {
         moveBtn.addEventListener('click', async () => {
             const dest = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
             moveBtn.textContent = 'Moving…'; moveBtn.disabled = true;
-            try {
-                const resp = await fetch('/api/note/move', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ selector, dest }),
-                });
-                const rd = await resp.json();
-                if (rd.success) {
-                    close();
-                    NbMain.clearNote('Note moved.');
-                    NbNav.reexecute();
-                } else {
-                    alert('Move failed: ' + (rd.stderr || 'unknown'));
-                    moveBtn.textContent = 'Move'; moveBtn.disabled = false;
-                }
-            } catch (e) { moveBtn.textContent = 'Move'; moveBtn.disabled = false; }
+            let failed = 0;
+            for (const sel of selectors) {
+                try {
+                    const resp = await fetch('/api/note/move', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ selector: sel, dest }),
+                    });
+                    const rd = await resp.json();
+                    if (!rd.success) failed++;
+                    else document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
+                } catch { failed++; }
+            }
+            if (failed) {
+                alert(`${failed} move${failed !== 1 ? 's' : ''} failed.`);
+                moveBtn.textContent = isBulk ? `Move ${count} items` : 'Move';
+                moveBtn.disabled = false;
+            } else {
+                close();
+                NbMain.clearSelection?.();
+                NbMain.clearNote(isBulk ? `${count} items moved.` : 'Note moved.');
+                NbNav.reexecute();
+            }
         });
 
         body.append(destRow, btnRow);
