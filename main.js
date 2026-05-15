@@ -252,6 +252,16 @@ const NbMain = (() => {
             li.appendChild(body);
 
             if (note.type === 'folder') {
+                const moreBtn = document.createElement('button');
+                moreBtn.className = 'nb-folder-more-btn';
+                moreBtn.textContent = '⋯';
+                moreBtn.title = 'Folder options';
+                moreBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    NbDialog.openFolder(note.selector, note.filename);
+                });
+                li.appendChild(moreBtn);
+
                 li.addEventListener('click', e => {
                     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
                     if (NbNav.notebook === '_all' && note.notebook) {
@@ -3653,7 +3663,9 @@ const NbTerminal = (() => {
 // ── Import / Export / Move panel ──────────────────────────────
 const NbDialog = (() => {
     let _tab = 'import';
-    let _bulkSelectors = null; // null = single-note mode, array = bulk mode
+    let _bulkSelectors  = null; // null = single-note mode, array = bulk mode
+    let _folderSelector = null; // non-null = folder mode
+    let _folderName     = '';   // display name for folder being operated on
 
     function _panel() { return document.getElementById('nb-action-panel'); }
     function _body()  { return _panel()?.querySelector('.nb-dlg-body'); }
@@ -3699,7 +3711,7 @@ const NbDialog = (() => {
         _renderTab();
     }
 
-    function close() { _bulkSelectors = null; _panel()?.remove(); }
+    function close() { _bulkSelectors = null; _folderSelector = null; _folderName = ''; _panel()?.remove(); }
 
     function _updateTabs() {
         _panel()?.querySelectorAll('.nb-dlg-tab').forEach(btn =>
@@ -3710,10 +3722,180 @@ const NbDialog = (() => {
         const body = _body();
         if (!body) return;
         body.innerHTML = '';
-        if (_tab === 'import')       _renderImport();
-        else if (_tab === 'export')  _renderExport();
-        else if (_tab === 'move')    _renderMove();
-        else if (_tab === 'rename')  _renderRename();
+        if (_tab === 'import')          _renderImport();
+        else if (_tab === 'export')     _renderExport();
+        else if (_tab === 'move')       _renderMove();
+        else if (_tab === 'rename')     _renderRename();
+        else if (_tab === 'f-rename')   _renderFolderRename();
+        else if (_tab === 'f-move')     _renderFolderMove();
+        else if (_tab === 'f-delete')   _renderFolderDelete();
+    }
+
+    // ── Folder dialog ──────────────────────────────────────────
+    function openFolder(selector, name) {
+        _folderSelector = selector;
+        _folderName     = name || selector;
+        _bulkSelectors  = null;
+        _tab = 'f-rename';
+        _panel()?.remove();
+
+        const toolbar = document.getElementById('nb-preview-toolbar');
+        const pane    = document.getElementById('nb-preview-pane');
+        if (!pane) return;
+
+        const panel = document.createElement('div');
+        panel.id = 'nb-action-panel';
+
+        const header = document.createElement('div');
+        header.className = 'nb-dlg-header';
+        const tabsEl = document.createElement('div');
+        tabsEl.className = 'nb-dlg-tabs';
+        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-delete','🗑 Delete']].forEach(([id, label]) => {
+            const btn = document.createElement('button');
+            btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
+            btn.dataset.tab = id; btn.textContent = label;
+            btn.addEventListener('click', () => { _tab = id; _updateTabs(); _renderTab(); });
+            tabsEl.appendChild(btn);
+        });
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'nb-dlg-close'; closeBtn.textContent = '✕';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.addEventListener('click', close);
+        header.append(tabsEl, closeBtn);
+
+        const body = document.createElement('div');
+        body.className = 'nb-dlg-body';
+        panel.append(header, body);
+        toolbar.insertAdjacentElement('afterend', panel);
+        toolbar.hidden = false;
+        _renderTab();
+    }
+
+    function _renderFolderRename() {
+        const body = _body();
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
+        nameInput.value = _folderName;
+        const nameRow = _row('Name:', nameInput);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'nb-tool-btn nb-btn-primary'; saveBtn.textContent = 'Rename';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(saveBtn, cancelBtn);
+        cancelBtn.addEventListener('click', close);
+
+        async function commit() {
+            const newName = nameInput.value.trim();
+            if (!newName || newName === _folderName) { nameInput.focus(); return; }
+            saveBtn.textContent = 'Renaming…'; saveBtn.disabled = true;
+            try {
+                const r = await fetch('/api/folder/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: _folderSelector, name: newName }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    close();
+                    NbNav.reexecute();
+                } else {
+                    alert('Rename failed: ' + (d.stderr || 'unknown'));
+                    saveBtn.textContent = 'Rename'; saveBtn.disabled = false;
+                }
+            } catch { saveBtn.textContent = 'Rename'; saveBtn.disabled = false; }
+        }
+        saveBtn.addEventListener('click', commit);
+        nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
+        body.append(nameRow, btnRow);
+        nameInput.focus(); nameInput.select();
+    }
+
+    async function _renderFolderMove() {
+        const body = _body();
+        body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
+        const curNb = _folderSelector.split(':')[0];
+        const nbSel = await _buildNbPicker(curNb);
+        body.innerHTML = '';
+
+        const destRow = _row('Into:', nbSel);
+
+        const moveBtn = document.createElement('button');
+        moveBtn.className = 'nb-tool-btn nb-btn-primary'; moveBtn.textContent = 'Move folder';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(moveBtn, cancelBtn);
+        cancelBtn.addEventListener('click', close);
+
+        moveBtn.addEventListener('click', async () => {
+            const dest = `${nbSel.value}:`;
+            moveBtn.textContent = 'Moving…'; moveBtn.disabled = true;
+            try {
+                const r = await fetch('/api/folder/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: _folderSelector, dest }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    close();
+                    document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(_folderSelector)}"]`)?.remove();
+                    NbMain.clearNote('Folder moved.');
+                    NbNav.reexecute();
+                } else {
+                    alert('Move failed: ' + (d.stderr || 'unknown'));
+                    moveBtn.textContent = 'Move folder'; moveBtn.disabled = false;
+                }
+            } catch { moveBtn.textContent = 'Move folder'; moveBtn.disabled = false; }
+        });
+
+        body.append(destRow, btnRow);
+        nbSel.focus();
+    }
+
+    function _renderFolderDelete() {
+        const body = _body();
+        const warn = document.createElement('p');
+        warn.className = 'nb-dlg-info';
+        warn.style.color = 'var(--red, #f87171)';
+        warn.textContent = `Delete "${_folderName}" and all its contents? This cannot be undone.`;
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'nb-tool-btn nb-btn-danger'; delBtn.textContent = `Delete "${_folderName}"`;
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(delBtn, cancelBtn);
+        cancelBtn.addEventListener('click', close);
+
+        delBtn.addEventListener('click', async () => {
+            delBtn.textContent = 'Deleting…'; delBtn.disabled = true;
+            try {
+                const r = await fetch('/api/folder', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: _folderSelector }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    close();
+                    document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(_folderSelector)}"]`)?.remove();
+                    NbMain.clearNote('Folder deleted.');
+                    NbNav.reexecute();
+                } else {
+                    alert('Delete failed: ' + (d.stderr || 'unknown'));
+                    delBtn.textContent = `Delete "${_folderName}"`; delBtn.disabled = false;
+                }
+            } catch { delBtn.textContent = `Delete "${_folderName}"`; delBtn.disabled = false; }
+        });
+
+        body.append(warn, btnRow);
+        delBtn.focus();
     }
 
     // ── Shared pickers ─────────────────────────────────────────
@@ -4224,7 +4406,7 @@ const NbDialog = (() => {
         }, true);
     }
 
-    return { open, close, isOpen, refresh, init };
+    return { open, openFolder, close, isOpen, refresh, init };
 })();
 
 document.addEventListener('DOMContentLoaded', () => { NbMain.init(); NbDialog.init(); });

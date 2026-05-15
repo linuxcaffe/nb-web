@@ -2581,6 +2581,42 @@ def api_export_bulk():
 
 
 # ---------------------------------------------------------------------------
+# API: Folder operations
+# ---------------------------------------------------------------------------
+
+@app.route('/api/folder/rename', methods=['POST'])
+def api_folder_rename():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    name     = data.get('name', '').strip()
+    if not selector or not name:
+        return jsonify({'error': 'selector and name required'}), 400
+    r = run_nb('move', selector, name, '--force')
+    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+@app.route('/api/folder/move', methods=['POST'])
+def api_folder_move():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    dest     = data.get('dest', '').strip()   # e.g. "work:"
+    if not selector or not dest:
+        return jsonify({'error': 'selector and dest required'}), 400
+    r = run_nb('move', selector, dest, '--force')
+    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+@app.route('/api/folder', methods=['DELETE'])
+def api_folder_delete():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    r = run_nb('folders', 'delete', selector, '--force')
+    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+# ---------------------------------------------------------------------------
 # API: Note history (git-backed undo)
 # ---------------------------------------------------------------------------
 

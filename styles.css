@@ -696,6 +696,23 @@ body {
 
 /* Folder items */
 .nb-list-item.folder .nb-list-title { color: var(--text-muted); font-style: italic; }
+.nb-folder-more-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+.nb-list-item.folder:hover .nb-folder-more-btn { opacity: 1; }
+.nb-folder-more-btn:hover { background: var(--bg4, var(--border)); color: var(--text); }
 
 /* Grep context block inside a list item */
 .nb-list-grep-ctx {
