@@ -3814,13 +3814,22 @@ const NbDialog = (() => {
     }
 
     async function _renderFolderMove() {
-        const body = _body();
+        const body   = _body();
+        const curNb  = _folderSelector.split(':')[0];
+        const selfNm = _folderName; // exclude from folder picker when same notebook
+
         body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
-        const curNb = _folderSelector.split(':')[0];
         const nbSel = await _buildNbPicker(curNb);
+        let folderSel = await _buildFolderPicker(curNb, selfNm);
         body.innerHTML = '';
 
-        const destRow = _row('Into:', nbSel);
+        const destRow = _row('Into:', nbSel, folderSel);
+        nbSel.addEventListener('change', async () => {
+            const exclude = nbSel.value === curNb ? selfNm : null;
+            const next = await _buildFolderPicker(nbSel.value, exclude);
+            destRow.replaceChild(next, folderSel);
+            folderSel = next;
+        });
 
         const moveBtn = document.createElement('button');
         moveBtn.className = 'nb-tool-btn nb-btn-primary'; moveBtn.textContent = 'Move folder';
@@ -3832,7 +3841,7 @@ const NbDialog = (() => {
         cancelBtn.addEventListener('click', close);
 
         moveBtn.addEventListener('click', async () => {
-            const dest = `${nbSel.value}:`;
+            const dest = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
             moveBtn.textContent = 'Moving…'; moveBtn.disabled = true;
             try {
                 const r = await fetch('/api/folder/move', {
@@ -3912,19 +3921,19 @@ const NbDialog = (() => {
         return sel;
     }
 
-    async function _buildFolderPicker(nb) {
+    async function _buildFolderPicker(nb, exclude = null) {
         const { folders } = await fetch(`/api/folders?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
         const sel = document.createElement('select');
         sel.className = 'nb-scope-select';
         const none = document.createElement('option');
         none.value = ''; none.textContent = '(root)';
         sel.appendChild(none);
-        (folders || []).forEach(f => {
+        (folders || []).filter(f => f !== exclude).forEach(f => {
             const opt = document.createElement('option');
             opt.value = f; opt.textContent = f + '/';
             sel.appendChild(opt);
         });
-        sel.disabled = !(folders || []).length;
+        sel.disabled = !(folders || []).filter(f => f !== exclude).length;
         return sel;
     }
 
