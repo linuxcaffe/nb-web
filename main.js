@@ -3007,25 +3007,58 @@ const NbMain = (() => {
 
                 const icon = document.createElement('span');
                 icon.className = 'nb-list-icon';
-                icon.textContent = t.scope === 'local' ? '📒' : '🌐';
-                icon.title = t.scope === 'local' ? 'Notebook template' : 'Global template';
+                if (t.template_type === 'export_html') {
+                    icon.textContent = '🖨';
+                    icon.title = t.scope === 'local' ? 'Notebook export template' : 'Global export template';
+                } else {
+                    icon.textContent = t.scope === 'local' ? '📒' : '🌐';
+                    icon.title = t.scope === 'local' ? 'Notebook template' : 'Global template';
+                }
 
                 const title = document.createElement('span');
                 title.className = 'nb-list-title';
-                title.textContent = t.name;
+                title.textContent = t.template_type === 'export_html' ? 'HTML export template' : t.name;
 
                 const excerpt = document.createElement('span');
                 excerpt.className = 'nb-list-excerpt';
-                excerpt.textContent = t.scope === 'local' ? `${nb}: template` : 'global';
+                excerpt.textContent = t.scope === 'local' ? `${nb}: export` : 'global export';
+                if (t.template_type !== 'export_html') {
+                    excerpt.textContent = t.scope === 'local' ? `${nb}: template` : 'global';
+                }
 
                 li.append(icon, title, excerpt);
                 li.addEventListener('click', () => {
                     list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
                     li.classList.add('active');
-                    _openTemplate(t.path, t.name, t.scope);
+                    if (t.template_type === 'export_html') {
+                        _openExportTemplate(t.path, t.name, t.scope);
+                    } else {
+                        _openTemplate(t.path, t.name, t.scope);
+                    }
                 });
                 list.appendChild(li);
             });
+
+            // "New export template" button if none exist yet
+            const hasExportTmpl = templates.some(t => t.template_type === 'export_html');
+            if (!hasExportTmpl) {
+                const newBtn = document.createElement('button');
+                newBtn.className = 'nb-tool-btn';
+                newBtn.style.cssText = 'margin:12px 12px 4px;font-size:12px';
+                newBtn.textContent = '+ New HTML export template';
+                newBtn.addEventListener('click', async () => {
+                    newBtn.disabled = true; newBtn.textContent = 'Creating…';
+                    const r = await fetch('/api/export-template', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ scope: 'global' }),
+                    });
+                    const d = await r.json();
+                    if (d.success || d.error === 'already exists') runTemplates();
+                    else { alert('Failed: ' + (d.error || 'unknown')); newBtn.disabled = false; newBtn.textContent = '+ New HTML export template'; }
+                });
+                list.appendChild(newBtn);
+            }
         } catch(e) {
             countEl.textContent = 'error';
             console.error('runTemplates:', e);
@@ -3228,6 +3261,89 @@ const NbMain = (() => {
 
                 document.getElementById('nb-tmpl-cancel').addEventListener('click', showPreview);
             };
+
+            showPreview();
+        } catch(e) {
+            content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
+        }
+    }
+
+    // ── HTML export template view ───────────────────────────────────
+    async function _openExportTemplate(path, name, scope) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        try {
+            const r = await fetch('/api/template?path=' + encodeURIComponent(path));
+            const d = await r.json();
+            let latestRaw = d.content || '';
+            const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
+            const HDR = `<div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                display:flex;align-items:center;gap:12px">
+                <span>🖨 <strong>${_esc(name)}</strong></span>
+                <span style="opacity:0.6">${scopeLabel}</span>
+                <span style="opacity:0.5;font-size:10px">{{content}} → rendered note body &nbsp;|&nbsp; {{title}} → note title</span>
+            </div>`;
+            const FOOTER_HTML = `<div style="padding:10px 32px 14px;border-top:1px solid var(--border);display:flex;gap:8px">
+                <button id="nb-etmpl-edit"   class="nb-tool-btn">Edit</button>
+                <button id="nb-etmpl-delete" class="nb-tool-btn nb-btn-danger">Delete</button>
+            </div>`;
+
+            const showPreview = () => {
+                content.innerHTML = HDR +
+                    `<pre style="padding:20px 32px;overflow-x:auto;font-size:12px;line-height:1.5;
+                        margin:0;background:var(--bg);color:var(--text)">${_esc(latestRaw)}</pre>` +
+                    FOOTER_HTML;
+                wireFooter();
+            };
+
+            const showEditor = () => {
+                content.innerHTML = HDR +
+                    `<textarea id="nb-etmpl-ta" spellcheck="false"
+                        style="flex:1;width:100%;box-sizing:border-box;padding:16px 32px;border:none;
+                               outline:none;resize:none;font-family:var(--font-mono);font-size:12px;
+                               background:var(--bg);color:var(--text);min-height:320px">${_esc(latestRaw)}</textarea>
+                    <div style="padding:10px 32px 14px;border-top:1px solid var(--border);display:flex;gap:8px">
+                        <button id="nb-etmpl-save"   class="nb-tool-btn nb-btn-primary">Save</button>
+                        <button id="nb-etmpl-cancel" class="nb-tool-btn">Cancel</button>
+                    </div>`;
+                const ta = document.getElementById('nb-etmpl-ta');
+                ta.focus();
+                ta.addEventListener('keydown', e => {
+                    if (e.key === 'Escape') showPreview();
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault(); document.getElementById('nb-etmpl-save')?.click();
+                    }
+                });
+                document.getElementById('nb-etmpl-save').addEventListener('click', async () => {
+                    const btn = document.getElementById('nb-etmpl-save');
+                    const newContent = ta.value;
+                    btn.textContent = 'Saving…'; btn.disabled = true;
+                    try {
+                        const sr = await fetch('/api/template', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path, content: newContent }),
+                        });
+                        const sd = await sr.json();
+                        if (sd.success) { latestRaw = newContent; showPreview(); }
+                        else alert('Save failed: ' + (sd.error || 'unknown'));
+                    } finally { btn.textContent = 'Save'; btn.disabled = false; }
+                });
+                document.getElementById('nb-etmpl-cancel').addEventListener('click', showPreview);
+            };
+
+            function wireFooter() {
+                document.getElementById('nb-etmpl-edit').addEventListener('click', showEditor);
+                document.getElementById('nb-etmpl-delete').addEventListener('click', async () => {
+                    if (!confirm(`Delete export template "${name}"?`)) return;
+                    const dr = await fetch('/api/template?path=' + encodeURIComponent(path), { method: 'DELETE' });
+                    const dd = await dr.json();
+                    if (dd.success) runTemplates();
+                    else alert('Delete failed: ' + (dd.error || 'unknown'));
+                });
+            }
 
             showPreview();
         } catch(e) {
@@ -4226,8 +4342,9 @@ const NbDialog = (() => {
             // raw codeblock source. md/raw use the file on disk unchanged.
             if (['html', 'docx', 'odt'].includes(fmt)) {
                 const title   = document.getElementById('nb-preview-title')?.textContent || filename;
-                const html    = _captureRenderedHtml();
-                const payload = JSON.stringify({ html, fmt, filename, title });
+                const html     = _captureRenderedHtml();
+                const notebook = selector?.split(':')[0] || '';
+                const payload  = JSON.stringify({ html, fmt, filename, title, notebook });
                 const headers = { 'Content-Type': 'application/json' };
                 const ACCEPT  = {
                     html: { 'text/html': ['.html'] },
@@ -4380,8 +4497,9 @@ const NbDialog = (() => {
             }
 
             const compiledHtml = parts.join('\n<hr>\n');
-            const title = filename.replace(/\.[^.]+$/, '');
-            const payload = JSON.stringify({ html: compiledHtml, fmt, filename, title });
+            const title    = filename.replace(/\.[^.]+$/, '');
+            const notebook = _bulkSelectors[0]?.split(':')[0] || '';
+            const payload  = JSON.stringify({ html: compiledHtml, fmt, filename, title, notebook });
 
             const ACCEPT = {
                 html: { 'text/html': ['.html'] },

@@ -122,12 +122,14 @@ def _fetch_weather() -> str:
 def _resolve_template_vars(text: str, title: str = '', tags: str = '', content: str = '') -> str:
     """Resolve {{placeholders}} in a template before note creation.
 
-    Handled vars: {{title}}, {{tags}}, {{content}}, {{date}}, {{day}},
-    {{time}}, {{weather}} ({{weather}} triggers a wttr.in fetch only if present).
+    Handled vars: {{title}}, {{input}} (alias for title — whatever the user
+    typed in the title/input field), {{tags}}, {{content}}, {{date}}, {{day}},
+    {{time}}, {{weather}} (triggers a wttr.in fetch only if present).
     """
     now = datetime.now()
     subs = {
         '{{title}}':   title,
+        '{{input}}':   title,   # same value — name signals "inject the user's input here"
         '{{tags}}':    tags,
         '{{content}}': content,
         '{{date}}':    now.strftime('%Y-%m-%d'),
@@ -391,6 +393,17 @@ def api_templates():
                 'scope':   scope,
                 'preview': preview,
             })
+    # Also include any .export.template.html files (notebook overrides global)
+    for scope, loc in [('local',  NB_DIR / notebook / '.export.template.html'),
+                        ('global', NB_DIR / '.export.template.html')]:
+        if loc.exists() and str(loc) not in seen:
+            seen.add(str(loc))
+            templates.append({
+                'name':          '.export.template.html',
+                'path':          str(loc),
+                'scope':         scope,
+                'template_type': 'export_html',
+            })
     return jsonify({'templates': templates})
 
 
@@ -499,6 +512,141 @@ def api_delete_template():
         return jsonify({'error': 'not found'}), 404
     tpath.unlink()
     return jsonify({'success': True})
+
+
+# ---------------------------------------------------------------------------
+# API: HTML export templates (.export.template.html)
+# ---------------------------------------------------------------------------
+
+# Default starter template — modern grayscale + indigo accent
+_EXPORT_TEMPLATE_STARTER = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{title}}</title>
+  <style>
+    :root {
+      --text:         #1a1a1a;
+      --text-muted:   #6b7280;
+      --bg:           #ffffff;
+      --bg-alt:       #f7f7f8;
+      --border:       #e5e7eb;
+      --accent:       #6366f1;
+      --accent-light: #eef2ff;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.75;
+      color: var(--text);
+      background: var(--bg);
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 52px 36px;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      font-weight: 600;
+      line-height: 1.3;
+      color: #111;
+      margin: 1.8em 0 0.5em;
+    }
+    h1 { font-size: 2em;   border-bottom: 2px solid var(--accent); padding-bottom: 0.3em; }
+    h2 { font-size: 1.4em; color: #222; }
+    h3 { font-size: 1.15em; }
+    h1:first-child, h2:first-child, h3:first-child { margin-top: 0; }
+    p { margin: 0.8em 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    strong { font-weight: 600; }
+    em     { font-style: italic; }
+    code {
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.875em;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    pre {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      padding: 14px 18px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 1em 0;
+    }
+    pre code { background: none; border: none; padding: 0; font-size: 0.9em; }
+    blockquote {
+      margin: 1em 0;
+      padding: 0.6em 1.2em;
+      border-left: 3px solid var(--accent);
+      background: var(--accent-light);
+      color: var(--text-muted);
+      border-radius: 0 6px 6px 0;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.93em; }
+    th {
+      background: var(--accent);
+      color: #fff;
+      padding: 8px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    td { border-bottom: 1px solid var(--border); padding: 8px 14px; }
+    tr:nth-child(even) td { background: var(--bg-alt); }
+    img { max-width: 100%; border-radius: 6px; display: block; margin: 1em 0; }
+    hr  { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+    ul, ol { padding-left: 1.5em; margin: 0.6em 0; }
+    li { margin: 0.25em 0; }
+    /* nb codeblock headers */
+    .nb-hl-header, .nb-tw-block > *:first-child {
+      font-size: 0.78em; color: var(--text-muted); margin-bottom: 4px;
+    }
+    @media print {
+      body { padding: 0; max-width: none; }
+      a { color: inherit; }
+      pre { border-left-color: #888; }
+      h1  { border-bottom-color: #888; }
+    }
+  </style>
+</head>
+<body>
+{{content}}
+</body>
+</html>
+"""
+
+
+def _find_export_template(notebook: str = '') -> str | None:
+    """Return .export.template.html content; notebook-level overrides global."""
+    if notebook:
+        local = NB_DIR / notebook / '.export.template.html'
+        if local.exists():
+            return local.read_text(errors='replace')
+    global_ = NB_DIR / '.export.template.html'
+    if global_.exists():
+        return global_.read_text(errors='replace')
+    return None
+
+
+@app.route('/api/export-template', methods=['POST'])
+def api_create_export_template():
+    """Create a starter .export.template.html at global or notebook scope."""
+    data     = request.get_json() or {}
+    scope    = data.get('scope', 'global')
+    notebook = data.get('notebook', '').strip()
+    dest = (NB_DIR / notebook / '.export.template.html'
+            if scope == 'local' and notebook
+            else NB_DIR / '.export.template.html')
+    if dest.exists():
+        return jsonify({'error': 'already exists', 'path': str(dest)}), 409
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(_EXPORT_TEMPLATE_STARTER, encoding='utf-8')
+    return jsonify({'success': True, 'path': str(dest)})
 
 
 # ---------------------------------------------------------------------------
@@ -2324,12 +2472,17 @@ def api_export_html():
     fmt      = data.get('fmt', 'html').lower()
     filename = data.get('filename', 'export')
     title    = data.get('title', filename.rsplit('.', 1)[0] if '.' in filename else filename)
+    notebook = data.get('notebook', '').strip()
 
     if not html:
         return jsonify({'error': 'html required'}), 400
 
-    # Wrap in a clean standalone document (same CSS as the print path)
-    full_html = f'''<!DOCTYPE html>
+    # Use .export.template.html if present, else built-in fallback
+    tmpl = _find_export_template(notebook)
+    if tmpl:
+        full_html = tmpl.replace('{{content}}', html).replace('{{title}}', title)
+    else:
+        full_html = f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>{title}</title>
 <style>
   body {{ font-family: Georgia, serif; max-width: 800px; margin: 2cm auto; color: #000; font-size: 12pt; }}
