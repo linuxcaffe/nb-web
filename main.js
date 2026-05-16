@@ -4488,7 +4488,7 @@ const NbDialog = (() => {
                 saveBtn.textContent = `Rendering ${i + 1} / ${selectors.length}…`;
                 const result = await NbMain.renderNoteHtml(selectors[i]);
                 if (result) {
-                    parts.push(`<h1>${result.title}</h1>${result.html}`);
+                    parts.push(result.html);
                 }
             }
 
