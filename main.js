@@ -3547,6 +3547,37 @@ const NbMain = (() => {
         }, true);
     }
 
+    // Fetch a note, render it (including tw/hl/csv codeblocks) in an off-screen
+    // container, and return { title, html } with interactive controls stripped.
+    // Used by bulk export to produce rendered output for each selected note.
+    async function _renderNoteHtml(selector) {
+        try {
+            const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
+            if (!r.ok) return null;
+            const d = await r.json();
+            if (d.body == null) return null;
+
+            const container = document.createElement('div');
+            container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;visibility:hidden;pointer-events:none';
+            document.body.appendChild(container);
+
+            const inner = document.createElement('div');
+            inner.className = 'nb-rendered';
+            inner.innerHTML = _renderMarkdown(d.body);
+            container.appendChild(inner);
+
+            _renderCsvBlocks(container);
+            await _renderTwBlocks(container);
+            await _renderHledgerBlocks(container);
+
+            const clone = container.cloneNode(true);
+            document.body.removeChild(container);
+            clone.querySelectorAll('button, form, .nb-spin').forEach(el => el.remove());
+
+            return { title: d.title || d.filename || selector, html: clone.innerHTML };
+        } catch { return null; }
+    }
+
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
              doSync, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
@@ -3561,7 +3592,8 @@ const NbMain = (() => {
              activeFilename: () => _activeFilename,
              selectedSelectors: () => _selectedSelectors,
              clearSelection: _clearSelection,
-             deselect: sel => { _selectedSelectors.delete(sel); _updateSelectionUI(); } };
+             deselect: sel => { _selectedSelectors.delete(sel); _updateSelectionUI(); },
+             renderNoteHtml: _renderNoteHtml };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────
@@ -4265,43 +4297,114 @@ const NbDialog = (() => {
 
         const infoEl = document.createElement('p');
         infoEl.className = 'nb-dlg-info';
-        infoEl.textContent = `${count} note${count !== 1 ? 's' : ''} will be compiled into one Markdown document.`;
+        infoEl.textContent = `${count} note${count !== 1 ? 's' : ''} compiled into one document.`;
 
+        // Row 1: Filename
         const nameInput = document.createElement('input');
         nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
         nameInput.value = 'nb-export.md';
         const nameRow = _row('Filename:', nameInput);
 
+        // Row 2: Format + Export + Cancel
+        const fmtSel = document.createElement('select');
+        fmtSel.className = 'nb-scope-select';
+        [['md','Markdown (.md)'], ['html','HTML (.html)'], ['docx','Word (.docx)'], ['odt','ODT (.odt)']].forEach(([v, l]) => {
+            const opt = document.createElement('option'); opt.value = v; opt.textContent = l;
+            fmtSel.appendChild(opt);
+        });
+        const EXT = { md: '.md', html: '.html', docx: '.docx', odt: '.odt' };
+        fmtSel.addEventListener('change', () => {
+            const base = nameInput.value.replace(/\.[^.]+$/, '');
+            nameInput.value = base + EXT[fmtSel.value];
+        });
+
         const saveBtn = document.createElement('button');
         saveBtn.className = 'nb-tool-btn nb-btn-primary'; saveBtn.textContent = `Export ${count}`;
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
-        const btnRow = document.createElement('div');
-        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
-        btnRow.append(saveBtn, cancelBtn);
+        const spacer = document.createElement('span'); spacer.className = 'nb-spacer';
+        const fmtRow = document.createElement('div');
+        fmtRow.className = 'nb-dlg-row';
+        fmtRow.append(fmtSel, spacer, saveBtn, cancelBtn);
         cancelBtn.addEventListener('click', close);
 
         saveBtn.addEventListener('click', async () => {
-            const filename = nameInput.value.trim() || 'nb-export.md';
-            const payload  = JSON.stringify({ selectors: _bulkSelectors });
+            const fmt      = fmtSel.value;
+            const filename = nameInput.value.trim() || ('nb-export' + EXT[fmt]);
             const headers  = { 'Content-Type': 'application/json' };
+
+            if (fmt === 'md') {
+                // Server-side raw-file compilation (existing path)
+                const payload = JSON.stringify({ selectors: _bulkSelectors });
+                const ACCEPT  = { 'text/markdown': ['.md'] };
+                if (window.showSaveFilePicker) {
+                    try {
+                        const handle = await window.showSaveFilePicker({
+                            suggestedName: filename,
+                            types: [{ description: 'Markdown', accept: ACCEPT }],
+                        });
+                        saveBtn.textContent = 'Exporting…'; saveBtn.disabled = true;
+                        const resp = await fetch('/api/note/export-bulk', { method: 'POST', headers, body: payload });
+                        if (!resp.ok) throw new Error(await resp.text());
+                        const writable = await handle.createWritable();
+                        await resp.body.pipeTo(writable);
+                        await writable.close();
+                        close(); return;
+                    } catch (e) { if (e.name === 'AbortError') return; }
+                }
+                saveBtn.textContent = 'Exporting…'; saveBtn.disabled = true;
+                const resp = await fetch('/api/note/export-bulk', { method: 'POST', headers, body: payload });
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob); a.download = filename;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a); URL.revokeObjectURL(a.href);
+                close(); return;
+            }
+
+            // html / docx / odt: render each note client-side (fires tw/hl/csv queries)
+            // then compile into one HTML document and convert via /api/export-html
+            saveBtn.disabled = true;
+            const selectors = _bulkSelectors;
+            const parts = [];
+            for (let i = 0; i < selectors.length; i++) {
+                saveBtn.textContent = `Rendering ${i + 1} / ${selectors.length}…`;
+                const result = await NbMain.renderNoteHtml(selectors[i]);
+                if (result) {
+                    parts.push(`<h1>${result.title}</h1>${result.html}`);
+                }
+            }
+
+            if (!parts.length) {
+                alert('Nothing to export.'); saveBtn.textContent = `Export ${count}`; saveBtn.disabled = false; return;
+            }
+
+            const compiledHtml = parts.join('\n<hr>\n');
+            const title = filename.replace(/\.[^.]+$/, '');
+            const payload = JSON.stringify({ html: compiledHtml, fmt, filename, title });
+
+            const ACCEPT = {
+                html: { 'text/html': ['.html'] },
+                docx: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] },
+                odt:  { 'application/vnd.oasis.opendocument.text': ['.odt'] },
+            };
             if (window.showSaveFilePicker) {
                 try {
                     const handle = await window.showSaveFilePicker({
                         suggestedName: filename,
-                        types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }],
+                        types: [{ description: filename, accept: ACCEPT[fmt] }],
                     });
-                    saveBtn.textContent = 'Exporting…'; saveBtn.disabled = true;
-                    const resp = await fetch('/api/note/export-bulk', { method: 'POST', headers, body: payload });
+                    saveBtn.textContent = 'Converting…';
+                    const resp = await fetch('/api/export-html', { method: 'POST', headers, body: payload });
                     if (!resp.ok) throw new Error(await resp.text());
                     const writable = await handle.createWritable();
                     await resp.body.pipeTo(writable);
                     await writable.close();
                     close(); return;
-                } catch (e) { if (e.name === 'AbortError') return; }
+                } catch (e) { if (e.name === 'AbortError') { saveBtn.textContent = `Export ${count}`; saveBtn.disabled = false; return; } }
             }
-            saveBtn.textContent = 'Exporting…'; saveBtn.disabled = true;
-            const resp = await fetch('/api/note/export-bulk', { method: 'POST', headers, body: payload });
+            saveBtn.textContent = 'Converting…';
+            const resp = await fetch('/api/export-html', { method: 'POST', headers, body: payload });
             const blob = await resp.blob();
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob); a.download = filename;
@@ -4310,7 +4413,7 @@ const NbDialog = (() => {
             close();
         });
 
-        body.append(infoEl, nameRow, btnRow);
+        body.append(infoEl, nameRow, fmtRow);
         nameInput.focus(); nameInput.select();
     }
 
