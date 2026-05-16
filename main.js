@@ -4127,6 +4127,16 @@ const NbDialog = (() => {
         body.append(fileInput, destRow, fileListEl, annRow, pathRow, btnRow);
     }
 
+    // Capture the rendered preview DOM, stripping interactive controls
+    // (buttons, forms, spinners) that don't belong in an exported document.
+    function _captureRenderedHtml() {
+        const src = document.getElementById('nb-preview-content');
+        if (!src) return '';
+        const clone = src.cloneNode(true);
+        clone.querySelectorAll('button, form, .nb-spin').forEach(el => el.remove());
+        return clone.innerHTML;
+    }
+
     // ── Export tab ─────────────────────────────────────────────
     function _renderExport() {
         if (_bulkSelectors?.length) { _renderExportBulk(); return; }
@@ -4178,16 +4188,51 @@ const NbDialog = (() => {
             const fmt = fmtSel.value;
             if (fmt === 'print') { close(); NbMain.doPrint(); return; }
             const filename = nameInput.value.trim() || 'export';
-            const url = fmt === 'raw'
-                ? `/api/file?selector=${encodeURIComponent(selector)}`
-                : `/api/export?selector=${encodeURIComponent(selector)}&fmt=${fmt}`;
-            if (window.showSaveFilePicker) {
-                const ACCEPT = {
-                    md:   { 'text/markdown': ['.md'] },
+
+            // html/docx/odt: export the rendered preview DOM so codeblock
+            // output (tw tables, hledger reports, etc.) is included, not the
+            // raw codeblock source. md/raw use the file on disk unchanged.
+            if (['html', 'docx', 'odt'].includes(fmt)) {
+                const title   = document.getElementById('nb-preview-title')?.textContent || filename;
+                const html    = _captureRenderedHtml();
+                const payload = JSON.stringify({ html, fmt, filename, title });
+                const headers = { 'Content-Type': 'application/json' };
+                const ACCEPT  = {
                     html: { 'text/html': ['.html'] },
                     docx: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] },
                     odt:  { 'application/vnd.oasis.opendocument.text': ['.odt'] },
                 };
+                if (window.showSaveFilePicker) {
+                    try {
+                        const handle = await window.showSaveFilePicker({
+                            suggestedName: filename,
+                            types: [{ description: filename, accept: ACCEPT[fmt] }],
+                        });
+                        saveBtn.textContent = 'Saving…'; saveBtn.disabled = true;
+                        const resp = await fetch('/api/export-html', { method: 'POST', headers, body: payload });
+                        if (!resp.ok) throw new Error(await resp.text());
+                        const writable = await handle.createWritable();
+                        await resp.body.pipeTo(writable);
+                        await writable.close();
+                        close(); return;
+                    } catch (e) { if (e.name === 'AbortError') return; }
+                }
+                saveBtn.textContent = 'Saving…'; saveBtn.disabled = true;
+                const resp = await fetch('/api/export-html', { method: 'POST', headers, body: payload });
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob); a.download = filename;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a); URL.revokeObjectURL(a.href);
+                close(); return;
+            }
+
+            // md / raw: stream the file straight from disk
+            const url = fmt === 'raw'
+                ? `/api/file?selector=${encodeURIComponent(selector)}`
+                : `/api/export?selector=${encodeURIComponent(selector)}&fmt=${fmt}`;
+            if (window.showSaveFilePicker) {
+                const ACCEPT = { md: { 'text/markdown': ['.md'] } };
                 try {
                     const types = ACCEPT[fmt] ? [{ description: filename, accept: ACCEPT[fmt] }] : [];
                     const handle = await window.showSaveFilePicker({ suggestedName: filename, ...(types.length && { types }) });

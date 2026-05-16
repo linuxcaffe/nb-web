@@ -2315,6 +2315,73 @@ def api_export():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/export-html', methods=['POST'])
+def api_export_html():
+    """Export the rendered preview HTML (with codeblock output) to html/docx/odt."""
+    import io, tempfile
+    data     = request.get_json() or {}
+    html     = data.get('html', '')
+    fmt      = data.get('fmt', 'html').lower()
+    filename = data.get('filename', 'export')
+    title    = data.get('title', filename.rsplit('.', 1)[0] if '.' in filename else filename)
+
+    if not html:
+        return jsonify({'error': 'html required'}), 400
+
+    # Wrap in a clean standalone document (same CSS as the print path)
+    full_html = f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>{title}</title>
+<style>
+  body {{ font-family: Georgia, serif; max-width: 800px; margin: 2cm auto; color: #000; font-size: 12pt; }}
+  h1,h2,h3 {{ margin-top: 1.4em; }}
+  pre, code {{ font-family: monospace; font-size: 0.88em; background: #f4f4f4; padding: 2px 4px; border-radius: 3px; }}
+  pre {{ padding: 10px; overflow-x: auto; }}
+  table {{ border-collapse: collapse; width: 100%; }}
+  th, td {{ border: 1px solid #ccc; padding: 4px 8px; text-align: left; }}
+  img {{ max-width: 100%; }}
+  a {{ color: #2255aa; }}
+</style></head><body>{html}</body></html>'''
+
+    if fmt == 'html':
+        buf = io.BytesIO(full_html.encode('utf-8'))
+        return send_file(buf, as_attachment=True,
+                         download_name=filename, mimetype='text/html')
+
+    FORMAT_MAP = {
+        'docx': ('.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+        'odt':  ('.odt',  'application/vnd.oasis.opendocument.text'),
+    }
+    if fmt not in FORMAT_MAP:
+        return jsonify({'error': f'unsupported format: {fmt}'}), 400
+
+    suffix, mimetype = FORMAT_MAP[fmt]
+    tmp_in = tmp_out = None
+    try:
+        tmp_in_fd, tmp_in_str = tempfile.mkstemp(suffix='.html')
+        with os.fdopen(tmp_in_fd, 'w', encoding='utf-8') as f:
+            f.write(full_html)
+        tmp_in = Path(tmp_in_str)
+
+        tmp_out_fd, tmp_out_str = tempfile.mkstemp(suffix=suffix)
+        os.close(tmp_out_fd)
+        tmp_out = Path(tmp_out_str)
+
+        r = subprocess.run(
+            ['pandoc', str(tmp_in), '-f', 'html', '-t', fmt, '-o', str(tmp_out), '--standalone'],
+            capture_output=True, timeout=30)
+        if r.returncode != 0:
+            return jsonify({'error': r.stderr.decode(errors='replace')}), 500
+
+        data_bytes = tmp_out.read_bytes()
+        return send_file(io.BytesIO(data_bytes), as_attachment=True,
+                         download_name=filename, mimetype=mimetype)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if tmp_in:  tmp_in.unlink(missing_ok=True)
+        if tmp_out: tmp_out.unlink(missing_ok=True)
+
+
 def _slug(text):
     """ASCII slug from arbitrary text."""
     text = unicodedata.normalize('NFKD', str(text)).encode('ascii', 'ignore').decode()
