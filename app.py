@@ -67,6 +67,8 @@ _SETTINGS_SCHEMA = {
                             str(k): str(Path(os.path.expanduser(str(p))).resolve())
                             for k, p in (v.items() if isinstance(v, dict) else {}.items())
                         }},
+    'default_git_remote': {'type': str, 'default': '',
+                            'coerce': lambda v: str(v).strip()},
 }
 
 def _load_settings():
@@ -2265,6 +2267,57 @@ def api_nb_git_log():
         return jsonify({'output': header + (r.stdout or '(no commits)'), 'notebook': notebook})
     except Exception as e:
         return jsonify({'error': str(e)})
+
+
+@app.route('/api/nb/git-wire', methods=['POST'])
+def api_nb_git_wire():
+    """Configure default remote for all unremoted nb notebooks, branch = notebook name."""
+    cfg = _load_settings()
+    default_remote = cfg.get('default_git_remote', '').strip()
+    if not default_remote:
+        return jsonify({'error': 'No default_git_remote set. Add it in Settings → Git.'})
+
+    env = {**os.environ, 'GIT_PAGER': 'cat', 'NO_COLOR': '1'}
+    try:
+        notebooks = sorted(
+            d for d in NB_DIR.iterdir()
+            if d.is_dir() and not d.name.startswith('.') and (d / '.git').exists()
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+    results = []
+    for nb_path in notebooks:
+        name = nb_path.name
+        remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                                  cwd=str(nb_path), timeout=5, env=env)
+        if remote_r.stdout.strip():
+            url_r = subprocess.run(['git', 'remote', 'get-url', 'origin'],
+                                   capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+            results.append({'notebook': name, 'status': 'skip',
+                            'message': f'already configured → {url_r.stdout.strip()}'})
+            continue
+
+        add_r = subprocess.run(['git', 'remote', 'add', 'origin', default_remote],
+                               capture_output=True, text=True, cwd=str(nb_path), timeout=10, env=env)
+        if add_r.returncode != 0:
+            results.append({'notebook': name, 'status': 'error', 'message': add_r.stderr.strip()})
+            continue
+
+        push_r = subprocess.run(
+            ['git', 'push', '--set-upstream', 'origin', name],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=60, env=env,
+        )
+        if push_r.returncode == 0:
+            results.append({'notebook': name, 'status': 'ok',
+                            'message': f'wired → {default_remote}  (branch: {name})'})
+        else:
+            subprocess.run(['git', 'remote', 'remove', 'origin'], capture_output=True,
+                           cwd=str(nb_path), env=env)
+            results.append({'notebook': name, 'status': 'error',
+                            'message': (push_r.stderr or push_r.stdout).strip()})
+
+    return jsonify({'results': results})
 
 
 # ---------------------------------------------------------------------------

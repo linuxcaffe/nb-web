@@ -3378,6 +3378,21 @@ const NbMain = (() => {
         }
     }
 
+    async function showNbGitWire() {
+        _showPreviewLoading();
+        try {
+            const d = await fetch('/api/nb/git-wire', { method: 'POST' }).then(r => r.json());
+            if (d.error) { _showCmdOutput('wire remotes', d.error); return; }
+            const lines = (d.results || []).map(r => {
+                const icon = r.status === 'ok' ? '✓' : r.status === 'skip' ? '·' : '✗';
+                return `${icon}  ${r.notebook.padEnd(16)}  ${r.message}`;
+            });
+            _showCmdOutput('wire remotes', lines.join('\n') || '(no notebooks found)');
+        } catch(e) {
+            _showCmdOutput('wire remotes', String(e));
+        }
+    }
+
     async function showNbGitLog() {
         const nb = (!NbNav.notebook || NbNav.notebook === '_all') ? 'home' : NbNav.notebook;
         _showPreviewLoading();
@@ -4290,7 +4305,7 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
-             doSync, showNbGitLog, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
+             doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
              importFiles: (files, nb, folder) => _importFiles(files, nb, folder),
              importPaths: (paths, nb, folder) => _importPaths(paths, nb, folder),

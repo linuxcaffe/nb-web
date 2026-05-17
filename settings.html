@@ -153,6 +153,20 @@
   </div>
 </section>
 
+<!-- ── Git ──────────────────────────────────────────────────────── -->
+<section id="sec-git">
+  <h2>Git</h2>
+  <div class="field">
+    <label for="default-git-remote">Default remote URL</label>
+    <input type="text" id="default-git-remote" placeholder="git@github.com:you/nb-notes.git" autocomplete="off">
+    <p class="hint">Used by <strong>Git &rsaquo; wire remotes</strong>. Each notebook is pushed to this remote on a branch named after itself — one repo, one branch per notebook. Leave blank to skip.</p>
+  </div>
+  <div class="row">
+    <button class="save-btn" id="save-git">Save</button>
+    <span class="status" id="status-git"></span>
+  </div>
+</section>
+
 <!-- ── Appearance ───────────────────────────────────────────────── -->
 <section id="sec-appearance">
   <h2>Appearance</h2>
@@ -269,6 +283,7 @@
       document.getElementById('pty-init').value         = d.pty_init         || '';
       document.getElementById('import-max-mb').value    = d.import_max_mb    || 25;
       document.getElementById('import-max-files').value = d.import_max_files || 20;
+      document.getElementById('default-git-remote').value = d.default_git_remote || '';
     } catch(e) {
       console.error('Failed to load nb-web settings', e);
     }
@@ -284,6 +299,7 @@
       pty_init:         document.getElementById('pty-init').value,
       import_max_mb:    parseInt(document.getElementById('import-max-mb').value)    || 25,
       import_max_files: parseInt(document.getElementById('import-max-files').value) || 20,
+      default_git_remote: document.getElementById('default-git-remote').value.trim(),
     };
     const patch = {};
     keys.forEach(k => { patch[k] = all[k]; });
@@ -310,6 +326,8 @@
     saveNbWebSettings(['pty_height', 'pty_cwd', 'pty_init'], 'status-terminal'));
   document.getElementById('save-import').addEventListener('click', () =>
     saveNbWebSettings(['import_max_mb', 'import_max_files'], 'status-import'));
+  document.getElementById('save-git').addEventListener('click', () =>
+    saveNbWebSettings(['default_git_remote'], 'status-git'));
 
   // ── Load nb CLI settings (read-only) ──────────────────────────
   async function loadNbSettings() {

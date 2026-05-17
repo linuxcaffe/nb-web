@@ -1083,7 +1083,8 @@ const NbNav = (() => {
             shut();
             if (_UI_CMDS.has(cmd))      activateCmd(cmd);
             else if (cmd === 'sync')    NbMain.doSync();
-            else if (cmd === 'git-log') NbMain.showNbGitLog();
+            else if (cmd === 'git-log')  NbMain.showNbGitLog();
+            else if (cmd === 'git-wire') NbMain.showNbGitWire();
             else if (cmd === 'about')   NbMain.showAbout();
             else if (cmd === 'restart') _restartServer();
             else if (cmd === 'import')      NbDialog.open('import');
@@ -1125,10 +1126,11 @@ const NbNav = (() => {
             { label: 'Export',  cmd: 'export' },
             { label: 'History', cmd: 'history' },
             { label: 'Git', items: [
-                { label: 'log',    cmd: 'git-log' },
-                { label: 'remote', cmd: 'remote' },
-                { label: 'status', cmd: 'status' },
-                { label: 'sync',   cmd: 'sync' },
+                { label: 'log',          cmd: 'git-log' },
+                { label: 'remote',       cmd: 'remote' },
+                { label: 'status',       cmd: 'status' },
+                { label: 'sync',         cmd: 'sync' },
+                { label: 'wire remotes', cmd: 'git-wire' },
             ]},
             { label: 'Notebooks', items: [
                 { label: 'use', cmd: 'notebooks' },
