@@ -1196,26 +1196,46 @@ const NbMain = (() => {
     }
 
     async function _loadTwBlock(el) {
-        const q = el.dataset.query || '';
+        const rawQ     = el.dataset.query || '';
+        const colMatch = rawQ.match(/\bcolumns:(\S+)/i);
+        const colSpec  = colMatch ? colMatch[1].split(',').map(s => s.trim().toLowerCase()) : null;
+        const q        = rawQ.replace(/\bcolumns:\S+/gi, '').trim();
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(d.error)}</span>`; return; }
-            _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q);
+            _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q, colSpec);
         } catch(e) {
             el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(e.message)}</span>`;
         }
     }
 
-    function _buildTwTable(el, tasks, q) {
+    function _buildTwTable(el, tasks, q, colSpec) {
         const todayYmd = _localDateStr().replace(/-/g,'');
         const soonYmd  = _localDateStr(3).replace(/-/g,'');
         const fmtDate  = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
         const priLabel = { H: '▲', M: '●', L: '▽' };
         const priCls   = { H: 'nb-tw-pri-h', M: 'nb-tw-pri-m', L: 'nb-tw-pri-l' };
         const priDisplay = p => p ? (priLabel[p] || _esc(String(p))) : '';
-        const hasPri   = tasks.some(t => t.priority);
+
+        // Column visibility: colSpec overrides; otherwise auto-hide empty columns
+        const has = colSpec
+            ? {
+                project:  colSpec.some(c => ['proj','project'].includes(c)),
+                priority: colSpec.some(c => ['pri','priority'].includes(c)),
+                due:      colSpec.includes('due'),
+                tags:     colSpec.includes('tags'),
+              }
+            : {
+                project:  tasks.some(t => t.project),
+                priority: tasks.some(t => t.priority),
+                due:      tasks.some(t => t.due),
+                tags:     tasks.some(t => t.tags?.length),
+              };
+
+        // ✓ + ID + Desc + optional cols + ▶
+        const colspan = 4 + (has.project ? 1 : 0) + (has.priority ? 1 : 0) + (has.due ? 1 : 0) + (has.tags ? 1 : 0);
 
         const rowUrgencyCls = t => {
             if (t.start) return 'nb-tw-row-started';
@@ -1229,7 +1249,6 @@ const NbMain = (() => {
         const metaHtml = cnt =>
             `${cnt} task${cnt !== 1 ? 's' : ''}${q ? ` · <code>${_esc(q)}</code>` : ''}`;
 
-        // Header via DOM so event wiring is clean
         el.innerHTML = '';
         const hdr = document.createElement('div');
         hdr.className = 'nb-tw-header';
@@ -1255,21 +1274,20 @@ const NbMain = (() => {
 
         if (!tasks.length) return;
 
-        const colspan = hasPri ? 8 : 7;
-
         const rows = tasks.map(t => {
             const due = t.due ? t.due.slice(0,8) : '';
             const dueCls = due && due < todayYmd ? ' nb-tw-overdue' : due && due <= soonYmd ? ' nb-tw-soon' : '';
             const isPending = !t.status || t.status === 'pending';
             const statusGlyph = t.status === 'completed' ? '✓' : t.status === 'deleted' ? '✗' : '';
+            const idLabel = isPending ? (t.id || '') : statusGlyph;
             return `<tr class="${rowUrgencyCls(t)}" data-uuid="${_esc(t.uuid || '')}">
                 <td class="nb-tw-act">${isPending ? `<button class="nb-tw-btn nb-tw-done-btn" title="Mark done">✓</button>` : ''}</td>
-                <td class="nb-tw-id${isPending ? '' : ' nb-tw-id-status'}">${isPending ? (t.id || '') : statusGlyph}</td>
+                <td class="nb-tw-id"><button class="nb-tw-btn nb-tw-id-btn${isPending ? '' : ' nb-tw-id-status'}" title="Show info">${idLabel}</button></td>
                 <td class="nb-tw-desc">${_esc(t.description || '')}</td>
-                <td class="nb-tw-proj">${_esc(t.project || '')}</td>
-                ${hasPri ? `<td class="nb-tw-pri ${priCls[t.priority] || ''}">${priDisplay(t.priority)}</td>` : ''}
-                <td class="nb-tw-due${dueCls}">${fmtDate(t.due)}</td>
-                <td class="nb-tw-tags">${(t.tags || []).map(g => `<span class="nb-tw-tag">${_esc(g)}</span>`).join('')}</td>
+                ${has.project  ? `<td class="nb-tw-proj">${_esc(t.project || '')}</td>` : ''}
+                ${has.priority ? `<td class="nb-tw-pri ${priCls[t.priority] || ''}">${priDisplay(t.priority)}</td>` : ''}
+                ${has.due      ? `<td class="nb-tw-due${dueCls}">${fmtDate(t.due)}</td>` : ''}
+                ${has.tags     ? `<td class="nb-tw-tags">${(t.tags || []).map(g => `<span class="nb-tw-tag">${_esc(g)}</span>`).join('')}</td>` : ''}
                 <td class="nb-tw-act">${isPending ? `<button class="nb-tw-btn nb-tw-toggle-btn" data-started="${!!t.start}" title="${t.start ? 'Stop' : 'Start'}">${t.start ? '◼' : '▶'}</button>` : ''}</td>
             </tr>`;
         }).join('');
@@ -1277,9 +1295,45 @@ const NbMain = (() => {
         const tbl = document.createElement('table');
         tbl.className = 'nb-tw-table';
         tbl.innerHTML = `
-            <thead><tr><th></th><th>ID</th><th>Description</th><th>Project</th>${hasPri ? '<th>Pri</th>' : ''}<th>Due</th><th>Tags</th><th></th></tr></thead>
+            <thead><tr>
+                <th></th><th>ID</th><th>Description</th>
+                ${has.project  ? '<th>Project</th>'  : ''}
+                ${has.priority ? '<th>Pri</th>'      : ''}
+                ${has.due      ? '<th>Due</th>'      : ''}
+                ${has.tags     ? '<th>Tags</th>'     : ''}
+                <th></th>
+            </tr></thead>
             <tbody>${rows}</tbody>`;
         el.appendChild(tbl);
+
+        // ID button → inline task-info detail row (one open at a time)
+        el.querySelectorAll('.nb-tw-id-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const tr  = btn.closest('tr');
+                const uuid = tr?.dataset.uuid;
+                if (!uuid) return;
+
+                const openBtn    = el.querySelector('.nb-tw-id-btn[data-open]');
+                const openDetail = el.querySelector('.nb-tw-detail-row');
+                if (openDetail) openDetail.remove();
+                if (openBtn)    openBtn.removeAttribute('data-open');
+                if (openBtn === btn) return; // was already open — just close
+
+                btn.setAttribute('data-open', '1');
+                const detailTr = document.createElement('tr');
+                detailTr.className = 'nb-tw-detail-row';
+                detailTr.innerHTML = `<td colspan="${colspan}"><pre class="nb-tw-detail-pre">Loading…</pre></td>`;
+                tr.insertAdjacentElement('afterend', detailTr);
+
+                if (!btn._infoCache) {
+                    try {
+                        const d = await fetch(`/api/task-info?uuid=${encodeURIComponent(uuid)}`).then(r => r.json());
+                        btn._infoCache = d.output || '(no output)';
+                    } catch(e) { btn._infoCache = '⚠ ' + e.message; }
+                }
+                detailTr.querySelector('.nb-tw-detail-pre').textContent = btn._infoCache;
+            });
+        });
 
         el.querySelectorAll('.nb-tw-done-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -1292,10 +1346,11 @@ const NbMain = (() => {
                     body: JSON.stringify({uuid, action: 'done'}),
                 }).then(r => r.json());
                 if (d.success) {
+                    tr.nextElementSibling?.classList.contains('nb-tw-detail-row') && tr.nextElementSibling.remove();
                     tr.classList.add('nb-tw-row-done');
                     setTimeout(() => {
                         tr.remove();
-                        const remaining = el.querySelectorAll('tbody tr').length;
+                        const remaining = el.querySelectorAll('tbody tr:not(.nb-tw-detail-row)').length;
                         const meta = el.querySelector('.nb-tw-meta-inline');
                         if (meta) meta.innerHTML = metaHtml(remaining);
                         if (!remaining) el.querySelector('tbody').innerHTML =

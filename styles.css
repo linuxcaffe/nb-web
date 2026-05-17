@@ -1498,8 +1498,24 @@ body.nb-fullscreen #nb-cmd-bar::after {
 
 .nb-tw-all-done { text-align: center; color: var(--green); padding: 10px !important; font-size: 0.88em; }
 
-/* Non-pending status glyph */
-.nb-tw-id-status { color: var(--text-dim); text-align: center; font-size: 0.85em; }
+/* ID button — clickable, expands task-info detail row */
+.nb-tw-id-btn {
+  font-family: var(--font-mono); font-size: 0.9em;
+  color: var(--text-dim); padding: 0; min-width: 1.6em; text-align: right;
+}
+.nb-tw-id-btn:hover:not(:disabled) { color: var(--accent) !important; background: none; }
+.nb-tw-id-btn[data-open] { color: var(--accent) !important; }
+.nb-tw-id-status { color: var(--text-dim); font-size: 0.85em; }
+
+/* Task-info detail expansion row */
+.nb-tw-detail-row td { padding: 0 !important; border-bottom: 1px solid var(--border) !important; }
+.nb-tw-detail-pre {
+  margin: 0; padding: 8px 14px;
+  font-family: var(--font-mono); font-size: 0.78em;
+  color: var(--text-muted); background: var(--bg3);
+  white-space: pre-wrap; word-break: break-word;
+  border-top: 1px solid var(--border);
+}
 
 /* Header action buttons cluster */
 .nb-tw-header-acts { display: flex; gap: 3px; }
