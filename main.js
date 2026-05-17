@@ -1016,6 +1016,35 @@ const NbMain = (() => {
         }});
     }
 
+    // ── collapse toggle (generic, all codeblock types) ─────────────
+
+    function _collapseKey(block) {
+        const cls = [...block.classList].find(c => c.endsWith('-block')) || 'block';
+        const id  = block.dataset.cmd || block.dataset.query || block.dataset.period || '';
+        return `nb-collapse:${cls}:${id}`;
+    }
+
+    function _initCollapseToggle(block) {
+        const header = block.querySelector('[class*="-header"]');
+        if (!header || header.querySelector('.nb-collapse-btn')) return;
+        const key = _collapseKey(block);
+        const btn = document.createElement('button');
+        btn.className = 'nb-collapse-btn';
+        btn.setAttribute('aria-label', 'Toggle collapse');
+        header.insertBefore(btn, header.firstChild);
+        const apply = collapsed => {
+            block.classList.toggle('nb-collapsed', collapsed);
+            btn.textContent = collapsed ? '▶' : '▼';
+        };
+        apply(localStorage.getItem(key) === '1');
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const collapsed = !block.classList.contains('nb-collapsed');
+            apply(collapsed);
+            collapsed ? localStorage.setItem(key, '1') : localStorage.removeItem(key);
+        });
+    }
+
     // ── t timeclock codeblock ──────────────────────────────────────
 
     const _tTimers = new Map();
@@ -1034,6 +1063,7 @@ const NbMain = (() => {
     async function _loadTBlock(el) {
         const id = _tTimers.get(el);
         if (id) { clearInterval(id); _tTimers.delete(el); }
+        el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         const period = el.dataset.period || 'today';
         try {
@@ -1047,6 +1077,7 @@ const NbMain = (() => {
         } catch(e) {
             el.innerHTML = `<span class="nb-t-error">⚠ ${_esc(e.message)}</span>`;
         }
+        _initCollapseToggle(el);
     }
 
     function _buildTBlock(el, status, report, period) {
@@ -1210,6 +1241,7 @@ const NbMain = (() => {
         const colMatch = rawQ.match(/\bcolumns:(\S+)/i);
         const colSpec  = colMatch ? colMatch[1].split(',').map(s => s.trim().toLowerCase()) : null;
         const q        = rawQ.replace(/\bcolumns:\S+/gi, '').trim();
+        el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
@@ -1219,6 +1251,7 @@ const NbMain = (() => {
         } catch(e) {
             el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(e.message)}</span>`;
         }
+        _initCollapseToggle(el);
     }
 
     function _buildTwTable(el, tasks, q, colSpec) {
@@ -1490,6 +1523,7 @@ const NbMain = (() => {
         const parts = (el.dataset.cmd || '').trim().split(/\s+/);
         const cmd   = parts[0];
         const limit = parseInt(parts[1]) || 20;
+        el.classList.remove('nb-collapsed');
         if (cmd === 'notebooks') {
             el.innerHTML = '<span class="nb-spin">⟳</span>';
             try {
@@ -1514,6 +1548,7 @@ const NbMain = (() => {
         } else {
             el.innerHTML = `<span class="nb-nb-error">unknown nb command: ${_esc(cmd)}</span>`;
         }
+        _initCollapseToggle(el);
     }
 
     function _buildNbBacklinks(el, backlinks, title, limit = 20) {
@@ -1619,6 +1654,7 @@ const NbMain = (() => {
         const space = line.indexOf(' ');
         const repo  = space === -1 ? line : line.slice(0, space);
         const args  = space === -1 ? ''   : line.slice(space + 1).trim();
+        el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const d = await fetch(
@@ -1629,6 +1665,7 @@ const NbMain = (() => {
         } catch(e) {
             el.innerHTML = `<span class="nb-git-error">⚠ ${_esc(e.message)}</span>`;
         }
+        _initCollapseToggle(el);
     }
 
     function _buildGitOutput(el, text, repo, args) {
@@ -1656,6 +1693,7 @@ const NbMain = (() => {
 
     async function _loadHledgerBlock(el) {
         const q = el.dataset.query || '';
+        el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}`);
@@ -1736,6 +1774,7 @@ const NbMain = (() => {
 
         hdr.appendChild(acts);
         el.appendChild(hdr);
+        _initCollapseToggle(el);
     }
 
     function _showHledgerAddForm(el, q, trigger) {
