@@ -3370,10 +3370,23 @@ const NbMain = (() => {
                 body: JSON.stringify({notebook: NbNav.notebook}),
             });
             const d = await r.json();
-            if (!d.success) console.warn('sync stderr:', d.stderr);
-            else NbNav.reexecute();
+            const out = d.output || d.stderr || (d.success ? 'Sync complete.' : 'Sync failed.');
+            _showCmdOutput('sync', out);
+            if (d.success) NbNav.reexecute();
         } finally {
             if (btn) btn.classList.remove('nb-spin');
+        }
+    }
+
+    async function showNbGitLog() {
+        const nb = (!NbNav.notebook || NbNav.notebook === '_all') ? 'home' : NbNav.notebook;
+        _showPreviewLoading();
+        try {
+            const d = await fetch(`/api/nb/git-log?notebook=${encodeURIComponent(nb)}&n=30`)
+                          .then(r => r.json());
+            _showCmdOutput(`git log · ${nb}`, d.output || d.error || '(no output)');
+        } catch(e) {
+            _showCmdOutput('git log', String(e));
         }
     }
 
@@ -4277,7 +4290,7 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
-             doSync, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
+             doSync, showNbGitLog, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
              importFiles: (files, nb, folder) => _importFiles(files, nb, folder),
              importPaths: (paths, nb, folder) => _importPaths(paths, nb, folder),

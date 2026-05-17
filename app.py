@@ -2211,10 +2211,60 @@ def api_git_log():
 @app.route('/api/sync', methods=['POST'])
 def api_sync():
     data     = request.get_json() or {}
-    notebook = data.get('notebook', '')
-    args = ['sync'] if not notebook else [f'{notebook}:sync']
+    notebook = data.get('notebook', '').strip()
+
+    # Warn early if the target notebook has no remote configured
+    if notebook and notebook not in ('_all', ''):
+        nb_path = NB_DIR / notebook
+        if nb_path.is_dir() and (nb_path / '.git').exists():
+            try:
+                rr = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                                    cwd=str(nb_path), timeout=5)
+                if not rr.stdout.strip():
+                    return jsonify({
+                        'success': False, 'no_remote': True,
+                        'output': (
+                            f'No remote configured for notebook "{notebook}".\n\n'
+                            f'Notes are committed locally — nothing is lost.\n\n'
+                            f'To push to a remote, run:\n'
+                            f'  nb {notebook}:remote set <git-url>\n\n'
+                            f'Then sync again.'
+                        )
+                    })
+            except Exception:
+                pass
+
+    args = ['sync'] if not notebook or notebook == '_all' else [f'{notebook}:sync']
     r = run_nb(*args)
-    return jsonify({'success': nb_ok(r), 'output': strip_ansi(r['stdout']), 'stderr': r['stderr']})
+    return jsonify({'success': nb_ok(r), 'output': strip_ansi(r['stdout']),
+                    'stderr': strip_ansi(r['stderr'])})
+
+
+@app.route('/api/nb/git-log')
+def api_nb_git_log():
+    """Git log for a specific nb notebook."""
+    notebook = request.args.get('notebook', '').strip()
+    n        = min(int(request.args.get('n', 20)), 100)
+    if not notebook or notebook == '_all':
+        return jsonify({'error': 'Specify a notebook name'})
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir() or not (nb_path / '.git').exists():
+        return jsonify({'error': f'Notebook "{notebook}" not found or not a git repo'})
+    try:
+        env = {**os.environ, 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
+        r = subprocess.run(
+            ['git', 'log', f'-{n}', '--format=%h  %s  (%cr)'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=10, env=env,
+        )
+        remote_r = subprocess.run(
+            ['git', 'remote', '-v'], capture_output=True, text=True,
+            cwd=str(nb_path), timeout=5, env=env,
+        )
+        remote_info = remote_r.stdout.strip() or '(no remote configured)'
+        header = f'notebook: {notebook}  |  {remote_info}\n{"─" * 60}\n'
+        return jsonify({'output': header + (r.stdout or '(no commits)'), 'notebook': notebook})
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 
 # ---------------------------------------------------------------------------
@@ -3061,7 +3111,7 @@ def api_cmds():
 def api_run():
     cmd = request.args.get('cmd', '').strip()
     ALLOWED = {'info', 'weather', 'cal', 'daily', 'notebooks', 'version',
-               'status', 'plugins', 'import', 'export'}
+               'status', 'remote', 'plugins', 'import', 'export'}
     if cmd not in ALLOWED:
         return jsonify({'error': f'command not in allowed list: {cmd}'}), 400
     extra = []
