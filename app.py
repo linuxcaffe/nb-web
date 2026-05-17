@@ -2339,36 +2339,70 @@ def api_grep():
 
 @app.route('/api/nb/backlinks')
 def api_nb_backlinks():
-    """Find notes that contain a wiki-link to the given title."""
+    """Find notes that wiki-link to the given title, using ripgrep for speed."""
     title    = request.args.get('title', '').strip()
     self_sel = request.args.get('selector', '').strip()
+    limit    = min(int(request.args.get('limit', 20)), 100)
     if not title:
         return jsonify({'backlinks': []})
 
     pattern = f'[[{title}]]'
-    r = run_nb('search', pattern, '--all', '--list')
+    try:
+        proc = subprocess.run(
+            ['rg', '--fixed-strings', '-l',
+             '--glob=!.git', '--glob=!.index',
+             '--glob=!*.{jpg,jpeg,png,gif,pdf,mp4,mp3,wav,zip}',
+             pattern, str(NB_DIR)],
+            capture_output=True, text=True, timeout=15,
+        )
+        files = proc.stdout.splitlines()
+    except FileNotFoundError:
+        # rg not available — fall back to nb search
+        r = run_nb('search', pattern, '--all', '--list')
+        sel_pat = re.compile(r'^\[([^\]]+)\]\s+(.+)$')
+        backlinks, seen = [], set()
+        for line in strip_ansi(r['stdout']).splitlines():
+            m = sel_pat.match(line.strip())
+            if not m: continue
+            raw_sel   = m.group(1).strip()
+            hit_title = m.group(2).strip()
+            nb_part   = raw_sel.split(':')[0] if ':' in raw_sel else ''
+            selector  = raw_sel
+            if (self_sel and selector == self_sel) or selector in seen: continue
+            seen.add(selector)
+            backlinks.append({'selector': selector, 'notebook': nb_part, 'title': hit_title})
+            if len(backlinks) >= limit: break
+        return jsonify({'backlinks': backlinks})
 
-    sel_pat = re.compile(r'^\[([^\]]+)\]\s+(.+)$')
     backlinks, seen = [], set()
-    for line in strip_ansi(r['stdout']).splitlines():
-        m = sel_pat.match(line.strip())
-        if not m:
+    for filepath in files:
+        if len(backlinks) >= limit:
+            break
+        p = Path(filepath)
+        try:
+            rel     = p.relative_to(NB_DIR)
+            parts   = rel.parts
+            if len(parts) < 2:
+                continue
+            nb_name = parts[0]
+            fname   = parts[-1]
+            if fname.startswith('.'):
+                continue
+            # Build selector via .index for numeric ID
+            idx = read_index(nb_name)
+            selector = f"{nb_name}:{idx.index(fname) + 1}" if fname in idx else f"{nb_name}:{fname}"
+            if (self_sel and selector == self_sel) or selector in seen:
+                continue
+            seen.add(selector)
+            # Derive title from file
+            try:
+                _, body = parse_frontmatter(p.read_text(errors='replace'))
+                hit_title = note_title(fname, body)
+            except Exception:
+                hit_title = fname
+            backlinks.append({'selector': selector, 'notebook': nb_name, 'title': hit_title})
+        except Exception:
             continue
-        raw_sel   = m.group(1).strip()
-        hit_title = m.group(2).strip()
-        hit_title = re.sub(r'^[\U00010000-\U0010ffff✔✅📌🔖🔒📂🌄🔉📹📖📄︀-️]+\s*', '', hit_title).strip()
-        hit_title = re.sub(r'^\[[ x]\]\s*', '', hit_title).strip()
-        hit_title = re.sub(r'^[^·]+·\s*', '', hit_title).strip() if '·' in hit_title else hit_title
-
-        nb_part  = raw_sel.split(':')[0] if ':' in raw_sel else ''
-        selector = raw_sel if ':' in raw_sel else raw_sel
-
-        if self_sel and selector == self_sel:
-            continue
-        if selector in seen:
-            continue
-        seen.add(selector)
-        backlinks.append({'selector': selector, 'notebook': nb_part, 'title': hit_title})
 
     return jsonify({'backlinks': backlinks})
 

@@ -1482,7 +1482,9 @@ const NbMain = (() => {
     }
 
     async function _loadNbBlock(el) {
-        const cmd = (el.dataset.cmd || '').trim();
+        const parts = (el.dataset.cmd || '').trim().split(/\s+/);
+        const cmd   = parts[0];
+        const limit = parseInt(parts[1]) || 20;
         if (cmd === 'backlinks') {
             const title    = document.getElementById('nb-preview-title')?.textContent?.trim() || '';
             const selector = _activeSelector || '';
@@ -1490,9 +1492,9 @@ const NbMain = (() => {
             el.innerHTML = '<span class="nb-spin">⟳</span>';
             try {
                 const d = await fetch(
-                    `/api/nb/backlinks?title=${encodeURIComponent(title)}&selector=${encodeURIComponent(selector)}`
+                    `/api/nb/backlinks?title=${encodeURIComponent(title)}&selector=${encodeURIComponent(selector)}&limit=${limit}`
                 ).then(r => r.json());
-                _buildNbBacklinks(el, d.backlinks || [], title);
+                _buildNbBacklinks(el, d.backlinks || [], title, limit);
             } catch(e) {
                 el.innerHTML = `<span class="nb-nb-error">⚠ ${_esc(e.message)}</span>`;
             }
@@ -1501,11 +1503,12 @@ const NbMain = (() => {
         }
     }
 
-    function _buildNbBacklinks(el, backlinks, title) {
+    function _buildNbBacklinks(el, backlinks, title, limit = 20) {
         el.innerHTML = '';
         const hdr = document.createElement('div');
         hdr.className = 'nb-nb-header';
-        hdr.innerHTML = `<span class="nb-nb-meta">backlinks · <code>${_esc(title)}</code></span>`;
+        const countHint = backlinks.length === limit ? `top ${limit}` : backlinks.length;
+        hdr.innerHTML = `<span class="nb-nb-meta">backlinks · <code>${_esc(title)}</code> <span class="nb-nb-count">${countHint}</span></span>`;
 
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn';

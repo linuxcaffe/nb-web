@@ -1567,6 +1567,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-nb-meta { color: var(--text-dim); }
 .nb-nb-meta code { font-family: var(--font-mono); color: var(--accent); font-style: normal; }
+.nb-nb-count { color: var(--text-dim); font-size: 0.9em; }
 .nb-nb-empty { padding: 8px 12px; font-size: 0.85em; color: var(--text-dim); }
 .nb-nb-error { color: var(--red); font-size: 0.85em; padding: 6px 10px; display: block; }
 
