@@ -246,6 +246,12 @@ const NbMain = (() => {
                     body.appendChild(exc);
                 }
             }
+            if (note.annotation && !note.annotation_match) {
+                const annLine = document.createElement('div');
+                annLine.className = 'nb-list-ann-line';
+                annLine.textContent = note.annotation.split('\n')[0].slice(0, 120);
+                body.appendChild(annLine);
+            }
 
             if (pinBadge) li.appendChild(pinBadge);
             li.appendChild(icon);
@@ -4235,8 +4241,32 @@ const NbDialog = (() => {
                         importBtn.disabled = false; importBtn.textContent = 'Import';
                     }
                 } else if (_selFiles.length) {
+                    importBtn.textContent = 'Importing…';
+                    const nb = nbSel.value, folder = folderSel.value;
+                    const lines = [], selectors = [];
+                    for (const file of _selFiles) {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        fd.append('notebook', nb);
+                        if (folder) fd.append('folder', folder);
+                        try {
+                            const r = await fetch('/api/import', { method: 'POST', body: fd });
+                            const d = await r.json();
+                            lines.push(d.success ? `✓ ${file.name}` : `✗ ${file.name}: ${d.error || d.stderr || 'failed'}`);
+                            if (d.success && d.selector) selectors.push(d.selector);
+                        } catch(e) { lines.push(`✗ ${file.name}: ${e}`); }
+                    }
+                    if (ann && selectors.length) {
+                        await Promise.all(selectors.map(sel =>
+                            fetch(`/api/note/annotate?selector=${encodeURIComponent(sel)}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ content: ann }),
+                            }).catch(() => {})
+                        ));
+                    }
                     close();
-                    NbMain.importFiles(_selFiles, nbSel.value, folderSel.value);
+                    NbNav.reexecute();
                 }
             } catch(e) { importBtn.disabled = false; importBtn.textContent = 'Import'; }
         });
@@ -4245,6 +4275,7 @@ const NbDialog = (() => {
         linkActionBtn.addEventListener('click', async () => {
             const path = pathInput.value.trim();
             if (!path) { pathInput.focus(); return; }
+            const ann = annInput.value.trim();
             linkActionBtn.textContent = 'Linking…'; linkActionBtn.disabled = true;
             try {
                 const r = await fetch('/api/link-file', {
@@ -4253,8 +4284,19 @@ const NbDialog = (() => {
                     body: JSON.stringify({ path, notebook: nbSel.value }),
                 });
                 const d = await r.json();
-                if (d.success) { close(); NbNav.reexecute(); }
-                else { alert('Link failed: ' + (d.error || 'unknown')); linkActionBtn.textContent = 'Link file'; linkActionBtn.disabled = false; }
+                if (d.success) {
+                    if (ann && d.selector) {
+                        await fetch(`/api/note/annotate?selector=${encodeURIComponent(d.selector)}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ content: ann }),
+                        }).catch(() => {});
+                    }
+                    close(); NbNav.reexecute();
+                } else {
+                    alert('Link failed: ' + (d.error || 'unknown'));
+                    linkActionBtn.textContent = 'Link file'; linkActionBtn.disabled = false;
+                }
             } catch(e) { linkActionBtn.textContent = 'Link file'; linkActionBtn.disabled = false; }
         });
         pathInput.addEventListener('keydown', e => { if (e.key === 'Enter') linkActionBtn.click(); });
@@ -4262,13 +4304,13 @@ const NbDialog = (() => {
         linkBtn.addEventListener('click', () => {
             _linkMode = !_linkMode;
             linkBtn.classList.toggle('active', _linkMode);
-            linkBtn.title = _linkMode ? 'Switch to import (copy) mode' : 'Switch to symlink mode';
-            pathRow.hidden  = !_linkMode;
-            fileListEl.hidden = _linkMode;
-            annRow.hidden   = _linkMode;
-            importBtn.hidden    = _linkMode;
+            linkBtn.title        = _linkMode ? 'Switch to import (copy) mode' : 'Switch to symlink mode';
+            pathRow.hidden       = !_linkMode;
+            fileListEl.hidden    = _linkMode;
+            annRow.hidden        = !_linkMode && !_selFiles.length;
+            importBtn.hidden     = _linkMode;
             linkActionBtn.hidden = !_linkMode;
-            browseBtn.hidden = _linkMode;
+            browseBtn.hidden     = _linkMode;
             (_linkMode ? pathInput : annInput).focus();
         });
 

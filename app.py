@@ -1216,17 +1216,18 @@ def _list_notes(notebook, folder, limit):
             todo_status = 'closed' if first.startswith('# [x]') else 'open'
         sel_path = (folder + '/' if folder else '') + fname
         items.append({
-            'type':      itype,
-            'indicator': _indicator(itype, todo_status),
-            'id':        item_id,
-            'mtime':     fpath.stat().st_mtime,
-            'filename':  fname,
-            'title':     title,
-            'selector':  f"{notebook}:{sel_path}",
-            'excerpt':   excerpt,
-            'updated':   '',
-            'pinned':    meta.get('pinned', '') == 'true',
-            'status':    todo_status,
+            'type':       itype,
+            'indicator':  _indicator(itype, todo_status),
+            'id':         item_id,
+            'mtime':      fpath.stat().st_mtime,
+            'filename':   fname,
+            'title':      title,
+            'selector':   f"{notebook}:{sel_path}",
+            'excerpt':    excerpt,
+            'updated':    '',
+            'pinned':     meta.get('pinned', '') == 'true',
+            'status':     todo_status,
+            'annotation': _read_annotation(str(fpath)),
         })
         if len(items) >= limit:
             break
@@ -1359,18 +1360,19 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
                 todo_status = None
 
         items.append({
-            'selector':        sel,
-            'filename':        fname,
-            'title':           title,
-            'type':            itype,
-            'status':          todo_status,
-            'indicator':       _indicator(itype, todo_status),
-            'mtime':           mtime,
-            'excerpt':         excerpt,
-            'notebook':        nb_name,
-            'updated':         '',
-            'pinned':          False,
+            'selector':         sel,
+            'filename':         fname,
+            'title':            title,
+            'type':             itype,
+            'status':           todo_status,
+            'indicator':        _indicator(itype, todo_status),
+            'mtime':            mtime,
+            'excerpt':          excerpt,
+            'notebook':         nb_name,
+            'updated':          '',
+            'pinned':           False,
             'annotation_match': ann_match,
+            'annotation':       _read_annotation(str(fpath)),
         })
 
     return jsonify({'notes': items, 'total': len(items), 'query': tag_query})
@@ -1459,7 +1461,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
             break
 
         # Classify using actual filename so contacts/sheets get correct type
-        fname, _ = _resolve_fname(nb_part, raw_sel)
+        fname, fpath_r = _resolve_fname(nb_part, raw_sel)
         if fname:
             itype = classify(fname, nb_part)
         else:
@@ -1475,23 +1477,45 @@ def _search_notes(notebook, folder, query, limit, tags=None):
                 itype       = 'todo'
                 todo_status = 'closed' if ('[x]' in line or '✅' in line) else 'open'
 
-        try:
-            fmtime = (NB_DIR / nb_part / fname).stat().st_mtime if fname else 0
-        except OSError:
-            fmtime = 0
+        # Read file once to get both real title and excerpt.
+        # nb search --list may emit the filename (with extension) instead of the H1 title
+        # for filename-match results; reading the file directly avoids that.
+        real_title = None
+        excerpt    = ''
+        ann_text   = None
+        fmtime     = 0
+        if fname and fpath_r:
+            try:
+                fmtime = fpath_r.stat().st_mtime
+            except OSError:
+                pass
+            ann_text = _read_annotation(str(fpath_r))
+            if itype not in BINARY_TYPES:
+                try:
+                    raw_f = fpath_r.read_text(errors='replace')
+                    meta_f, body_f = parse_frontmatter(raw_f)
+                    real_title = meta_f.get('title') or meta_f.get('name') or note_title(fname, body_f)
+                    for ln in body_f.splitlines():
+                        ln = ln.strip()
+                        if ln and not _RE_HEADING.match(ln):
+                            excerpt = ln[:120]
+                            break
+                except Exception:
+                    pass
         items.append({
-            'selector':        selector,
-            'filename':        fname or raw_sel,
-            'title':           title or raw_sel,
-            'type':            itype,
-            'status':          todo_status,
-            'indicator':       _indicator(itype, todo_status),
-            'mtime':           fmtime,
-            'excerpt':         _read_excerpt(nb_part, raw_sel),
-            'notebook':        nb_part,
-            'updated':         '',
-            'pinned':          False,
+            'selector':         selector,
+            'filename':         fname or raw_sel,
+            'title':            real_title or title or raw_sel,
+            'type':             itype,
+            'status':           todo_status,
+            'indicator':        _indicator(itype, todo_status),
+            'mtime':            fmtime,
+            'excerpt':          excerpt,
+            'notebook':         nb_part,
+            'updated':          '',
+            'pinned':           False,
             'annotation_match': False,
+            'annotation':       ann_text,
         })
 
     # --- Supplemental: grep annotation sidecars (hidden dotfiles nb search skips) ---
@@ -1545,6 +1569,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
                         'updated':          '',
                         'pinned':           False,
                         'annotation_match': True,
+                        'annotation':       text.strip() or None,
                     })
                 except Exception:
                     continue
@@ -2374,7 +2399,13 @@ def api_import():
         target = f'{notebook}:{folder}/' if folder else f'{notebook}:'
         r = run_nb('import', str(tmp_path), target)
         success = r['returncode'] == 0
+        selector = None
+        if success:
+            m = re.search(r'\[(\d+)\]', strip_ansi(r['stdout']))
+            if m:
+                selector = f'{notebook}:{m.group(1)}'
         return jsonify({'success': success, 'output': r['stdout'], 'stderr': r['stderr'],
+                        'selector': selector,
                         'error': r['stderr'] if not success else None})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -2411,7 +2442,16 @@ def api_link_file():
     try:
         os.symlink(src, dest)
         run_nb('index', 'reconcile', f'{notebook}:')
-        return jsonify({'success': True, 'name': src.name, 'target': str(src)})
+        selector = None
+        try:
+            idx_lines = (nb_dir / '.index').read_text().splitlines()
+            for i, line in enumerate(idx_lines, 1):
+                if line.strip() == src.name:
+                    selector = f'{notebook}:{i}'
+                    break
+        except Exception:
+            pass
+        return jsonify({'success': True, 'name': src.name, 'target': str(src), 'selector': selector})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

@@ -681,6 +681,15 @@ body {
   text-overflow: ellipsis;
   margin-top: 2px;
 }
+.nb-list-ann-line {
+  font-size: 11px;
+  color: var(--accent, #6366f1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+  opacity: 0.8;
+}
 .nb-list-tags {
   display: flex; gap: 3px; flex-wrap: nowrap;
   margin-top: 3px; overflow: hidden;
