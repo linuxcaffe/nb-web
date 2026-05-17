@@ -1214,6 +1214,7 @@ const NbMain = (() => {
         const fmtDate  = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
         const priLabel = { H: '▲', M: '●', L: '▽' };
         const priCls   = { H: 'nb-tw-pri-h', M: 'nb-tw-pri-m', L: 'nb-tw-pri-l' };
+        const hasPri   = tasks.some(t => t.priority);
 
         const rowUrgencyCls = t => {
             if (t.start) return 'nb-tw-row-started';
@@ -1227,40 +1228,57 @@ const NbMain = (() => {
         const metaHtml = cnt =>
             `${cnt} task${cnt !== 1 ? 's' : ''}${q ? ` · <code>${_esc(q)}</code>` : ''}`;
 
-        if (!tasks.length) {
-            el.innerHTML = `<div class="nb-tw-header">
-                <span class="nb-tw-meta-inline">${metaHtml(0)}</span>
-                <button class="nb-tw-btn nb-tw-refresh" title="Refresh">↻</button>
-            </div>`;
-            el.querySelector('.nb-tw-refresh').addEventListener('click', () => _loadTwBlock(el));
-            return;
-        }
+        // Header via DOM so event wiring is clean
+        el.innerHTML = '';
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-tw-header';
+        hdr.innerHTML = `<span class="nb-tw-meta-inline">${metaHtml(tasks.length)}</span>`;
+
+        const acts = document.createElement('span');
+        acts.className = 'nb-tw-header-acts';
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'nb-tw-btn nb-tw-add-btn';
+        addBtn.title = 'Add task'; addBtn.textContent = '+';
+        addBtn.addEventListener('click', () => _showTwAddForm(el, q, addBtn));
+        acts.appendChild(addBtn);
+
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn nb-tw-refresh';
+        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', () => _loadTwBlock(el));
+        acts.appendChild(refBtn);
+
+        hdr.appendChild(acts);
+        el.appendChild(hdr);
+
+        if (!tasks.length) return;
+
+        const colspan = hasPri ? 8 : 7;
 
         const rows = tasks.map(t => {
-            const due    = t.due ? t.due.slice(0,8) : '';
-            const dueCls = due < todayYmd && due ? ' nb-tw-overdue' : due && due <= soonYmd ? ' nb-tw-soon' : '';
+            const due = t.due ? t.due.slice(0,8) : '';
+            const dueCls = due && due < todayYmd ? ' nb-tw-overdue' : due && due <= soonYmd ? ' nb-tw-soon' : '';
+            const isPending = !t.status || t.status === 'pending';
+            const statusGlyph = t.status === 'completed' ? '✓' : t.status === 'deleted' ? '✗' : '';
             return `<tr class="${rowUrgencyCls(t)}" data-uuid="${_esc(t.uuid || '')}">
-                <td class="nb-tw-act"><button class="nb-tw-btn nb-tw-done-btn" title="Mark done">✓</button></td>
-                <td class="nb-tw-id">${t.id || ''}</td>
+                <td class="nb-tw-act">${isPending ? `<button class="nb-tw-btn nb-tw-done-btn" title="Mark done">✓</button>` : ''}</td>
+                <td class="nb-tw-id${isPending ? '' : ' nb-tw-id-status'}">${isPending ? (t.id || '') : statusGlyph}</td>
                 <td class="nb-tw-desc">${_esc(t.description || '')}</td>
                 <td class="nb-tw-proj">${_esc(t.project || '')}</td>
-                <td class="nb-tw-pri ${priCls[t.priority] || ''}">${priLabel[t.priority] || ''}</td>
+                ${hasPri ? `<td class="nb-tw-pri ${priCls[t.priority] || ''}">${priLabel[t.priority] || ''}</td>` : ''}
                 <td class="nb-tw-due${dueCls}">${fmtDate(t.due)}</td>
                 <td class="nb-tw-tags">${(t.tags || []).map(g => `<span class="nb-tw-tag">${_esc(g)}</span>`).join('')}</td>
-                <td class="nb-tw-act"><button class="nb-tw-btn nb-tw-toggle-btn" data-started="${!!t.start}" title="${t.start ? 'Stop' : 'Start'}">${t.start ? '◼' : '▶'}</button></td>
+                <td class="nb-tw-act">${isPending ? `<button class="nb-tw-btn nb-tw-toggle-btn" data-started="${!!t.start}" title="${t.start ? 'Stop' : 'Start'}">${t.start ? '◼' : '▶'}</button>` : ''}</td>
             </tr>`;
         }).join('');
 
-        el.innerHTML = `<div class="nb-tw-header">
-            <span class="nb-tw-meta-inline">${metaHtml(tasks.length)}</span>
-            <button class="nb-tw-btn nb-tw-refresh" title="Refresh">↻</button>
-        </div>
-        <table class="nb-tw-table">
-            <thead><tr><th></th><th>ID</th><th>Description</th><th>Project</th><th>Pri</th><th>Due</th><th>Tags</th><th></th></tr></thead>
-            <tbody>${rows}</tbody>
-        </table>`;
-
-        el.querySelector('.nb-tw-refresh').addEventListener('click', () => _loadTwBlock(el));
+        const tbl = document.createElement('table');
+        tbl.className = 'nb-tw-table';
+        tbl.innerHTML = `
+            <thead><tr><th></th><th>ID</th><th>Description</th><th>Project</th>${hasPri ? '<th>Pri</th>' : ''}<th>Due</th><th>Tags</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>`;
+        el.appendChild(tbl);
 
         el.querySelectorAll('.nb-tw-done-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
@@ -1280,7 +1298,7 @@ const NbMain = (() => {
                         const meta = el.querySelector('.nb-tw-meta-inline');
                         if (meta) meta.innerHTML = metaHtml(remaining);
                         if (!remaining) el.querySelector('tbody').innerHTML =
-                            `<tr><td colspan="8" class="nb-tw-all-done">✓ All done!</td></tr>`;
+                            `<tr><td colspan="${colspan}" class="nb-tw-all-done">✓ All done!</td></tr>`;
                     }, 380);
                 } else { btn.disabled = false; }
             });
@@ -1301,6 +1319,74 @@ const NbMain = (() => {
                 else btn.disabled = false;
             });
         });
+    }
+
+    function _showTwAddForm(el, q, trigger) {
+        const existing = el.querySelector('.nb-tw-addform');
+        if (existing) { existing.remove(); trigger?.classList.remove('active'); return; }
+        trigger?.classList.add('active');
+
+        const form = document.createElement('div');
+        form.className = 'nb-tw-addform';
+        form.innerHTML = `
+            <input type="text" class="nb-tw-inp nb-tw-adesc" placeholder="Description" autocomplete="off">
+            <div class="nb-tw-addform-row">
+                <input type="text" class="nb-tw-inp nb-tw-aproj" placeholder="project">
+                <input type="date" class="nb-tw-inp nb-tw-adue">
+                <select class="nb-tw-inp nb-tw-apri">
+                    <option value="">pri</option>
+                    <option value="H">▲ High</option>
+                    <option value="M">● Med</option>
+                    <option value="L">▽ Low</option>
+                </select>
+                <input type="text" class="nb-tw-inp nb-tw-atags" placeholder="+tag1 +tag2">
+            </div>
+            <div class="nb-tw-addform-row">
+                <button class="nb-btn-primary nb-tw-asave">Add</button>
+                <button class="nb-tw-btn nb-tw-acancel">Cancel</button>
+                <span class="nb-tw-form-status"></span>
+            </div>`;
+
+        const doAdd = async () => {
+            const desc = form.querySelector('.nb-tw-adesc').value.trim();
+            if (!desc) { form.querySelector('.nb-tw-adesc').focus(); return; }
+            const status = form.querySelector('.nb-tw-form-status');
+            status.textContent = 'Saving…'; status.style.color = '';
+            try {
+                const d = await fetch('/api/task-add', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        description: desc,
+                        project:  form.querySelector('.nb-tw-aproj').value.trim(),
+                        due:      form.querySelector('.nb-tw-adue').value,
+                        priority: form.querySelector('.nb-tw-apri').value,
+                        tags:     form.querySelector('.nb-tw-atags').value.trim(),
+                    }),
+                }).then(r => r.json());
+                if (!d.success) {
+                    status.textContent = '✗ ' + (d.error || d.stderr || 'failed');
+                    status.style.color = 'var(--red, #ef4444)';
+                } else {
+                    form.remove(); trigger?.classList.remove('active');
+                    await _loadTwBlock(el);
+                }
+            } catch(e) {
+                status.textContent = '✗ ' + e.message;
+                status.style.color = 'var(--red, #ef4444)';
+            }
+        };
+
+        form.querySelector('.nb-tw-adesc').addEventListener('keydown', e => {
+            if (e.key === 'Enter') doAdd();
+            if (e.key === 'Escape') { form.remove(); trigger?.classList.remove('active'); }
+        });
+        form.querySelector('.nb-tw-asave').addEventListener('click', doAdd);
+        form.querySelector('.nb-tw-acancel').addEventListener('click', () => {
+            form.remove(); trigger?.classList.remove('active');
+        });
+
+        el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', form);
+        form.querySelector('.nb-tw-adesc')?.focus();
     }
 
     // ── hledger codeblock ──────────────────────────────────────────

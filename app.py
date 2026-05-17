@@ -801,6 +801,35 @@ def api_task_action():
         return jsonify({'error': 'taskwarrior not found'}), 500
 
 
+@app.route('/api/task-add', methods=['POST'])
+def api_task_add():
+    """Add a new task."""
+    data = request.get_json(silent=True) or {}
+    desc = data.get('description', '').strip()
+    if not desc:
+        return jsonify({'error': 'description required'}), 400
+    cmd = ['task', 'rc.confirmation=no', 'add', desc]
+    if data.get('project'):
+        cmd.append(f'project:{data["project"].strip()}')
+    if data.get('due'):
+        cmd.append(f'due:{data["due"].strip()}')
+    if data.get('priority') in ('H', 'M', 'L'):
+        cmd.append(f'priority:{data["priority"]}')
+    for tag in (data.get('tags') or '').split():
+        t = tag.lstrip('+')
+        if t:
+            cmd.append(f'+{t}')
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+            timeout=10,
+        )
+        return jsonify({'success': result.returncode == 0, 'stderr': result.stderr.strip()})
+    except FileNotFoundError:
+        return jsonify({'error': 'taskwarrior not found'}), 500
+
+
 _HLEDGER_READ_CMDS = {
     'balance','bal','b',
     'register','reg','r',
