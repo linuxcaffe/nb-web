@@ -98,33 +98,77 @@ silently pre-applies it — just type the contact's name and press Save.
 
 ## Live codeblocks
 
-nb-web renders several fenced codeblock types as live widgets when previewing a
-note. These are declared with a language tag in the opening fence:
+nb-web renders fenced code blocks with special language tags as live, interactive
+widgets rather than static code. All blocks have a **↻ refresh** button and
+re-render automatically when you open a note.
 
-**`nb` — nb commands**
+### `nb` — nb commands
 
-Embeds a live nb panel. Current supported commands:
-
-- `notebooks` — lists all notebooks with note counts and last-modified dates;
-  click any name to switch to that notebook. Active notebook is highlighted.
-- `backlinks [N]` — lists notes that wiki-link to the current note's title,
-  using ripgrep for speed. Optional `N` caps the result count (default 20).
-
-Example:
-````
+```
 ```nb
 notebooks
 ```
-````
+```
 
-**`tw` — Taskwarrior queries**
+Embeds a live nb panel. Supported commands:
 
-Renders a live task table from any `task` filter/report expression. Columns
-auto-hide when empty; click an ID to expand `task information` inline. An **Add**
-button opens a form to create tasks directly from the note. Optional `columns:`
-override controls which fields appear.
+| Command | What it shows |
+|---|---|
+| `notebooks` | All notebooks with note count and last-modified age; click to switch |
+| `backlinks [N]` | Notes that wiki-link `[[to this note]]`; limit to N results (default 20) |
 
-**`hledger` — hledger queries**
+The active notebook is highlighted in the `notebooks` view. `backlinks` uses
+ripgrep when available for speed.
 
-Renders balance / register / income-statement output from hledger. See
-[hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) for details.
+### `tw` — Taskwarrior queries
+
+```
+```tw
+project:myproject +next
+```
+```
+
+Renders a live task table from any `task` filter or report expression. Features:
+
+- Columns auto-hide when empty (project, priority, due, tags)
+- Click any **ID** to expand `task information` inline (one at a time)
+- **Add** button opens an inline form to create tasks with due date, priority, tags
+- `columns:id,description,due` in the fence body overrides auto column selection
+
+### `git` — git repository status
+
+```
+```git
+nb-web log --oneline -10
+```
+```
+
+The first word is a repo **alias** configured in `nb-settings.json`; everything
+after is the git subcommand and flags. Useful for dev-journal notes, project
+planning pages, or any note that lives alongside a codebase.
+
+**Configuration** — add repo aliases to `nb-settings.json`:
+
+```json
+{
+  "git_repos": {
+    "nb-web":   "~/dev/nb-web",
+    "myproject": "~/dev/myproject"
+  }
+}
+```
+
+Permitted subcommands (read-only): `branch`, `describe`, `diff`, `log`,
+`ls-files`, `remote`, `shortlog`, `show`, `stash`, `status`, `tag`.
+
+### `hledger` — hledger queries
+
+```
+```hledger
+balance expenses --monthly -3
+```
+```
+
+Renders balance, register, or income-statement output from hledger. See
+[hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) for full
+details. Requires `hledger` on `$PATH`.

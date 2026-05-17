@@ -487,6 +487,7 @@ const NbMain = (() => {
         _renderHledgerBlocks(content);
         _renderTBlocks(content);
         _renderNbBlocks(content);
+        _renderGitBlocks(content);
 
         // Highlight active search / tag terms in the rendered preview
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
@@ -1005,6 +1006,10 @@ const NbMain = (() => {
                 if (lang === 'nb') {
                     const cmd = text.trim().toLowerCase().replace(/"/g, '&quot;');
                     return `<div class="nb-nb-block" data-cmd="${cmd}"><span class="nb-spin">⟳</span></div>`;
+                }
+                if (lang === 'git') {
+                    const cmd = text.trim().replace(/"/g, '&quot;');
+                    return `<div class="nb-git-block" data-cmd="${cmd}"><span class="nb-spin">⟳</span></div>`;
                 }
                 return false;
             }
@@ -1600,6 +1605,46 @@ const NbMain = (() => {
             list.appendChild(li);
         });
         el.appendChild(list);
+    }
+
+    // ── git codeblock ──────────────────────────────────────────────
+
+    async function _renderGitBlocks(container) {
+        for (const el of container.querySelectorAll('.nb-git-block'))
+            await _loadGitBlock(el);
+    }
+
+    async function _loadGitBlock(el) {
+        const line  = (el.dataset.cmd || '').trim();
+        const space = line.indexOf(' ');
+        const repo  = space === -1 ? line : line.slice(0, space);
+        const args  = space === -1 ? ''   : line.slice(space + 1).trim();
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const d = await fetch(
+                `/api/nb/git?repo=${encodeURIComponent(repo)}&args=${encodeURIComponent(args)}`
+            ).then(r => r.json());
+            if (d.error) { el.innerHTML = `<span class="nb-git-error">⚠ ${_esc(d.error)}</span>`; return; }
+            _buildGitOutput(el, d.output || '', repo, args);
+        } catch(e) {
+            el.innerHTML = `<span class="nb-git-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
+    function _buildGitOutput(el, text, repo, args) {
+        el.innerHTML = '';
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-git-header';
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', () => _loadGitBlock(el));
+        hdr.innerHTML = `<span class="nb-git-meta"><span class="nb-git-repo">${_esc(repo)}</span> <code>git ${_esc(args)}</code></span>`;
+        hdr.appendChild(refBtn);
+        el.appendChild(hdr);
+        const pre = document.createElement('pre');
+        pre.className = 'nb-git-pre';
+        pre.textContent = text;
+        el.appendChild(pre);
     }
 
     // ── hledger codeblock ──────────────────────────────────────────
@@ -4181,6 +4226,7 @@ const NbMain = (() => {
             await _renderHledgerBlocks(container);
             await _renderTBlocks(container);
             await _renderNbBlocks(container);
+            await _renderGitBlocks(container);
 
             const clone = container.cloneNode(true);
             document.body.removeChild(container);

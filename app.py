@@ -62,6 +62,11 @@ _SETTINGS_SCHEMA = {
                         'coerce': lambda v: max(1, min(500, int(v)))},
     'import_max_files':{'type': int,  'default': 20,
                         'coerce': lambda v: max(1, min(200, int(v)))},
+    'git_repos':        {'type': dict, 'default': {},
+                        'coerce': lambda v: {
+                            str(k): str(Path(os.path.expanduser(str(p))).resolve())
+                            for k, p in (v.items() if isinstance(v, dict) else {}.items())
+                        }},
 }
 
 def _load_settings():
@@ -2357,6 +2362,47 @@ def api_nb_notebooks():
         return jsonify({'error': str(e), 'notebooks': []})
     notebooks.sort(key=lambda n: n['mtime'], reverse=True)
     return jsonify({'notebooks': notebooks})
+
+
+_GIT_ALLOWED = {'log', 'status', 'diff', 'show', 'branch', 'shortlog',
+                 'stash', 'tag', 'describe', 'ls-files', 'remote'}
+
+@app.route('/api/nb/git')
+def api_nb_git():
+    """Run a read-only git command in a configured repo alias."""
+    repo_alias = request.args.get('repo', '').strip()
+    args_raw   = request.args.get('args', '').strip()
+    cfg   = _load_settings()
+    repos = cfg.get('git_repos', {})
+    if not repo_alias:
+        return jsonify({'error': 'No repo specified'})
+    if repo_alias not in repos:
+        known = ', '.join(repos.keys()) or 'none configured'
+        return jsonify({'error': f'Unknown repo "{repo_alias}". Known: {known}. Add to git_repos in settings.'})
+    repo_path = repos[repo_alias]
+    if not Path(repo_path).is_dir():
+        return jsonify({'error': f'Repo path not found: {repo_path}'})
+    try:
+        parts = shlex.split(args_raw) if args_raw else []
+    except ValueError as e:
+        return jsonify({'error': f'Bad arguments: {e}'})
+    if not parts:
+        return jsonify({'error': 'No git subcommand given (e.g. "log --oneline -10")'})
+    subcmd = parts[0]
+    if subcmd not in _GIT_ALLOWED:
+        return jsonify({'error': f'git {subcmd} not allowed. Permitted: {", ".join(sorted(_GIT_ALLOWED))}'})
+    try:
+        env = {**os.environ, 'GIT_PAGER': 'cat', 'NO_COLOR': '1', 'TERM': 'dumb'}
+        r = subprocess.run(
+            ['git', '-C', repo_path] + parts,
+            capture_output=True, text=True, timeout=10, env=env,
+        )
+        output = r.stdout or r.stderr or '(no output)'
+        return jsonify({'output': output, 'repo': repo_alias, 'path': repo_path})
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'git command timed out'})
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 
 @app.route('/api/nb/backlinks')
