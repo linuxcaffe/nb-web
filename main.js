@@ -485,6 +485,7 @@ const NbMain = (() => {
         _renderCsvBlocks(content);
         _renderTwBlocks(content);
         _renderHledgerBlocks(content);
+        _renderTBlocks(content);
 
         // Highlight active search / tag terms in the rendered preview
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
@@ -984,7 +985,7 @@ const NbMain = (() => {
         }));
     }
 
-    // ── tw / hledger codeblock renderers ──────────────────────────
+    // ── tw / hledger / t codeblock renderers ──────────────────────
     if (typeof marked !== 'undefined') {
         marked.use({ renderer: {
             code({ text, lang }) {
@@ -996,9 +997,197 @@ const NbMain = (() => {
                     const q = text.trim().replace(/"/g, '&quot;');
                     return `<div class="nb-hl-block" data-query="${q}"><span class="nb-spin">⟳</span></div>`;
                 }
+                if (lang === 't') {
+                    const period = text.trim().replace(/"/g, '&quot;');
+                    return `<div class="nb-t-block" data-period="${period}"><span class="nb-spin">⟳</span></div>`;
+                }
                 return false;
             }
         }});
+    }
+
+    // ── t timeclock codeblock ──────────────────────────────────────
+
+    const _tTimers = new Map();
+
+    function _fmtSeconds(s) {
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+    }
+
+    async function _renderTBlocks(container) {
+        for (const el of container.querySelectorAll('.nb-t-block'))
+            await _loadTBlock(el);
+    }
+
+    async function _loadTBlock(el) {
+        const id = _tTimers.get(el);
+        if (id) { clearInterval(id); _tTimers.delete(el); }
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        const period = el.dataset.period || 'today';
+        try {
+            const [status, report] = await Promise.all([
+                fetch('/api/t/status').then(r => r.json()),
+                period
+                    ? fetch(`/api/t/report?period=${encodeURIComponent(period)}`).then(r => r.json())
+                    : Promise.resolve(null),
+            ]);
+            _buildTBlock(el, status, report, period);
+        } catch(e) {
+            el.innerHTML = `<span class="nb-t-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
+    function _buildTBlock(el, status, report, period) {
+        el.innerHTML = '';
+
+        // ── header row: status + actions ──
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-t-header';
+
+        const statusEl = document.createElement('div');
+        statusEl.className = 'nb-t-status';
+
+        if (status.state === 'in') {
+            const elapsed = status.elapsed_seconds || 0;
+            statusEl.innerHTML =
+                `<span class="nb-t-dot nb-t-dot-in">⏱</span>` +
+                `<span class="nb-t-account">${_esc(status.account)}</span>` +
+                (status.desc ? `<span class="nb-t-desc">${_esc(status.desc)}</span>` : '') +
+                `<span class="nb-t-elapsed" data-start="${Date.now() - elapsed * 1000}">${_fmtSeconds(elapsed)}</span>`;
+        } else if (status.state === 'out') {
+            statusEl.innerHTML =
+                `<span class="nb-t-dot nb-t-dot-out">◌</span>` +
+                `<span class="nb-t-out-label">OUT</span>` +
+                `<span class="nb-t-desc">${_esc(status.account)} · ${_esc(status.last_out)}</span>`;
+        } else {
+            statusEl.innerHTML = `<span class="nb-t-dot nb-t-dot-out">○</span><span class="nb-t-desc">No entries</span>`;
+        }
+
+        const acts = document.createElement('div');
+        acts.className = 'nb-t-actions';
+
+        if (status.state === 'in') {
+            const outBtn = document.createElement('button');
+            outBtn.className = 'nb-tw-btn nb-t-btn nb-t-out-btn';
+            outBtn.title = 'Clock out';
+            outBtn.textContent = '◼ Out';
+            outBtn.addEventListener('click', async () => {
+                outBtn.disabled = true;
+                const d = await fetch('/api/t/out', { method: 'POST' }).then(r => r.json()).catch(() => ({}));
+                if (d.success) _loadTBlock(el); else outBtn.disabled = false;
+            });
+            acts.appendChild(outBtn);
+        } else {
+            const inBtn = document.createElement('button');
+            inBtn.className = 'nb-tw-btn nb-t-btn nb-t-in-btn';
+            inBtn.title = 'Clock in';
+            inBtn.textContent = '⏱ In';
+            inBtn.addEventListener('click', () => _showTClockInForm(el, status, inBtn));
+            acts.appendChild(inBtn);
+        }
+
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn nb-t-btn';
+        refBtn.title = 'Refresh';
+        refBtn.textContent = '↻';
+        refBtn.addEventListener('click', () => _loadTBlock(el));
+        acts.appendChild(refBtn);
+
+        hdr.append(statusEl, acts);
+        el.appendChild(hdr);
+
+        // ── time report ──
+        if (report?.rows?.length) {
+            const rpt = document.createElement('div');
+            rpt.className = 'nb-t-report';
+            report.rows.forEach(row => {
+                const r = document.createElement('div');
+                r.className = 'nb-t-row';
+                r.innerHTML = `<span class="nb-t-r-acct">${_esc(row.account)}</span><span class="nb-t-r-time">${_fmtSeconds(row.seconds)}</span>`;
+                rpt.appendChild(r);
+            });
+            const tot = document.createElement('div');
+            tot.className = 'nb-t-row nb-t-total';
+            tot.innerHTML = `<span class="nb-t-r-acct">${period || 'today'} total</span><span class="nb-t-r-time">${_fmtSeconds(report.total_seconds)}</span>`;
+            rpt.appendChild(tot);
+            el.appendChild(rpt);
+        }
+
+        // ── live elapsed ticker (only when clocked in) ──
+        if (status.state === 'in') {
+            const startMs = Date.now() - (status.elapsed_seconds || 0) * 1000;
+            const tid = setInterval(() => {
+                const elapsedEl = el.querySelector('.nb-t-elapsed');
+                if (!elapsedEl || !el.isConnected) { clearInterval(tid); _tTimers.delete(el); return; }
+                elapsedEl.textContent = _fmtSeconds(Math.floor((Date.now() - startMs) / 1000));
+            }, 30000);
+            _tTimers.set(el, tid);
+        }
+    }
+
+    async function _showTClockInForm(el, status, trigger) {
+        const existing = el.querySelector('.nb-t-clock-in-form');
+        if (existing) { existing.remove(); trigger?.classList.remove('active'); return; }
+        trigger?.classList.add('active');
+
+        const accounts = await fetch('/api/t/accounts').then(r => r.json()).then(d => d.accounts || []).catch(() => []);
+
+        const form = document.createElement('div');
+        form.className = 'nb-t-clock-in-form';
+
+        const sel = document.createElement('select');
+        sel.className = 'nb-t-acct-sel';
+        if (!accounts.length) {
+            const opt = document.createElement('option');
+            opt.value = ''; opt.textContent = 'No recent accounts'; sel.appendChild(opt);
+        } else {
+            accounts.forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a; opt.textContent = a; sel.appendChild(opt);
+            });
+        }
+        if (status.account) {
+            const match = [...sel.options].find(o => o.value === status.account);
+            if (match) match.selected = true;
+        }
+
+        const customInput = document.createElement('input');
+        customInput.type = 'text'; customInput.className = 'nb-rename-input nb-t-custom-acct';
+        customInput.placeholder = 'or type account…'; customInput.style.flex = '1';
+
+        const descInput = document.createElement('input');
+        descInput.type = 'text'; descInput.className = 'nb-rename-input';
+        descInput.placeholder = 'description (optional)'; descInput.style.flex = '1.5';
+
+        const goBtn = document.createElement('button');
+        goBtn.className = 'nb-tw-btn nb-t-btn nb-btn-primary';
+        goBtn.textContent = '⏱ In';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tw-btn nb-t-btn';
+        cancelBtn.textContent = '✕';
+
+        form.append(sel, customInput, descInput, goBtn, cancelBtn);
+        el.appendChild(form);
+        (accounts.length ? customInput : customInput).focus();
+
+        const doClockIn = async () => {
+            const account = customInput.value.trim() || sel.value;
+            if (!account) { customInput.focus(); return; }
+            goBtn.disabled = true;
+            const d = await fetch('/api/t/in', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account, desc: descInput.value.trim() }),
+            }).then(r => r.json()).catch(() => ({}));
+            if (d.success) _loadTBlock(el);
+            else { goBtn.disabled = false; if (d.error) alert(d.error); }
+        };
+
+        goBtn.addEventListener('click', doClockIn);
+        [customInput, descInput].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') doClockIn(); }));
+        cancelBtn.addEventListener('click', () => { form.remove(); trigger?.classList.remove('active'); });
     }
 
     async function _renderTwBlocks(container) {
@@ -3691,6 +3880,7 @@ const NbMain = (() => {
             _renderCsvBlocks(container);
             await _renderTwBlocks(container);
             await _renderHledgerBlocks(container);
+            await _renderTBlocks(container);
 
             const clone = container.cloneNode(true);
             document.body.removeChild(container);

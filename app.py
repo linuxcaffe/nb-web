@@ -916,6 +916,170 @@ def api_hledger_add():
         return jsonify({'error': str(e)}), 500
 
 
+# ---------------------------------------------------------------------------
+# API: t timeclock (time tracking)
+# ---------------------------------------------------------------------------
+
+def _t_tc_file() -> Path:
+    """Return Path to the active timeclock file (from timelog.rc config)."""
+    rc = Path.home() / '.task/config/timelog.rc'
+    default = Path.home() / '.task/time/tw.timeclock'
+    if not rc.exists():
+        return default
+    for line in rc.read_text().splitlines():
+        if line.startswith('timelog.file'):
+            val = line.split('=', 1)[1].strip()
+            return Path(os.path.expanduser(val))
+    return default
+
+
+def _t_parse_status(tc_file: Path) -> dict:
+    """Read timeclock file and return current state dict."""
+    if not tc_file.exists():
+        return {'state': 'none'}
+    last_i = last_o = last_kind = None
+    for line in tc_file.read_text().splitlines():
+        if line.startswith('i '):
+            last_i = line; last_kind = 'i'
+        elif line.startswith('o '):
+            last_o = line; last_kind = 'o'
+    if last_kind is None:
+        return {'state': 'none'}
+
+    parts_i = (last_i or '').split()
+    account = parts_i[3] if len(parts_i) > 3 else ''
+    raw_desc = ' '.join(parts_i[4:]) if len(parts_i) > 4 else ''
+    desc = raw_desc.split(';')[0].strip()
+
+    if last_kind == 'i':
+        try:
+            dt_str = f"{parts_i[1]} {parts_i[2]}"
+            start = datetime.strptime(dt_str, '%Y/%m/%d %H:%M:%S')
+            elapsed = int((datetime.now() - start).total_seconds())
+        except Exception:
+            elapsed = 0
+        return {'state': 'in', 'account': account, 'desc': desc,
+                'since': parts_i[2] if len(parts_i) > 2 else '',
+                'elapsed_seconds': max(0, elapsed)}
+    else:
+        out_parts = (last_o or '').split()
+        return {'state': 'out', 'account': account,
+                'last_out': out_parts[2] if len(out_parts) > 2 else ''}
+
+
+def _t_parse_report(tc_file: Path, period: str) -> dict:
+    """Parse timeclock entries and return seconds-by-account for the given period."""
+    from datetime import datetime as _dt, date as _date, timedelta as _td
+    if not tc_file.exists():
+        return {'rows': [], 'total_seconds': 0}
+    today = _date.today()
+    if period in ('today', ''):
+        cutoff = _dt(today.year, today.month, today.day)
+    elif period in ('thisweek', 'week'):
+        week_start = today - _td(days=today.weekday())
+        cutoff = _dt(week_start.year, week_start.month, week_start.day)
+    elif period in ('thismonth', 'month'):
+        cutoff = _dt(today.year, today.month, 1)
+    else:
+        cutoff = _dt(today.year, today.month, today.day)
+
+    by_account: dict = {}
+    last_i: dict | None = None
+    for line in tc_file.read_text().splitlines():
+        if line.startswith('i '):
+            parts = line.split()
+            try:
+                dt = _dt.strptime(f"{parts[1]} {parts[2]}", '%Y/%m/%d %H:%M:%S')
+                last_i = {'dt': dt, 'account': parts[3] if len(parts) > 3 else 'unknown'}
+            except Exception:
+                last_i = None
+        elif line.startswith('o ') and last_i:
+            parts = line.split()
+            try:
+                dt_out = _dt.strptime(f"{parts[1]} {parts[2]}", '%Y/%m/%d %H:%M:%S')
+                if last_i['dt'] >= cutoff or dt_out > cutoff:
+                    # Clip to cutoff
+                    start = max(last_i['dt'], cutoff)
+                    secs  = max(0, int((dt_out - start).total_seconds()))
+                    acct  = last_i['account']
+                    by_account[acct] = by_account.get(acct, 0) + secs
+                last_i = None
+            except Exception:
+                last_i = None
+    # Add open entry
+    if last_i and last_i['dt'] >= cutoff:
+        start = max(last_i['dt'], cutoff)
+        secs  = max(0, int((_dt.now() - start).total_seconds()))
+        acct  = last_i['account']
+        by_account[acct] = by_account.get(acct, 0) + secs
+
+    rows = sorted([{'account': k, 'seconds': v} for k, v in by_account.items()],
+                  key=lambda r: r['account'])
+    return {'rows': rows, 'total_seconds': sum(r['seconds'] for r in rows)}
+
+
+@app.route('/api/t/status')
+def api_t_status():
+    return jsonify(_t_parse_status(_t_tc_file()))
+
+
+@app.route('/api/t/report')
+def api_t_report():
+    period = request.args.get('period', 'today').strip()
+    return jsonify(_t_parse_report(_t_tc_file(), period))
+
+
+@app.route('/api/t/accounts')
+def api_t_accounts():
+    tc = _t_tc_file()
+    if not tc.exists():
+        return jsonify({'accounts': []})
+    accounts = sorted({l.split()[3] for l in tc.read_text().splitlines()
+                       if l.startswith('i ') and len(l.split()) > 3})
+    return jsonify({'accounts': accounts})
+
+
+@app.route('/api/t/in', methods=['POST'])
+def api_t_in():
+    data    = request.get_json(silent=True) or {}
+    account = data.get('account', '').strip()
+    desc    = data.get('desc', '').strip()
+    if not account:
+        return jsonify({'success': False, 'error': 'account required'}), 400
+    tc = _t_tc_file()
+    tc.parent.mkdir(parents=True, exist_ok=True)
+    if not tc.exists():
+        tc.touch()
+    # Check already clocked in to same account
+    status = _t_parse_status(tc)
+    if status['state'] == 'in':
+        if status['account'] == account:
+            return jsonify({'success': False, 'error': f'Already clocked in to {account}'}), 409
+        # Clock out of current before clocking in to new
+        now_str = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+        with open(tc, 'a') as f:
+            f.write(f'o {now_str}\n')
+    now_str = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+    entry = f'i {now_str} {account}'
+    if desc:
+        entry += f'  {desc}'
+    with open(tc, 'a') as f:
+        f.write(f'\n{entry}\n')
+    return jsonify({'success': True})
+
+
+@app.route('/api/t/out', methods=['POST'])
+def api_t_out():
+    tc = _t_tc_file()
+    status = _t_parse_status(tc)
+    if status['state'] != 'in':
+        return jsonify({'success': False, 'error': 'Not clocked in'}), 409
+    now_str = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+    with open(tc, 'a') as f:
+        f.write(f'o {now_str}\n')
+    return jsonify({'success': True})
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
