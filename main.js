@@ -1214,6 +1214,7 @@ const NbMain = (() => {
         const fmtDate  = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
         const priLabel = { H: '▲', M: '●', L: '▽' };
         const priCls   = { H: 'nb-tw-pri-h', M: 'nb-tw-pri-m', L: 'nb-tw-pri-l' };
+        const priDisplay = p => p ? (priLabel[p] || _esc(String(p))) : '';
         const hasPri   = tasks.some(t => t.priority);
 
         const rowUrgencyCls = t => {
@@ -1266,7 +1267,7 @@ const NbMain = (() => {
                 <td class="nb-tw-id${isPending ? '' : ' nb-tw-id-status'}">${isPending ? (t.id || '') : statusGlyph}</td>
                 <td class="nb-tw-desc">${_esc(t.description || '')}</td>
                 <td class="nb-tw-proj">${_esc(t.project || '')}</td>
-                ${hasPri ? `<td class="nb-tw-pri ${priCls[t.priority] || ''}">${priLabel[t.priority] || ''}</td>` : ''}
+                ${hasPri ? `<td class="nb-tw-pri ${priCls[t.priority] || ''}">${priDisplay(t.priority)}</td>` : ''}
                 <td class="nb-tw-due${dueCls}">${fmtDate(t.due)}</td>
                 <td class="nb-tw-tags">${(t.tags || []).map(g => `<span class="nb-tw-tag">${_esc(g)}</span>`).join('')}</td>
                 <td class="nb-tw-act">${isPending ? `<button class="nb-tw-btn nb-tw-toggle-btn" data-started="${!!t.start}" title="${t.start ? 'Stop' : 'Start'}">${t.start ? '◼' : '▶'}</button>` : ''}</td>
@@ -1332,20 +1333,29 @@ const NbMain = (() => {
             <input type="text" class="nb-tw-inp nb-tw-adesc" placeholder="Description" autocomplete="off">
             <div class="nb-tw-addform-row">
                 <input type="text" class="nb-tw-inp nb-tw-aproj" placeholder="project">
-                <input type="date" class="nb-tw-inp nb-tw-adue">
-                <select class="nb-tw-inp nb-tw-apri">
-                    <option value="">pri</option>
-                    <option value="H">▲ High</option>
-                    <option value="M">● Med</option>
-                    <option value="L">▽ Low</option>
+                <select class="nb-tw-inp nb-tw-adtype">
+                    <option value="due">due:</option>
+                    <option value="scheduled">sched:</option>
+                    <option value="wait">wait:</option>
+                    <option value="until">until:</option>
                 </select>
-                <input type="text" class="nb-tw-inp nb-tw-atags" placeholder="+tag1 +tag2">
+                <input type="text" class="nb-tw-inp nb-tw-adval" placeholder="tomorrow">
+                <button type="button" class="nb-tw-btn nb-tw-datepick" title="Pick date">📅</button>
+                <input type="date" class="nb-tw-datepick-hidden" tabindex="-1">
+                <input type="text" class="nb-tw-inp nb-tw-apri" placeholder="priority">
             </div>
             <div class="nb-tw-addform-row">
+                <input type="text" class="nb-tw-inp nb-tw-atags" placeholder="tag1, tag2">
                 <button class="nb-btn-primary nb-tw-asave">Add</button>
                 <button class="nb-tw-btn nb-tw-acancel">Cancel</button>
                 <span class="nb-tw-form-status"></span>
             </div>`;
+
+        const dateValInput = form.querySelector('.nb-tw-adval');
+        const datePicker   = form.querySelector('.nb-tw-datepick-hidden');
+        form.querySelector('.nb-tw-datepick').addEventListener('click', () =>
+            datePicker.showPicker ? datePicker.showPicker() : datePicker.click());
+        datePicker.addEventListener('change', () => { dateValInput.value = datePicker.value; });
 
         const doAdd = async () => {
             const desc = form.querySelector('.nb-tw-adesc').value.trim();
@@ -1357,10 +1367,11 @@ const NbMain = (() => {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         description: desc,
-                        project:  form.querySelector('.nb-tw-aproj').value.trim(),
-                        due:      form.querySelector('.nb-tw-adue').value,
-                        priority: form.querySelector('.nb-tw-apri').value,
-                        tags:     form.querySelector('.nb-tw-atags').value.trim(),
+                        project:    form.querySelector('.nb-tw-aproj').value.trim(),
+                        date_field: form.querySelector('.nb-tw-adtype').value,
+                        date_value: dateValInput.value.trim(),
+                        priority:   form.querySelector('.nb-tw-apri').value.trim(),
+                        tags:       form.querySelector('.nb-tw-atags').value.trim(),
                     }),
                 }).then(r => r.json());
                 if (!d.success) {

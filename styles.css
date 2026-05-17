@@ -2,6 +2,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  color-scheme: dark;   /* native controls (select, date) use dark theme */
   --bg:          #1a1e24;
   --bg2:         #22272e;
   --bg3:         #2b3038;
@@ -835,8 +836,14 @@ body {
 .nb-tool-btn:hover { color: var(--text); background: var(--bg); }
 .nb-btn-primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border: 1px solid var(--accent);
   color: #fff;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.4;
 }
 .nb-btn-primary:hover { opacity: 0.85; }
 .nb-btn-danger:hover { color: var(--red); border-color: var(--red); }
@@ -1506,15 +1513,25 @@ body.nb-fullscreen #nb-cmd-bar::after {
   background: var(--bg2);
 }
 .nb-tw-addform-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* Shared dialog input base — used by tw and any future inline forms */
 .nb-tw-inp {
   font-size: 12px; padding: 3px 6px;
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 4px; color: var(--text);
+  color-scheme: inherit;   /* picks up dark/light from :root */
+  font-family: inherit;
 }
+.nb-tw-inp:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.nb-tw-inp::placeholder { color: var(--text-dim); opacity: 1; }
+
 .nb-tw-adesc { width: 100%; }
 .nb-tw-aproj { width: 110px; }
-.nb-tw-adue  { width: 130px; }
-.nb-tw-apri  { width: 80px; }
+.nb-tw-adtype { width: 68px; flex-shrink: 0; }
+.nb-tw-adval  { flex: 1; min-width: 80px; }
+.nb-tw-datepick { padding: 2px 5px; }
+.nb-tw-datepick-hidden { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+.nb-tw-apri  { width: 90px; }
 .nb-tw-atags { flex: 1; min-width: 80px; }
 .nb-tw-form-status { font-size: 12px; color: var(--text-dim); }
 
@@ -1607,8 +1624,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
   color: var(--text); border-radius: 3px;
   padding: 5px 8px; font-size: 0.85em;
   font-family: var(--font-mono);
+  color-scheme: inherit;
 }
 .nb-hl-inp:focus { outline: 1px solid var(--accent); }
+.nb-hl-inp::placeholder { color: var(--text-dim); opacity: 1; }
 .nb-hl-date-inp  { width: 9.5em; flex-shrink: 0; }
 .nb-hl-desc-inp  { flex: 1; font-family: inherit; }
 .nb-hl-posting-row {

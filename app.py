@@ -811,12 +811,15 @@ def api_task_add():
     cmd = ['task', 'rc.confirmation=no', 'add', desc]
     if data.get('project'):
         cmd.append(f'project:{data["project"].strip()}')
-    if data.get('due'):
-        cmd.append(f'due:{data["due"].strip()}')
-    if data.get('priority') in ('H', 'M', 'L'):
-        cmd.append(f'priority:{data["priority"]}')
-    for tag in (data.get('tags') or '').split():
-        t = tag.lstrip('+')
+    date_field = data.get('date_field', 'due').strip()
+    date_value = data.get('date_value', '').strip()
+    if date_value and date_field in ('due', 'scheduled', 'wait', 'until'):
+        cmd.append(f'{date_field}:{date_value}')
+    if data.get('priority'):
+        cmd.append(f'priority:{data["priority"].strip()}')
+    import re as _re
+    for tag in _re.split(r'[\s,]+', data.get('tags') or ''):
+        t = tag.strip().lstrip('+')
         if t:
             cmd.append(f'+{t}')
     try:
