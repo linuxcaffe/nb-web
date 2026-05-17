@@ -1328,7 +1328,7 @@ const NbMain = (() => {
                 if (!btn._infoCache) {
                     try {
                         const d = await fetch(`/api/task-info?uuid=${encodeURIComponent(uuid)}`).then(r => r.json());
-                        btn._infoCache = d.output || '(no output)';
+                        btn._infoCache = _twInfoTrunc(d.output || '');
                     } catch(e) { btn._infoCache = '⚠ ' + e.message; }
                 }
                 detailTr.querySelector('.nb-tw-detail-pre').textContent = btn._infoCache;
@@ -1375,6 +1375,18 @@ const NbMain = (() => {
                 else btn.disabled = false;
             });
         });
+    }
+
+    function _twInfoTrunc(text) {
+        // Keep only the field block — cut at the second '----' line
+        // (first = header separator, second = start of urgency calc)
+        const lines = text.split('\n');
+        let dashes = 0;
+        for (let i = 0; i < lines.length; i++) {
+            if (/^-{5,}/.test(lines[i]) && ++dashes >= 2)
+                return lines.slice(0, i).join('\n').trimEnd();
+        }
+        return text.trimEnd();
     }
 
     function _showTwAddForm(el, q, trigger) {
