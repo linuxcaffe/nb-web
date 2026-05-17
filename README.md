@@ -95,3 +95,36 @@ Open **Templates**, select any template, then use the notebook selector and
 Place a single contact template at `~/.nb/contacts/.templates/contact.md`.
 Every time you open **Add** while the contacts notebook is active, nb-web
 silently pre-applies it — just type the contact's name and press Save.
+
+## Live codeblocks
+
+nb-web renders several fenced codeblock types as live widgets when previewing a
+note. These are declared with a language tag in the opening fence:
+
+**`nb` — nb commands**
+
+Embeds a live nb panel. Current supported commands:
+
+- `notebooks` — lists all notebooks with note counts and last-modified dates;
+  click any name to switch to that notebook. Active notebook is highlighted.
+- `backlinks [N]` — lists notes that wiki-link to the current note's title,
+  using ripgrep for speed. Optional `N` caps the result count (default 20).
+
+Example:
+````
+```nb
+notebooks
+```
+````
+
+**`tw` — Taskwarrior queries**
+
+Renders a live task table from any `task` filter/report expression. Columns
+auto-hide when empty; click an ID to expand `task information` inline. An **Add**
+button opens a form to create tasks directly from the note. Optional `columns:`
+override controls which fields appear.
+
+**`hledger` — hledger queries**
+
+Renders balance / register / income-statement output from hledger. See
+[hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) for details.

@@ -2337,6 +2337,28 @@ def api_grep():
 # API: Cal — return structured dated-note entries for a date range
 # ---------------------------------------------------------------------------
 
+@app.route('/api/nb/notebooks')
+def api_nb_notebooks():
+    """List all notebooks with note counts and last-modified timestamps."""
+    notebooks = []
+    try:
+        for entry in sorted(NB_DIR.iterdir()):
+            if not entry.is_dir() or entry.name.startswith('.'):
+                continue
+            index_path = entry / '.index'
+            count = 0
+            mtime = entry.stat().st_mtime
+            if index_path.exists():
+                lines = [l for l in index_path.read_text().splitlines() if l.strip()]
+                count = len(lines)
+                mtime = max(mtime, index_path.stat().st_mtime)
+            notebooks.append({'name': entry.name, 'count': count, 'mtime': mtime})
+    except Exception as e:
+        return jsonify({'error': str(e), 'notebooks': []})
+    notebooks.sort(key=lambda n: n['mtime'], reverse=True)
+    return jsonify({'notebooks': notebooks})
+
+
 @app.route('/api/nb/backlinks')
 def api_nb_backlinks():
     """Find notes that wiki-link to the given title, using ripgrep for speed."""

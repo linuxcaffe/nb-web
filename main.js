@@ -1485,7 +1485,15 @@ const NbMain = (() => {
         const parts = (el.dataset.cmd || '').trim().split(/\s+/);
         const cmd   = parts[0];
         const limit = parseInt(parts[1]) || 20;
-        if (cmd === 'backlinks') {
+        if (cmd === 'notebooks') {
+            el.innerHTML = '<span class="nb-spin">⟳</span>';
+            try {
+                const d = await fetch('/api/nb/notebooks').then(r => r.json());
+                _buildNbNotebooks(el, d.notebooks || []);
+            } catch(e) {
+                el.innerHTML = `<span class="nb-nb-error">⚠ ${_esc(e.message)}</span>`;
+            }
+        } else if (cmd === 'backlinks') {
             const title    = document.getElementById('nb-preview-title')?.textContent?.trim() || '';
             const selector = _activeSelector || '';
             if (!title) { el.innerHTML = '<span class="nb-nb-empty">No note open</span>'; return; }
@@ -1538,6 +1546,57 @@ const NbMain = (() => {
             btn.textContent = b.title || b.selector;
             btn.addEventListener('click', () => openNote(b.selector));
             li.appendChild(btn);
+            list.appendChild(li);
+        });
+        el.appendChild(list);
+    }
+
+    function _buildNbNotebooks(el, notebooks) {
+        el.innerHTML = '';
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-nb-header';
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', () => _loadNbBlock(el));
+        hdr.innerHTML = `<span class="nb-nb-meta">notebooks <span class="nb-nb-count">${notebooks.length}</span></span>`;
+        hdr.appendChild(refBtn);
+        el.appendChild(hdr);
+
+        if (!notebooks.length) {
+            el.insertAdjacentHTML('beforeend', '<div class="nb-nb-empty">No notebooks found</div>');
+            return;
+        }
+
+        const activeNb = NbNav.notebook === '_all' ? null : NbNav.notebook;
+        const now = Date.now() / 1000;
+        function _relTime(mtime) {
+            const s = now - mtime;
+            if (s < 120)       return 'just now';
+            if (s < 3600)      return `${Math.floor(s/60)}m ago`;
+            if (s < 86400)     return `${Math.floor(s/3600)}h ago`;
+            if (s < 86400*30)  return `${Math.floor(s/86400)}d ago`;
+            if (s < 86400*365) return `${Math.floor(s/86400/30)}mo ago`;
+            return `${Math.floor(s/86400/365)}y ago`;
+        }
+
+        const list = document.createElement('ul');
+        list.className = 'nb-nb-list';
+        notebooks.forEach(nb => {
+            const li = document.createElement('li');
+            li.className = 'nb-nb-item nb-nb-nb-item' + (nb.name === activeNb ? ' nb-nb-nb-active' : '');
+            const btn = document.createElement('button');
+            btn.className = 'nb-nb-link nb-nb-nb-name';
+            btn.textContent = nb.name;
+            btn.addEventListener('click', () => NbNav.switchNotebook(nb.name));
+            const count = document.createElement('span');
+            count.className = 'nb-nb-nb-count';
+            count.textContent = nb.count;
+            const age = document.createElement('span');
+            age.className = 'nb-nb-nb-age';
+            age.textContent = _relTime(nb.mtime);
+            li.appendChild(btn);
+            li.appendChild(count);
+            li.appendChild(age);
             list.appendChild(li);
         });
         el.appendChild(list);
