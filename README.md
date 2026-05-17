@@ -99,8 +99,12 @@ silently pre-applies it — just type the contact's name and press Save.
 ## Live codeblocks
 
 nb-web renders fenced code blocks with special language tags as live, interactive
-widgets rather than static code. All blocks have a **↻ refresh** button and
-re-render automatically when you open a note.
+widgets rather than static code. All blocks share two universal controls:
+
+- **▼/▶** — collapse/expand the block body to just its header bar. State is
+  persisted in `localStorage` keyed on block type + query, so collapsed blocks
+  stay collapsed across reloads and note switches.
+- **↻** — refresh the block data on demand.
 
 ### `nb` — nb commands
 
