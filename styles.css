@@ -1551,6 +1551,43 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-tw-atags { flex: 1; min-width: 80px; }
 .nb-tw-form-status { font-size: 12px; color: var(--text-dim); }
 
+/* ── nb codeblock (backlinks, notebooks, …) ─────────────────── */
+.nb-nb-block {
+  margin: 1em 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: var(--font-ui);
+}
+.nb-nb-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg2);
+  font-size: 0.82em;
+}
+.nb-nb-meta { color: var(--text-dim); }
+.nb-nb-meta code { font-family: var(--font-mono); color: var(--accent); font-style: normal; }
+.nb-nb-empty { padding: 8px 12px; font-size: 0.85em; color: var(--text-dim); }
+.nb-nb-error { color: var(--red); font-size: 0.85em; padding: 6px 10px; display: block; }
+
+.nb-nb-list { list-style: none; margin: 0; padding: 0; }
+.nb-nb-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+}
+.nb-nb-item:hover { background: var(--bg3); }
+.nb-nb-notebook {
+  font-size: 0.75em; color: var(--text-dim);
+  font-family: var(--font-mono); flex-shrink: 0;
+  background: var(--bg3); border-radius: 3px; padding: 1px 5px;
+}
+.nb-nb-link {
+  background: none; border: none; cursor: pointer;
+  color: var(--text); font-size: 0.88em; text-align: left; padding: 0;
+}
+.nb-nb-link:hover { color: var(--accent); text-decoration: underline; }
+
 /* ── hledger codeblock ───────────────────────────────────────── */
 .nb-hl-block  { margin: 1em 0; }
 .nb-hl-error  { color: var(--red); font-size: 0.88em; }

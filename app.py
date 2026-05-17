@@ -2337,6 +2337,42 @@ def api_grep():
 # API: Cal — return structured dated-note entries for a date range
 # ---------------------------------------------------------------------------
 
+@app.route('/api/nb/backlinks')
+def api_nb_backlinks():
+    """Find notes that contain a wiki-link to the given title."""
+    title    = request.args.get('title', '').strip()
+    self_sel = request.args.get('selector', '').strip()
+    if not title:
+        return jsonify({'backlinks': []})
+
+    pattern = f'[[{title}]]'
+    r = run_nb('search', pattern, '--all', '--list')
+
+    sel_pat = re.compile(r'^\[([^\]]+)\]\s+(.+)$')
+    backlinks, seen = [], set()
+    for line in strip_ansi(r['stdout']).splitlines():
+        m = sel_pat.match(line.strip())
+        if not m:
+            continue
+        raw_sel   = m.group(1).strip()
+        hit_title = m.group(2).strip()
+        hit_title = re.sub(r'^[\U00010000-\U0010ffff✔✅📌🔖🔒📂🌄🔉📹📖📄︀-️]+\s*', '', hit_title).strip()
+        hit_title = re.sub(r'^\[[ x]\]\s*', '', hit_title).strip()
+        hit_title = re.sub(r'^[^·]+·\s*', '', hit_title).strip() if '·' in hit_title else hit_title
+
+        nb_part  = raw_sel.split(':')[0] if ':' in raw_sel else ''
+        selector = raw_sel if ':' in raw_sel else raw_sel
+
+        if self_sel and selector == self_sel:
+            continue
+        if selector in seen:
+            continue
+        seen.add(selector)
+        backlinks.append({'selector': selector, 'notebook': nb_part, 'title': hit_title})
+
+    return jsonify({'backlinks': backlinks})
+
+
 _CAL_LINE        = re.compile(r'\[([^\]]+)\]\s+(\d{4}-\d{2}-\d{2})\s+(.*)')
 _CAL_GREP_HEADER = re.compile(r'[─\-]{2,}\s+(\d{4}-\d{2}-\d{2})\s+(\S+)\s+[─\-]{2,}')
 _CAL_GREP_MATCH  = re.compile(r'^\d+:(.*)')

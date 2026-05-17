@@ -486,6 +486,7 @@ const NbMain = (() => {
         _renderTwBlocks(content);
         _renderHledgerBlocks(content);
         _renderTBlocks(content);
+        _renderNbBlocks(content);
 
         // Highlight active search / tag terms in the rendered preview
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
@@ -1001,6 +1002,10 @@ const NbMain = (() => {
                     const period = text.trim().replace(/"/g, '&quot;');
                     return `<div class="nb-t-block" data-period="${period}"><span class="nb-spin">⟳</span></div>`;
                 }
+                if (lang === 'nb') {
+                    const cmd = text.trim().toLowerCase().replace(/"/g, '&quot;');
+                    return `<div class="nb-nb-block" data-cmd="${cmd}"><span class="nb-spin">⟳</span></div>`;
+                }
                 return false;
             }
         }});
@@ -1465,6 +1470,74 @@ const NbMain = (() => {
 
         el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', form);
         form.querySelector('.nb-tw-adesc')?.focus();
+    }
+
+    // ── hledger codeblock ──────────────────────────────────────────
+
+    // ── nb codeblock ───────────────────────────────────────────────
+
+    async function _renderNbBlocks(container) {
+        for (const el of container.querySelectorAll('.nb-nb-block'))
+            await _loadNbBlock(el);
+    }
+
+    async function _loadNbBlock(el) {
+        const cmd = (el.dataset.cmd || '').trim();
+        if (cmd === 'backlinks') {
+            const title    = document.getElementById('nb-preview-title')?.textContent?.trim() || '';
+            const selector = _activeSelector || '';
+            if (!title) { el.innerHTML = '<span class="nb-nb-empty">No note open</span>'; return; }
+            el.innerHTML = '<span class="nb-spin">⟳</span>';
+            try {
+                const d = await fetch(
+                    `/api/nb/backlinks?title=${encodeURIComponent(title)}&selector=${encodeURIComponent(selector)}`
+                ).then(r => r.json());
+                _buildNbBacklinks(el, d.backlinks || [], title);
+            } catch(e) {
+                el.innerHTML = `<span class="nb-nb-error">⚠ ${_esc(e.message)}</span>`;
+            }
+        } else {
+            el.innerHTML = `<span class="nb-nb-error">unknown nb command: ${_esc(cmd)}</span>`;
+        }
+    }
+
+    function _buildNbBacklinks(el, backlinks, title) {
+        el.innerHTML = '';
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-nb-header';
+        hdr.innerHTML = `<span class="nb-nb-meta">backlinks · <code>${_esc(title)}</code></span>`;
+
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn';
+        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', () => _loadNbBlock(el));
+        hdr.appendChild(refBtn);
+        el.appendChild(hdr);
+
+        if (!backlinks.length) {
+            el.insertAdjacentHTML('beforeend', '<div class="nb-nb-empty">No backlinks found</div>');
+            return;
+        }
+
+        const list = document.createElement('ul');
+        list.className = 'nb-nb-list';
+        backlinks.forEach(b => {
+            const li   = document.createElement('li');
+            li.className = 'nb-nb-item';
+            if (b.notebook) {
+                const nb = document.createElement('span');
+                nb.className = 'nb-nb-notebook';
+                nb.textContent = b.notebook;
+                li.appendChild(nb);
+            }
+            const btn = document.createElement('button');
+            btn.className = 'nb-nb-link';
+            btn.textContent = b.title || b.selector;
+            btn.addEventListener('click', () => openNote(b.selector));
+            li.appendChild(btn);
+            list.appendChild(li);
+        });
+        el.appendChild(list);
     }
 
     // ── hledger codeblock ──────────────────────────────────────────
@@ -4045,6 +4118,7 @@ const NbMain = (() => {
             await _renderTwBlocks(container);
             await _renderHledgerBlocks(container);
             await _renderTBlocks(container);
+            await _renderNbBlocks(container);
 
             const clone = container.cloneNode(true);
             document.body.removeChild(container);
