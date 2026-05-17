@@ -176,3 +176,55 @@ balance expenses --monthly -3
 Renders balance, register, or income-statement output from hledger. See
 [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) for full
 details. Requires `hledger` on `$PATH`.
+
+## Git menu
+
+nb-web's **☰ → Git** menu surfaces nb's per-notebook git model with a few
+additions beyond what the CLI gives you in one command.
+
+| Item | What it does |
+|---|---|
+| **log** | Shows the last 30 commits for the current notebook, with remote info at the top |
+| **remote** | Runs `nb remote` — shows the configured remote for the current notebook |
+| **status** | Runs `nb status` — git status of the current notebook |
+| **sync** | Runs `nb sync` — pulls then pushes the current notebook; output shown in preview |
+| **wire remotes** | One-shot setup: configures the default remote for every notebook that lacks one |
+
+### nb's git model
+
+Each notebook (`~/.nb/home/`, `~/.nb/tw/`, etc.) is its own git repo. nb
+auto-commits on every edit with messages like `[nb] Edit: filename.md`. Notes
+are therefore always committed locally — **sync** is what pushes them to a
+remote.
+
+### Sync workflow
+
+1. Create a single empty GitHub/Gitea/etc. repo (e.g. `nb-notes`)
+2. **Settings → Git** — paste the SSH or HTTPS URL into *Default remote URL*, Save
+3. **Git → wire remotes** — one click; each notebook gets the remote added and
+   its first push sent to a branch named after the notebook (`home`, `tw`, `claude`, …)
+4. From then on, **Git → sync** pushes the current notebook; the result is shown
+   in the preview pane
+
+Notebooks that already have a remote configured are skipped (marked `·`) —
+that's the per-notebook override path. If a push fails (e.g. SSH key not
+configured), the remote is removed so the notebook is left in a clean state and
+you can retry after fixing credentials.
+
+### Settings
+
+`nb-settings.json` (in the nb-web directory) holds nb-web-specific settings:
+
+```json
+{
+  "default_git_remote": "git@github.com:you/nb-notes.git",
+  "git_repos": {
+    "nb-web":    "~/dev/nb-web",
+    "myproject": "~/dev/myproject"
+  }
+}
+```
+
+`git_repos` is used by the `git` codeblock (aliases → local paths). It is
+separate from notebook sync remotes, which are stored in each notebook's own
+`.git/config`.
