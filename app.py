@@ -2242,127 +2242,101 @@ def api_nb_sync_status():
 
 @app.route('/api/sync', methods=['POST'])
 def api_sync():
+    """Sync one notebook: commit optional message, pull, push — all via explicit git."""
     data     = request.get_json() or {}
     notebook = data.get('notebook', '').strip()
     message  = data.get('message', '').strip()
 
-    # Warn early if the target notebook has no remote configured
-    if notebook and notebook not in ('_all', ''):
-        nb_path = NB_DIR / notebook
-        if nb_path.is_dir() and (nb_path / '.git').exists():
-            try:
-                rr = subprocess.run(['git', 'remote'], capture_output=True, text=True,
-                                    cwd=str(nb_path), timeout=5)
-                if not rr.stdout.strip():
-                    return jsonify({
-                        'success': False, 'no_remote': True,
-                        'output': (
-                            f'No remote configured for notebook "{notebook}".\n\n'
-                            f'Notes are committed locally — nothing is lost.\n\n'
-                            f'To push to a remote, run:\n'
-                            f'  nb {notebook}:remote set <git-url>\n\n'
-                            f'Then sync again.'
-                        )
-                    })
-            except Exception:
-                pass
+    if not notebook or notebook == '_all':
+        return jsonify({'success': False, 'output': 'Specify a single notebook to sync.'})
+
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir() or not (nb_path / '.git').exists():
+        return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found.'})
+
+    git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
+               'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
+
+    remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                              cwd=str(nb_path), timeout=5, env=git_env)
+    if not remote_r.stdout.strip():
+        return jsonify({
+            'success': False, 'no_remote': True,
+            'output': (
+                f'No remote configured for notebook "{notebook}".\n\n'
+                f'Notes are committed locally — nothing is lost.\n\n'
+                f'To push to a remote, go to Settings → Git and run git-wire,\n'
+                f'or run:  nb {notebook}:remote set <git-url>'
+            )
+        })
+
+    lines = []
+    git_push_ok = False
 
     # Optional pre-commit with user message
-    pre_lines = []
-    if message and notebook and notebook not in ('_all', ''):
-        nb_path = NB_DIR / notebook
-        if nb_path.is_dir() and (nb_path / '.git').exists():
-            cr = subprocess.run(
-                ['git', '-C', str(nb_path), 'commit', '-a', '-m', message],
-                capture_output=True, text=True,
-            )
-            if cr.returncode == 0:
-                pre_lines.append(f'Committed: {message}')
-            elif 'nothing to commit' not in cr.stdout + cr.stderr:
-                pre_lines.append(cr.stderr.strip() or cr.stdout.strip())
-
-    args = [NB_BIN] + (['sync'] if not notebook or notebook == '_all' else [f'{notebook}:sync']) + ['--no-color']
-    try:
-        _nb_proc = subprocess.run(
-            args, capture_output=True, text=True,
-            input='', env={**os.environ, 'NO_COLOR': '1'},
-            timeout=60,
+    if message:
+        cr = subprocess.run(
+            ['git', 'commit', '-a', '-m', message],
+            capture_output=True, text=True, cwd=str(nb_path), env=git_env,
         )
-        r = {'stdout': _nb_proc.stdout.strip(), 'stderr': _nb_proc.stderr.strip(),
-             'returncode': _nb_proc.returncode}
+        if cr.returncode == 0:
+            lines.append(f'Committed: {message}')
+        elif 'nothing to commit' not in cr.stdout + cr.stderr:
+            lines.append(cr.stderr.strip() or cr.stdout.strip())
+
+    # Pull remote notebook branch first
+    try:
+        pull_r = subprocess.run(
+            ['git', 'pull', '--no-rebase', '--no-edit', 'origin', notebook],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
+        )
     except subprocess.TimeoutExpired:
-        r = {'stdout': '', 'stderr': 'nb sync timed out after 60s', 'returncode': 1}
+        lines.append('Pull timed out after 30s')
+        return jsonify({'success': False, 'output': '\n'.join(lines)})
 
-    # nb sync pushes master→master; do a proper pull-then-push for the notebook branch
-    push_lines = []
-    git_push_ok = False   # tracks whether OUR push step succeeded
-    if notebook and notebook not in ('_all', ''):
-        nb_path_push = NB_DIR / notebook
-        if nb_path_push.is_dir() and (nb_path_push / '.git').exists():
-            git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
-                       'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
-            # Pull remote notebook branch first to avoid non-fast-forward rejection
+    if pull_r.returncode != 0:
+        pull_combined = pull_r.stderr + pull_r.stdout
+        if 'refusing to merge unrelated histories' in pull_combined:
+            # Orphan remote branch — local is authoritative, force push
+            lines.append(
+                f'Remote branch "{notebook}" has unrelated history — '
+                f'force-pushing local commits (local is authoritative).'
+            )
             try:
-                pull_r = subprocess.run(
-                    ['git', 'pull', '--no-rebase', '--no-edit', 'origin', notebook],
-                    capture_output=True, text=True,
-                    cwd=str(nb_path_push), timeout=30, env=git_env,
+                fp_r = subprocess.run(
+                    ['git', 'push', '--force', 'origin', f'HEAD:{notebook}'],
+                    capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
                 )
+                git_push_ok = fp_r.returncode == 0
+                msg = fp_r.stderr.strip() or fp_r.stdout.strip() or f'Force-pushed to origin/{notebook}'
+                lines.append(msg if git_push_ok else f'Force-push failed: {msg}')
             except subprocess.TimeoutExpired:
-                push_lines.append('Pull timed out after 30s')
-                pull_r = None
-            if pull_r is not None and pull_r.returncode != 0:
-                pull_combined = pull_r.stderr + pull_r.stdout
-                if 'refusing to merge unrelated histories' in pull_combined:
-                    # Remote branch has a different root commit (e.g. orphan created by
-                    # wire-remotes in a different state). Local is authoritative — force push.
-                    push_lines.append(
-                        f'Remote branch "{notebook}" has unrelated history — '
-                        f'force-pushing local commits (local is authoritative).'
-                    )
-                    try:
-                        fp_r = subprocess.run(
-                            ['git', 'push', '--force', 'origin', f'HEAD:{notebook}'],
-                            capture_output=True, text=True,
-                            cwd=str(nb_path_push), timeout=30, env=git_env,
-                        )
-                        msg = fp_r.stderr.strip() or fp_r.stdout.strip() or f'Force-pushed to origin/{notebook}'
-                        if fp_r.returncode == 0:
-                            git_push_ok = True
-                        push_lines.append(msg if fp_r.returncode == 0 else f'Force-push failed: {msg}')
-                    except subprocess.TimeoutExpired:
-                        push_lines.append('Force-push timed out after 30s')
-                else:
-                    pull_err = pull_r.stderr.strip() or pull_r.stdout.strip()
-                    push_lines.append(f'Pull failed: {pull_err}')
-                pull_r = None
-            if pull_r is not None:
-                pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
-                if pull_msg and pull_msg != 'Already up to date.':
-                    push_lines.append(pull_msg)
-                try:
-                    push_r = subprocess.run(
-                        ['git', 'push', 'origin', f'HEAD:{notebook}'],
-                        capture_output=True, text=True,
-                        cwd=str(nb_path_push), timeout=30, env=git_env,
-                    )
-                except subprocess.TimeoutExpired:
-                    push_lines.append('Push timed out after 30s')
-                    push_r = None
-                if push_r is not None:
-                    if push_r.returncode == 0:
-                        git_push_ok = True
-                        msg = (push_r.stderr.strip() or push_r.stdout.strip() or
-                               f'Pushed to origin/{notebook}')
-                        push_lines.append(msg)
-                    else:
-                        push_lines.append(f'Push failed: {push_r.stderr.strip()}')
+                lines.append('Force-push timed out after 30s')
+        else:
+            lines.append(f'Pull failed: {pull_r.stderr.strip() or pull_r.stdout.strip()}')
+        return jsonify({'success': git_push_ok, 'output': '\n'.join(lines)})
 
-    out = ('\n'.join(pre_lines) + ('\n' if pre_lines else '') +
-           strip_ansi(r['stdout']) +
-           ('\n' + '\n'.join(push_lines) if push_lines else ''))
-    return jsonify({'success': nb_ok(r) or git_push_ok, 'output': out.strip(),
-                    'stderr': strip_ansi(r['stderr'])})
+    pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
+    if pull_msg and pull_msg != 'Already up to date.':
+        lines.append(pull_msg)
+
+    # Push
+    try:
+        push_r = subprocess.run(
+            ['git', 'push', 'origin', f'HEAD:{notebook}'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
+        )
+    except subprocess.TimeoutExpired:
+        lines.append('Push timed out after 30s')
+        return jsonify({'success': False, 'output': '\n'.join(lines)})
+
+    if push_r.returncode == 0:
+        git_push_ok = True
+        lines.append(push_r.stderr.strip() or push_r.stdout.strip() or f'Pushed to origin/{notebook}')
+    else:
+        lines.append(f'Push failed: {push_r.stderr.strip()}')
+
+    return jsonify({'success': git_push_ok, 'output': '\n'.join(lines)})
 
 
 @app.route('/api/nb/git-log')
@@ -3614,7 +3588,62 @@ def not_found(_):
     return send_from_directory('.', 'index.html')
 
 
+# ---------------------------------------------------------------------------
+# Startup: assert correct git tracking for all notebooks
+# ---------------------------------------------------------------------------
+
+def _assert_notebook_tracking():
+    """Ensure every nb notebook with a remote tracks origin/<name>, not origin/master.
+
+    Safe and idempotent — read-only unless a config value is wrong.
+    """
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true'}
+    fixed, checked = [], 0
+    try:
+        notebooks = sorted(
+            d for d in NB_DIR.iterdir()
+            if d.is_dir() and not d.name.startswith('.')
+            and not d.name.startswith('-') and (d / '.git').exists()
+        )
+    except Exception as e:
+        print(f'[nb-web] tracking check failed: {e}', flush=True)
+        return
+
+    for nb_path in notebooks:
+        name = nb_path.name
+        remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                                  cwd=str(nb_path), timeout=5, env=env)
+        if not remote_r.stdout.strip():
+            continue  # no remote — nothing to assert
+        checked += 1
+
+        want_merge  = f'refs/heads/{name}'
+        have_merge  = subprocess.run(
+            ['git', 'config', 'branch.master.merge'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env
+        ).stdout.strip()
+        have_remote = subprocess.run(
+            ['git', 'config', 'branch.master.remote'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env
+        ).stdout.strip()
+
+        if have_merge != want_merge:
+            subprocess.run(['git', 'config', 'branch.master.merge', want_merge],
+                           cwd=str(nb_path), timeout=5, env=env)
+            fixed.append(f'{name}: merge {have_merge!r}→{want_merge!r}')
+        if have_remote and have_remote != 'origin':
+            subprocess.run(['git', 'config', 'branch.master.remote', 'origin'],
+                           cwd=str(nb_path), timeout=5, env=env)
+            fixed.append(f'{name}: remote {have_remote!r}→origin')
+
+    if fixed:
+        print(f'[nb-web] tracking corrected: {"; ".join(fixed)}', flush=True)
+    else:
+        print(f'[nb-web] tracking OK ({checked} notebooks checked)', flush=True)
+
+
 if __name__ == '__main__':
+    _assert_notebook_tracking()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
     app.run(host=HOST, port=PORT, debug=True, use_reloader=False)
