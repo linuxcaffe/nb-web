@@ -2303,7 +2303,7 @@ def api_sync():
             # Pull remote notebook branch first to avoid non-fast-forward rejection
             try:
                 pull_r = subprocess.run(
-                    ['git', 'pull', '--no-edit', 'origin', notebook],
+                    ['git', 'pull', '--no-rebase', '--no-edit', 'origin', notebook],
                     capture_output=True, text=True,
                     cwd=str(nb_path_push), timeout=30, env=git_env,
                 )
