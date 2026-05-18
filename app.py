@@ -2311,8 +2311,27 @@ def api_sync():
                 push_lines.append('Pull timed out after 30s')
                 pull_r = None
             if pull_r is not None and pull_r.returncode != 0:
-                pull_err = pull_r.stderr.strip() or pull_r.stdout.strip()
-                push_lines.append(f'Pull failed: {pull_err}')
+                pull_combined = pull_r.stderr + pull_r.stdout
+                if 'refusing to merge unrelated histories' in pull_combined:
+                    # Remote branch has a different root commit (e.g. orphan created by
+                    # wire-remotes in a different state). Local is authoritative — force push.
+                    push_lines.append(
+                        f'Remote branch "{notebook}" has unrelated history — '
+                        f'force-pushing local commits (local is authoritative).'
+                    )
+                    try:
+                        fp_r = subprocess.run(
+                            ['git', 'push', '--force', 'origin', f'HEAD:{notebook}'],
+                            capture_output=True, text=True,
+                            cwd=str(nb_path_push), timeout=30, env=git_env,
+                        )
+                        msg = fp_r.stderr.strip() or fp_r.stdout.strip() or f'Force-pushed to origin/{notebook}'
+                        push_lines.append(msg if fp_r.returncode == 0 else f'Force-push failed: {msg}')
+                    except subprocess.TimeoutExpired:
+                        push_lines.append('Force-push timed out after 30s')
+                else:
+                    pull_err = pull_r.stderr.strip() or pull_r.stdout.strip()
+                    push_lines.append(f'Pull failed: {pull_err}')
                 pull_r = None
             if pull_r is not None:
                 pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
