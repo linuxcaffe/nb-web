@@ -2491,6 +2491,50 @@ def api_nb_wire_notebook():
         return jsonify({'success': False, 'output': '\n'.join(lines)})
 
 
+@app.route('/api/nb/delete-notebook', methods=['POST'])
+def api_nb_delete_notebook():
+    """Delete a notebook locally or its remote branch. Scope must be explicit."""
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '').strip()
+    scope    = data.get('scope', '').strip()  # 'local' or 'remote'
+
+    if not notebook or scope not in ('local', 'remote'):
+        return jsonify({'success': False, 'output': 'notebook and scope (local|remote) required.'})
+
+    nb_path = NB_DIR / notebook
+    git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
+               'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
+
+    if scope == 'remote':
+        if not nb_path.is_dir() or not (nb_path / '.git').exists():
+            return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found locally.'})
+        remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                                  cwd=str(nb_path), timeout=5, env=git_env)
+        if not remote_r.stdout.strip():
+            return jsonify({'success': False, 'output': 'No remote configured for this notebook.'})
+        try:
+            r = subprocess.run(
+                ['git', 'push', 'origin', '--delete', notebook],
+                capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
+            )
+        except subprocess.TimeoutExpired:
+            return jsonify({'success': False, 'output': 'Timed out after 30s'})
+        msg = r.stderr.strip() or r.stdout.strip() or f'Remote branch "{notebook}" deleted.'
+        return jsonify({'success': r.returncode == 0, 'output': msg})
+
+    # scope == 'local'
+    try:
+        r = subprocess.run(
+            [NB_BIN, 'notebooks', 'delete', notebook, '--force'],
+            capture_output=True, text=True, timeout=15,
+            env={**os.environ, 'NO_COLOR': '1'},
+        )
+        msg = r.stdout.strip() or r.stderr.strip() or f'Notebook "{notebook}" deleted.'
+        return jsonify({'success': r.returncode == 0, 'output': msg})
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'output': 'Timed out after 15s'})
+
+
 # ---------------------------------------------------------------------------
 # API: Grep — ripgrep with context, structured per-file results
 # ---------------------------------------------------------------------------

@@ -1717,6 +1717,24 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-sync-copy-btn:hover { opacity: 1; color: var(--text); }
 .nb-menu-subitem.nb-sync-pending { color: var(--accent) !important; }
+.nb-sync-danger { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
+.nb-sync-danger-toggle { cursor: pointer; font-size: 0.8em; color: var(--red, #c44); opacity: 0.7;
+    list-style: none; user-select: none; }
+.nb-sync-danger-toggle:hover { opacity: 1; }
+.nb-sync-danger-body { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.nb-sync-danger-btn { align-self: flex-start; padding: 3px 10px; font-size: 0.82em;
+    border: 1px solid var(--red, #c44); color: var(--red, #c44); background: transparent;
+    border-radius: 4px; cursor: pointer; }
+.nb-sync-danger-btn:hover { background: var(--red, #c44); color: #fff; }
+.nb-sync-danger-warn { font-size: 0.82em; color: var(--text-dim); margin: 0; }
+.nb-sync-danger-confirm { width: 100%; box-sizing: border-box; font-size: 0.85em; }
+.nb-sync-danger-mismatch { border-color: var(--red, #c44) !important; }
+.nb-sync-danger-confirm-row { display: flex; gap: 6px; }
+.nb-sync-danger-ok { padding: 3px 12px; background: var(--red, #c44); color: #fff;
+    border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+.nb-sync-danger-ok:disabled { opacity: 0.6; cursor: default; }
+.nb-sync-danger-cancel { padding: 3px 12px; background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.85em; }
 
 /* ── hledger codeblock ───────────────────────────────────────── */
 .nb-hl-block  { margin: 1em 0; }
