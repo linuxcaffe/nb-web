@@ -1169,14 +1169,20 @@ const NbNav = (() => {
 
             nowBtn.onclick = () => {
                 const msg = comment.value.trim();
-                nowBtn.disabled    = true;
-                nowBtn.textContent = 'Syncing…';
-                output.hidden      = true;
+                nowBtn.disabled = true;
+                output.hidden   = true;
+
+                let elapsed = 0;
+                const tick = () => { nowBtn.textContent = `Syncing… ${++elapsed}s`; };
+                nowBtn.textContent = 'Syncing… 0s';
+                const timer = setInterval(tick, 1000);
+
                 fetch('/api/sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ notebook: nb, message: msg }),
                 }).then(r => r.json()).then(data => {
+                    clearInterval(timer);
                     output.textContent = data.output || (data.success ? 'Sync complete.' : 'Sync failed.');
                     output.hidden      = false;
                     nowBtn.disabled    = false;
@@ -1187,6 +1193,7 @@ const NbNav = (() => {
                         NbNav.reexecute();
                     }
                 }).catch(err => {
+                    clearInterval(timer);
                     output.textContent = 'Error: ' + err;
                     output.hidden      = false;
                     nowBtn.disabled    = false;

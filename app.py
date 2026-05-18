@@ -2281,8 +2281,17 @@ def api_sync():
             elif 'nothing to commit' not in cr.stdout + cr.stderr:
                 pre_lines.append(cr.stderr.strip() or cr.stdout.strip())
 
-    args = ['sync'] if not notebook or notebook == '_all' else [f'{notebook}:sync']
-    r = run_nb(*args)
+    args = [NB_BIN] + (['sync'] if not notebook or notebook == '_all' else [f'{notebook}:sync']) + ['--no-color']
+    try:
+        _nb_proc = subprocess.run(
+            args, capture_output=True, text=True,
+            input='', env={**os.environ, 'NO_COLOR': '1'},
+            timeout=60,
+        )
+        r = {'stdout': _nb_proc.stdout.strip(), 'stderr': _nb_proc.stderr.strip(),
+             'returncode': _nb_proc.returncode}
+    except subprocess.TimeoutExpired:
+        r = {'stdout': '', 'stderr': 'nb sync timed out after 60s', 'returncode': 1}
 
     # nb sync pushes master→master; do a proper pull-then-push for the notebook branch
     push_lines = []
@@ -2292,29 +2301,39 @@ def api_sync():
             git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
                        'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
             # Pull remote notebook branch first to avoid non-fast-forward rejection
-            pull_r = subprocess.run(
-                ['git', 'pull', '--no-edit', 'origin', notebook],
-                capture_output=True, text=True,
-                cwd=str(nb_path_push), timeout=30, env=git_env,
-            )
-            if pull_r.returncode != 0:
-                pull_err = pull_r.stderr.strip() or pull_r.stdout.strip()
-                push_lines.append(f'Pull failed: {pull_err}')
-            else:
-                pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
-                if pull_msg and pull_msg != 'Already up to date.':
-                    push_lines.append(pull_msg)
-                push_r = subprocess.run(
-                    ['git', 'push', 'origin', f'HEAD:{notebook}'],
+            try:
+                pull_r = subprocess.run(
+                    ['git', 'pull', '--no-edit', 'origin', notebook],
                     capture_output=True, text=True,
                     cwd=str(nb_path_push), timeout=30, env=git_env,
                 )
-                if push_r.returncode == 0:
-                    msg = (push_r.stderr.strip() or push_r.stdout.strip() or
-                           f'Pushed to origin/{notebook}')
-                    push_lines.append(msg)
-                else:
-                    push_lines.append(f'Push failed: {push_r.stderr.strip()}')
+            except subprocess.TimeoutExpired:
+                push_lines.append('Pull timed out after 30s')
+                pull_r = None
+            if pull_r is not None and pull_r.returncode != 0:
+                pull_err = pull_r.stderr.strip() or pull_r.stdout.strip()
+                push_lines.append(f'Pull failed: {pull_err}')
+                pull_r = None
+            if pull_r is not None:
+                pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
+                if pull_msg and pull_msg != 'Already up to date.':
+                    push_lines.append(pull_msg)
+                try:
+                    push_r = subprocess.run(
+                        ['git', 'push', 'origin', f'HEAD:{notebook}'],
+                        capture_output=True, text=True,
+                        cwd=str(nb_path_push), timeout=30, env=git_env,
+                    )
+                except subprocess.TimeoutExpired:
+                    push_lines.append('Push timed out after 30s')
+                    push_r = None
+                if push_r is not None:
+                    if push_r.returncode == 0:
+                        msg = (push_r.stderr.strip() or push_r.stdout.strip() or
+                               f'Pushed to origin/{notebook}')
+                        push_lines.append(msg)
+                    else:
+                        push_lines.append(f'Push failed: {push_r.stderr.strip()}')
 
     out = ('\n'.join(pre_lines) + ('\n' if pre_lines else '') +
            strip_ansi(r['stdout']) +
