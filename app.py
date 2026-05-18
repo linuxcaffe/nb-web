@@ -2281,7 +2281,10 @@ def api_nb_git_wire():
     try:
         notebooks = sorted(
             d for d in NB_DIR.iterdir()
-            if d.is_dir() and not d.name.startswith('.') and (d / '.git').exists()
+            if d.is_dir()
+            and not d.name.startswith('.')
+            and not d.name.startswith('-')
+            and (d / '.git').exists()
         )
     except Exception as e:
         return jsonify({'error': str(e)})
@@ -2305,7 +2308,7 @@ def api_nb_git_wire():
             continue
 
         push_r = subprocess.run(
-            ['git', 'push', '--set-upstream', 'origin', name],
+            ['git', 'push', '--set-upstream', 'origin', f'HEAD:{name}'],
             capture_output=True, text=True, cwd=str(nb_path), timeout=60, env=env,
         )
         if push_r.returncode == 0:
