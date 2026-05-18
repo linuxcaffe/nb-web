@@ -1082,7 +1082,7 @@ const NbNav = (() => {
         function _menuAction(cmd) {
             shut();
             if (_UI_CMDS.has(cmd))      activateCmd(cmd);
-            else if (cmd === 'sync')    NbMain.doSync();
+            else if (cmd === 'sync')    _openSyncDialog();
             else if (cmd === 'git-log')  NbMain.showNbGitLog();
             else if (cmd === 'git-wire') NbMain.showNbGitWire();
             else if (cmd === 'about')   NbMain.showAbout();
@@ -1114,6 +1114,98 @@ const NbNav = (() => {
                 })
                 .catch(() => setTimeout(poll, 400));
             setTimeout(poll, 600);
+        }
+
+        function _openSyncDialog() {
+            const dialog    = document.getElementById('nb-sync-dialog');
+            const title     = document.getElementById('nb-sync-title');
+            const changesEl = document.getElementById('nb-sync-changes');
+            const comment   = document.getElementById('nb-sync-comment');
+            const nowBtn    = document.getElementById('nb-sync-now');
+            const logBtn    = document.getElementById('nb-sync-log');
+            const output    = document.getElementById('nb-sync-output');
+            const closeBtn  = document.getElementById('nb-sync-close');
+            if (!dialog) return;
+
+            const nb = (!_scope || _scope === '_all') ? 'home' : _scope;
+            title.textContent     = `Sync · ${nb}`;
+            comment.value         = '';
+            output.hidden         = true;
+            output.textContent    = '';
+            nowBtn.disabled       = false;
+            nowBtn.textContent    = 'Sync Now';
+            changesEl.innerHTML   = 'Loading…';
+
+            fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json()).then(d => {
+                if (!d.has_remote) {
+                    changesEl.innerHTML = `<span class="nb-sync-noremote">No remote configured — use Git → wire remotes first.</span>`;
+                    nowBtn.disabled = true;
+                    return;
+                }
+                const parts = [];
+                if (d.files?.length) {
+                    const rows = d.files.map(f =>
+                        `<span class="nb-sync-file-row">` +
+                        `<span class="nb-sync-fs">${f.status}</span>` +
+                        `<span class="nb-sync-fname">${f.path}</span></span>`
+                    ).join('');
+                    parts.push(
+                        `<div class="nb-sync-files-section">` +
+                        `<div class="nb-sync-files-label">${d.files.length} file${d.files.length !== 1 ? 's' : ''} changed</div>` +
+                        `${rows}</div>`
+                    );
+                }
+                if (d.unpushed) parts.push(
+                    `<div class="nb-sync-unpushed">${d.unpushed} unpushed commit${d.unpushed !== 1 ? 's' : ''}</div>`);
+                changesEl.innerHTML = parts.length
+                    ? parts.join('')
+                    : '<span class="nb-sync-uptodate">Up to date</span>';
+            }).catch(() => { changesEl.textContent = 'Could not load status.'; });
+
+            dialog.style.display = 'flex';
+            const close = () => { dialog.style.display = 'none'; };
+            closeBtn.onclick  = close;
+            dialog.onclick    = e => { if (e.target === dialog) close(); };
+
+            nowBtn.onclick = () => {
+                const msg = comment.value.trim();
+                nowBtn.disabled    = true;
+                nowBtn.textContent = 'Syncing…';
+                output.hidden      = true;
+                fetch('/api/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notebook: nb, message: msg }),
+                }).then(r => r.json()).then(data => {
+                    output.textContent = data.output || (data.success ? 'Sync complete.' : 'Sync failed.');
+                    output.hidden      = false;
+                    nowBtn.disabled    = false;
+                    nowBtn.textContent = data.success ? 'Sync Now' : 'Retry';
+                    if (data.success) {
+                        comment.value = '';
+                        _pollNbSyncStatus();
+                        NbNav.reexecute();
+                    }
+                }).catch(err => {
+                    output.textContent = 'Error: ' + err;
+                    output.hidden      = false;
+                    nowBtn.disabled    = false;
+                    nowBtn.textContent = 'Retry';
+                });
+            };
+
+            logBtn.onclick = () => {
+                logBtn.disabled = true;
+                fetch(`/api/nb/git-log?notebook=${encodeURIComponent(nb)}&n=30`)
+                    .then(r => r.json())
+                    .then(d => {
+                        output.textContent = d.output || '(no log)';
+                        output.hidden      = false;
+                    }).catch(err => {
+                        output.textContent = 'Error: ' + err;
+                        output.hidden      = false;
+                    }).finally(() => { logBtn.disabled = false; });
+            };
         }
 
         const MENU = [
@@ -1173,6 +1265,7 @@ const NbNav = (() => {
                     const btn = document.createElement('button');
                     btn.className = 'nb-menu-item nb-menu-subitem';
                     btn.textContent = item.label;
+                    btn.dataset.cmd = item.cmd;
                     btn.addEventListener('click', () => _menuAction(item.cmd));
                     sub.appendChild(btn);
                 });
@@ -1186,6 +1279,56 @@ const NbNav = (() => {
                 nav.appendChild(btn);
             }
         });
+    }
+
+    // ── Sync dialog (module-level) ────────────────────────────────
+
+    function _initSyncDialog() {
+        if (document.getElementById('nb-sync-dialog')) return;
+        const el = document.createElement('div');
+        el.id        = 'nb-sync-dialog';
+        el.className = 'nb-sync-backdrop';
+        el.style.display = 'none';
+        el.innerHTML =
+            `<div class="nb-sync-dialog">` +
+                `<div class="nb-sync-header">` +
+                    `<span id="nb-sync-title">Sync</span>` +
+                    `<button id="nb-sync-close" class="nb-sync-close">×</button>` +
+                `</div>` +
+                `<div class="nb-sync-body">` +
+                    `<div id="nb-sync-changes" class="nb-sync-changes">Loading…</div>` +
+                    `<input type="text" id="nb-sync-comment" class="nb-sync-comment nb-tw-inp"` +
+                           ` placeholder="Commit message (optional)">` +
+                    `<div class="nb-sync-btn-row">` +
+                        `<button id="nb-sync-now" class="nb-sync-now-btn">Sync Now</button>` +
+                        `<button id="nb-sync-log" class="nb-sync-secondary-btn">Show Log</button>` +
+                    `</div>` +
+                    `<pre id="nb-sync-output" class="nb-sync-output" hidden></pre>` +
+                `</div>` +
+            `</div>`;
+        document.body.appendChild(el);
+    }
+
+    async function _pollNbSyncStatus() {
+        const nb = (!_scope || _scope === '_all') ? 'home' : _scope;
+        try {
+            const d = await fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
+            const syncBtn = document.querySelector('.nb-menu-subitem[data-cmd="sync"]');
+            if (!syncBtn) return;
+            if (!d.has_remote) {
+                syncBtn.textContent = 'sync (no remote)';
+                syncBtn.classList.add('nb-sync-pending');
+            } else if (d.changes > 0 || d.unpushed > 0) {
+                const parts = [];
+                if (d.changes)  parts.push(`${d.changes} changed`);
+                if (d.unpushed) parts.push(`${d.unpushed} unpushed`);
+                syncBtn.textContent = `sync (${parts.join(', ')})`;
+                syncBtn.classList.add('nb-sync-pending');
+            } else {
+                syncBtn.textContent = 'sync';
+                syncBtn.classList.remove('nb-sync-pending');
+            }
+        } catch { /* network error — leave badge as-is */ }
     }
 
     // ── Folder navigation ─────────────────────────────────────────
@@ -1259,6 +1402,9 @@ const NbNav = (() => {
             _loadNotebooks();
             _initCmdBar();
             _initMenu();
+            _initSyncDialog();
+            _pollNbSyncStatus();
+            setInterval(_pollNbSyncStatus, 60_000);
             document.getElementById('nb-cmd-output-clear').addEventListener('click', _clearOutputBar);
 
             const prompt = document.querySelector('.nb-cmd-output-prompt');

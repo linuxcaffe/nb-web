@@ -187,7 +187,7 @@ additions beyond what the CLI gives you in one command.
 | **log** | Shows the last 30 commits for the current notebook, with remote info at the top |
 | **remote** | Runs `nb remote` — shows the configured remote for the current notebook |
 | **status** | Runs `nb status` — git status of the current notebook |
-| **sync** | Runs `nb sync` — pulls then pushes the current notebook; output shown in preview |
+| **sync** | Opens the Sync dialog — two-way pull+push for the current notebook |
 | **wire remotes** | One-shot setup: configures the default remote for every notebook that lacks one |
 
 ### nb's git model
@@ -195,21 +195,62 @@ additions beyond what the CLI gives you in one command.
 Each notebook (`~/.nb/home/`, `~/.nb/tw/`, etc.) is its own git repo. nb
 auto-commits on every edit with messages like `[nb] Edit: filename.md`. Notes
 are therefore always committed locally — **sync** is what pushes them to a
-remote.
+remote and pulls changes made elsewhere (another machine, GitHub web editor, etc.).
 
-### Sync workflow
+### Sync dialog
 
-1. Create a single empty GitHub/Gitea/etc. repo (e.g. `nb-notes`)
-2. **Settings → Git** — paste the SSH or HTTPS URL into *Default remote URL*, Save
-3. **Git → wire remotes** — one click; each notebook gets the remote added and
-   its first push sent to a branch named after the notebook (`home`, `tw`, `claude`, …)
-4. From then on, **Git → sync** pushes the current notebook; the result is shown
-   in the preview pane
+**☰ → Git → sync** opens a modal dialog that shows the current notebook's sync
+state before you commit to syncing:
 
-Notebooks that already have a remote configured are skipped (marked `·`) —
-that's the per-notebook override path. If a push fails (e.g. SSH key not
-configured), the remote is removed so the notebook is left in a clean state and
-you can retry after fixing credentials.
+- **Status area** — lists uncommitted files and unpushed commit count; shows
+  "Up to date" when nothing is pending, or "No remote configured" if wire
+  remotes hasn't been run yet
+- **Commit message** — optional free-text field; if filled, a git commit with
+  that message is created before syncing (useful for labelling a batch of
+  auto-committed edits)
+- **Sync Now** — runs the full two-way cycle: `nb sync` (auto-commit any
+  pending changes) → `git pull --no-edit origin <notebook>` (merge remote
+  changes) → `git push origin HEAD:<notebook>` (push to the notebook's branch)
+- **Show Log** — fetches the last 30 commits + remote info inline, without
+  closing the dialog
+
+The **sync** menu item shows a live badge that updates every 60 seconds:
+`sync (3 changed, 1 unpushed)` when there's work to do, or
+`sync (no remote)` if wire remotes hasn't been run for the current notebook.
+
+### Notebooks as branches
+
+nb-web uses a **one-repo, branch-per-notebook** model for remote sync:
+
+```
+github.com/you/nb-notes
+  branch: home     ← ~/.nb/home/  (your default notebook)
+  branch: work     ← ~/.nb/work/
+  branch: tw       ← ~/.nb/tw/
+  branch: claude   ← ~/.nb/claude/
+  …
+```
+
+All notebooks live in a single remote repository; each gets its own branch
+named after the notebook. This means:
+
+- You can browse, edit, and commit notes directly on GitHub (web editor)
+- Changes sync back to nb-web on the next Sync — pull merges remote commits
+  automatically
+- Multiple machines share the same repo; each notebook branch is independent
+- History per notebook is clean and readable
+
+### First-time setup
+
+1. Create a single empty repo on GitHub/Gitea/etc. (e.g. `nb-notes`), SSH preferred
+2. **☰ → Settings → nb-web settings** — paste the SSH URL into *Default remote URL*, Save
+3. **☰ → Git → wire remotes** — one click configures all notebooks: adds the
+   remote, pushes each notebook's commits to its branch, and sets the git
+   tracking ref so future syncs go to the right branch
+4. **☰ → Git → sync** from then on — opens the Sync dialog for the current notebook
+
+Notebooks that already have a remote are skipped (`·`). If a push fails (SSH
+key not set up), the remote is rolled back so you can fix credentials and retry.
 
 ### Settings
 

@@ -2210,10 +2210,41 @@ def api_git_log():
 # API: Sync
 # ---------------------------------------------------------------------------
 
+@app.route('/api/nb/sync/status')
+def api_nb_sync_status():
+    """Unpushed commits + dirty files for one nb notebook."""
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook or notebook == '_all':
+        return jsonify({'changes': 0, 'has_remote': False, 'unpushed': 0, 'files': []})
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir() or not (nb_path / '.git').exists():
+        return jsonify({'changes': 0, 'has_remote': False, 'unpushed': 0, 'files': []})
+    env = {**os.environ, 'NO_COLOR': '1', 'GIT_TERMINAL_PROMPT': '0', 'GIT_PAGER': 'cat'}
+    remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                              cwd=str(nb_path), timeout=5, env=env)
+    has_remote = bool(remote_r.stdout.strip())
+    unpushed = 0
+    if has_remote:
+        # Use origin/<notebook> explicitly — nb's tracking branch may point at master:master
+        # rather than master:home (branch-per-notebook convention).
+        up_r = subprocess.run(['git', 'rev-list', f'origin/{notebook}..HEAD', '--count'],
+                              capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+        if up_r.returncode == 0:
+            try: unpushed = int(up_r.stdout.strip())
+            except: pass
+    dirty_r = subprocess.run(['git', 'status', '--porcelain'],
+                             capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+    files = [{'status': l[:2].strip(), 'path': l[3:].strip()}
+             for l in dirty_r.stdout.splitlines() if l.strip()]
+    return jsonify({'changes': unpushed + len(files), 'has_remote': has_remote,
+                    'unpushed': unpushed, 'files': files})
+
+
 @app.route('/api/sync', methods=['POST'])
 def api_sync():
     data     = request.get_json() or {}
     notebook = data.get('notebook', '').strip()
+    message  = data.get('message', '').strip()
 
     # Warn early if the target notebook has no remote configured
     if notebook and notebook not in ('_all', ''):
@@ -2236,9 +2267,59 @@ def api_sync():
             except Exception:
                 pass
 
+    # Optional pre-commit with user message
+    pre_lines = []
+    if message and notebook and notebook not in ('_all', ''):
+        nb_path = NB_DIR / notebook
+        if nb_path.is_dir() and (nb_path / '.git').exists():
+            cr = subprocess.run(
+                ['git', '-C', str(nb_path), 'commit', '-a', '-m', message],
+                capture_output=True, text=True,
+            )
+            if cr.returncode == 0:
+                pre_lines.append(f'Committed: {message}')
+            elif 'nothing to commit' not in cr.stdout + cr.stderr:
+                pre_lines.append(cr.stderr.strip() or cr.stdout.strip())
+
     args = ['sync'] if not notebook or notebook == '_all' else [f'{notebook}:sync']
     r = run_nb(*args)
-    return jsonify({'success': nb_ok(r), 'output': strip_ansi(r['stdout']),
+
+    # nb sync pushes master→master; do a proper pull-then-push for the notebook branch
+    push_lines = []
+    if notebook and notebook not in ('_all', ''):
+        nb_path_push = NB_DIR / notebook
+        if nb_path_push.is_dir() and (nb_path_push / '.git').exists():
+            git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
+                       'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
+            # Pull remote notebook branch first to avoid non-fast-forward rejection
+            pull_r = subprocess.run(
+                ['git', 'pull', '--no-edit', 'origin', notebook],
+                capture_output=True, text=True,
+                cwd=str(nb_path_push), timeout=30, env=git_env,
+            )
+            if pull_r.returncode != 0:
+                pull_err = pull_r.stderr.strip() or pull_r.stdout.strip()
+                push_lines.append(f'Pull failed: {pull_err}')
+            else:
+                pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
+                if pull_msg and pull_msg != 'Already up to date.':
+                    push_lines.append(pull_msg)
+                push_r = subprocess.run(
+                    ['git', 'push', 'origin', f'HEAD:{notebook}'],
+                    capture_output=True, text=True,
+                    cwd=str(nb_path_push), timeout=30, env=git_env,
+                )
+                if push_r.returncode == 0:
+                    msg = (push_r.stderr.strip() or push_r.stdout.strip() or
+                           f'Pushed to origin/{notebook}')
+                    push_lines.append(msg)
+                else:
+                    push_lines.append(f'Push failed: {push_r.stderr.strip()}')
+
+    out = ('\n'.join(pre_lines) + ('\n' if pre_lines else '') +
+           strip_ansi(r['stdout']) +
+           ('\n' + '\n'.join(push_lines) if push_lines else ''))
+    return jsonify({'success': nb_ok(r), 'output': out.strip(),
                     'stderr': strip_ansi(r['stderr'])})
 
 
@@ -2313,6 +2394,9 @@ def api_nb_git_wire():
             capture_output=True, text=True, cwd=str(nb_path), timeout=20, env=env,
         )
         if push_r.returncode == 0:
+            # Fix the tracking branch so nb sync (and @{u}) uses origin/<name> not origin/master
+            subprocess.run(['git', 'config', 'branch.master.merge', f'refs/heads/{name}'],
+                           capture_output=True, cwd=str(nb_path), timeout=5, env=env)
             results.append({'notebook': name, 'status': 'ok',
                             'message': f'wired → {default_remote}  (branch: {name})'})
         else:

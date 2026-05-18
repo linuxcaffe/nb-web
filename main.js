@@ -3361,21 +3361,7 @@ const NbMain = (() => {
     // ── Sync ───────────────────────────────────────────────────────
 
     async function doSync() {
-        const btn = document.getElementById('nb-sync-btn');
-        if (btn) btn.classList.add('nb-spin');
-        try {
-            const r = await fetch('/api/sync', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({notebook: NbNav.notebook}),
-            });
-            const d = await r.json();
-            const out = d.output || d.stderr || (d.success ? 'Sync complete.' : 'Sync failed.');
-            _showCmdOutput('sync', out);
-            if (d.success) NbNav.reexecute();
-        } finally {
-            if (btn) btn.classList.remove('nb-spin');
-        }
+        // Sync is handled by the nav sync dialog; this is a no-op fallback.
     }
 
     async function showNbGitWire() {
@@ -3407,9 +3393,7 @@ const NbMain = (() => {
         }
     }
 
-    function _bindSync() {
-        document.getElementById('nb-sync-btn')?.addEventListener('click', doSync);
-    }
+    function _bindSync() { /* sync is handled by nav.js dialog */ }
 
     // ── Run command (cal / daily / info / weather / notebooks) ─────
 
