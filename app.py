@@ -2295,6 +2295,7 @@ def api_sync():
 
     # nb sync pushes master→master; do a proper pull-then-push for the notebook branch
     push_lines = []
+    git_push_ok = False   # tracks whether OUR push step succeeded
     if notebook and notebook not in ('_all', ''):
         nb_path_push = NB_DIR / notebook
         if nb_path_push.is_dir() and (nb_path_push / '.git').exists():
@@ -2326,6 +2327,8 @@ def api_sync():
                             cwd=str(nb_path_push), timeout=30, env=git_env,
                         )
                         msg = fp_r.stderr.strip() or fp_r.stdout.strip() or f'Force-pushed to origin/{notebook}'
+                        if fp_r.returncode == 0:
+                            git_push_ok = True
                         push_lines.append(msg if fp_r.returncode == 0 else f'Force-push failed: {msg}')
                     except subprocess.TimeoutExpired:
                         push_lines.append('Force-push timed out after 30s')
@@ -2348,6 +2351,7 @@ def api_sync():
                     push_r = None
                 if push_r is not None:
                     if push_r.returncode == 0:
+                        git_push_ok = True
                         msg = (push_r.stderr.strip() or push_r.stdout.strip() or
                                f'Pushed to origin/{notebook}')
                         push_lines.append(msg)
@@ -2357,7 +2361,7 @@ def api_sync():
     out = ('\n'.join(pre_lines) + ('\n' if pre_lines else '') +
            strip_ansi(r['stdout']) +
            ('\n' + '\n'.join(push_lines) if push_lines else ''))
-    return jsonify({'success': nb_ok(r), 'output': out.strip(),
+    return jsonify({'success': nb_ok(r) or git_push_ok, 'output': out.strip(),
                     'stderr': strip_ansi(r['stderr'])})
 
 

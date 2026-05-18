@@ -1208,6 +1208,13 @@ const NbNav = (() => {
                         comment.value = '';
                         _pollNbSyncStatus();
                         NbNav.reexecute();
+                        // Refresh the status panel inside the dialog
+                        changesEl.innerHTML = '<span class="nb-sync-uptodate">Up to date</span>';
+                        fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`)
+                            .then(r => r.json()).then(d => {
+                                if (d.unpushed || d.files?.length)
+                                    changesEl.innerHTML = `<span class="nb-sync-unpushed">${d.changes} change${d.changes !== 1 ? 's' : ''} remaining</span>`;
+                            }).catch(() => {});
                     }
                 }).catch(err => {
                     clearInterval(timer);
