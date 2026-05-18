@@ -3379,9 +3379,11 @@ const NbMain = (() => {
     }
 
     async function showNbGitWire() {
-        _showPreviewLoading();
+        _showCmdOutput('wire remotes', 'Working… (pushing each notebook, may take 10–30s)');
         try {
-            const d = await fetch('/api/nb/git-wire', { method: 'POST' }).then(r => r.json());
+            const r = await fetch('/api/nb/git-wire', { method: 'POST' });
+            if (!r.ok) { _showCmdOutput('wire remotes', `Server error: ${r.status}`); return; }
+            const d = await r.json();
             if (d.error) { _showCmdOutput('wire remotes', d.error); return; }
             const lines = (d.results || []).map(r => {
                 const icon = r.status === 'ok' ? '✓' : r.status === 'skip' ? '·' : '✗';

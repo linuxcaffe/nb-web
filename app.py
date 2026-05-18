@@ -2277,7 +2277,8 @@ def api_nb_git_wire():
     if not default_remote:
         return jsonify({'error': 'No default_git_remote set. Add it in Settings → Git.'})
 
-    env = {**os.environ, 'GIT_PAGER': 'cat', 'NO_COLOR': '1'}
+    env = {**os.environ, 'GIT_PAGER': 'cat', 'NO_COLOR': '1',
+           'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true'}
     try:
         notebooks = sorted(
             d for d in NB_DIR.iterdir()
@@ -2309,7 +2310,7 @@ def api_nb_git_wire():
 
         push_r = subprocess.run(
             ['git', 'push', '--set-upstream', 'origin', f'HEAD:{name}'],
-            capture_output=True, text=True, cwd=str(nb_path), timeout=60, env=env,
+            capture_output=True, text=True, cwd=str(nb_path), timeout=20, env=env,
         )
         if push_r.returncode == 0:
             results.append({'notebook': name, 'status': 'ok',
