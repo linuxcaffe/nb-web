@@ -1694,6 +1694,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-sync-secondary-btn:hover:not(:disabled) { background: var(--bg); }
 .nb-sync-secondary-btn:disabled { opacity: 0.5; cursor: default; }
+.nb-sync-output-wrap { position: relative; }
 .nb-sync-output {
   font-family: var(--font-mono); font-size: 0.78em;
   background: var(--bg); border: 1px solid var(--border);
@@ -1701,6 +1702,14 @@ body.nb-fullscreen #nb-cmd-bar::after {
   white-space: pre-wrap; max-height: 260px; overflow-y: auto;
   color: var(--text); margin: 0;
 }
+.nb-sync-copy-btn {
+  position: absolute; top: 5px; right: 6px;
+  font-size: 0.72em; padding: 2px 6px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--text-dim); cursor: pointer;
+  opacity: 0.7;
+}
+.nb-sync-copy-btn:hover { opacity: 1; color: var(--text); }
 .nb-menu-subitem.nb-sync-pending { color: var(--accent) !important; }
 
 /* ── hledger codeblock ───────────────────────────────────────── */

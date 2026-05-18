@@ -1123,17 +1123,35 @@ const NbNav = (() => {
             const comment   = document.getElementById('nb-sync-comment');
             const nowBtn    = document.getElementById('nb-sync-now');
             const logBtn    = document.getElementById('nb-sync-log');
-            const output    = document.getElementById('nb-sync-output');
+            const outputWrap = dialog.querySelector('.nb-sync-output-wrap');
+            const output     = document.getElementById('nb-sync-output');
+            const copyBtn    = dialog.querySelector('.nb-sync-copy-btn');
             const closeBtn  = document.getElementById('nb-sync-close');
             if (!dialog) return;
 
+            const showOutput = text => {
+                output.textContent  = text;
+                outputWrap.hidden   = false;
+            };
+            const hideOutput = () => {
+                outputWrap.hidden   = true;
+                output.textContent  = '';
+            };
+
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(output.textContent).then(() => {
+                    const orig = copyBtn.textContent;
+                    copyBtn.textContent = '✓';
+                    setTimeout(() => { copyBtn.textContent = orig; }, 1200);
+                });
+            };
+
             const nb = (!_scope || _scope === '_all') ? 'home' : _scope;
-            title.textContent     = `Sync · ${nb}`;
-            comment.value         = '';
-            output.hidden         = true;
-            output.textContent    = '';
-            nowBtn.disabled       = false;
-            nowBtn.textContent    = 'Sync Now';
+            title.textContent  = `Sync · ${nb}`;
+            comment.value      = '';
+            nowBtn.disabled    = false;
+            nowBtn.textContent = 'Sync Now';
+            hideOutput();
             changesEl.innerHTML   = 'Loading…';
 
             fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json()).then(d => {
@@ -1170,7 +1188,7 @@ const NbNav = (() => {
             nowBtn.onclick = () => {
                 const msg = comment.value.trim();
                 nowBtn.disabled = true;
-                output.hidden   = true;
+                hideOutput();
 
                 let elapsed = 0;
                 const tick = () => { nowBtn.textContent = `Syncing… ${++elapsed}s`; };
@@ -1183,8 +1201,7 @@ const NbNav = (() => {
                     body: JSON.stringify({ notebook: nb, message: msg }),
                 }).then(r => r.json()).then(data => {
                     clearInterval(timer);
-                    output.textContent = data.output || (data.success ? 'Sync complete.' : 'Sync failed.');
-                    output.hidden      = false;
+                    showOutput(data.output || (data.success ? 'Sync complete.' : 'Sync failed.'));
                     nowBtn.disabled    = false;
                     nowBtn.textContent = data.success ? 'Sync Now' : 'Retry';
                     if (data.success) {
@@ -1194,8 +1211,7 @@ const NbNav = (() => {
                     }
                 }).catch(err => {
                     clearInterval(timer);
-                    output.textContent = 'Error: ' + err;
-                    output.hidden      = false;
+                    showOutput('Error: ' + err);
                     nowBtn.disabled    = false;
                     nowBtn.textContent = 'Retry';
                 });
@@ -1205,13 +1221,9 @@ const NbNav = (() => {
                 logBtn.disabled = true;
                 fetch(`/api/nb/git-log?notebook=${encodeURIComponent(nb)}&n=30`)
                     .then(r => r.json())
-                    .then(d => {
-                        output.textContent = d.output || '(no log)';
-                        output.hidden      = false;
-                    }).catch(err => {
-                        output.textContent = 'Error: ' + err;
-                        output.hidden      = false;
-                    }).finally(() => { logBtn.disabled = false; });
+                    .then(d => { showOutput(d.output || '(no log)'); })
+                    .catch(err => { showOutput('Error: ' + err); })
+                    .finally(() => { logBtn.disabled = false; });
             };
         }
 
@@ -1310,7 +1322,10 @@ const NbNav = (() => {
                         `<button id="nb-sync-now" class="nb-sync-now-btn">Sync Now</button>` +
                         `<button id="nb-sync-log" class="nb-sync-secondary-btn">Show Log</button>` +
                     `</div>` +
-                    `<pre id="nb-sync-output" class="nb-sync-output" hidden></pre>` +
+                    `<div class="nb-sync-output-wrap" hidden>` +
+                        `<button class="nb-sync-copy-btn" title="Copy to clipboard">copy</button>` +
+                        `<pre id="nb-sync-output" class="nb-sync-output"></pre>` +
+                    `</div>` +
                 `</div>` +
             `</div>`;
         document.body.appendChild(el);
