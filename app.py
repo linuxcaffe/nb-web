@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -3655,10 +3656,25 @@ def api_nb_settings():
 
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
+    def _kill_zombies():
+        my_pid = os.getpid()
+        try:
+            result = subprocess.run(['pgrep', '-f', 'app.py'],
+                                    capture_output=True, text=True)
+            for pid_str in result.stdout.strip().split():
+                try:
+                    pid = int(pid_str)
+                    if pid != my_pid:
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, ProcessLookupError):
+                    pass
+        except Exception:
+            pass
+
     def _do_restart():
         time.sleep(0.3)
-        # Close all non-standard fds (including the bound socket) so the
-        # exec'd process can bind port 5001 fresh.
+        _kill_zombies()
+        time.sleep(0.5)  # let zombies die before we take the port
         for fd in range(3, 256):
             try: os.close(fd)
             except OSError: pass
