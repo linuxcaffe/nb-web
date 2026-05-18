@@ -1678,6 +1678,12 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-sync-unpushed { color: var(--accent); font-size: 0.85em; margin-top: 4px; }
 .nb-sync-uptodate { color: var(--green, #5a9); }
 .nb-sync-noremote { color: var(--text-dim); font-style: italic; }
+.nb-sync-nowire { display: flex; flex-direction: column; gap: 6px; }
+.nb-sync-noremote-label { color: var(--text-dim); font-size: 0.85em; font-style: italic; }
+.nb-sync-remote-url { width: 100%; box-sizing: border-box; font-size: 0.82em; }
+.nb-sync-connect-btn { align-self: flex-start; padding: 4px 14px; background: var(--accent);
+    color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+.nb-sync-connect-btn:disabled { opacity: 0.6; cursor: default; }
 .nb-sync-comment { width: 100%; box-sizing: border-box; }
 .nb-sync-btn-row { display: flex; gap: 8px; }
 .nb-sync-now-btn {

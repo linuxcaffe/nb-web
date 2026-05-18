@@ -2223,15 +2223,17 @@ def api_nb_sync_status():
     remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
                               cwd=str(nb_path), timeout=5, env=env)
     has_remote = bool(remote_r.stdout.strip())
+    if not has_remote:
+        default_remote = _load_settings().get('default_git_remote', '').strip()
+        return jsonify({'changes': 0, 'has_remote': False, 'unpushed': 0, 'files': [],
+                        'default_remote': default_remote})
     unpushed = 0
-    if has_remote:
-        # Use origin/<notebook> explicitly — nb's tracking branch may point at master:master
-        # rather than master:home (branch-per-notebook convention).
-        up_r = subprocess.run(['git', 'rev-list', f'origin/{notebook}..HEAD', '--count'],
-                              capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
-        if up_r.returncode == 0:
-            try: unpushed = int(up_r.stdout.strip())
-            except: pass
+    # Use origin/<notebook> explicitly — tracking branch may point at master:master
+    up_r = subprocess.run(['git', 'rev-list', f'origin/{notebook}..HEAD', '--count'],
+                          capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+    if up_r.returncode == 0:
+        try: unpushed = int(up_r.stdout.strip())
+        except: pass
     dirty_r = subprocess.run(['git', 'status', '--porcelain'],
                              capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
     files = [{'status': l[:2].strip(), 'path': l[3:].strip()}
@@ -2422,6 +2424,71 @@ def api_nb_git_wire():
                             'message': (push_r.stderr or push_r.stdout).strip()})
 
     return jsonify({'results': results})
+
+
+@app.route('/api/nb/wire-notebook', methods=['POST'])
+def api_nb_wire_notebook():
+    """Connect a single notebook to a remote: add origin, set tracking, push."""
+    data       = request.get_json() or {}
+    notebook   = data.get('notebook', '').strip()
+    remote_url = data.get('remote_url', '').strip()
+
+    if not notebook:
+        return jsonify({'success': False, 'output': 'Notebook name required.'})
+
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir() or not (nb_path / '.git').exists():
+        return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found.'})
+
+    if not remote_url:
+        remote_url = _load_settings().get('default_git_remote', '').strip()
+    if not remote_url:
+        return jsonify({'success': False,
+                        'output': 'No remote URL provided and no default_git_remote set in Settings → Git.'})
+
+    git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
+               'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
+    lines = []
+
+    remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                              cwd=str(nb_path), timeout=5, env=git_env)
+    already_had_remote = bool(remote_r.stdout.strip())
+
+    if not already_had_remote:
+        add_r = subprocess.run(['git', 'remote', 'add', 'origin', remote_url],
+                               capture_output=True, text=True, cwd=str(nb_path),
+                               timeout=5, env=git_env)
+        if add_r.returncode != 0:
+            return jsonify({'success': False,
+                            'output': f'Failed to add remote: {add_r.stderr.strip()}'})
+        lines.append(f'Remote added: {remote_url}')
+
+    # Assert correct tracking config
+    subprocess.run(['git', 'config', 'branch.master.merge', f'refs/heads/{notebook}'],
+                   cwd=str(nb_path), timeout=5, env=git_env)
+    subprocess.run(['git', 'config', 'branch.master.remote', 'origin'],
+                   cwd=str(nb_path), timeout=5, env=git_env)
+
+    try:
+        push_r = subprocess.run(
+            ['git', 'push', '--set-upstream', 'origin', f'HEAD:{notebook}'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
+        )
+    except subprocess.TimeoutExpired:
+        if not already_had_remote:
+            subprocess.run(['git', 'remote', 'remove', 'origin'], capture_output=True,
+                           cwd=str(nb_path), env=git_env)
+        return jsonify({'success': False, 'output': '\n'.join(lines) + '\nPush timed out after 30s'})
+
+    if push_r.returncode == 0:
+        lines.append(push_r.stderr.strip() or push_r.stdout.strip() or f'Pushed to origin/{notebook}')
+        return jsonify({'success': True, 'output': '\n'.join(lines)})
+    else:
+        if not already_had_remote:
+            subprocess.run(['git', 'remote', 'remove', 'origin'], capture_output=True,
+                           cwd=str(nb_path), env=git_env)
+        lines.append(f'Push failed: {push_r.stderr.strip()}')
+        return jsonify({'success': False, 'output': '\n'.join(lines)})
 
 
 # ---------------------------------------------------------------------------

@@ -1156,8 +1156,43 @@ const NbNav = (() => {
 
             fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json()).then(d => {
                 if (!d.has_remote) {
-                    changesEl.innerHTML = `<span class="nb-sync-noremote">No remote configured — use Git → wire remotes first.</span>`;
                     nowBtn.disabled = true;
+                    const defaultUrl = d.default_remote || '';
+                    changesEl.innerHTML =
+                        `<div class="nb-sync-nowire">` +
+                            `<div class="nb-sync-noremote-label">Not connected to a remote</div>` +
+                            `<input type="text" class="nb-sync-remote-url nb-tw-inp" ` +
+                                `placeholder="git@github.com:user/repo.git" value="${defaultUrl}">` +
+                            `<button class="nb-sync-connect-btn">Connect</button>` +
+                        `</div>`;
+                    const connectBtn = changesEl.querySelector('.nb-sync-connect-btn');
+                    const urlInput   = changesEl.querySelector('.nb-sync-remote-url');
+                    connectBtn.onclick = () => {
+                        const url = urlInput.value.trim();
+                        if (!url) return;
+                        connectBtn.disabled    = true;
+                        connectBtn.textContent = 'Connecting…';
+                        fetch('/api/nb/wire-notebook', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ notebook: nb, remote_url: url }),
+                        }).then(r => r.json()).then(wd => {
+                            showOutput(wd.output || (wd.success ? 'Connected.' : 'Connect failed.'));
+                            if (wd.success) {
+                                changesEl.innerHTML = '<span class="nb-sync-uptodate">Connected — up to date</span>';
+                                nowBtn.disabled    = false;
+                                nowBtn.textContent = 'Sync Now';
+                                _pollNbSyncStatus();
+                            } else {
+                                connectBtn.disabled    = false;
+                                connectBtn.textContent = 'Retry';
+                            }
+                        }).catch(err => {
+                            showOutput('Error: ' + err);
+                            connectBtn.disabled    = false;
+                            connectBtn.textContent = 'Retry';
+                        });
+                    };
                     return;
                 }
                 const parts = [];
