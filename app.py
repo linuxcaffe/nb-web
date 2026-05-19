@@ -2656,6 +2656,12 @@ def api_nb_github_create():
                             capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=env)
     if push_r.returncode == 0:
         lines.append(push_r.stderr.strip() or f'Pushed → origin/{notebook}')
+        # Set the notebook branch as the default so GitHub doesn't show an empty 'main'
+        subprocess.run(
+            ['gh', 'api', f'repos/{username}/{notebook}',
+             '--method', 'PATCH', '--field', f'default_branch={notebook}'],
+            capture_output=True, text=True, timeout=10, env=env)
+        lines.append(f'Default branch set to {notebook}')
         return jsonify({'success': True, 'output': '\n'.join(lines)})
     else:
         lines.append(f'Push failed: {push_r.stderr.strip()}')
