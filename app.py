@@ -1246,7 +1246,9 @@ def api_notebooks():
             current_nb = cur_path.read_text().strip() or 'home'
     except Exception:
         pass
-    return jsonify({'notebooks': names, 'current_notebook': current_nb})
+    notebook_prefs = _load_settings().get('notebook_prefs', {})
+    return jsonify({'notebooks': names, 'current_notebook': current_nb,
+                    'notebook_prefs': notebook_prefs})
 
 
 @app.route('/api/folders')

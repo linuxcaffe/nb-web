@@ -6,17 +6,21 @@ const NbNav = (() => {
 
     let _activeCmd = 'list';
 
-    // Per-notebook defaults applied when switching scope in list view
-    const _NB_DEFAULTS = {
-        contacts: { type: 'contact', sort: 'az'      },
-        nb:       { type: 'todo',    sort: 'default'  },
+    // Per-notebook defaults: hardcoded base, overridden by server-stored prefs
+    const _NB_HARDCODED = {
+        contacts: { type: 'contact', sort: 'az'     },
+        nb:       { type: 'todo',    sort: 'default' },
     };
     const _DEFAULT_LIST = { type: 'all', sort: 'default' };
+    let _nbStoredPrefs  = {};  // populated from /api/notebooks on load
 
     function _applyNotebookDefaults(nb) {
-        const d = _NB_DEFAULTS[nb] || _DEFAULT_LIST;
-        _state.list.type = d.type;
-        NbMain.resetSort?.(d.sort);
+        const base   = _NB_HARDCODED[nb] || _DEFAULT_LIST;
+        const stored = _nbStoredPrefs[nb] || {};
+        const sort   = stored.default_sort || base.sort;
+        const type   = stored.default_list_type || base.type;
+        _state.list.type = type;
+        NbMain.resetSort?.(sort);
     }
 
     // Per-command state (scope-independent options only)
@@ -44,7 +48,8 @@ const NbNav = (() => {
         try {
             const r = await fetch('/api/notebooks');
             const d = await r.json();
-            _notebooks = d.notebooks || [];
+            _notebooks     = d.notebooks || [];
+            _nbStoredPrefs = d.notebook_prefs || {};
             // Seed scope from nb's actual current notebook on first load
             if (d.current_notebook && _notebooks.includes(d.current_notebook)) {
                 _scope = d.current_notebook;
