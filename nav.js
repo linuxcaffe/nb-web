@@ -1500,7 +1500,7 @@ const NbNav = (() => {
 
     return {
         init() {
-            _loadNotebooks();
+            const notebooksReady = _loadNotebooks();
             _initCmdBar();
             _initMenu();
             _initSyncDialog();
@@ -1530,6 +1530,7 @@ const NbNav = (() => {
                     });
                 });
             }
+            return notebooksReady;
         },
         get notebook()     { return _scope; },
         get notebooks()    { return [..._notebooks]; },

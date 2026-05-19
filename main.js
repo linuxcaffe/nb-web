@@ -36,7 +36,7 @@ const NbMain = (() => {
     // ── Boot ───────────────────────────────────────────────────────
 
     async function init() {
-        NbNav.init();
+        await NbNav.init();
         _bindSearch();
         _bindTags();
         _bindAppend();
