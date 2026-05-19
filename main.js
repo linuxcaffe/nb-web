@@ -3798,12 +3798,6 @@ const NbMain = (() => {
                 titleRow.appendChild(badge);
             }
 
-            const countBadge = document.createElement('span');
-            countBadge.className = 'nb-list-id';
-            countBadge.textContent = nb.count;
-            countBadge.title = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
-            titleRow.appendChild(countBadge);
-
             if (nb.folder_count > 0) {
                 const folderBadge = document.createElement('span');
                 folderBadge.className = 'nb-list-id';
@@ -3812,6 +3806,12 @@ const NbMain = (() => {
                 folderBadge.style.cssText = 'font-size:10px;';
                 titleRow.appendChild(folderBadge);
             }
+
+            const countBadge = document.createElement('span');
+            countBadge.className = 'nb-list-id';
+            countBadge.textContent = nb.count;
+            countBadge.title = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
+            titleRow.appendChild(countBadge);
 
             body.appendChild(titleRow);
 
