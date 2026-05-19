@@ -212,6 +212,13 @@
     </div>
     <p class="hint">Stored in browser localStorage. Only the content area switches; nav and menus stay dark.</p>
   </div>
+  <div class="field">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="folders-first" style="width:15px;height:15px;cursor:pointer">
+      📂 Folders first
+    </label>
+    <p class="hint">Show folders above notes in the list. Default: on.</p>
+  </div>
 </section>
 
 <!-- ── Terminal ─────────────────────────────────────────────────── -->
@@ -313,6 +320,21 @@
   }
   document.getElementById('theme-dark').addEventListener('click',  () => _setTheme(''));
   document.getElementById('theme-light').addEventListener('click', () => _setTheme('light'));
+
+  // ── Folders first ─────────────────────────────────────────────
+  (function() {
+    const cb = document.getElementById('folders-first');
+    function _getFF() {
+      try { return window.parent.localStorage.getItem('nb-folders-first') !== 'false'; }
+      catch { return localStorage.getItem('nb-folders-first') !== 'false'; }
+    }
+    cb.checked = _getFF();
+    cb.addEventListener('change', () => {
+      const val = cb.checked;
+      try { window.parent.NbMain?.setFoldersFirst(val); } catch {}
+      localStorage.setItem('nb-folders-first', val);
+    });
+  })();
 
   // ── Load nb-web settings ──────────────────────────────────────
   async function loadNbWebSettings() {

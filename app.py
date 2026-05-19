@@ -2791,6 +2791,9 @@ def api_nb_notebooks():
                 count = len(lines)
                 mtime = max(mtime, index_path.stat().st_mtime)
 
+            folder_count = sum(1 for c in entry.iterdir()
+                               if c.is_dir() and not c.name.startswith('.'))
+
             has_remote = False
             unpushed   = 0
             if (entry / '.git').exists():
@@ -2807,6 +2810,7 @@ def api_nb_notebooks():
 
             notebooks.append({
                 'name': entry.name, 'count': count, 'mtime': mtime,
+                'folder_count': folder_count,
                 'has_remote': has_remote, 'unpushed': unpushed,
                 'is_current': entry.name == current_nb,
             })

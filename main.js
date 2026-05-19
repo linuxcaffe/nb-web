@@ -13,7 +13,7 @@ const NbMain = (() => {
     let _nbSortMode     = 'active-first';  // sort for Notebooks settings view
     let _lastNbList     = [];              // last fetched notebooks array
     let _lastNbCurrent  = 'home';          // nb's actual current notebook (from ~/.nb/.current)
-    let _foldersFirst   = localStorage.getItem('nb-folders-first') === 'true';
+    let _foldersFirst   = localStorage.getItem('nb-folders-first') !== 'false';
     let _pinnedSelectors = new Set(JSON.parse(localStorage.getItem('nb-pinned') || '[]'));
     let _isFullscreen    = false;
     let _listSeq        = 0;        // incremented on every new list request; stale responses are dropped
@@ -42,7 +42,6 @@ const NbMain = (() => {
         _bindAppend();
         _bindPreviewActions();
         _bindListMenu();
-        document.getElementById('nb-list-menu-btn')?.classList.toggle('nb-sort-active', _foldersFirst);
         _bindSortBtn();
         _bindPreviewMenu();
         _bindKeyboard();
@@ -127,16 +126,11 @@ const NbMain = (() => {
         const byAge = (a, b) => (a.id && b.id) ? b.id - a.id : (b.mtime || 0) - (a.mtime || 0);
         if (_sortMode === 'newest') result.sort((a, b) =>  byAge(a, b));
         if (_sortMode === 'oldest') result.sort((a, b) => -byAge(a, b));
-        if (_foldersFirst) {
-            const folders = result.filter(n => n.type === 'folder');
-            const rest    = result.filter(n => n.type !== 'folder');
-            result = [...folders, ...rest];
-        }
-        if (_pinnedSelectors.size) {
-            const pinned = result.filter(n => _pinnedSelectors.has(n.selector));
-            const rest   = result.filter(n => !_pinnedSelectors.has(n.selector));
-            result = [...pinned, ...rest];
-        }
+        // Group: folders → pinned → rest (stable within each group via prior sort)
+        const folders = result.filter(n => n.type === 'folder');
+        const pinned  = result.filter(n => n.type !== 'folder' && _pinnedSelectors.has(n.selector));
+        const rest    = result.filter(n => n.type !== 'folder' && !_pinnedSelectors.has(n.selector));
+        result = _foldersFirst ? [...folders, ...pinned, ...rest] : [...pinned, ...folders, ...rest];
         return result;
     }
 
@@ -146,8 +140,7 @@ const NbMain = (() => {
     }
 
     function resetSort(mode = 'default') {
-        _sortMode     = mode;
-        _foldersFirst = false;
+        _sortMode = mode;
         _updateSortBtn();
     }
 
@@ -190,16 +183,30 @@ const NbMain = (() => {
 
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
-            icon.textContent = note.indicator || '';
-            const _iconTip = { '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Closed todo',
-                               '🔖': 'Bookmark', '🔒': 'Encrypted', '📂': 'Folder',
+            const _isPinned = _pinnedSelectors.has(note.selector);
+            const _iconTip = { '📌': 'Pinned to top', '📝': 'Note',
+                               '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Closed todo',
+                               '🔖': 'Bookmark', '🔗': 'Linked file', '🔒': 'Encrypted', '📂': 'Folder',
                                '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
                                '📖': 'Ebook', '📄': 'Document', '🗃️': 'Sheet', '🪪': 'Contact' };
-            if (note.indicator) icon.title = _iconTip[note.indicator] || '';
-
-            const pinBadge = _pinnedSelectors.has(note.selector)
-                ? Object.assign(document.createElement('span'), { className: 'nb-list-pin', textContent: '📌', title: 'Pinned to top' })
-                : null;
+            const _extIcon = { md:'📝', txt:'📝', markdown:'📝',
+                                pdf:'📄', doc:'📄', docx:'📄', odt:'📄', rtf:'📄',
+                                png:'🌄', jpg:'🌄', jpeg:'🌄', gif:'🌄', webp:'🌄', svg:'🌄', avif:'🌄',
+                                mp3:'🔉', ogg:'🔉', flac:'🔉', m4a:'🔉', wav:'🔉',
+                                mp4:'📹', mkv:'📹', webm:'📹', mov:'📹',
+                                epub:'📖', mobi:'📖',
+                                csv:'🗃️', xlsx:'🗃️', ods:'🗃️',
+                                zip:'🗜', tar:'🗜', gz:'🗜',
+                                html:'🌐', htm:'🌐' };
+            const _ext = (note.filename || '').split('.').pop().toLowerCase();
+            const _iconChar = _isPinned          ? '📌'
+                            : note.indicator     ? note.indicator
+                            : note.type === 'bookmark' ? '🔖'
+                            : _extIcon[_ext]     ? _extIcon[_ext]
+                            : note.type === 'note' ? '📝'
+                            : '';
+            icon.textContent = _iconChar;
+            icon.title = _iconTip[_iconChar] || '';
 
             const body = document.createElement('div');
             body.className = 'nb-list-body';
@@ -259,7 +266,6 @@ const NbMain = (() => {
                 body.appendChild(annLine);
             }
 
-            if (pinBadge) li.appendChild(pinBadge);
             li.appendChild(icon);
             li.appendChild(body);
 
@@ -299,12 +305,11 @@ const NbMain = (() => {
             ul.appendChild(li);
         });
 
-        // Auto-select first non-pinned, non-folder when current selection left the list
+        // Auto-select first non-folder when current selection left the list
         if (!fromSort && !_noAutoSelect) {
             const stillPresent = _activeSelector && notes.some(n => n.selector === _activeSelector);
             if (!stillPresent) {
-                const first = notes.find(n => n.type !== 'folder' && !_pinnedSelectors.has(n.selector))
-                           || notes.find(n => n.type !== 'folder');
+                const first = notes.find(n => n.type !== 'folder');
                 if (first) {
                     openNote(first.selector, true, { autoSelect: true });
                     _setKbPane('list');   // keep keyboard in list so ↑/↓ works immediately
@@ -2082,14 +2087,6 @@ const NbMain = (() => {
                 return;
             }
             _showDropdown(btn, [
-                { label: '📂 Folders first', active: _foldersFirst,
-                  action: () => {
-                      _foldersFirst = !_foldersFirst;
-                      localStorage.setItem('nb-folders-first', _foldersFirst);
-                      renderList(_getSortedNotes(_lastNotes), true);
-                      const hbtn = document.getElementById('nb-list-menu-btn');
-                      if (hbtn) hbtn.classList.toggle('nb-sort-active', _foldersFirst);
-                  }},
                 { label: _listDisplayMode === 'filename' ? '🏷 Show titles' : '📄 Show filenames',
                   action: () => {
                       _listDisplayMode = _listDisplayMode === 'filename' ? 'title' : 'filename';
@@ -3807,6 +3804,15 @@ const NbMain = (() => {
             countBadge.title = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
             titleRow.appendChild(countBadge);
 
+            if (nb.folder_count > 0) {
+                const folderBadge = document.createElement('span');
+                folderBadge.className = 'nb-list-id';
+                folderBadge.textContent = `📂${nb.folder_count}`;
+                folderBadge.title = `${nb.folder_count} folder${nb.folder_count !== 1 ? 's' : ''}`;
+                folderBadge.style.cssText = 'font-size:10px;';
+                titleRow.appendChild(folderBadge);
+            }
+
             body.appendChild(titleRow);
 
             if (nb.unpushed > 0) {
@@ -4740,10 +4746,17 @@ const NbMain = (() => {
         } catch { return null; }
     }
 
+    function setFoldersFirst(val) {
+        _foldersFirst = val;
+        localStorage.setItem('nb-folders-first', val);
+        if (_lastNotes?.length) renderList(_getSortedNotes(_lastNotes), true);
+    }
+
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, runNbNotebooks, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
+             setFoldersFirst,
              importFiles: (files, nb, folder) => _importFiles(files, nb, folder),
              importPaths: (paths, nb, folder) => _importPaths(paths, nb, folder),
              exportFormats: _exportFormats,
