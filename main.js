@@ -3963,9 +3963,9 @@ const NbMain = (() => {
                         const sd = await sr.json();
                         const out = document.createElement('pre');
                         out.style.cssText = 'margin:8px 28px;font-size:11px;color:var(--text-dim);white-space:pre-wrap';
-                        out.textContent = (sd.output || []).join('\n');
+                        out.textContent = sd.output || sd.error || '(no output)';
                         document.getElementById('nb-nb-actions').after(out);
-                        setTimeout(() => _openNbNotebook(name), 2000);
+                        setTimeout(() => _openNbNotebook(name), 3000);
                     } catch(e) {
                         syncBtn.textContent = 'Sync'; syncBtn.disabled = false;
                     }

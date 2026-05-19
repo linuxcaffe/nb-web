@@ -1074,6 +1074,15 @@ const NbNav = (() => {
         overlay.addEventListener('click', shut);
         header.addEventListener('click', shut);
 
+        const menuSyncBtn = document.getElementById('nb-menu-sync-btn');
+        if (menuSyncBtn) {
+            menuSyncBtn.addEventListener('click', e => {
+                e.stopPropagation(); // prevent header click-to-close
+                shut();
+                _openSyncDialog();
+            });
+        }
+
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape' && menu.classList.contains('open')) shut();
         });
@@ -1318,7 +1327,6 @@ const NbNav = (() => {
             { label: 'History',   cmd: 'history' },
             { label: 'Notebooks', cmd: 'nb-notebooks' },
             { label: 'Plugins',   cmd: 'plugins' },
-            { label: 'Sync',      cmd: 'sync' },
             { label: 'Terminal',  cmd: 'terminal' },
             { label: 'Settings',  cmd: 'nb-settings' },
             { label: 'Templates', cmd: 'templates' },
@@ -1401,23 +1409,21 @@ const NbNav = (() => {
         const nb = (!_scope || _scope === '_all') ? 'home' : _scope;
         try {
             const d = await fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
-            const syncBtn = document.querySelector('.nb-menu-toplevel[data-cmd="sync"]');
-            const logoBtn = document.getElementById('nb-logo-btn');
-            const pending = !d.has_remote || d.changes > 0 || d.unpushed > 0;
+            const syncBtn  = document.getElementById('nb-menu-sync-btn');
+            const logoBtn  = document.getElementById('nb-logo-btn');
+            const pending  = !d.has_remote || d.changes > 0 || d.unpushed > 0;
             logoBtn?.classList.toggle('nb-sync-pending', pending);
             if (!syncBtn) return;
+            syncBtn.classList.toggle('nb-sync-pending', pending);
             if (!d.has_remote) {
-                syncBtn.textContent = 'Sync  ·  no remote';
-                syncBtn.classList.add('nb-sync-pending');
+                syncBtn.textContent = `Sync ${nb}  ·  no remote`;
             } else if (d.changes > 0 || d.unpushed > 0) {
                 const parts = [];
-                if (d.unpushed) parts.push(`${d.unpushed} unpushed`);
+                if (d.unpushed)      parts.push(`${d.unpushed} unpushed`);
                 if (d.files?.length) parts.push(`${d.files.length} uncommitted`);
-                syncBtn.textContent = `Sync  ·  ${parts.join(', ')}`;
-                syncBtn.classList.add('nb-sync-pending');
+                syncBtn.textContent = `Sync ${nb}  ·  ${parts.join(', ')}`;
             } else {
-                syncBtn.textContent = 'Sync';
-                syncBtn.classList.remove('nb-sync-pending');
+                syncBtn.textContent = `Sync ${nb}`;
             }
         } catch { /* network error — leave badge as-is */ }
     }

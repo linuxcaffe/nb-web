@@ -1120,12 +1120,30 @@ mark.nb-highlight {
 }
 #nb-menu-header:hover { background: #222; }
 
-.nb-menu-logo {
-  font-size: 36px;
-  font-weight: 800;
-  color: var(--accent);
-  letter-spacing: -0.06em;
-  line-height: 1;
+.nb-menu-logo-img {
+  height: 44px;
+  width: auto;
+  display: block;
+  opacity: 0.9;
+}
+.nb-menu-sync-btn {
+  margin-top: 6px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  width: 100%;
+}
+.nb-menu-sync-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+.nb-menu-sync-btn.nb-sync-pending {
+  color: var(--yellow, #f0b429);
+  border-color: rgba(240,180,41,0.4);
 }
 .nb-menu-subtitle {
   font-size: 10px;
