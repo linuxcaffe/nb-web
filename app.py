@@ -1239,7 +1239,14 @@ def ws_pty(ws):
 def api_notebooks():
     r = run_nb('notebooks', '--names', '--unarchived', '--global')
     names = [n for n in r['stdout'].splitlines() if n.strip()]
-    return jsonify({'notebooks': names})
+    current_nb = 'home'
+    try:
+        cur_path = NB_DIR / '.current'
+        if cur_path.exists():
+            current_nb = cur_path.read_text().strip() or 'home'
+    except Exception:
+        pass
+    return jsonify({'notebooks': names, 'current_notebook': current_nb})
 
 
 @app.route('/api/folders')

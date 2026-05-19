@@ -45,6 +45,10 @@ const NbNav = (() => {
             const r = await fetch('/api/notebooks');
             const d = await r.json();
             _notebooks = d.notebooks || [];
+            // Seed scope from nb's actual current notebook on first load
+            if (d.current_notebook && _notebooks.includes(d.current_notebook)) {
+                _scope = d.current_notebook;
+            }
             renderOptsBar();
         } catch (e) {
             console.error('loadNotebooks:', e);
