@@ -41,6 +41,15 @@ if [ "$1" = "--clean" ]; then
         pkill -x epiphany-browser
         sleep 1
     fi
+    # Remove stale localhost:5001 entries from Epiphany session to prevent
+    # session-restore from reopening multiple tabs on next launch.
+    for sess in ~/.local/share/epiphany/session_state.xml \
+                ~/.local/share/epiphany/session_state.xml~; do
+        if [ -f "$sess" ]; then
+            echo "nb-web-launch: pruning nb-web tabs from Epiphany session..."
+            sed -i '/localhost:5001/d' "$sess" 2>/dev/null
+        fi
+    done
     if [ -d "$SW_DIR" ]; then
         echo "nb-web-launch: removing service worker registration..."
         rm -rf "$SW_DIR"
@@ -52,6 +61,12 @@ if [ "$1" = "--clean" ]; then
     if [ -d "$SW_CACHE_STORAGE" ]; then
         echo "nb-web-launch: removing SW CacheStorage (Cache API)..."
         rm -rf "$SW_CACHE_STORAGE"
+    fi
+    # Also clear the main Epiphany SW and cache if no PWA profile
+    if [ -z "$EPIPHANY_PROFILE" ]; then
+        rm -rf ~/.local/share/epiphany/serviceworkers/Scripts 2>/dev/null
+        rm -rf ~/.cache/epiphany/WebKitCache 2>/dev/null
+        rm -rf ~/.cache/epiphany/CacheStorage 2>/dev/null
     fi
     if [ -f "$FLASK_PID_FILE" ]; then
         PID=$(cat "$FLASK_PID_FILE")
@@ -100,9 +115,18 @@ fi
 if [ -z "$EPIPHANY_PROFILE" ]; then
     echo "nb-web-launch: PWA not installed yet — opening in regular Epiphany."
     echo "  Install via ⋮ → Install as Web App, then re-run this script."
-    epiphany-browser "$FLASK_URL" &
+    # Only open if not already showing nb-web (avoid stacking tabs on re-run)
+    if ! pgrep -x epiphany-browser > /dev/null; then
+        epiphany-browser "$FLASK_URL" &
+    else
+        echo "nb-web-launch: Epiphany already running — skipping open."
+    fi
 else
-    epiphany-browser --application-mode \
-        "--profile=$EPIPHANY_PROFILE" \
-        "$FLASK_URL" &
+    if ! pgrep -x epiphany-browser > /dev/null; then
+        epiphany-browser --application-mode \
+            "--profile=$EPIPHANY_PROFILE" \
+            "$FLASK_URL" &
+    else
+        echo "nb-web-launch: Epiphany PWA already running — skipping open."
+    fi
 fi
