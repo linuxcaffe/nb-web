@@ -1444,8 +1444,11 @@ const NbMain = (() => {
     }
 
     function _showTwAddForm(el, q, trigger) {
-        const existing = el.querySelector('.nb-tw-addform');
-        if (existing) { existing.remove(); trigger?.classList.remove('active'); return; }
+        const existing = trigger._twForm || el.querySelector('.nb-tw-addform');
+        if (existing) {
+            existing.remove(); trigger._twForm = null;
+            trigger?.classList.remove('active'); return;
+        }
         trigger?.classList.add('active');
 
         const form = document.createElement('div');
@@ -1499,7 +1502,7 @@ const NbMain = (() => {
                     status.textContent = '✗ ' + (d.error || d.stderr || 'failed');
                     status.style.color = 'var(--red, #ef4444)';
                 } else {
-                    form.remove(); trigger?.classList.remove('active');
+                    dismiss();
                     await _loadTwBlock(el);
                 }
             } catch(e) {
@@ -1508,16 +1511,34 @@ const NbMain = (() => {
             }
         };
 
+        const dismiss = () => {
+            form.remove(); trigger._twForm = null;
+            trigger?.classList.remove('active');
+            document.removeEventListener('click', outsideClick, true);
+        };
+        const outsideClick = e => {
+            if (!form.contains(e.target) && e.target !== trigger) dismiss();
+        };
+
         form.querySelector('.nb-tw-adesc').addEventListener('keydown', e => {
-            if (e.key === 'Enter') doAdd();
-            if (e.key === 'Escape') { form.remove(); trigger?.classList.remove('active'); }
+            if (e.key === 'Enter')  doAdd();
+            if (e.key === 'Escape') dismiss();
         });
         form.querySelector('.nb-tw-asave').addEventListener('click', doAdd);
-        form.querySelector('.nb-tw-acancel').addEventListener('click', () => {
-            form.remove(); trigger?.classList.remove('active');
-        });
+        form.querySelector('.nb-tw-acancel').addEventListener('click', dismiss);
 
-        el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', form);
+        const isCollapsed = el.classList.contains('nb-collapsed');
+        if (isCollapsed) {
+            const rect = trigger.getBoundingClientRect();
+            form.style.cssText = `position:fixed;z-index:9000;top:${rect.bottom + 4}px;left:${rect.left}px;` +
+                `background:var(--bg2,#22272e);border:1px solid var(--border);border-radius:6px;` +
+                `padding:10px;box-shadow:0 4px 20px rgba(0,0,0,.5);min-width:340px`;
+            document.body.appendChild(form);
+            trigger._twForm = form;
+            setTimeout(() => document.addEventListener('click', outsideClick, true), 0);
+        } else {
+            el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', form);
+        }
         form.querySelector('.nb-tw-adesc')?.focus();
     }
 
