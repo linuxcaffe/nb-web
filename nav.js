@@ -1198,11 +1198,13 @@ const NbNav = (() => {
                 }
                 const parts = [];
                 if (d.files?.length) {
-                    const rows = d.files.map(f =>
-                        `<span class="nb-sync-file-row">` +
-                        `<span class="nb-sync-fs">${f.status}</span>` +
-                        `<span class="nb-sync-fname">${f.path}</span></span>`
-                    ).join('');
+                    const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', '?': 'untracked' };
+                    const rows = d.files.map(f => {
+                        const label = STATUS_LABEL[f.status] || f.status;
+                        return `<span class="nb-sync-file-row">` +
+                            `<span class="nb-sync-fs nb-sync-fs-${f.status.toLowerCase()}">${label}</span>` +
+                            `<span class="nb-sync-fname">${f.path}</span></span>`;
+                    }).join('');
                     parts.push(
                         `<div class="nb-sync-files-section">` +
                         `<div class="nb-sync-files-label">${d.files.length} file${d.files.length !== 1 ? 's' : ''} changed</div>` +
