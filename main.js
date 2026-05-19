@@ -1029,6 +1029,32 @@ const NbMain = (() => {
 
     // ── collapse toggle (generic, all codeblock types) ─────────────
 
+    // Attach a codeblock form: floats as fixed popover when block is collapsed,
+    // inserts inline otherwise. Returns a dismiss function that cleans up both cases.
+    function _cbFormAttach(form, trigger, el, inlineInsertFn) {
+        let outside;
+        const dismiss = () => {
+            form.remove();
+            trigger._cbForm = null;
+            trigger.classList.remove('active', 'nb-hl-btn-active');
+            if (outside) document.removeEventListener('click', outside, true);
+        };
+        if (el.classList.contains('nb-collapsed')) {
+            const rect = trigger.getBoundingClientRect();
+            form.style.cssText =
+                `position:fixed;z-index:9000;top:${rect.bottom+4}px;right:${window.innerWidth-rect.right}px;` +
+                `background:var(--bg2,#22272e);border:1px solid var(--border);border-radius:6px;` +
+                `padding:10px;box-shadow:0 4px 20px rgba(0,0,0,.5);min-width:340px`;
+            document.body.appendChild(form);
+            trigger._cbForm = form;
+            outside = e => { if (!form.contains(e.target) && e.target !== trigger) dismiss(); };
+            setTimeout(() => document.addEventListener('click', outside, true), 0);
+        } else {
+            inlineInsertFn(form);
+        }
+        return dismiss;
+    }
+
     function _collapseKey(block) {
         const cls = [...block.classList].find(c => c.endsWith('-block')) || 'block';
         const id  = block.dataset.cmd || block.dataset.query || block.dataset.period || '';
@@ -1180,8 +1206,8 @@ const NbMain = (() => {
     }
 
     async function _showTClockInForm(el, status, trigger) {
-        const existing = el.querySelector('.nb-t-clock-in-form');
-        if (existing) { existing.remove(); trigger?.classList.remove('active'); return; }
+        const existing = trigger._cbForm || el.querySelector('.nb-t-clock-in-form');
+        if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('active'); return; }
         trigger?.classList.add('active');
 
         const accounts = await fetch('/api/t/accounts').then(r => r.json()).then(d => d.accounts || []).catch(() => []);
@@ -1222,8 +1248,6 @@ const NbMain = (() => {
         cancelBtn.textContent = '✕';
 
         form.append(sel, customInput, descInput, goBtn, cancelBtn);
-        el.appendChild(form);
-        (accounts.length ? customInput : customInput).focus();
 
         const doClockIn = async () => {
             const account = customInput.value.trim() || sel.value;
@@ -1233,13 +1257,19 @@ const NbMain = (() => {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ account, desc: descInput.value.trim() }),
             }).then(r => r.json()).catch(() => ({}));
-            if (d.success) _loadTBlock(el);
+            if (d.success) { dismiss(); _loadTBlock(el); }
             else { goBtn.disabled = false; if (d.error) alert(d.error); }
         };
 
+        const dismiss = _cbFormAttach(form, trigger, el, f => el.appendChild(f));
+
         goBtn.addEventListener('click', doClockIn);
-        [customInput, descInput].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') doClockIn(); }));
-        cancelBtn.addEventListener('click', () => { form.remove(); trigger?.classList.remove('active'); });
+        [customInput, descInput].forEach(i => i.addEventListener('keydown', e => {
+            if (e.key === 'Enter')  doClockIn();
+            if (e.key === 'Escape') dismiss();
+        }));
+        cancelBtn.addEventListener('click', dismiss);
+        customInput.focus();
     }
 
     async function _renderTwBlocks(container) {
@@ -1444,11 +1474,8 @@ const NbMain = (() => {
     }
 
     function _showTwAddForm(el, q, trigger) {
-        const existing = trigger._twForm || el.querySelector('.nb-tw-addform');
-        if (existing) {
-            existing.remove(); trigger._twForm = null;
-            trigger?.classList.remove('active'); return;
-        }
+        const existing = trigger._cbForm || el.querySelector('.nb-tw-addform');
+        if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('active'); return; }
         trigger?.classList.add('active');
 
         const form = document.createElement('div');
@@ -1511,14 +1538,8 @@ const NbMain = (() => {
             }
         };
 
-        const dismiss = () => {
-            form.remove(); trigger._twForm = null;
-            trigger?.classList.remove('active');
-            document.removeEventListener('click', outsideClick, true);
-        };
-        const outsideClick = e => {
-            if (!form.contains(e.target) && e.target !== trigger) dismiss();
-        };
+        const dismiss = _cbFormAttach(form, trigger, el,
+            f => el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', f));
 
         form.querySelector('.nb-tw-adesc').addEventListener('keydown', e => {
             if (e.key === 'Enter')  doAdd();
@@ -1526,19 +1547,6 @@ const NbMain = (() => {
         });
         form.querySelector('.nb-tw-asave').addEventListener('click', doAdd);
         form.querySelector('.nb-tw-acancel').addEventListener('click', dismiss);
-
-        const isCollapsed = el.classList.contains('nb-collapsed');
-        if (isCollapsed) {
-            const rect = trigger.getBoundingClientRect();
-            form.style.cssText = `position:fixed;z-index:9000;top:${rect.bottom + 4}px;right:${window.innerWidth - rect.right}px;` +
-                `background:var(--bg2,#22272e);border:1px solid var(--border);border-radius:6px;` +
-                `padding:10px;box-shadow:0 4px 20px rgba(0,0,0,.5);min-width:340px`;
-            document.body.appendChild(form);
-            trigger._twForm = form;
-            setTimeout(() => document.addEventListener('click', outsideClick, true), 0);
-        } else {
-            el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', form);
-        }
         form.querySelector('.nb-tw-adesc')?.focus();
     }
 
@@ -1810,12 +1818,8 @@ const NbMain = (() => {
     }
 
     function _showHledgerAddForm(el, q, trigger) {
-        const existing = el.querySelector('.nb-hl-addform');
-        if (existing) {
-            existing.remove();
-            trigger?.classList.remove('nb-hl-btn-active');
-            return;
-        }
+        const existing = trigger._cbForm || el.querySelector('.nb-hl-addform');
+        if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('nb-hl-btn-active'); return; }
         trigger?.classList.add('nb-hl-btn-active');
 
         const today = _localDateStr();
@@ -1855,10 +1859,10 @@ const NbMain = (() => {
         form.querySelector('.nb-hl-add-row').addEventListener('click', () =>
             postingsEl.appendChild(makePostingRow()));
 
-        form.querySelector('.nb-hl-cancel-btn').addEventListener('click', () => {
-            form.remove();
-            trigger?.classList.remove('nb-hl-btn-active');
-        });
+        const dismiss = _cbFormAttach(form, trigger, el,
+            f => el.querySelector('.nb-hl-header').insertAdjacentElement('afterend', f));
+
+        form.querySelector('.nb-hl-cancel-btn').addEventListener('click', dismiss);
 
         form.querySelector('.nb-hl-save-btn').addEventListener('click', async () => {
             const status = form.querySelector('.nb-hl-form-status');
@@ -1885,8 +1889,7 @@ const NbMain = (() => {
                     status.textContent = '✗ ' + d.error;
                     status.style.color = 'var(--accent-neg, #e74c3c)';
                 } else {
-                    form.remove();
-                    trigger?.classList.remove('nb-hl-btn-active');
+                    dismiss();
                     await _loadHledgerBlock(el);
                 }
             } catch(e) {
@@ -1895,7 +1898,6 @@ const NbMain = (() => {
             }
         });
 
-        el.querySelector('.nb-hl-header').insertAdjacentElement('afterend', form);
         form.querySelector('.nb-hl-desc-inp')?.focus();
     }
 
