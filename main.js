@@ -10,6 +10,8 @@ const NbMain = (() => {
     let _todayInfo      = null;
     let _lastNotes      = [];       // original load order, for client-side sort
     let _sortMode       = 'default';
+    let _nbSortMode     = 'active-first';  // sort for Notebooks settings view
+    let _lastNbList     = [];              // last fetched notebooks array
     let _foldersFirst   = localStorage.getItem('nb-folders-first') === 'true';
     let _pinnedSelectors = new Set(JSON.parse(localStorage.getItem('nb-pinned') || '[]'));
     let _isFullscreen    = false;
@@ -2071,6 +2073,13 @@ const NbMain = (() => {
         const btn = document.getElementById('nb-list-menu-btn');
         if (!btn) return;
         btn.addEventListener('click', () => {
+            if (NbNav.activeCmd === 'nb-notebooks') {
+                _showDropdown(btn, [
+                    // Placeholder for future notebook management actions
+                    { label: 'Notebooks', active: false, action: () => {} },
+                ]);
+                return;
+            }
             _showDropdown(btn, [
                 { label: '📂 Folders first', active: _foldersFirst,
                   action: () => {
@@ -2105,6 +2114,22 @@ const NbMain = (() => {
         const btn = document.getElementById('nb-sort-btn');
         if (!btn) return;
         btn.addEventListener('click', () => {
+            if (NbNav.activeCmd === 'nb-notebooks') {
+                _showDropdown(btn, [
+                    { label: 'Active first', active: _nbSortMode === 'active-first',
+                      action: () => _applyNbSort('active-first') },
+                    { label: 'A → Z',        active: _nbSortMode === 'az',
+                      action: () => _applyNbSort('az') },
+                    { label: 'Z → A',        active: _nbSortMode === 'za',
+                      action: () => _applyNbSort('za') },
+                    'sep',
+                    { label: 'Most notes',   active: _nbSortMode === 'most',
+                      action: () => _applyNbSort('most') },
+                    { label: 'Fewest notes', active: _nbSortMode === 'fewest',
+                      action: () => _applyNbSort('fewest') },
+                ]);
+                return;
+            }
             _showDropdown(btn, [
                 { label: 'Default',      active: _sortMode === 'default', action: () => _applySort('default') },
                 { label: 'A → Z',        active: _sortMode === 'az',      action: () => _applySort('az') },
@@ -2114,6 +2139,28 @@ const NbMain = (() => {
                 { label: 'Oldest first', active: _sortMode === 'oldest',  action: () => _applySort('oldest') },
             ]);
         });
+    }
+
+    function _applyNbSort(mode) {
+        _nbSortMode = mode;
+        const btn = document.getElementById('nb-sort-btn');
+        if (btn) btn.classList.toggle('nb-sort-active', mode !== 'active-first');
+        _renderNbList(_lastNbList);
+    }
+
+    function _sortNbList(notebooks) {
+        const active = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const sorted = [...notebooks];
+        if (_nbSortMode === 'az')     sorted.sort((a, b) => a.name.localeCompare(b.name));
+        else if (_nbSortMode === 'za')     sorted.sort((a, b) => b.name.localeCompare(a.name));
+        else if (_nbSortMode === 'most')   sorted.sort((a, b) => b.count - a.count);
+        else if (_nbSortMode === 'fewest') sorted.sort((a, b) => a.count - b.count);
+        else { // active-first: active notebook on top, rest by mtime desc
+            sorted.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+            const idx = sorted.findIndex(n => n.name === active);
+            if (idx > 0) { const [nb] = sorted.splice(idx, 1); sorted.unshift(nb); }
+        }
+        return sorted;
     }
 
     function _applySort(mode) {
@@ -3663,60 +3710,80 @@ const NbMain = (() => {
     // ── Notebooks settings view ────────────────────────────────────
 
     async function runNbNotebooks() {
-        const list    = document.getElementById('nb-list');
-        const empty   = document.getElementById('nb-list-empty');
         const countEl = document.getElementById('nb-count');
-
-        list.innerHTML = '';
-        countEl.textContent = '…';
         document.getElementById('nb-type-breakdown').textContent = '';
         document.getElementById('nb-preview-toolbar').hidden = true;
         document.getElementById('nb-preview-content').innerHTML =
-            '<div id="nb-welcome"><h2>Notebooks</h2><p>Select a notebook to view its settings.</p></div>';
-        empty.hidden = true;
+            '<div id="nb-welcome"><h2>Notebooks</h2><p>Loading…</p></div>';
+        document.getElementById('nb-list-empty').hidden = true;
+        countEl.textContent = '…';
+
+        // Reset sort button indicator
+        const sortBtn = document.getElementById('nb-sort-btn');
+        if (sortBtn) sortBtn.classList.toggle('nb-sort-active', _nbSortMode !== 'active-first');
 
         try {
             const r = await fetch('/api/nb/notebooks');
             const d = await r.json();
-            const notebooks = d.notebooks || [];
+            _lastNbList = d.notebooks || [];
 
-            countEl.textContent = `${notebooks.length} notebook${notebooks.length !== 1 ? 's' : ''}`;
+            countEl.textContent = `${_lastNbList.length} notebook${_lastNbList.length !== 1 ? 's' : ''}`;
 
-            if (!notebooks.length) {
-                empty.hidden = false;
-                empty.textContent = 'No notebooks found.';
+            if (!_lastNbList.length) {
+                document.getElementById('nb-list-empty').hidden = false;
+                document.getElementById('nb-list-empty').textContent = 'No notebooks found.';
                 return;
             }
 
-            notebooks.forEach(nb => {
-                const li = document.createElement('li');
-                li.className = 'nb-list-item';
-                li.setAttribute('role', 'option');
+            _renderNbList(_lastNbList);
 
-                const icon = document.createElement('span');
-                icon.className = 'nb-list-icon';
-                icon.textContent = '📒';
+            // Auto-open the active notebook
+            const active = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+            const activeItem = document.querySelector(`#nb-list .nb-list-item[data-nb="${CSS.escape(active)}"]`);
+            if (activeItem) activeItem.click();
 
-                const title = document.createElement('span');
-                title.className = 'nb-list-title';
-                title.textContent = nb.name;
-
-                const excerpt = document.createElement('span');
-                excerpt.className = 'nb-list-excerpt';
-                excerpt.textContent = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
-
-                li.append(icon, title, excerpt);
-                li.addEventListener('click', () => {
-                    list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
-                    li.classList.add('active');
-                    _openNbNotebook(nb.name);
-                });
-                list.appendChild(li);
-            });
         } catch(e) {
             countEl.textContent = 'error';
             console.error('runNbNotebooks:', e);
         }
+    }
+
+    function _renderNbList(notebooks) {
+        const list  = document.getElementById('nb-list');
+        const active = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const sorted = _sortNbList(notebooks);
+
+        // Remember which was selected
+        const prevSelected = list.querySelector('.nb-list-item.active')?.dataset.nb;
+
+        list.innerHTML = '';
+        sorted.forEach(nb => {
+            const li = document.createElement('li');
+            li.className = 'nb-list-item';
+            li.setAttribute('role', 'option');
+            li.dataset.nb = nb.name;
+            if (nb.name === (prevSelected || active)) li.classList.add('active');
+
+            const icon = document.createElement('span');
+            icon.className = 'nb-list-icon';
+            icon.textContent = nb.name === active ? '📖' : '📒';
+
+            const title = document.createElement('span');
+            title.className = 'nb-list-title';
+            title.textContent = nb.name;
+
+            const excerpt = document.createElement('span');
+            excerpt.className = 'nb-list-excerpt';
+            excerpt.textContent = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
+
+            li.append(icon, title, excerpt);
+            li.addEventListener('click', () => {
+                list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                li.classList.add('active');
+                _openNbNotebook(nb.name);
+            });
+            list.appendChild(li);
+        });
     }
 
     async function _openNbNotebook(name) {
@@ -3770,10 +3837,13 @@ const NbMain = (() => {
                     <span>Git</span><span style="color:var(--text-dim)">no git repo</span>
                     `}
                 </div>
-                <div id="nb-nb-actions" style="padding:14px 28px 6px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:14px">
+                <div id="nb-nb-actions" style="padding:14px 28px 8px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:14px">
                     ${!g.has_remote && g.has_git ? `<button id="nb-nb-wire" class="nb-tool-btn">Wire remote</button>` : ''}
                     ${g.has_remote ? `<button id="nb-nb-sync" class="nb-tool-btn nb-btn-primary">Sync</button>` : ''}
+                </div>
+                <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
                     <button id="nb-nb-use" class="nb-tool-btn">Use this notebook</button>
+                    <span style="font-size:11px;color:var(--text-dim)">Set as the active scope for List, Add, and other commands.</span>
                 </div>
                 <div style="padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px">
                     <div style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;
