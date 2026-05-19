@@ -12,6 +12,7 @@ const NbMain = (() => {
     let _sortMode       = 'default';
     let _nbSortMode     = 'active-first';  // sort for Notebooks settings view
     let _lastNbList     = [];              // last fetched notebooks array
+    let _lastNbCurrent  = 'home';          // nb's actual current notebook (from ~/.nb/.current)
     let _foldersFirst   = localStorage.getItem('nb-folders-first') === 'true';
     let _pinnedSelectors = new Set(JSON.parse(localStorage.getItem('nb-pinned') || '[]'));
     let _isFullscreen    = false;
@@ -2149,15 +2150,14 @@ const NbMain = (() => {
     }
 
     function _sortNbList(notebooks) {
-        const active = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
         const sorted = [...notebooks];
-        if (_nbSortMode === 'az')     sorted.sort((a, b) => a.name.localeCompare(b.name));
+        if (_nbSortMode === 'az')          sorted.sort((a, b) => a.name.localeCompare(b.name));
         else if (_nbSortMode === 'za')     sorted.sort((a, b) => b.name.localeCompare(a.name));
         else if (_nbSortMode === 'most')   sorted.sort((a, b) => b.count - a.count);
         else if (_nbSortMode === 'fewest') sorted.sort((a, b) => a.count - b.count);
-        else { // active-first: active notebook on top, rest by mtime desc
+        else { // current-first: nb's current notebook on top, rest by mtime desc
             sorted.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
-            const idx = sorted.findIndex(n => n.name === active);
+            const idx = sorted.findIndex(n => n.is_current);
             if (idx > 0) { const [nb] = sorted.splice(idx, 1); sorted.unshift(nb); }
         }
         return sorted;
@@ -3725,7 +3725,8 @@ const NbMain = (() => {
         try {
             const r = await fetch('/api/nb/notebooks');
             const d = await r.json();
-            _lastNbList = d.notebooks || [];
+            _lastNbList    = d.notebooks || [];
+            _lastNbCurrent = d.current_notebook || 'home';
 
             countEl.textContent = `${_lastNbList.length} notebook${_lastNbList.length !== 1 ? 's' : ''}`;
 
@@ -3750,7 +3751,6 @@ const NbMain = (() => {
 
     function _renderNbList(notebooks) {
         const list   = document.getElementById('nb-list');
-        const activeNb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
         const sorted = _sortNbList(notebooks);
         const prevSelected = list.querySelector('.nb-list-item.active')?.dataset.nb;
 
@@ -3761,9 +3761,9 @@ const NbMain = (() => {
 
         list.innerHTML = '';
         sorted.forEach(nb => {
-            const isActive = nb.name === activeNb;
+            const isCurrent = nb.is_current;
             const li = document.createElement('li');
-            li.className = 'nb-list-item' + (nb.name === (prevSelected || activeNb) ? ' active' : '');
+            li.className = 'nb-list-item' + (nb.name === (prevSelected || _lastNbCurrent) ? ' active' : '');
             li.setAttribute('role', 'option');
             li.dataset.nb = nb.name;
 
@@ -3776,8 +3776,8 @@ const NbMain = (() => {
 
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
-            icon.textContent = isActive ? '📖' : '📒';
-            icon.title = isActive ? 'Active notebook' : '';
+            icon.textContent = isCurrent ? '📖' : '📒';
+            icon.title = isCurrent ? 'Current notebook (nb use)' : '';
 
             const body = document.createElement('div');
             body.className = 'nb-list-body';
@@ -3788,14 +3788,14 @@ const NbMain = (() => {
             const titleEl = document.createElement('span');
             titleEl.className = 'nb-list-title';
             titleEl.textContent = nb.name;
-            if (isActive) titleEl.style.fontWeight = '600';
+            if (isCurrent) titleEl.style.fontWeight = '600';
             titleRow.appendChild(titleEl);
 
-            if (isActive) {
+            if (isCurrent) {
                 const badge = document.createElement('span');
                 badge.className = 'nb-list-ann-badge';
-                badge.textContent = 'active';
-                badge.title = 'Currently in use';
+                badge.textContent = 'current';
+                badge.title = 'Set as current with nb use';
                 badge.style.cssText = 'font-size:9px;padding:1px 4px;border-radius:3px;' +
                     'background:var(--accent,#2980b9);color:#fff;margin-left:4px;font-weight:600;letter-spacing:0.04em';
                 titleRow.appendChild(badge);
@@ -3972,9 +3972,29 @@ const NbMain = (() => {
                 });
             }
 
-            // Use this notebook
-            document.getElementById('nb-nb-use').addEventListener('click', () => {
-                NbNav.switchNotebook(name);
+            // Use this notebook — calls `nb use <name>` to set nb's current notebook
+            document.getElementById('nb-nb-use').addEventListener('click', async () => {
+                const btn = document.getElementById('nb-nb-use');
+                btn.textContent = 'Setting…'; btn.disabled = true;
+                try {
+                    const r = await fetch('/api/nb/use', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ notebook: name }),
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        _lastNbCurrent = name;
+                        _renderNbList(_lastNbList.map(n => ({ ...n, is_current: n.name === name })));
+                        btn.textContent = '✓ Current';
+                        setTimeout(() => { btn.textContent = 'Use this notebook'; btn.disabled = false; }, 1500);
+                    } else {
+                        btn.textContent = 'Failed'; btn.disabled = false;
+                        setTimeout(() => { btn.textContent = 'Use this notebook'; }, 1500);
+                    }
+                } catch(e) {
+                    btn.textContent = 'Use this notebook'; btn.disabled = false;
+                }
             });
 
             // Save prefs

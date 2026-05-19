@@ -2760,9 +2760,16 @@ def api_grep():
 
 @app.route('/api/nb/notebooks')
 def api_nb_notebooks():
-    """List all notebooks with note counts, mtimes, and basic git sync status."""
+    """List all notebooks with note counts, mtimes, git sync status, and current marker."""
     notebooks = []
     env = {**os.environ, 'NO_COLOR': '1', 'GIT_TERMINAL_PROMPT': '0', 'GIT_PAGER': 'cat'}
+    current_nb = 'home'
+    try:
+        cur_path = NB_DIR / '.current'
+        if cur_path.exists():
+            current_nb = cur_path.read_text().strip() or 'home'
+    except Exception:
+        pass
     try:
         for entry in sorted(NB_DIR.iterdir()):
             if not entry.is_dir() or entry.name.startswith('.'):
@@ -2792,11 +2799,35 @@ def api_nb_notebooks():
             notebooks.append({
                 'name': entry.name, 'count': count, 'mtime': mtime,
                 'has_remote': has_remote, 'unpushed': unpushed,
+                'is_current': entry.name == current_nb,
             })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
     notebooks.sort(key=lambda n: n['mtime'], reverse=True)
-    return jsonify({'notebooks': notebooks})
+    return jsonify({'notebooks': notebooks, 'current_notebook': current_nb})
+
+
+@app.route('/api/nb/use', methods=['POST'])
+def api_nb_use():
+    """Call 'nb use <notebook>' to set nb's current notebook persistently."""
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'success': False, 'error': 'notebook required'})
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'success': False, 'error': f'Notebook "{notebook}" not found'})
+    try:
+        r = subprocess.run(
+            ['nb', 'use', notebook],
+            capture_output=True, text=True, timeout=10,
+            env={**os.environ, 'NO_COLOR': '1'},
+        )
+        if r.returncode == 0:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': r.stderr.strip() or r.stdout.strip()})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/nb/notebook-detail')
