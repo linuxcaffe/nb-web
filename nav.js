@@ -50,6 +50,10 @@ const NbNav = (() => {
                 _scope = d.current_notebook;
             }
             renderOptsBar();
+            // Apply per-notebook defaults now that scope is known, then
+            // poll sync status against the correct notebook
+            _applyNotebookDefaults(_scope);
+            _pollNbSyncStatus();
         } catch (e) {
             console.error('loadNotebooks:', e);
         }
@@ -1504,7 +1508,6 @@ const NbNav = (() => {
             _initCmdBar();
             _initMenu();
             _initSyncDialog();
-            _pollNbSyncStatus();
             setInterval(_pollNbSyncStatus, 60_000);
             document.getElementById('nb-cmd-output-clear').addEventListener('click', _clearOutputBar);
 
