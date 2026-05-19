@@ -92,20 +92,25 @@ body {
 
 /* Logo / menu button */
 .nb-logo-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  background: #fff;
+  border: 2px solid transparent;
+  border-radius: 6px;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  line-height: 1;
-  transition: background 0.15s;
+  padding: 2px 5px;
+  line-height: 0;
   flex-shrink: 0;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.nb-logo-btn:hover { background: var(--accent-dim); }
+.nb-logo-btn:hover { border-color: var(--accent); }
+.nb-logo-btn.nb-sync-pending {
+  border-color: #f0b429;
+  box-shadow: 0 0 6px rgba(240,180,41,0.5);
+}
+.nb-logo-img {
+  height: 22px;
+  width: auto;
+  display: block;
+}
 
 /* Search + tags + icon strip */
 #nb-search-wrap {

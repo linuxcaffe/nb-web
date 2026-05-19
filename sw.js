@@ -1,10 +1,11 @@
 // nb-web service worker — minimal shell cache for PWA installability
 // API calls always go to network; only app shell assets are cached.
 
-const CACHE = 'nb-web-v13';
+const CACHE = 'nb-web-v14';
 const SHELL = [
     '/', '/index.html', '/styles.css',
     '/main.js', '/nav.js',
+    '/nb-logo.png',
     '/settings.html',
     '/marked.min.js',
     '/jsuites.min.css', '/jsuites.min.js',

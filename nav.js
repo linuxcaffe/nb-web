@@ -1472,6 +1472,9 @@ const NbNav = (() => {
         try {
             const d = await fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
             const syncBtn = document.querySelector('.nb-menu-toplevel[data-cmd="sync"]');
+            const logoBtn = document.getElementById('nb-logo-btn');
+            const pending = !d.has_remote || d.changes > 0 || d.unpushed > 0;
+            logoBtn?.classList.toggle('nb-sync-pending', pending);
             if (!syncBtn) return;
             if (!d.has_remote) {
                 syncBtn.textContent = 'Sync  ·  no remote';
