@@ -3891,6 +3891,15 @@ const NbMain = (() => {
                     ${!g.has_remote && g.has_git ? `<button id="nb-nb-wire" class="nb-tool-btn">Wire remote</button>` : ''}
                     ${g.has_remote ? `<button id="nb-nb-sync" class="nb-tool-btn nb-btn-primary">Sync</button>` : ''}
                 </div>
+                <div id="nb-nb-wire-area" style="display:${!g.has_remote && g.has_git ? 'block' : 'none'};padding:8px 28px 14px;border-top:1px solid var(--border)">
+                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Remote URL (leave blank to use Settings → Git default)</div>
+                    <div style="display:flex;gap:6px">
+                        <input id="nb-nb-wire-url" type="text" class="nb-opt-input"
+                               placeholder="git@github.com:user/repo.git" style="flex:1">
+                        <button id="nb-nb-wire-go" class="nb-tool-btn nb-btn-primary">Wire</button>
+                    </div>
+                    <pre id="nb-nb-wire-out" style="margin-top:8px;font-size:11px;white-space:pre-wrap;display:none"></pre>
+                </div>
                 <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
                     <button id="nb-nb-use" class="nb-tool-btn">Use this notebook</button>
                     <span style="font-size:11px;color:var(--text-dim)">Set as the active scope for List, Add, and other commands.</span>
@@ -3913,16 +3922,6 @@ const NbMain = (() => {
                         <button id="nb-nb-save-prefs" class="nb-tool-btn nb-btn-primary">Save defaults</button>
                         <span id="nb-nb-prefs-status" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
                     </div>
-                </div>
-                <div id="nb-nb-wire-area" style="display:none;padding:8px 28px 14px;border-top:1px solid var(--border)">
-                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Remote URL (leave blank to use default)</div>
-                    <div style="display:flex;gap:6px">
-                        <input id="nb-nb-wire-url" type="text" class="nb-opt-input"
-                               placeholder="github.com:user/repo.git or leave blank" style="flex:1">
-                        <button id="nb-nb-wire-go" class="nb-tool-btn nb-btn-primary">Wire</button>
-                    </div>
-                    <pre id="nb-nb-wire-out" style="margin-top:8px;font-size:11px;color:var(--text-dim);
-                                                    white-space:pre-wrap;display:none"></pre>
                 </div>`;
 
             // Wire remote toggle
@@ -3949,6 +3948,7 @@ const NbMain = (() => {
                         });
                         const wd = await wr.json();
                         out.textContent = wd.output || (wd.success ? '✓ Done' : '✗ Failed');
+                        out.style.color = wd.success ? 'var(--green,#2ecc71)' : 'var(--red,#e74c3c)';
                         if (wd.success) setTimeout(() => _openNbNotebook(name), 1500);
                     } catch(e) {
                         out.textContent = 'Error: ' + e;
