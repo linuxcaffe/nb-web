@@ -36,9 +36,9 @@ fi
 
 # ── --clean: wipe SW registration + ALL caches, restart Flask ────────────────
 if [ "$1" = "--clean" ]; then
-    if pgrep -x epiphany-browser > /dev/null; then
+    if pgrep -x epiphany > /dev/null; then
         echo "nb-web-launch: closing Epiphany for clean launch..."
-        pkill -x epiphany-browser
+        pkill -x epiphany
         sleep 1
     fi
     # Delete Epiphany session so restore doesn't reopen stale nb-web tabs.
@@ -60,9 +60,10 @@ if [ "$1" = "--clean" ]; then
         echo "nb-web-launch: removing SW CacheStorage (Cache API)..."
         rm -rf "$SW_CACHE_STORAGE"
     fi
-    # Also clear the main Epiphany SW and cache if no PWA profile
+    # Also clear the main Epiphany SW and cache if no PWA profile.
+    # Wipe the whole serviceworkers dir — stale SW registrations crash Epiphany.
     if [ -z "$EPIPHANY_PROFILE" ]; then
-        rm -rf ~/.local/share/epiphany/serviceworkers/Scripts 2>/dev/null
+        rm -rf ~/.local/share/epiphany/serviceworkers 2>/dev/null
         rm -rf ~/.cache/epiphany/WebKitCache 2>/dev/null
         rm -rf ~/.cache/epiphany/CacheStorage 2>/dev/null
     fi
@@ -114,13 +115,13 @@ if [ -z "$EPIPHANY_PROFILE" ]; then
     echo "nb-web-launch: PWA not installed yet — opening in regular Epiphany."
     echo "  Install via ⋮ → Install as Web App, then re-run this script."
     # Only open if not already showing nb-web (avoid stacking tabs on re-run)
-    if ! pgrep -x epiphany-browser > /dev/null; then
+    if ! pgrep -x epiphany > /dev/null; then
         epiphany-browser "$FLASK_URL" &
     else
         echo "nb-web-launch: Epiphany already running — skipping open."
     fi
 else
-    if ! pgrep -x epiphany-browser > /dev/null; then
+    if ! pgrep -x epiphany > /dev/null; then
         epiphany-browser --application-mode \
             "--profile=$EPIPHANY_PROFILE" \
             "$FLASK_URL" &
