@@ -92,22 +92,21 @@ body {
 
 /* Logo / menu button */
 .nb-logo-btn {
-  background: #fff;
-  border: 2px solid transparent;
-  border-radius: 6px;
+  background: none;
+  border: none;
   cursor: pointer;
-  padding: 2px 5px;
+  padding: 2px 4px;
   line-height: 0;
   flex-shrink: 0;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  border-radius: 4px;
+  transition: filter 0.2s;
 }
-.nb-logo-btn:hover { border-color: var(--accent); }
+.nb-logo-btn:hover { filter: brightness(1.2); }
 .nb-logo-btn.nb-sync-pending {
-  border-color: #f0b429;
-  box-shadow: 0 0 6px rgba(240,180,41,0.5);
+  filter: sepia(1) saturate(6) hue-rotate(5deg) brightness(1.15);
 }
 .nb-logo-img {
-  height: 22px;
+  height: 26px;
   width: auto;
   display: block;
 }
