@@ -180,6 +180,7 @@ const NbNav = (() => {
             _scope = sel.value;
             _updateOutputBar();
             onChange(_scope);
+            _pollNbSyncStatus();
             sel.blur();   // release focus so arrow keys go to the list, not notebook options
         });
 
