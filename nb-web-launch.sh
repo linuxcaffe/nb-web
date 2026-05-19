@@ -41,15 +41,13 @@ if [ "$1" = "--clean" ]; then
         pkill -x epiphany-browser
         sleep 1
     fi
-    # Remove stale localhost:5001 entries from Epiphany session to prevent
-    # session-restore from reopening multiple tabs on next launch.
-    for sess in ~/.local/share/epiphany/session_state.xml \
-                ~/.local/share/epiphany/session_state.xml~; do
-        if [ -f "$sess" ]; then
-            echo "nb-web-launch: pruning nb-web tabs from Epiphany session..."
-            sed -i '/localhost:5001/d' "$sess" 2>/dev/null
-        fi
-    done
+    # Delete Epiphany session so restore doesn't reopen stale nb-web tabs.
+    # Editing the XML surgically breaks it; a clean wipe is safer.
+    if ls ~/.local/share/epiphany/session_state.xml* > /dev/null 2>&1; then
+        echo "nb-web-launch: clearing Epiphany session (prevents stale tab restore)..."
+        rm -f ~/.local/share/epiphany/session_state.xml \
+              ~/.local/share/epiphany/session_state.xml~
+    fi
     if [ -d "$SW_DIR" ]; then
         echo "nb-web-launch: removing service worker registration..."
         rm -rf "$SW_DIR"
