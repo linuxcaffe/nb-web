@@ -2338,6 +2338,24 @@ def api_sync():
         lines.append(push_r.stderr.strip() or push_r.stdout.strip() or f'Pushed to origin/{notebook}')
     else:
         lines.append(f'Push failed: {push_r.stderr.strip()}')
+        return jsonify({'success': False, 'output': '\n'.join(lines)})
+
+    # Post-sync integrity check (C): verify no commits left unpushed
+    try:
+        behind_r = subprocess.run(
+            ['git', 'rev-list', f'origin/{notebook}..HEAD', '--count'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=git_env,
+        )
+        unpushed = int(behind_r.stdout.strip()) if behind_r.returncode == 0 else -1
+        if unpushed > 0:
+            lines.append(f'⚠ integrity check: {unpushed} commit(s) still unpushed after sync')
+            git_push_ok = False
+        elif unpushed == 0:
+            local_files  = len([f for f in nb_path.iterdir()
+                                 if not f.name.startswith('.')])
+            lines.append(f'✓ verified: {local_files} files, 0 commits unpushed')
+    except Exception:
+        pass
 
     return jsonify({'success': git_push_ok, 'output': '\n'.join(lines)})
 
@@ -3769,7 +3787,26 @@ def _assert_notebook_tracking():
         print(f'[nb-web] tracking OK ({checked} notebooks checked)', flush=True)
 
 
+def _assert_nb_auto_sync_off():
+    """Force NB_AUTO_SYNC=0 on every startup.
+
+    nb's auto-sync pulls from origin on every add/edit/delete. With per-notebook
+    branches this causes silent cross-contamination. nb-web's sync dialog is the
+    only intended sync mechanism.
+    """
+    try:
+        r = subprocess.run([NB_BIN, 'set', 'auto_sync', '0'],
+                           capture_output=True, text=True, timeout=5)
+        if 'set to 0' in r.stdout + r.stderr:
+            print('[nb-web] NB_AUTO_SYNC → 0 (was 1; prevented cross-notebook contamination)', flush=True)
+        else:
+            print('[nb-web] NB_AUTO_SYNC: OK (0)', flush=True)
+    except Exception as e:
+        print(f'[nb-web] NB_AUTO_SYNC check failed: {e}', flush=True)
+
+
 if __name__ == '__main__':
+    _assert_nb_auto_sync_off()
     _assert_notebook_tracking()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
