@@ -2760,8 +2760,9 @@ def api_grep():
 
 @app.route('/api/nb/notebooks')
 def api_nb_notebooks():
-    """List all notebooks with note counts and last-modified timestamps."""
+    """List all notebooks with note counts, mtimes, and basic git sync status."""
     notebooks = []
+    env = {**os.environ, 'NO_COLOR': '1', 'GIT_TERMINAL_PROMPT': '0', 'GIT_PAGER': 'cat'}
     try:
         for entry in sorted(NB_DIR.iterdir()):
             if not entry.is_dir() or entry.name.startswith('.'):
@@ -2773,7 +2774,25 @@ def api_nb_notebooks():
                 lines = [l for l in index_path.read_text().splitlines() if l.strip()]
                 count = len(lines)
                 mtime = max(mtime, index_path.stat().st_mtime)
-            notebooks.append({'name': entry.name, 'count': count, 'mtime': mtime})
+
+            has_remote = False
+            unpushed   = 0
+            if (entry / '.git').exists():
+                remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                                          cwd=str(entry), timeout=3, env=env)
+                has_remote = bool(remote_r.stdout.strip())
+                if has_remote:
+                    up_r = subprocess.run(
+                        ['git', 'rev-list', f'origin/{entry.name}..HEAD', '--count'],
+                        capture_output=True, text=True, cwd=str(entry), timeout=3, env=env)
+                    if up_r.returncode == 0:
+                        try: unpushed = int(up_r.stdout.strip())
+                        except: pass
+
+            notebooks.append({
+                'name': entry.name, 'count': count, 'mtime': mtime,
+                'has_remote': has_remote, 'unpushed': unpushed,
+            })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
     notebooks.sort(key=lambda n: n['mtime'], reverse=True)

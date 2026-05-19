@@ -3749,34 +3749,75 @@ const NbMain = (() => {
     }
 
     function _renderNbList(notebooks) {
-        const list  = document.getElementById('nb-list');
-        const active = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const list   = document.getElementById('nb-list');
+        const activeNb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
         const sorted = _sortNbList(notebooks);
-
-        // Remember which was selected
         const prevSelected = list.querySelector('.nb-list-item.active')?.dataset.nb;
+
+        // Update type-breakdown with total notes across all notebooks
+        const total = notebooks.reduce((s, n) => s + n.count, 0);
+        document.getElementById('nb-type-breakdown').textContent =
+            `${total} note${total !== 1 ? 's' : ''} total`;
 
         list.innerHTML = '';
         sorted.forEach(nb => {
+            const isActive = nb.name === activeNb;
             const li = document.createElement('li');
-            li.className = 'nb-list-item';
+            li.className = 'nb-list-item' + (nb.name === (prevSelected || activeNb) ? ' active' : '');
             li.setAttribute('role', 'option');
             li.dataset.nb = nb.name;
-            if (nb.name === (prevSelected || active)) li.classList.add('active');
+
+            // Sync status dot: yellow=unpushed, grey=no remote, green=synced
+            const dot = document.createElement('span');
+            dot.style.cssText = 'width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-right:2px;align-self:center';
+            if (!nb.has_remote)      { dot.style.background = 'var(--text-dim)'; dot.title = 'No remote'; }
+            else if (nb.unpushed > 0){ dot.style.background = 'var(--yellow,#f0b429)'; dot.title = `${nb.unpushed} unpushed`; }
+            else                     { dot.style.background = 'var(--green,#2ecc71)';  dot.title = 'Synced'; }
 
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
-            icon.textContent = nb.name === active ? '📖' : '📒';
+            icon.textContent = isActive ? '📖' : '📒';
+            icon.title = isActive ? 'Active notebook' : '';
 
-            const title = document.createElement('span');
-            title.className = 'nb-list-title';
-            title.textContent = nb.name;
+            const body = document.createElement('div');
+            body.className = 'nb-list-body';
 
-            const excerpt = document.createElement('span');
-            excerpt.className = 'nb-list-excerpt';
-            excerpt.textContent = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
+            const titleRow = document.createElement('div');
+            titleRow.className = 'nb-list-title-row';
 
-            li.append(icon, title, excerpt);
+            const titleEl = document.createElement('span');
+            titleEl.className = 'nb-list-title';
+            titleEl.textContent = nb.name;
+            if (isActive) titleEl.style.fontWeight = '600';
+            titleRow.appendChild(titleEl);
+
+            if (isActive) {
+                const badge = document.createElement('span');
+                badge.className = 'nb-list-ann-badge';
+                badge.textContent = 'active';
+                badge.title = 'Currently in use';
+                badge.style.cssText = 'font-size:9px;padding:1px 4px;border-radius:3px;' +
+                    'background:var(--accent,#2980b9);color:#fff;margin-left:4px;font-weight:600;letter-spacing:0.04em';
+                titleRow.appendChild(badge);
+            }
+
+            const countBadge = document.createElement('span');
+            countBadge.className = 'nb-list-id';
+            countBadge.textContent = nb.count;
+            countBadge.title = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
+            titleRow.appendChild(countBadge);
+
+            body.appendChild(titleRow);
+
+            if (nb.unpushed > 0) {
+                const exc = document.createElement('div');
+                exc.className = 'nb-list-excerpt';
+                exc.style.color = 'var(--yellow,#f0b429)';
+                exc.textContent = `${nb.unpushed} unpushed commit${nb.unpushed !== 1 ? 's' : ''}`;
+                body.appendChild(exc);
+            }
+
+            li.append(dot, icon, body);
             li.addEventListener('click', () => {
                 list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
                 li.classList.add('active');
