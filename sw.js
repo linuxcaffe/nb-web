@@ -1,7 +1,7 @@
 // nb-web service worker — minimal shell cache for PWA installability
 // API calls always go to network; only app shell assets are cached.
 
-const CACHE = 'nb-web-v15';
+const CACHE = 'nb-web-v18';
 const SHELL = [
     '/', '/index.html', '/styles.css',
     '/main.js', '/nav.js',
@@ -24,6 +24,7 @@ self.addEventListener('activate', e => {
     e.waitUntil(
         caches.keys()
             .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+            .then(() => self.clients.claim())
     );
 });
 

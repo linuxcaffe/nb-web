@@ -1051,7 +1051,8 @@ const NbNav = (() => {
             }
             case 'daily':     NbMain.runCmd('daily', { date: st.date });               break;
             case 'g':         NbMain.runGrep(st);                                      break;
-            case 'templates': NbMain.runTemplates();                                   break;
+            case 'templates':     NbMain.runTemplates();                               break;
+            case 'nb-notebooks': NbMain.runNbNotebooks();                              break;
             case 'info':      NbMain.runCmd('info');                                   break;
             case 'weather':   NbMain.runCmd('weather');                                break;
         }
@@ -1077,7 +1078,7 @@ const NbNav = (() => {
             if (e.key === 'Escape' && menu.classList.contains('open')) shut();
         });
 
-        const _UI_CMDS = new Set(['list','add','todo','cal','templates','g','daily','weather','info','contacts']);
+        const _UI_CMDS = new Set(['list','add','todo','cal','templates','nb-notebooks','g','daily','weather','info','contacts']);
 
         function _menuAction(cmd) {
             shut();
@@ -1377,9 +1378,7 @@ const NbNav = (() => {
             { label: 'Import',    cmd: 'import' },
             { label: 'Export',    cmd: 'export' },
             { label: 'History',   cmd: 'history' },
-            { label: 'Notebooks', items: [
-                { label: 'use', cmd: 'notebooks' },
-            ]},
+            { label: 'Notebooks', cmd: 'nb-notebooks' },
             { label: 'Plugins',   cmd: 'plugins' },
             { label: 'Sync',      cmd: 'sync' },
             { label: 'Terminal',  cmd: 'terminal' },

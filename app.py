@@ -70,6 +70,8 @@ _SETTINGS_SCHEMA = {
                         }},
     'default_git_remote': {'type': str, 'default': '',
                             'coerce': lambda v: str(v).strip()},
+    'notebook_prefs':     {'type': dict, 'default': {},
+                            'coerce': lambda v: v if isinstance(v, dict) else {}},
 }
 
 def _load_settings():
@@ -2776,6 +2778,89 @@ def api_nb_notebooks():
         return jsonify({'error': str(e), 'notebooks': []})
     notebooks.sort(key=lambda n: n['mtime'], reverse=True)
     return jsonify({'notebooks': notebooks})
+
+
+@app.route('/api/nb/notebook-detail')
+def api_nb_notebook_detail():
+    """Detailed info for one notebook: git status, note count, stored prefs."""
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'})
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'error': f'Notebook "{notebook}" not found'})
+
+    # Note count
+    index_path = nb_path / '.index'
+    count = 0
+    mtime = nb_path.stat().st_mtime
+    if index_path.exists():
+        lines = [l for l in index_path.read_text().splitlines() if l.strip()]
+        count = len(lines)
+        mtime = max(mtime, index_path.stat().st_mtime)
+
+    # Git info
+    git_info = {'has_git': False, 'has_remote': False, 'remote_url': '',
+                'branch': '', 'unpushed': 0, 'last_commit': None}
+    if (nb_path / '.git').exists():
+        git_info['has_git'] = True
+        env = {**os.environ, 'NO_COLOR': '1', 'GIT_TERMINAL_PROMPT': '0', 'GIT_PAGER': 'cat'}
+
+        remote_r = subprocess.run(['git', 'remote', 'get-url', 'origin'],
+                                  capture_output=True, text=True, cwd=str(nb_path),
+                                  timeout=5, env=env)
+        if remote_r.returncode == 0:
+            git_info['has_remote'] = True
+            git_info['remote_url'] = remote_r.stdout.strip()
+
+        branch_r = subprocess.run(['git', 'branch', '--show-current'],
+                                  capture_output=True, text=True, cwd=str(nb_path),
+                                  timeout=5, env=env)
+        git_info['branch'] = branch_r.stdout.strip()
+
+        if git_info['has_remote']:
+            up_r = subprocess.run(
+                ['git', 'rev-list', f'origin/{notebook}..HEAD', '--count'],
+                capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+            if up_r.returncode == 0:
+                try: git_info['unpushed'] = int(up_r.stdout.strip())
+                except: pass
+
+        log_r = subprocess.run(
+            ['git', 'log', '-1', '--format=%h\t%s\t%cr'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+        if log_r.returncode == 0 and log_r.stdout.strip():
+            parts = log_r.stdout.strip().split('\t', 2)
+            if len(parts) == 3:
+                git_info['last_commit'] = {'hash': parts[0], 'subject': parts[1], 'age': parts[2]}
+
+    cfg = _load_settings()
+    nb_prefs = cfg.get('notebook_prefs', {}).get(notebook, {})
+
+    return jsonify({
+        'name': notebook, 'count': count, 'mtime': mtime,
+        'path': str(nb_path),
+        'git': git_info,
+        'prefs': nb_prefs,
+    })
+
+
+@app.route('/api/nb/notebook-prefs', methods=['POST'])
+def api_nb_notebook_prefs():
+    """Save per-notebook preferences."""
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '').strip()
+    prefs    = data.get('prefs', {})
+    if not notebook:
+        return jsonify({'success': False, 'error': 'notebook required'})
+    cfg = _load_settings()
+    nb_prefs = dict(cfg.get('notebook_prefs', {}))
+    nb_prefs[notebook] = {**nb_prefs.get(notebook, {}), **prefs}
+    try:
+        _save_settings({'notebook_prefs': nb_prefs})
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 _GIT_ALLOWED = {'log', 'status', 'diff', 'show', 'branch', 'shortlog',

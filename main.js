@@ -3660,6 +3660,251 @@ const NbMain = (() => {
         }
     }
 
+    // ── Notebooks settings view ────────────────────────────────────
+
+    async function runNbNotebooks() {
+        const list    = document.getElementById('nb-list');
+        const empty   = document.getElementById('nb-list-empty');
+        const countEl = document.getElementById('nb-count');
+
+        list.innerHTML = '';
+        countEl.textContent = '…';
+        document.getElementById('nb-type-breakdown').textContent = '';
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div id="nb-welcome"><h2>Notebooks</h2><p>Select a notebook to view its settings.</p></div>';
+        empty.hidden = true;
+
+        try {
+            const r = await fetch('/api/nb/notebooks');
+            const d = await r.json();
+            const notebooks = d.notebooks || [];
+
+            countEl.textContent = `${notebooks.length} notebook${notebooks.length !== 1 ? 's' : ''}`;
+
+            if (!notebooks.length) {
+                empty.hidden = false;
+                empty.textContent = 'No notebooks found.';
+                return;
+            }
+
+            notebooks.forEach(nb => {
+                const li = document.createElement('li');
+                li.className = 'nb-list-item';
+                li.setAttribute('role', 'option');
+
+                const icon = document.createElement('span');
+                icon.className = 'nb-list-icon';
+                icon.textContent = '📒';
+
+                const title = document.createElement('span');
+                title.className = 'nb-list-title';
+                title.textContent = nb.name;
+
+                const excerpt = document.createElement('span');
+                excerpt.className = 'nb-list-excerpt';
+                excerpt.textContent = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
+
+                li.append(icon, title, excerpt);
+                li.addEventListener('click', () => {
+                    list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                    li.classList.add('active');
+                    _openNbNotebook(nb.name);
+                });
+                list.appendChild(li);
+            });
+        } catch(e) {
+            countEl.textContent = 'error';
+            console.error('runNbNotebooks:', e);
+        }
+    }
+
+    async function _openNbNotebook(name) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+        document.getElementById('nb-preview-toolbar').hidden = true;
+
+        try {
+            const r = await fetch('/api/nb/notebook-detail?notebook=' + encodeURIComponent(name));
+            const d = await r.json();
+            if (d.error) { content.innerHTML = `<div style="padding:40px;color:var(--text-danger)">${_esc(d.error)}</div>`; return; }
+
+            const g = d.git;
+            const syncStatus = !g.has_git ? 'no git'
+                             : !g.has_remote ? 'not wired'
+                             : g.unpushed > 0 ? `${g.unpushed} unpushed`
+                             : 'synced';
+            const syncColor = !g.has_git || !g.has_remote ? 'var(--text-dim)'
+                            : g.unpushed > 0 ? 'var(--yellow)' : 'var(--green,#2ecc71)';
+
+            const prefs = d.prefs || {};
+            const sortOpts = ['default','az','za','newest','oldest']
+                .map(v => `<option value="${v}"${prefs.default_sort === v ? ' selected' : ''}>${v}</option>`)
+                .join('');
+
+            content.innerHTML = `
+                <div style="padding:10px 28px 8px;border-bottom:1px solid var(--border);
+                            font-size:11px;color:var(--text-dim);font-family:var(--font-mono);
+                            display:flex;align-items:center;gap:10px">
+                    <span style="font-size:15px">📒</span>
+                    <strong style="font-size:13px;color:var(--text)">${_esc(name)}</strong>
+                    <span style="color:${syncColor}">${_esc(syncStatus)}</span>
+                </div>
+                <div style="padding:18px 28px 0;display:grid;gap:6px;font-size:12px;
+                            grid-template-columns:max-content 1fr;align-items:baseline;
+                            color:var(--text-dim)">
+                    <span>Notes</span>
+                    <span style="color:var(--text)">${d.count}</span>
+                    <span>Path</span>
+                    <span style="color:var(--text);font-family:var(--font-mono);font-size:11px;
+                                word-break:break-all">${_esc(d.path)}</span>
+                    ${g.has_git ? `
+                    <span>Branch</span>
+                    <span style="color:var(--text)">${_esc(g.branch || '—')}</span>
+                    <span>Remote</span>
+                    <span style="color:var(--text);font-family:var(--font-mono);font-size:11px;
+                                word-break:break-all">${g.remote_url ? _esc(g.remote_url) : '<em style="color:var(--text-dim)">not wired</em>'}</span>
+                    <span>Last commit</span>
+                    <span style="color:var(--text)">${g.last_commit ? `${_esc(g.last_commit.hash)} · ${_esc(g.last_commit.subject)} · ${_esc(g.last_commit.age)}` : '—'}</span>
+                    ` : `
+                    <span>Git</span><span style="color:var(--text-dim)">no git repo</span>
+                    `}
+                </div>
+                <div id="nb-nb-actions" style="padding:14px 28px 6px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:14px">
+                    ${!g.has_remote && g.has_git ? `<button id="nb-nb-wire" class="nb-tool-btn">Wire remote</button>` : ''}
+                    ${g.has_remote ? `<button id="nb-nb-sync" class="nb-tool-btn nb-btn-primary">Sync</button>` : ''}
+                    <button id="nb-nb-use" class="nb-tool-btn">Use this notebook</button>
+                </div>
+                <div style="padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px">
+                    <div style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;
+                                letter-spacing:0.05em;text-transform:uppercase">Defaults</div>
+                    <div style="display:grid;gap:8px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px">
+                        <label style="color:var(--text-dim)" for="nb-nb-sort">Sort</label>
+                        <select id="nb-nb-sort" class="nb-scope-select">${sortOpts}</select>
+                        <label style="color:var(--text-dim)" for="nb-nb-template">Template</label>
+                        <div style="display:flex;gap:6px;align-items:center">
+                            <span id="nb-nb-tmpl-name" style="font-size:11px;font-family:var(--font-mono);
+                                  color:var(--text-dim)">${prefs.default_template ? _esc(prefs.default_template) : '(none)'}</span>
+                            <button id="nb-nb-tmpl-clear" class="nb-tool-btn" style="font-size:10px;padding:1px 6px"
+                                    ${!prefs.default_template ? 'hidden' : ''}>Clear</button>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px;display:flex;gap:8px">
+                        <button id="nb-nb-save-prefs" class="nb-tool-btn nb-btn-primary">Save defaults</button>
+                        <span id="nb-nb-prefs-status" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
+                    </div>
+                </div>
+                <div id="nb-nb-wire-area" style="display:none;padding:8px 28px 14px;border-top:1px solid var(--border)">
+                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Remote URL (leave blank to use default)</div>
+                    <div style="display:flex;gap:6px">
+                        <input id="nb-nb-wire-url" type="text" class="nb-opt-input"
+                               placeholder="github.com:user/repo.git or leave blank" style="flex:1">
+                        <button id="nb-nb-wire-go" class="nb-tool-btn nb-btn-primary">Wire</button>
+                    </div>
+                    <pre id="nb-nb-wire-out" style="margin-top:8px;font-size:11px;color:var(--text-dim);
+                                                    white-space:pre-wrap;display:none"></pre>
+                </div>`;
+
+            // Wire remote toggle
+            const wireBtn = document.getElementById('nb-nb-wire');
+            const wireArea = document.getElementById('nb-nb-wire-area');
+            if (wireBtn) {
+                wireBtn.addEventListener('click', () => {
+                    wireArea.style.display = wireArea.style.display === 'none' ? 'block' : 'none';
+                });
+            }
+            const wireGoBtn = document.getElementById('nb-nb-wire-go');
+            if (wireGoBtn) {
+                wireGoBtn.addEventListener('click', async () => {
+                    const url = document.getElementById('nb-nb-wire-url').value.trim();
+                    const out = document.getElementById('nb-nb-wire-out');
+                    wireGoBtn.textContent = 'Wiring…'; wireGoBtn.disabled = true;
+                    out.style.display = 'block';
+                    out.textContent = 'Working…';
+                    try {
+                        const wr = await fetch('/api/nb/wire-notebook', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ notebook: name, remote_url: url }),
+                        });
+                        const wd = await wr.json();
+                        out.textContent = wd.output || (wd.success ? '✓ Done' : '✗ Failed');
+                        if (wd.success) setTimeout(() => _openNbNotebook(name), 1500);
+                    } catch(e) {
+                        out.textContent = 'Error: ' + e;
+                    } finally {
+                        wireGoBtn.textContent = 'Wire'; wireGoBtn.disabled = false;
+                    }
+                });
+            }
+
+            // Sync button
+            const syncBtn = document.getElementById('nb-nb-sync');
+            if (syncBtn) {
+                syncBtn.addEventListener('click', async () => {
+                    syncBtn.textContent = 'Syncing…'; syncBtn.disabled = true;
+                    try {
+                        const sr = await fetch('/api/sync', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ notebook: name, message: '' }),
+                        });
+                        const sd = await sr.json();
+                        const out = document.createElement('pre');
+                        out.style.cssText = 'margin:8px 28px;font-size:11px;color:var(--text-dim);white-space:pre-wrap';
+                        out.textContent = (sd.output || []).join('\n');
+                        document.getElementById('nb-nb-actions').after(out);
+                        setTimeout(() => _openNbNotebook(name), 2000);
+                    } catch(e) {
+                        syncBtn.textContent = 'Sync'; syncBtn.disabled = false;
+                    }
+                });
+            }
+
+            // Use this notebook
+            document.getElementById('nb-nb-use').addEventListener('click', () => {
+                NbNav.switchNotebook(name);
+            });
+
+            // Save prefs
+            document.getElementById('nb-nb-save-prefs').addEventListener('click', async () => {
+                const btn = document.getElementById('nb-nb-save-prefs');
+                const status = document.getElementById('nb-nb-prefs-status');
+                const sort = document.getElementById('nb-nb-sort').value;
+                btn.textContent = 'Saving…'; btn.disabled = true;
+                try {
+                    const pr = await fetch('/api/nb/notebook-prefs', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ notebook: name, prefs: { default_sort: sort } }),
+                    });
+                    const pd = await pr.json();
+                    status.textContent = pd.success ? '✓ Saved' : ('Error: ' + (pd.error || '?'));
+                    setTimeout(() => { status.textContent = ''; }, 2000);
+                } finally {
+                    btn.textContent = 'Save defaults'; btn.disabled = false;
+                }
+            });
+
+            // Clear template pref
+            const tmplClear = document.getElementById('nb-nb-tmpl-clear');
+            if (tmplClear) {
+                tmplClear.addEventListener('click', async () => {
+                    await fetch('/api/nb/notebook-prefs', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ notebook: name, prefs: { default_template: '' } }),
+                    });
+                    document.getElementById('nb-nb-tmpl-name').textContent = '(none)';
+                    tmplClear.hidden = true;
+                });
+            }
+
+        } catch(e) {
+            content.innerHTML = `<div style="padding:40px;color:var(--text-danger)">Error: ${_esc(String(e))}</div>`;
+        }
+    }
+
     async function _openTemplate(path, name, scope) {
         const content = document.getElementById('nb-preview-content');
         content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
@@ -4293,7 +4538,7 @@ const NbMain = (() => {
     }
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
-             showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, loadTemplatesForAdd,
+             showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, runNbNotebooks, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
              importFiles: (files, nb, folder) => _importFiles(files, nb, folder),
