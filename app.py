@@ -2598,6 +2598,73 @@ def api_nb_wire_notebook():
         return jsonify({'success': False, 'output': '\n'.join(lines)})
 
 
+@app.route('/api/nb/github-create', methods=['POST'])
+def api_nb_github_create():
+    """Create a new GitHub repo for a notebook via gh CLI, then add remote and push."""
+    data       = request.get_json() or {}
+    notebook   = data.get('notebook', '').strip()
+    visibility = data.get('visibility', 'private')
+
+    if not notebook:
+        return jsonify({'success': False, 'output': 'Notebook name required.'})
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir() or not (nb_path / '.git').exists():
+        return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found or has no git repo.'})
+
+    env = {**os.environ, 'NO_COLOR': '1', 'GIT_TERMINAL_PROMPT': '0',
+           'GIT_ASKPASS': '/bin/true', 'GIT_PAGER': 'cat'}
+    lines = []
+
+    # Get authenticated GitHub username
+    user_r = subprocess.run(['gh', 'api', 'user', '--jq', '.login'],
+                            capture_output=True, text=True, timeout=10, env=env)
+    if user_r.returncode != 0:
+        return jsonify({'success': False,
+                        'output': 'gh auth check failed — run: gh auth login\n' + user_r.stderr.strip()})
+    username = user_r.stdout.strip()
+    full_name = f'{username}/{notebook}'
+
+    # Create the repo
+    vis_flag = '--private' if visibility == 'private' else '--public'
+    create_r = subprocess.run(['gh', 'repo', 'create', full_name, vis_flag],
+                              capture_output=True, text=True, timeout=30, env=env)
+    if create_r.returncode != 0:
+        return jsonify({'success': False,
+                        'output': create_r.stderr.strip() or create_r.stdout.strip() or 'gh repo create failed'})
+    lines.append(create_r.stdout.strip() or f'Created {full_name} ({visibility})')
+
+    # Add remote (skip if already exists)
+    remote_url = f'git@github.com:{full_name}.git'
+    existing_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                                cwd=str(nb_path), timeout=5, env=env)
+    if not existing_r.stdout.strip():
+        add_r = subprocess.run(['git', 'remote', 'add', 'origin', remote_url],
+                               capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+        if add_r.returncode != 0:
+            return jsonify({'success': False,
+                            'output': '\n'.join(lines) + f'\nFailed to add remote: {add_r.stderr.strip()}'})
+        lines.append(f'Remote: {remote_url}')
+
+    # Set tracking config
+    subprocess.run(['git', 'config', 'branch.master.merge', f'refs/heads/{notebook}'],
+                   cwd=str(nb_path), timeout=5, env=env)
+    subprocess.run(['git', 'config', 'branch.master.remote', 'origin'],
+                   cwd=str(nb_path), timeout=5, env=env)
+
+    # Push
+    push_r = subprocess.run(['git', 'push', '--set-upstream', 'origin', f'HEAD:{notebook}'],
+                            capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=env)
+    if push_r.returncode == 0:
+        lines.append(push_r.stderr.strip() or f'Pushed → origin/{notebook}')
+        return jsonify({'success': True, 'output': '\n'.join(lines)})
+    else:
+        lines.append(f'Push failed: {push_r.stderr.strip()}')
+        # Roll back: remote remove so user can retry
+        subprocess.run(['git', 'remote', 'remove', 'origin'], capture_output=True,
+                       cwd=str(nb_path), env=env)
+        return jsonify({'success': False, 'output': '\n'.join(lines)})
+
+
 @app.route('/api/nb/delete-notebook', methods=['POST'])
 def api_nb_delete_notebook():
     """Delete a notebook locally or its remote branch. Scope must be explicit."""

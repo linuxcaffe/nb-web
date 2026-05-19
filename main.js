@@ -3892,11 +3892,23 @@ const NbMain = (() => {
                     ${g.has_remote ? `<button id="nb-nb-sync" class="nb-tool-btn nb-btn-primary">Sync</button>` : ''}
                 </div>
                 <div id="nb-nb-wire-area" style="display:${!g.has_remote && g.has_git ? 'block' : 'none'};padding:8px 28px 14px;border-top:1px solid var(--border)">
-                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Remote URL (leave blank to use Settings → Git default)</div>
+                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Connect to existing remote</div>
                     <div style="display:flex;gap:6px">
                         <input id="nb-nb-wire-url" type="text" class="nb-opt-input"
-                               placeholder="git@github.com:user/repo.git" style="flex:1">
+                               placeholder="git@github.com:user/repo.git  (blank = Settings default)" style="flex:1">
                         <button id="nb-nb-wire-go" class="nb-tool-btn nb-btn-primary">Wire</button>
+                    </div>
+                    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+                        <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Create new GitHub repo</div>
+                        <div style="display:flex;gap:6px;align-items:center">
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+                                <input type="radio" name="nb-gh-vis" value="private" checked> Private
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
+                                <input type="radio" name="nb-gh-vis" value="public"> Public
+                            </label>
+                            <button id="nb-nb-gh-create" class="nb-tool-btn nb-btn-primary" style="margin-left:4px">Create &amp; Wire</button>
+                        </div>
                     </div>
                     <pre id="nb-nb-wire-out" style="margin-top:8px;font-size:11px;white-space:pre-wrap;display:none"></pre>
                 </div>
@@ -3954,6 +3966,35 @@ const NbMain = (() => {
                         out.textContent = 'Error: ' + e;
                     } finally {
                         wireGoBtn.textContent = 'Wire'; wireGoBtn.disabled = false;
+                    }
+                });
+            }
+
+            // Create & Wire on GitHub
+            const ghCreateBtn = document.getElementById('nb-nb-gh-create');
+            if (ghCreateBtn) {
+                ghCreateBtn.addEventListener('click', async () => {
+                    const out = document.getElementById('nb-nb-wire-out');
+                    const vis = document.querySelector('input[name="nb-gh-vis"]:checked')?.value || 'private';
+                    ghCreateBtn.textContent = 'Creating…'; ghCreateBtn.disabled = true;
+                    out.style.display = 'block';
+                    out.textContent = 'Creating GitHub repo and pushing…';
+                    out.style.color = 'var(--text-dim)';
+                    try {
+                        const wr = await fetch('/api/nb/github-create', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ notebook: name, visibility: vis }),
+                        });
+                        const wd = await wr.json();
+                        out.textContent = wd.output || (wd.success ? '✓ Done' : '✗ Failed');
+                        out.style.color = wd.success ? 'var(--green,#2ecc71)' : 'var(--red,#e74c3c)';
+                        if (wd.success) setTimeout(() => _openNbNotebook(name), 1500);
+                    } catch(e) {
+                        out.textContent = 'Error: ' + e;
+                        out.style.color = 'var(--red,#e74c3c)';
+                    } finally {
+                        ghCreateBtn.textContent = 'Create & Wire'; ghCreateBtn.disabled = false;
                     }
                 });
             }
