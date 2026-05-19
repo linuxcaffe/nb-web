@@ -1680,6 +1680,9 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-sync-fs-r { color: #9b59b6; }
 .nb-sync-fs-? { color: #95a5a6; }
 .nb-sync-fname { font-family: var(--font-mono); font-size: 0.85em; color: var(--text); }
+.nb-sync-commit-hash    { font-family: var(--font-mono); font-size: 0.8em; color: var(--accent); min-width: 52px; flex-shrink: 0; }
+.nb-sync-commit-subject { font-size: 0.85em; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-sync-commit-age     { font-size: 0.78em; color: var(--text-dim); flex-shrink: 0; white-space: nowrap; }
 .nb-sync-unpushed { color: var(--accent); font-size: 0.85em; margin-top: 4px; }
 .nb-sync-uptodate { color: var(--green, #5a9); }
 .nb-sync-noremote { color: var(--text-dim); font-style: italic; }

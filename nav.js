@@ -1196,6 +1196,7 @@ const NbNav = (() => {
                     };
                     return;
                 }
+                const _h = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                 const parts = [];
                 if (d.files?.length) {
                     const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', '?': 'untracked' };
@@ -1203,16 +1204,30 @@ const NbNav = (() => {
                         const label = STATUS_LABEL[f.status] || f.status;
                         return `<span class="nb-sync-file-row">` +
                             `<span class="nb-sync-fs nb-sync-fs-${f.status.toLowerCase()}">${label}</span>` +
-                            `<span class="nb-sync-fname">${f.path}</span></span>`;
+                            `<span class="nb-sync-fname">${_h(f.path)}</span></span>`;
                     }).join('');
                     parts.push(
                         `<div class="nb-sync-files-section">` +
-                        `<div class="nb-sync-files-label">${d.files.length} file${d.files.length !== 1 ? 's' : ''} changed</div>` +
+                        `<div class="nb-sync-files-label">${d.files.length} file${d.files.length !== 1 ? 's' : ''} uncommitted</div>` +
                         `${rows}</div>`
                     );
                 }
-                if (d.unpushed) parts.push(
-                    `<div class="nb-sync-unpushed">${d.unpushed} unpushed commit${d.unpushed !== 1 ? 's' : ''}</div>`);
+                if (d.unpushed) {
+                    const n = d.unpushed;
+                    let html = `<div class="nb-sync-files-section">` +
+                        `<div class="nb-sync-files-label">${n} unpushed commit${n !== 1 ? 's' : ''}</div>`;
+                    if (d.pending_commits?.length) {
+                        html += d.pending_commits.map(c =>
+                            `<span class="nb-sync-file-row">` +
+                            `<span class="nb-sync-commit-hash">${_h(c.hash)}</span>` +
+                            `<span class="nb-sync-commit-subject">${_h(c.subject)}</span>` +
+                            `<span class="nb-sync-commit-age">${_h(c.age)}</span>` +
+                            `</span>`
+                        ).join('');
+                    }
+                    html += `</div>`;
+                    parts.push(html);
+                }
                 changesEl.innerHTML = parts.length
                     ? parts.join('')
                     : '<span class="nb-sync-uptodate">Up to date</span>';

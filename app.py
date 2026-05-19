@@ -2235,12 +2235,21 @@ def api_nb_sync_status():
     if up_r.returncode == 0:
         try: unpushed = int(up_r.stdout.strip())
         except: pass
+    pending_commits = []
+    if unpushed:
+        log_r = subprocess.run(
+            ['git', 'log', f'origin/{notebook}..HEAD', '--format=%h\t%s\t%cr'],
+            capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
+        for line in log_r.stdout.splitlines():
+            parts = line.split('\t', 2)
+            if len(parts) == 3:
+                pending_commits.append({'hash': parts[0], 'subject': parts[1], 'age': parts[2]})
     dirty_r = subprocess.run(['git', 'status', '--porcelain'],
                              capture_output=True, text=True, cwd=str(nb_path), timeout=5, env=env)
     files = [{'status': l[:2].strip(), 'path': l[3:].strip()}
              for l in dirty_r.stdout.splitlines() if l.strip()]
     return jsonify({'changes': unpushed + len(files), 'has_remote': has_remote,
-                    'unpushed': unpushed, 'files': files})
+                    'unpushed': unpushed, 'files': files, 'pending_commits': pending_commits})
 
 
 @app.route('/api/sync', methods=['POST'])
