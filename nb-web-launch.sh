@@ -65,6 +65,13 @@ if [ "$1" = "--clean" ]; then
     fi
 fi
 
+# ── Kill nb browse daemon if running (conflicts with nb-web auto-sync) ────────
+if pgrep -f "nb browse --respond" > /dev/null 2>&1; then
+    echo "nb-web-launch: killing nb browse daemon (incompatible with nb-web sync model)..."
+    pkill -f "nb browse --respond" 2>/dev/null
+    pkill -f "socat.*6789" 2>/dev/null
+fi
+
 # ── Start Flask if not already running ───────────────────────────────────────
 if curl -s "$FLASK_URL" > /dev/null 2>&1; then
     echo "nb-web-launch: server already running"
