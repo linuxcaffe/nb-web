@@ -124,6 +124,31 @@
     .nb-setting-key   { width: 180px; flex-shrink: 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.9em; }
     .nb-setting-value { color: var(--text); }
     .nb-settings-loading { color: var(--text-dim); font-size: 0.88em; }
+
+    button.tool-btn {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 6px 16px;
+      cursor: pointer;
+      font-size: 0.88em;
+    }
+    button.tool-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.tool-btn:disabled { opacity: 0.5; cursor: default; }
+    .tool-output {
+      margin-top: .8em;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-family: var(--font-mono);
+      font-size: 0.82em;
+      white-space: pre;
+      color: var(--text-muted);
+      max-height: 200px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
@@ -159,11 +184,20 @@
   <div class="field">
     <label for="default-git-remote">Default remote URL</label>
     <input type="text" id="default-git-remote" placeholder="git@github.com:you/nb-notes.git" autocomplete="off">
-    <p class="hint">Used by <strong>Git &rsaquo; wire remotes</strong>. Each notebook is pushed to this remote on a branch named after itself — one repo, one branch per notebook. Leave blank to skip.</p>
+    <p class="hint">Each notebook is pushed to this remote on a branch named after itself — one repo, one branch per notebook. Leave blank to skip.</p>
   </div>
   <div class="row">
     <button class="save-btn" id="save-git">Save</button>
     <span class="status" id="status-git"></span>
+  </div>
+  <div class="field" style="margin-top:1.2em">
+    <label>Wire all remotes</label>
+    <p class="hint" style="margin-bottom:.5em">Sets up origin remote and pushes every notebook that doesn't already have one. Uses the URL above.</p>
+    <div class="row">
+      <button class="tool-btn" id="btn-wire-remotes">Wire all remotes</button>
+      <span class="status" id="status-wire"></span>
+    </div>
+    <pre id="wire-output" class="tool-output" hidden></pre>
   </div>
 </section>
 
@@ -225,6 +259,15 @@
   <div class="row">
     <button class="save-btn" id="save-import">Save</button>
     <span class="status" id="status-import"></span>
+  </div>
+</section>
+
+<!-- ── Server ────────────────────────────────────────────────────── -->
+<section id="sec-server">
+  <h2>Server</h2>
+  <div class="row">
+    <button class="tool-btn" id="btn-restart">Restart server</button>
+    <span class="status" id="status-restart"></span>
   </div>
 </section>
 
@@ -346,6 +389,41 @@
       el.textContent = 'Could not load nb settings.';
     }
   }
+
+  // ── Wire all remotes ─────────────────────────────────────────
+  document.getElementById('btn-wire-remotes').addEventListener('click', async () => {
+    const btn    = document.getElementById('btn-wire-remotes');
+    const status = document.getElementById('status-wire');
+    const output = document.getElementById('wire-output');
+    btn.disabled = true;
+    status.textContent = 'Working…'; status.className = 'status';
+    output.hidden = true;
+    try {
+      const d = await fetch('/api/nb/git-wire', { method: 'POST' }).then(r => r.json());
+      const lines = (d.results || []).map(r => {
+        const icon = r.status === 'ok' ? '✓' : r.status === 'skip' ? '·' : '✗';
+        return `${icon}  ${r.notebook.padEnd(16)}  ${r.message}`;
+      });
+      output.textContent = lines.join('\n') || '(no notebooks found)';
+      output.hidden = false;
+      status.textContent = '✓ Done'; status.className = 'status ok';
+    } catch(e) {
+      status.textContent = '✗ ' + e.message; status.className = 'status err';
+    } finally { btn.disabled = false; }
+  });
+
+  // ── Restart server ────────────────────────────────────────────
+  document.getElementById('btn-restart').addEventListener('click', async () => {
+    const btn    = document.getElementById('btn-restart');
+    const status = document.getElementById('status-restart');
+    btn.disabled = true;
+    status.textContent = 'Restarting…'; status.className = 'status';
+    await fetch('/api/restart', { method: 'POST' }).catch(() => {});
+    const poll = () => fetch('/api/notebooks')
+      .then(() => location.reload())
+      .catch(() => setTimeout(poll, 400));
+    setTimeout(poll, 700);
+  });
 
   loadNbWebSettings();
   loadNbSettings();

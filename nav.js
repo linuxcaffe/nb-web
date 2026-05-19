@@ -1372,32 +1372,18 @@ const NbNav = (() => {
             { label: 'About', items: [
                 { label: 'version', cmd: 'version' },
             ]},
-            { label: 'Help',    cmd: 'help' },
-            { label: 'Contacts', cmd: 'contacts' },
-            { label: 'Import',  cmd: 'import' },
-            { label: 'Export',  cmd: 'export' },
-            { label: 'History', cmd: 'history' },
-            { label: 'Git', items: [
-                { label: 'log',          cmd: 'git-log' },
-                { label: 'remote',       cmd: 'remote' },
-                { label: 'status',       cmd: 'status' },
-                { label: 'sync',         cmd: 'sync' },
-                { label: 'wire remotes', cmd: 'git-wire' },
-            ]},
+            { label: 'Help',      cmd: 'help' },
+            { label: 'Contacts',  cmd: 'contacts' },
+            { label: 'Import',    cmd: 'import' },
+            { label: 'Export',    cmd: 'export' },
+            { label: 'History',   cmd: 'history' },
             { label: 'Notebooks', items: [
                 { label: 'use', cmd: 'notebooks' },
             ]},
             { label: 'Plugins',   cmd: 'plugins' },
+            { label: 'Sync',      cmd: 'sync' },
             { label: 'Terminal',  cmd: 'terminal' },
-            { label: 'Settings', items: [
-                { label: 'nb-web settings', cmd: 'nb-settings' },
-                { label: 'completions', cmd: 'completions' },
-                { label: 'env',         cmd: 'env' },
-                { label: 'init',        cmd: 'init' },
-                { label: 'set',         cmd: 'set' },
-                { label: 'update',      cmd: 'update' },
-                { label: 'restart server', cmd: 'restart' },
-            ]},
+            { label: 'Settings',  cmd: 'nb-settings' },
             { label: 'Templates', cmd: 'templates' },
             { label: 'Undo',      cmd: 'undo' },
         ];
@@ -1435,6 +1421,7 @@ const NbNav = (() => {
                 const btn = document.createElement('button');
                 btn.className = 'nb-menu-item nb-menu-toplevel';
                 btn.textContent = entry.label;
+                btn.dataset.cmd = entry.cmd;
                 btn.addEventListener('click', () => _menuAction(entry.cmd));
                 nav.appendChild(btn);
             }
@@ -1484,19 +1471,19 @@ const NbNav = (() => {
         const nb = (!_scope || _scope === '_all') ? 'home' : _scope;
         try {
             const d = await fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
-            const syncBtn = document.querySelector('.nb-menu-subitem[data-cmd="sync"]');
+            const syncBtn = document.querySelector('.nb-menu-toplevel[data-cmd="sync"]');
             if (!syncBtn) return;
             if (!d.has_remote) {
-                syncBtn.textContent = 'sync (no remote)';
+                syncBtn.textContent = 'Sync  ·  no remote';
                 syncBtn.classList.add('nb-sync-pending');
             } else if (d.changes > 0 || d.unpushed > 0) {
                 const parts = [];
-                if (d.changes)  parts.push(`${d.changes} changed`);
                 if (d.unpushed) parts.push(`${d.unpushed} unpushed`);
-                syncBtn.textContent = `sync (${parts.join(', ')})`;
+                if (d.files?.length) parts.push(`${d.files.length} uncommitted`);
+                syncBtn.textContent = `Sync  ·  ${parts.join(', ')}`;
                 syncBtn.classList.add('nb-sync-pending');
             } else {
-                syncBtn.textContent = 'sync';
+                syncBtn.textContent = 'Sync';
                 syncBtn.classList.remove('nb-sync-pending');
             }
         } catch { /* network error — leave badge as-is */ }

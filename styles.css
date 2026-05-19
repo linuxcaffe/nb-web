@@ -1724,7 +1724,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
   opacity: 0.7;
 }
 .nb-sync-copy-btn:hover { opacity: 1; color: var(--text); }
-.nb-menu-subitem.nb-sync-pending { color: var(--accent) !important; }
+.nb-menu-toplevel.nb-sync-pending { color: #f0b429 !important; font-weight: 600; }
 .nb-sync-danger { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
 .nb-sync-danger-toggle { cursor: pointer; font-size: 0.8em; color: var(--red, #c44); opacity: 0.7;
     list-style: none; user-select: none; }
