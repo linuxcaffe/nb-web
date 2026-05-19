@@ -3832,6 +3832,56 @@ def not_found(_):
 # Startup: assert correct git tracking for all notebooks
 # ---------------------------------------------------------------------------
 
+_PREPUSH_HOOK = """\
+#!/bin/bash
+# nb-web: block pushes to any branch other than this notebook's own branch.
+# Prevents cross-notebook contamination from 'nb sync' or accidental git push.
+NOTEBOOK=$(basename "$(git rev-parse --show-toplevel)")
+while read local_ref local_sha remote_ref remote_sha; do
+    [ "$remote_ref" = "refs/heads/$NOTEBOOK" ] && continue
+    echo "[nb-web] BLOCKED: push to $remote_ref" >&2
+    echo "[nb-web]   This notebook only pushes to refs/heads/$NOTEBOOK" >&2
+    echo "[nb-web]   Use the nb-web sync dialog to push correctly." >&2
+    exit 1
+done
+exit 0
+"""
+
+def _install_prepush_hooks():
+    """Write a pre-push hook into every notebook git repo that has a remote.
+
+    The hook blocks pushes to any branch other than the notebook's own branch,
+    preventing 'nb sync' or stray git commands from causing cross-contamination.
+    Idempotent — only writes if the file is missing or outdated.
+    """
+    installed, skipped = [], []
+    try:
+        notebooks = sorted(
+            d for d in NB_DIR.iterdir()
+            if d.is_dir() and not d.name.startswith('.')
+            and not d.name.startswith('-') and (d / '.git').exists()
+        )
+    except Exception as e:
+        print(f'[nb-web] pre-push hook install failed: {e}', flush=True)
+        return
+
+    for nb_path in notebooks:
+        hook_path = nb_path / '.git' / 'hooks' / 'pre-push'
+        try:
+            if hook_path.exists() and hook_path.read_text() == _PREPUSH_HOOK:
+                skipped.append(nb_path.name)
+                continue
+            hook_path.write_text(_PREPUSH_HOOK)
+            hook_path.chmod(0o755)
+            installed.append(nb_path.name)
+        except Exception as e:
+            print(f'[nb-web] pre-push hook failed for {nb_path.name}: {e}', flush=True)
+
+    if installed:
+        print(f'[nb-web] pre-push hook installed: {", ".join(installed)}', flush=True)
+    print(f'[nb-web] pre-push hook OK ({len(skipped)} already set, {len(installed)} updated)', flush=True)
+
+
 def _assert_notebook_tracking():
     """Ensure every nb notebook with a remote tracks origin/<name>, not origin/master.
 
@@ -3903,6 +3953,7 @@ def _assert_nb_auto_sync_off():
 if __name__ == '__main__':
     _assert_nb_auto_sync_off()
     _assert_notebook_tracking()
+    _install_prepush_hooks()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
     app.run(host=HOST, port=PORT, debug=True, use_reloader=False)
