@@ -1080,7 +1080,7 @@ const NbNav = (() => {
         const header  = document.getElementById('nb-menu-header');
         const nav     = document.getElementById('nb-menu-nav');
 
-        function open() { menu.classList.add('open'); overlay.removeAttribute('hidden'); }
+        function open() { menu.classList.add('open'); overlay.removeAttribute('hidden'); _pollNbSyncStatus(); }
         function shut() { menu.classList.remove('open'); overlay.setAttribute('hidden', ''); }
 
         logo.addEventListener('click', open);

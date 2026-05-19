@@ -2944,6 +2944,7 @@ const NbMain = (() => {
                 _closeEditor();
                 _noAutoSelect = true;
                 NbNav.reexecute();
+                NbNav.pollSyncStatus();
                 openNote(savedSel).finally(() => { _noAutoSelect = false; });
             }
             else alert('Save failed: ' + (d.stderr || 'unknown error'));
@@ -2991,6 +2992,7 @@ const NbMain = (() => {
             document.getElementById('nb-preview-content').innerHTML =
                 '<div id="nb-welcome"><h2>nb-web</h2><p>Note deleted.</p></div>';
             NbNav.reexecute();
+            NbNav.pollSyncStatus();
         }
     }
 
