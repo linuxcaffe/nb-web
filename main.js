@@ -1530,7 +1530,7 @@ const NbMain = (() => {
         const isCollapsed = el.classList.contains('nb-collapsed');
         if (isCollapsed) {
             const rect = trigger.getBoundingClientRect();
-            form.style.cssText = `position:fixed;z-index:9000;top:${rect.bottom + 4}px;left:${rect.left}px;` +
+            form.style.cssText = `position:fixed;z-index:9000;top:${rect.bottom + 4}px;right:${window.innerWidth - rect.right}px;` +
                 `background:var(--bg2,#22272e);border:1px solid var(--border);border-radius:6px;` +
                 `padding:10px;box-shadow:0 4px 20px rgba(0,0,0,.5);min-width:340px`;
             document.body.appendChild(form);
