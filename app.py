@@ -2972,12 +2972,14 @@ def api_nb_notebook_detail():
 
     cfg = _load_settings()
     nb_prefs = cfg.get('notebook_prefs', {}).get(notebook, {})
+    default_remote = cfg.get('default_git_remote', '').strip()
 
     return jsonify({
         'name': notebook, 'count': count, 'mtime': mtime,
         'path': str(nb_path),
         'git': git_info,
         'prefs': nb_prefs,
+        'default_remote': default_remote,
     })
 
 

@@ -3892,24 +3892,28 @@ const NbMain = (() => {
                     ${g.has_remote ? `<button id="nb-nb-sync" class="nb-tool-btn nb-btn-primary">Sync</button>` : ''}
                 </div>
                 <div id="nb-nb-wire-area" style="display:${!g.has_remote && g.has_git ? 'block' : 'none'};padding:8px 28px 14px;border-top:1px solid var(--border)">
-                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Connect to existing remote</div>
+                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">
+                        Wire to remote — adds a new branch to an existing repo
+                    </div>
                     <div style="display:flex;gap:6px">
                         <input id="nb-nb-wire-url" type="text" class="nb-opt-input"
-                               placeholder="git@github.com:user/repo.git  (blank = Settings default)" style="flex:1">
+                               placeholder="${d.default_remote ? _esc(d.default_remote) + '  (default)' : 'git@github.com:user/nb-notes.git'}"
+                               style="flex:1">
                         <button id="nb-nb-wire-go" class="nb-tool-btn nb-btn-primary">Wire</button>
                     </div>
-                    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-                        <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Create new GitHub repo</div>
-                        <div style="display:flex;gap:6px;align-items:center">
+                    ${d.default_remote ? `<div style="font-size:10px;color:var(--text-dim);margin-top:4px">Leave blank to use default: <code>${_esc(d.default_remote)}</code></div>` : `<div style="font-size:10px;color:var(--text-dim);margin-top:4px">Set a default remote in <strong>Settings → Git</strong> to skip typing this each time.</div>`}
+                    <details style="margin-top:10px">
+                        <summary style="font-size:11px;color:var(--text-dim);cursor:pointer">Create a new separate GitHub repo instead…</summary>
+                        <div style="padding-top:8px;display:flex;gap:6px;align-items:center">
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
                                 <input type="radio" name="nb-gh-vis" value="private" checked> Private
                             </label>
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
                                 <input type="radio" name="nb-gh-vis" value="public"> Public
                             </label>
-                            <button id="nb-nb-gh-create" class="nb-tool-btn nb-btn-primary" style="margin-left:4px">Create &amp; Wire</button>
+                            <button id="nb-nb-gh-create" class="nb-tool-btn" style="margin-left:4px">Create &amp; Wire</button>
                         </div>
-                    </div>
+                    </details>
                     <pre id="nb-nb-wire-out" style="margin-top:8px;font-size:11px;white-space:pre-wrap;display:none"></pre>
                 </div>
                 <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
