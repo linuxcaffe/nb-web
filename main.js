@@ -3828,6 +3828,7 @@ const NbMain = (() => {
                 list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
                 li.classList.add('active');
                 _openNbNotebook(nb.name);
+                NbNav.pollSyncStatus(nb.name);
             });
             list.appendChild(li);
         });

@@ -1418,8 +1418,12 @@ const NbNav = (() => {
         document.body.appendChild(el);
     }
 
-    async function _pollNbSyncStatus() {
-        const nb = (!_scope || _scope === '_all') ? 'home' : _scope;
+    async function _pollNbSyncStatus(overrideNb) {
+        // When viewing the Notebooks panel, target the focused notebook, not _scope
+        const focused = _activeCmd === 'nb-notebooks'
+            ? document.querySelector('#nb-list .nb-list-item.active')?.dataset.nb
+            : null;
+        const nb = overrideNb || focused || ((!_scope || _scope === '_all') ? 'home' : _scope);
         try {
             const d = await fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
             const syncBtn  = document.getElementById('nb-menu-sync-btn');
@@ -1564,5 +1568,6 @@ const NbNav = (() => {
         setSearchQuery,
         setTagsQuery,
         updateOutputBar: _updateOutputBar,
+        pollSyncStatus: (nb) => _pollNbSyncStatus(nb),
     };
 })();
