@@ -1304,69 +1304,7 @@ const NbNav = (() => {
                     });
             };
 
-            // Danger zone — local and remote deletion with inline confirmation
-            const delLocalBtn  = dialog.querySelector('.nb-sync-del-local-btn');
-            const delRemoteBtn = dialog.querySelector('.nb-sync-del-remote-btn');
-
-            const _dangerConfirm = (btn, scope, warning) => {
-                const dangerBody = dialog.querySelector('.nb-sync-danger-body');
-                const orig = dangerBody.innerHTML;
-                dangerBody.innerHTML =
-                    `<p class="nb-sync-danger-warn">${warning}</p>` +
-                    `<input class="nb-sync-danger-confirm nb-tw-inp" placeholder="type "${nb}" to confirm">` +
-                    `<div class="nb-sync-danger-confirm-row">` +
-                        `<button class="nb-sync-danger-ok">Confirm</button>` +
-                        `<button class="nb-sync-danger-cancel">Cancel</button>` +
-                    `</div>`;
-                dangerBody.querySelector('.nb-sync-danger-cancel').onclick = () => {
-                    dangerBody.innerHTML = orig;
-                    _wireDangerBtns();
-                };
-                const confirmInput = dangerBody.querySelector('.nb-sync-danger-confirm');
-                const okBtn = dangerBody.querySelector('.nb-sync-danger-ok');
-                okBtn.onclick = () => {
-                    if (confirmInput.value.trim() !== nb) {
-                        confirmInput.classList.add('nb-sync-danger-mismatch');
-                        setTimeout(() => confirmInput.classList.remove('nb-sync-danger-mismatch'), 800);
-                        return;
-                    }
-                    okBtn.disabled = true;
-                    okBtn.textContent = 'Deleting…';
-                    fetch('/api/nb/delete-notebook', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ notebook: nb, scope }),
-                    }).then(r => r.json()).then(d => {
-                        showOutput(d.output || (d.success ? 'Done.' : 'Failed.'));
-                        if (d.success && scope === 'local') {
-                            // Notebook gone — navigate away
-                            setTimeout(() => { window.location.href = '/'; }, 1200);
-                        } else if (d.success) {
-                            dangerBody.innerHTML = orig;
-                            _wireDangerBtns();
-                        } else {
-                            dangerBody.innerHTML = orig;
-                            _wireDangerBtns();
-                        }
-                    }).catch(err => {
-                        showOutput('Error: ' + err);
-                        dangerBody.innerHTML = orig;
-                        _wireDangerBtns();
-                    });
-                };
-            };
-
-            const _wireDangerBtns = () => {
-                dialog.querySelector('.nb-sync-del-local-btn').onclick = () =>
-                    _dangerConfirm('local', 'local',
-                        `This permanently removes "${nb}" from this machine. ` +
-                        `The remote branch is unaffected.`);
-                dialog.querySelector('.nb-sync-del-remote-btn').onclick = () =>
-                    _dangerConfirm('remote', 'remote',
-                        `This permanently deletes the "${nb}" branch on the remote. ` +
-                        `Local files are unaffected.`);
-            };
-            _wireDangerBtns();
+            // Danger zone moved to Notebooks settings page (Menu → Notebooks)
         }
 
         const MENU = [
@@ -1454,13 +1392,6 @@ const NbNav = (() => {
                         `<button class="nb-sync-copy-btn" title="Copy to clipboard">copy</button>` +
                         `<pre id="nb-sync-output" class="nb-sync-output"></pre>` +
                     `</div>` +
-                    `<details class="nb-sync-danger">` +
-                        `<summary class="nb-sync-danger-toggle">Danger Zone</summary>` +
-                        `<div class="nb-sync-danger-body">` +
-                            `<button class="nb-sync-del-local-btn nb-sync-danger-btn">Delete local notebook</button>` +
-                            `<button class="nb-sync-del-remote-btn nb-sync-danger-btn">Delete remote branch</button>` +
-                        `</div>` +
-                    `</details>` +
                 `</div>` +
             `</div>`;
         document.body.appendChild(el);

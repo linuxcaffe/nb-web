@@ -4011,6 +4011,78 @@ const NbMain = (() => {
                 });
             }
 
+            // Danger zone
+            const dangerSection = document.createElement('details');
+            dangerSection.style.cssText = 'margin-top:4px;border-top:1px solid var(--border)';
+            dangerSection.innerHTML = `
+                <summary style="padding:10px 28px;font-size:11px;font-weight:600;letter-spacing:0.05em;
+                                text-transform:uppercase;color:var(--text-danger,#e74c3c);cursor:pointer;
+                                user-select:none">Danger Zone</summary>
+                <div id="nb-nb-danger-body" style="padding:4px 28px 16px;display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="nb-tool-btn nb-btn-danger" id="nb-nb-del-local">Delete local notebook</button>
+                    <button class="nb-tool-btn nb-btn-danger" id="nb-nb-del-remote">Delete remote branch</button>
+                </div>`;
+            content.appendChild(dangerSection);
+
+            const _nbDangerConfirm = (scope, warning) => {
+                const body = document.getElementById('nb-nb-danger-body');
+                const orig = body.innerHTML;
+                body.innerHTML = `
+                    <div style="width:100%">
+                        <p style="font-size:12px;color:var(--text-danger,#e74c3c);margin:0 0 8px">${warning}</p>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                            <input id="nb-nb-danger-input" class="nb-opt-input" style="flex:1;min-width:120px"
+                                   placeholder='type "${_esc(name)}" to confirm'>
+                            <button id="nb-nb-danger-ok" class="nb-tool-btn nb-btn-danger">Confirm</button>
+                            <button id="nb-nb-danger-cancel" class="nb-tool-btn">Cancel</button>
+                        </div>
+                    </div>`;
+                document.getElementById('nb-nb-danger-cancel').onclick = () => {
+                    body.innerHTML = orig;
+                    _wireDanger();
+                };
+                const input = document.getElementById('nb-nb-danger-input');
+                const okBtn = document.getElementById('nb-nb-danger-ok');
+                okBtn.onclick = async () => {
+                    if (input.value.trim() !== name) {
+                        input.style.outline = '2px solid var(--text-danger,#e74c3c)';
+                        setTimeout(() => { input.style.outline = ''; }, 800);
+                        return;
+                    }
+                    okBtn.disabled = true; okBtn.textContent = 'Deleting…';
+                    try {
+                        const r = await fetch('/api/nb/delete-notebook', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ notebook: name, scope }),
+                        });
+                        const rd = await r.json();
+                        if (rd.success && scope === 'local') {
+                            // Notebook gone — refresh the list, show welcome
+                            await runNbNotebooks();
+                        } else if (rd.success) {
+                            setTimeout(() => _openNbNotebook(name), 800);
+                        } else {
+                            body.innerHTML = `<p style="color:var(--text-danger,#e74c3c);font-size:12px">${_esc(rd.output || 'Failed.')}</p>`;
+                            setTimeout(() => { body.innerHTML = orig; _wireDanger(); }, 3000);
+                        }
+                    } catch(e) {
+                        body.innerHTML = orig; _wireDanger();
+                    }
+                };
+                input.focus();
+            };
+
+            const _wireDanger = () => {
+                const dl = document.getElementById('nb-nb-del-local');
+                const dr = document.getElementById('nb-nb-del-remote');
+                if (dl) dl.onclick = () => _nbDangerConfirm('local',
+                    `Permanently removes <strong>${_esc(name)}</strong> from this machine. Remote branch unaffected.`);
+                if (dr) dr.onclick = () => _nbDangerConfirm('remote',
+                    `Permanently deletes the <strong>${_esc(name)}</strong> branch on the remote. Local files unaffected.`);
+            };
+            _wireDanger();
+
         } catch(e) {
             content.innerHTML = `<div style="padding:40px;color:var(--text-danger)">Error: ${_esc(String(e))}</div>`;
         }
