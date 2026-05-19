@@ -2360,6 +2360,74 @@ def api_sync():
     return jsonify({'success': git_push_ok, 'output': '\n'.join(lines)})
 
 
+@app.route('/api/nb/sync/preview')
+def api_nb_sync_preview():
+    """Fetch from remote and show incoming/outgoing commits without changing anything."""
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'Notebook required'})
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir() or not (nb_path / '.git').exists():
+        return jsonify({'error': f'Notebook "{notebook}" not found'})
+
+    git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
+               'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
+
+    remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
+                              cwd=str(nb_path), timeout=5, env=git_env)
+    if not remote_r.stdout.strip():
+        return jsonify({'error': 'No remote configured for this notebook.'})
+
+    try:
+        subprocess.run(['git', 'fetch', 'origin'], capture_output=True,
+                       cwd=str(nb_path), timeout=20, env=git_env)
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Fetch timed out after 20s'})
+
+    fmt = '--format=%h  %s  (%cr)'
+    incoming_r = subprocess.run(
+        ['git', 'log', f'HEAD..origin/{notebook}', fmt],
+        capture_output=True, text=True, cwd=str(nb_path), env=git_env)
+    outgoing_r = subprocess.run(
+        ['git', 'log', f'origin/{notebook}..HEAD', fmt],
+        capture_output=True, text=True, cwd=str(nb_path), env=git_env)
+    dirty_r = subprocess.run(
+        ['git', 'status', '--porcelain'],
+        capture_output=True, text=True, cwd=str(nb_path), env=git_env)
+
+    incoming = incoming_r.stdout.strip()
+    outgoing = outgoing_r.stdout.strip()
+    dirty    = [l[3:].strip() for l in dirty_r.stdout.splitlines() if l.strip()]
+
+    lines = []
+    if incoming:
+        n = len(incoming.splitlines())
+        lines.append(f'↓ Incoming — {n} commit{"s" if n != 1 else ""} to pull:')
+        lines.append(incoming)
+    else:
+        lines.append('↓ Incoming: none (already up to date)')
+
+    lines.append('')
+
+    if outgoing:
+        n = len(outgoing.splitlines())
+        lines.append(f'↑ Outgoing — {n} commit{"s" if n != 1 else ""} to push:')
+        lines.append(outgoing)
+    else:
+        lines.append('↑ Outgoing: none')
+
+    if dirty:
+        lines.append('')
+        lines.append(f'~ Uncommitted: {len(dirty)} file{"s" if len(dirty) != 1 else ""}  '
+                     f'(will be committed with sync message if provided)')
+
+    return jsonify({
+        'output': '\n'.join(lines),
+        'incoming_count': len(incoming.splitlines()) if incoming else 0,
+        'outgoing_count': len(outgoing.splitlines()) if outgoing else 0,
+    })
+
+
 @app.route('/api/nb/git-log')
 def api_nb_git_log():
     """Git log for a specific nb notebook."""
@@ -3671,6 +3739,24 @@ def api_nb_settings():
 # ---------------------------------------------------------------------------
 # Dev: restart server
 # ---------------------------------------------------------------------------
+
+@app.route('/restart')
+def restart_page():
+    """Emergency restart page — reachable from address bar when UI is broken."""
+    return Response('''<!doctype html>
+<html><head><meta charset="utf-8"><title>nb-web restart</title>
+<style>body{font-family:monospace;padding:2em;background:#1a1a1a;color:#ccc}
+button{padding:.5em 1.5em;background:#c66;color:#fff;border:none;border-radius:4px;
+cursor:pointer;font-size:1em}button:hover{background:#e55}</style></head>
+<body><h2>nb-web</h2>
+<p>Click to restart the server and reload.</p>
+<button onclick="fetch('/api/restart',{method:'POST'}).then(()=>{
+  setTimeout(()=>location.href='/',1500)})">Restart Server</button>
+<p id="s"></p>
+<script>document.querySelector('button').addEventListener('click',function(){
+  document.getElementById('s').textContent='Restarting…';this.disabled=true})</script>
+</body></html>''', mimetype='text/html')
+
 
 @app.route('/api/restart', methods=['POST'])
 def api_restart():

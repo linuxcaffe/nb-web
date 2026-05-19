@@ -1119,10 +1119,11 @@ const NbNav = (() => {
         function _openSyncDialog() {
             const dialog    = document.getElementById('nb-sync-dialog');
             const title     = document.getElementById('nb-sync-title');
-            const changesEl = document.getElementById('nb-sync-changes');
-            const comment   = document.getElementById('nb-sync-comment');
-            const nowBtn    = document.getElementById('nb-sync-now');
-            const logBtn    = document.getElementById('nb-sync-log');
+            const changesEl  = document.getElementById('nb-sync-changes');
+            const comment    = document.getElementById('nb-sync-comment');
+            const nowBtn     = document.getElementById('nb-sync-now');
+            const previewBtn = document.getElementById('nb-sync-preview');
+            const logBtn     = document.getElementById('nb-sync-log');
             const outputWrap = dialog.querySelector('.nb-sync-output-wrap');
             const output     = document.getElementById('nb-sync-output');
             const copyBtn    = dialog.querySelector('.nb-sync-copy-btn');
@@ -1266,6 +1267,23 @@ const NbNav = (() => {
                     .then(d => { showOutput(d.output || '(no log)'); })
                     .catch(err => { showOutput('Error: ' + err); })
                     .finally(() => { logBtn.disabled = false; });
+            };
+
+            previewBtn.onclick = () => {
+                previewBtn.disabled = true;
+                let elapsed = 0;
+                const tick = () => { previewBtn.textContent = `Fetching… ${++elapsed}s`; };
+                previewBtn.textContent = 'Fetching… 0s';
+                const timer = setInterval(tick, 1000);
+                fetch(`/api/nb/sync/preview?notebook=${encodeURIComponent(nb)}`)
+                    .then(r => r.json())
+                    .then(d => { showOutput(d.output || '(nothing to preview)'); })
+                    .catch(err => { showOutput('Error: ' + err); })
+                    .finally(() => {
+                        clearInterval(timer);
+                        previewBtn.disabled = false;
+                        previewBtn.textContent = 'Preview';
+                    });
             };
 
             // Danger zone — local and remote deletion with inline confirmation
@@ -1426,6 +1444,7 @@ const NbNav = (() => {
                            ` placeholder="Commit message (optional)">` +
                     `<div class="nb-sync-btn-row">` +
                         `<button id="nb-sync-now" class="nb-sync-now-btn">Sync Now</button>` +
+                        `<button id="nb-sync-preview" class="nb-sync-secondary-btn">Preview</button>` +
                         `<button id="nb-sync-log" class="nb-sync-secondary-btn">Show Log</button>` +
                     `</div>` +
                     `<div class="nb-sync-output-wrap" hidden>` +
