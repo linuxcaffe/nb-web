@@ -2884,6 +2884,23 @@ const NbMain = (() => {
         document.getElementById('nb-delete-btn').addEventListener('click', _deleteNote);
         document.getElementById('nb-pin-indicator')?.addEventListener('click', _togglePin);
 
+        // Click title to copy notebook:filename wikilink to clipboard
+        const titleEl = document.getElementById('nb-preview-title');
+        if (titleEl) {
+            titleEl.style.cursor = 'pointer';
+            titleEl.title = 'Click to copy notebook:filename wikilink';
+            titleEl.addEventListener('click', () => {
+                if (!_activeSelector || !_activeFilename) return;
+                const nb  = _activeSelector.split(':')[0];
+                const link = `${nb}:${_activeFilename}`;
+                navigator.clipboard.writeText(link).then(() => {
+                    const orig = titleEl.textContent;
+                    titleEl.textContent = `✓ ${link}`;
+                    setTimeout(() => { titleEl.textContent = orig; }, 1500);
+                });
+            });
+        }
+
         // Format toolbar
         document.querySelectorAll('[data-fmt]').forEach(btn => {
             btn.addEventListener('click', () => _applyFmt(btn.dataset.fmt));
