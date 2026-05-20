@@ -2688,10 +2688,14 @@ const NbMain = (() => {
                 return;
             }
 
-            // Escape from inputs: blur and park focus on menu button
+            // Escape from inputs: blur, click Cancel if visible, park focus on logo
             if (e.key === 'Escape' && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) {
                 e.preventDefault();
                 document.activeElement.blur();
+                const cancelBtn = [...document.querySelectorAll('button')].find(
+                    b => b.textContent.trim() === 'Cancel' && !b.hidden && b.offsetParent !== null
+                );
+                if (cancelBtn) { cancelBtn.click(); return; }
                 document.getElementById('nb-logo-btn')?.focus();
                 return;
             }
@@ -2766,12 +2770,24 @@ const NbMain = (() => {
             if (e.target.closest('#nb-done-bar, .nb-move-bar, #nb-action-panel')) return;
             switch (e.key) {
                 case 'Escape': {
-                    if (_selectedSelectors.size) { e.preventDefault(); _clearSelection(); break; }
+                    e.preventDefault();
+                    if (_selectedSelectors.size) { _clearSelection(); break; }
                     const menu = document.getElementById('nb-side-menu');
-                    if (!menu?.classList.contains('open')) {
-                        e.preventDefault();
-                        document.getElementById('nb-logo-btn')?.click();
-                    }
+                    if (menu?.classList.contains('open')) { document.getElementById('nb-logo-btn')?.click(); break; }
+                    const cancelBtn = [...document.querySelectorAll('button')].find(
+                        b => b.textContent.trim() === 'Cancel' && !b.hidden && b.offsetParent !== null
+                    );
+                    if (cancelBtn) { cancelBtn.click(); break; }
+                    document.getElementById('nb-logo-btn')?.focus();
+                    break;
+                }
+                case 'Backspace': {
+                    e.preventDefault();
+                    document.getElementById('nb-back-btn')?.click();
+                    break;
+                }
+                case 'Delete': {
+                    if (_kbPane === 'list' && _activeSelector) { e.preventDefault(); _deleteNote(); }
                     break;
                 }
                 case 'a': e.preventDefault(); NbNav.activateCmd('add');       break;
