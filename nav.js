@@ -26,7 +26,7 @@ const NbNav = (() => {
     // Per-command state (scope-independent options only)
     const _state = {
         list:    { type: 'all', todoStatus: 'open' },
-        add:       { type: 'note', title: '', url: '', template: null, templateName: '', dirty: false },
+        add:       { type: 'note', title: '', url: '', template: null, templateName: '', dirty: false, encrypt: false, password: '' },
         templates: {},
         todo:    { status: 'open' },
         cal:     { displayYear: new Date().getFullYear(), displayMonth: new Date().getMonth() + 1,
@@ -232,7 +232,7 @@ const NbNav = (() => {
 
     function _renderAddOpts(bar) {
         const st = _state.add;
-        let urlInput, titleInput, actionWrap, scopeWrap, tmplBtn;
+        let urlInput, titleInput, actionWrap, scopeWrap, tmplBtn, encBtn, encPwInput;
         let _tmplMode = false;
 
         function _syncTmplBtn() {
@@ -293,6 +293,14 @@ const NbNav = (() => {
                     NbMain.loadNotes();
                 }
             }
+            if (encBtn) {
+                encBtn.hidden = val !== 'note';
+                if (val !== 'note' && st.encrypt) {
+                    st.encrypt = false; st.password = '';
+                    encBtn.classList.remove('active');
+                    if (encPwInput) encPwInput.hidden = true;
+                }
+            }
             _updateOutputBar();
         }));
 
@@ -308,6 +316,27 @@ const NbNav = (() => {
         });
         _syncTmplBtn();   // reflect any already-applied template
         bar.appendChild(tmplBtn);
+
+        // Encrypt toggle — note type only
+        encBtn = document.createElement('button');
+        encBtn.className = 'nb-icon-btn';
+        encBtn.textContent = '🔑';
+        encBtn.title = 'Encrypt note';
+        encBtn.hidden = st.type !== 'note';
+        encBtn.classList.toggle('active', st.encrypt);
+        encBtn.addEventListener('click', () => {
+            st.encrypt = !st.encrypt;
+            encBtn.classList.toggle('active', st.encrypt);
+            encPwInput.hidden = !st.encrypt;
+            if (st.encrypt) {
+                const known = NbMain.encPassword?.();
+                if (known) { st.password = known; encPwInput.value = known; }
+                encPwInput.focus();
+            } else {
+                st.password = '';
+            }
+        });
+        bar.appendChild(encBtn);
 
         bar.appendChild(_makeSep());
 
@@ -340,6 +369,22 @@ const NbNav = (() => {
             if (e.key === 'Escape')                  _doCancel();
         });
         bar.appendChild(urlInput);
+
+        // Password input — encrypt mode only
+        encPwInput = document.createElement('input');
+        encPwInput.type        = 'password';
+        encPwInput.className   = 'nb-opt-input';
+        encPwInput.placeholder = 'Password…';
+        encPwInput.style.maxWidth = '130px';
+        encPwInput.hidden      = !st.encrypt;
+        if (st.encrypt && st.password) encPwInput.value = st.password;
+        encPwInput.addEventListener('input', () => { st.password = encPwInput.value; });
+        encPwInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && st.dirty) _doEdit();
+            else if (e.key === 'Enter' && st.dirty) _doSave();
+            if (e.key === 'Escape') _doCancel();
+        });
+        bar.appendChild(encPwInput);
 
         // Cancel / Save row — full-width so it always sits on its own line
         actionWrap = document.createElement('div');
@@ -385,7 +430,10 @@ const NbNav = (() => {
 
         function _doCancel() {
             st.title = ''; st.url = ''; st.template = null; st.templateName = ''; st.dirty = false;
+            st.encrypt = false; st.password = '';
             titleInput.value = ''; urlInput.value = '';
+            if (encPwInput) { encPwInput.value = ''; encPwInput.hidden = true; }
+            if (encBtn) encBtn.classList.remove('active');
             actionWrap.hidden = true;
             _tmplMode = false;
             _syncTmplBtn();
@@ -406,9 +454,12 @@ const NbNav = (() => {
         async function _doSave() {
             if (!st.title && !st.url) return;
             if (saveBtn.disabled) return;
+            if (st.encrypt && !st.password) { encPwInput?.focus(); return; }
             _busy('Saving…');
             try {
-                const result = await NbMain.addNote(_noteArgs());
+                const result = st.encrypt
+                    ? await NbMain.addEncryptedNote({..._noteArgs(), password: st.password})
+                    : await NbMain.addNote(_noteArgs());
                 if (result) {
                     _doCancel();
                     if (result.selector) NbMain.openNote(result.selector);
@@ -421,9 +472,12 @@ const NbNav = (() => {
         async function _doEdit() {
             if (!st.title && !st.url) return;
             if (editBtn.disabled) return;
+            if (st.encrypt && !st.password) { encPwInput?.focus(); return; }
             _busy('Opening…');
             try {
-                const result = await NbMain.addNote(_noteArgs());
+                const result = st.encrypt
+                    ? await NbMain.addEncryptedNote({..._noteArgs(), password: st.password})
+                    : await NbMain.addNote(_noteArgs());
                 if (result && result.selector) {
                     st.title = ''; st.url = ''; st.template = null; st.dirty = false;
                     activateCmd('list', { internal: true });

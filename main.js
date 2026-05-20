@@ -3508,14 +3508,6 @@ const NbMain = (() => {
               ${extraFields}
               <label>Tags (comma-separated)<br><input type="text" id="nf-tags" placeholder="tag1, tag2" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
               ${type === 'note' ? '<label>Content<br><textarea id="nf-content" rows="6" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px;font-family:var(--font-mono);font-size:13px;resize:vertical"></textarea></label>' : ''}
-              ${type === 'note' ? `
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px">
-                <input type="checkbox" id="nf-encrypt"> Encrypt note
-              </label>
-              <div id="nf-enc-pw-row" style="display:none">
-                <label>Password<br><input type="password" id="nf-enc-pw" placeholder="Encryption password"
-                  style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
-              </div>` : ''}
               <div style="display:flex;gap:8px;margin-top:4px">
                 <button id="nf-save" class="nb-tool-btn nb-btn-primary">Create</button>
                 <button id="nf-cancel" class="nb-tool-btn">Cancel</button>
@@ -3524,24 +3516,6 @@ const NbMain = (() => {
           </div>`;
 
         document.getElementById('nf-title').focus();
-
-        // Encrypt checkbox: reveal password field, pre-fill from session password
-        document.getElementById('nf-encrypt')?.addEventListener('change', e => {
-            const row  = document.getElementById('nf-enc-pw-row');
-            const pwEl = document.getElementById('nf-enc-pw');
-            row.style.display = e.target.checked ? '' : 'none';
-            if (e.target.checked) {
-                if (_encPassword) pwEl.value = _encPassword;
-                pwEl.addEventListener('keydown', ev => {
-                    if (ev.key !== 'Enter' || ev.shiftKey) return;
-                    const btn = document.getElementById('nf-save');
-                    if (btn?.disabled) return;
-                    ev.preventDefault();
-                    _submitAdd(type, ev.ctrlKey || ev.metaKey);
-                });
-                pwEl.focus();
-            }
-        });
 
         document.getElementById('nf-cancel').addEventListener('click', () => {
             content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
@@ -3587,30 +3561,16 @@ const NbMain = (() => {
             comment: commentEl?.value.trim() || '',
         };
 
-        const encryptEl  = document.getElementById('nf-encrypt');
-        const encPwEl    = document.getElementById('nf-enc-pw');
-        const wantEncrypt = encryptEl?.checked && type === 'note';
-        const encPw      = encPwEl?.value || '';
-
-        if (wantEncrypt && !encPw) {
-            document.getElementById('nf-enc-pw')?.focus();
-            return;
-        }
-
         const btn = document.getElementById('nf-save');
         btn.textContent = 'Creating…'; btn.disabled = true;
         try {
-            const url  = wantEncrypt ? '/api/note/new-encrypted' : '/api/notes';
-            const payload = wantEncrypt ? {...body, password: encPw} : body;
-            const r = await fetch(url, {
+            const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify(payload),
+                body: JSON.stringify(body),
             });
             const d = await r.json();
             if (d.success) {
-                if (wantEncrypt) _encPassword = encPw;   // cache for viewing/editing
-                // Switch to list and refresh — reexecute() is a no-op when _activeCmd==='add'
                 _noAutoSelect = true;
                 NbNav.activateCmd('list', { internal: true });
                 if (andEdit && d.selector) {
@@ -3721,6 +3681,23 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) { return d; }
+            alert('Add failed: ' + (d.error || 'unknown'));
+            return null;
+        } catch(e) {
+            alert('Add failed: ' + String(e));
+            return null;
+        }
+    }
+
+    async function addEncryptedNote({ notebook, title, template_path, password, folder }) {
+        try {
+            const r = await fetch('/api/note/new-encrypted', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ notebook, folder: folder || '', title, tags: [], content: '', password }),
+            });
+            const d = await r.json();
+            if (d.success) { _encPassword = password; return d; }
             alert('Add failed: ' + (d.error || 'unknown'));
             return null;
         } catch(e) {
@@ -5025,7 +5002,8 @@ const NbMain = (() => {
     }
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
-             showAddForm, addNote, runCmd, runCal, runGrep, runTemplates, runNbNotebooks, loadTemplatesForAdd,
+             showAddForm, addNote, addEncryptedNote, encPassword: () => _encPassword,
+             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
              setFoldersFirst,
