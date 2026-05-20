@@ -281,6 +281,13 @@ def note_title(filename, body):
             return line[2:].strip()
         if line.startswith('# [ ] ') or line.startswith('# [x] '):
             return line[6:].strip()
+    fname = Path(filename).name
+    if fname.lower().endswith('.enc'):
+        stem = Path(fname).stem                  # strip .enc
+        if stem.lower().endswith('.md'):
+            stem = stem[:-3]                     # strip .md
+        stem = re.sub(r'^\d{14}_?', '', stem)    # strip YYYYMMDDHHMMSS_ prefix
+        return stem.replace('_', ' ').strip() or fname
     return Path(filename).stem
 
 
@@ -3857,14 +3864,23 @@ def api_rename():
     if not selector or not name:
         return jsonify({'error': 'selector and name required'}), 400
 
-    # Read current content so we can update the title-bearing element in place.
-    # nb rename only changes the filename; if the title comes from an H1 or
-    # frontmatter, the displayed title would not change after a plain rename.
     path_r = run_nb('show', selector, '--path')
     if not nb_ok(path_r):
         return jsonify({'error': 'not found'}), 404
+    fpath = Path(path_r['stdout'].strip())
+
+    # Encrypted notes: title is filename-only; preserve .enc by slugifying the new name
+    if fpath.name.lower().endswith('.enc'):
+        slug     = re.sub(r'[^\w]+', '_', name).strip('_').lower()
+        new_name = f"{slug}.md.enc"
+        r = run_nb('rename', selector, new_name, '--force')
+        return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+    # Read current content so we can update the title-bearing element in place.
+    # nb rename only changes the filename; if the title comes from an H1 or
+    # frontmatter, the displayed title would not change after a plain rename.
     try:
-        raw = Path(path_r['stdout'].strip()).read_text(errors='replace')
+        raw = fpath.read_text(errors='replace')
     except OSError:
         return jsonify({'error': 'could not read file'}), 404
 

@@ -340,6 +340,22 @@ const NbNav = (() => {
 
         bar.appendChild(_makeSep());
 
+        // Password input — encrypt mode only, left of title
+        encPwInput = document.createElement('input');
+        encPwInput.type        = 'password';
+        encPwInput.className   = 'nb-opt-input';
+        encPwInput.placeholder = 'Password…';
+        encPwInput.style.maxWidth = '130px';
+        encPwInput.hidden      = !st.encrypt;
+        if (st.encrypt && st.password) encPwInput.value = st.password;
+        encPwInput.addEventListener('input', () => { st.password = encPwInput.value; });
+        encPwInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && st.dirty) _doEdit();
+            else if (e.key === 'Enter' && st.dirty) _doSave();
+            if (e.key === 'Escape') _doCancel();
+        });
+        bar.appendChild(encPwInput);
+
         // Title input — grows to fill available space
         titleInput = document.createElement('input');
         titleInput.type        = 'text';
@@ -369,22 +385,6 @@ const NbNav = (() => {
             if (e.key === 'Escape')                  _doCancel();
         });
         bar.appendChild(urlInput);
-
-        // Password input — encrypt mode only
-        encPwInput = document.createElement('input');
-        encPwInput.type        = 'password';
-        encPwInput.className   = 'nb-opt-input';
-        encPwInput.placeholder = 'Password…';
-        encPwInput.style.maxWidth = '130px';
-        encPwInput.hidden      = !st.encrypt;
-        if (st.encrypt && st.password) encPwInput.value = st.password;
-        encPwInput.addEventListener('input', () => { st.password = encPwInput.value; });
-        encPwInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && st.dirty) _doEdit();
-            else if (e.key === 'Enter' && st.dirty) _doSave();
-            if (e.key === 'Escape') _doCancel();
-        });
-        bar.appendChild(encPwInput);
 
         // Cancel / Save row — full-width so it always sits on its own line
         actionWrap = document.createElement('div');
