@@ -3634,6 +3634,26 @@ def api_export():
         return jsonify({'error': str(e)}), 500
 
 
+def _inline_images(html: str) -> str:
+    """Replace /api/file?selector=… img srcs with base64 data URIs for standalone export."""
+    import base64, mimetypes
+    from urllib.parse import urlparse, parse_qs
+    def _replace(m):
+        src = m.group(2)
+        if not src.startswith('/api/file?'):
+            return m.group(0)
+        sel = parse_qs(urlparse(src).query).get('selector', [''])[0]
+        if not sel:
+            return m.group(0)
+        fpath = _resolve_to_nb_path(sel)
+        if not fpath or not fpath.exists():
+            return m.group(0)
+        mime = mimetypes.guess_type(str(fpath))[0] or 'image/png'
+        data = base64.b64encode(fpath.read_bytes()).decode()
+        return m.group(1) + f'data:{mime};base64,{data}' + m.group(3)
+    return re.sub(r'(<img\b[^>]*?\bsrc=")([^"]+)(")', _replace, html)
+
+
 @app.route('/api/export-html', methods=['POST'])
 def api_export_html():
     """Export the rendered preview HTML (with codeblock output) to html/docx/odt."""
@@ -3647,6 +3667,8 @@ def api_export_html():
 
     if not html:
         return jsonify({'error': 'html required'}), 400
+
+    html = _inline_images(html)   # embed notebook images as base64 data URIs
 
     # Use .export.template.html if present, else built-in fallback
     tmpl = _find_export_template(notebook)
@@ -3959,6 +3981,7 @@ def api_export_bulk():
     import io
     data      = request.get_json() or {}
     selectors = data.get('selectors', [])
+    concat    = data.get('concat', False)
     if not selectors:
         return jsonify({'error': 'selectors required'}), 400
 
@@ -3971,9 +3994,9 @@ def api_export_bulk():
         else:
             content = '*(not found)*'
             title   = sel
-        parts.append(f'# {title}\n\n{content}')
+        parts.append(content if concat else f'# {title}\n\n{content}')
 
-    compiled = '\n\n---\n\n'.join(parts)
+    compiled = '\n\n'.join(parts) if concat else '\n\n---\n\n'.join(parts)
     buf = io.BytesIO(compiled.encode('utf-8'))
     return send_file(buf, as_attachment=True,
                      download_name='nb-export.md',

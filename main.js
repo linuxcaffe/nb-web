@@ -530,7 +530,7 @@ const NbMain = (() => {
             }
             return;
         } else if (['note','file',''].includes(note.type)) {
-            html = _renderMarkdown(note.body);
+            html = _renderMarkdown(note.body, note.selector);
         } else {
             html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw || '')}</pre>`;
         }
@@ -626,7 +626,7 @@ const NbMain = (() => {
             return;
         }
 
-        container.innerHTML = `<div class="nb-rendered">${_renderMarkdown(decryptedContent)}</div>`;
+        container.innerHTML = `<div class="nb-rendered">${_renderMarkdown(decryptedContent, _activeSelector)}</div>`;
         _finishRendered(container, note);
     }
 
@@ -2081,7 +2081,7 @@ const NbMain = (() => {
         el.insertAdjacentHTML('beforeend', `<pre class="nb-hl-pre">${_esc(text)}</pre>`);
     }
 
-    function _renderMarkdown(body) {
+    function _renderMarkdown(body, noteSelector = null) {
         if (typeof marked === 'undefined') return `<pre>${_esc(body)}</pre>`;
         // Pre-process wiki-links and hashtags before marked
         let processed = body
@@ -2089,7 +2089,20 @@ const NbMain = (() => {
                 `<span class="nb-wiki-link" data-selector="${_esc(target)}"${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`)
             .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
                 `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
-        return marked.parse(processed);
+        let html = marked.parse(processed);
+        if (noteSelector) {
+            // Rewrite relative img srcs to /api/file?selector=... so images resolve
+            const ci     = noteSelector.indexOf(':');
+            const nb     = ci >= 0 ? noteSelector.slice(0, ci) : '';
+            const rest   = ci >= 0 ? noteSelector.slice(ci + 1) : noteSelector;
+            const folder = rest.includes('/') ? rest.slice(0, rest.lastIndexOf('/') + 1) : '';
+            html = html.replace(/(<img\b[^>]*?\bsrc=")([^"]+)(")/g, (_, pre, src, post) => {
+                if (/^(https?:|data:|\/api\/|\/\/)/.test(src)) return _;
+                const imgSel = /^[\w-]+:/.test(src) ? src : `${nb}:${folder}${src}`;
+                return `${pre}/api/file?selector=${encodeURIComponent(imgSel)}${post}`;
+            });
+        }
+        return html;
     }
 
     function _renderBookmark(note) {
@@ -4983,7 +4996,7 @@ const NbMain = (() => {
 
             const inner = document.createElement('div');
             inner.className = 'nb-rendered';
-            inner.innerHTML = _renderMarkdown(d.body);
+            inner.innerHTML = _renderMarkdown(d.body, selector);
             container.appendChild(inner);
 
             _renderCsvBlocks(container);
@@ -5786,6 +5799,17 @@ const NbDialog = (() => {
             nameInput.value = base + EXT[fmtSel.value];
         });
 
+        // Concat checkbox — join without dividers or section titles
+        const concatChk = document.createElement('input');
+        concatChk.type = 'checkbox'; concatChk.id = 'nb-export-concat';
+        const concatLbl = document.createElement('label');
+        concatLbl.htmlFor = 'nb-export-concat';
+        concatLbl.textContent = 'Page assembly — join without dividers or section titles';
+        concatLbl.style.cssText = 'font-size:0.9em;cursor:pointer;user-select:none';
+        const concatRow = document.createElement('div');
+        concatRow.className = 'nb-dlg-row'; concatRow.style.gap = '8px';
+        concatRow.append(concatChk, concatLbl);
+
         const saveBtn = document.createElement('button');
         saveBtn.className = 'nb-tool-btn nb-btn-primary'; saveBtn.textContent = `Export ${count}`;
         const cancelBtn = document.createElement('button');
@@ -5803,7 +5827,7 @@ const NbDialog = (() => {
 
             if (fmt === 'md') {
                 // Server-side raw-file compilation (existing path)
-                const payload = JSON.stringify({ selectors: _bulkSelectors });
+                const payload = JSON.stringify({ selectors: _bulkSelectors, concat: concatChk.checked });
                 const ACCEPT  = { 'text/markdown': ['.md'] };
                 if (window.showSaveFilePicker) {
                     try {
@@ -5847,7 +5871,7 @@ const NbDialog = (() => {
                 alert('Nothing to export.'); saveBtn.textContent = `Export ${count}`; saveBtn.disabled = false; return;
             }
 
-            const compiledHtml = parts.join('\n<hr>\n');
+            const compiledHtml = parts.join(concatChk.checked ? '\n' : '\n<hr>\n');
             const title    = filename.replace(/\.[^.]+$/, '');
             const notebook = _bulkSelectors[0]?.split(':')[0] || '';
             const payload  = JSON.stringify({ html: compiledHtml, fmt, filename, title, notebook });
@@ -5882,7 +5906,7 @@ const NbDialog = (() => {
             close();
         });
 
-        body.append(infoEl, nameRow, fmtRow);
+        body.append(infoEl, nameRow, concatRow, fmtRow);
         nameInput.focus(); nameInput.select();
     }
 
