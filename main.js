@@ -26,6 +26,8 @@ const NbMain = (() => {
     const _pendingDeletes = new Set(); // selectors deleted but possibly not yet gone from server
     const _selectedSelectors = new Set(); // multi-select
     let _lastClickedIdx = -1;             // anchor for shift-click range
+    let _encPassword    = null;   // session-level openssl password for encrypted notes
+    let _encPendingEdit = false;  // open editor immediately after next successful unlock
 
     function _setKbPane(pane) {
         _kbPane = pane;
@@ -485,6 +487,48 @@ const NbMain = (() => {
                     _appendAnnotation(content, note);
                 });
             return;
+        } else if (note.type === 'encrypted') {
+            if (_encPassword) {
+                _decryptAndRender(note, content);
+            } else {
+                content.innerHTML = `
+                    <div style="display:flex;flex-direction:column;align-items:center;padding:60px 40px;text-align:center">
+                        <div style="font-size:3em;margin-bottom:.5em">🔒</div>
+                        <p style="margin:0 0 1em;color:var(--text-muted)">Encrypted note — enter password to view</p>
+                        <div style="display:flex;gap:8px;align-items:center;width:100%;max-width:320px">
+                            <input type="password" id="nb-enc-pw" placeholder="Password" autocomplete="current-password"
+                                   style="flex:1;padding:6px 10px;border:1px solid var(--border);background:var(--bg2);color:var(--text);border-radius:4px;font-size:1em">
+                            <button id="nb-enc-unlock-btn" class="nb-tool-btn">Unlock</button>
+                        </div>
+                        <div id="nb-enc-error" style="color:var(--red);margin-top:6px;min-height:1.2em;font-size:.9em"></div>
+                    </div>`;
+                const pw  = content.querySelector('#nb-enc-pw');
+                const err = content.querySelector('#nb-enc-error');
+                const doUnlock = async () => {
+                    if (!pw.value) return;
+                    const unlockBtn = content.querySelector('#nb-enc-unlock-btn');
+                    unlockBtn.disabled = true; unlockBtn.textContent = '…';
+                    try {
+                        const r = await fetch('/api/note/decrypt', {
+                            method: 'POST',
+                            headers: {'Content-Type':'application/json'},
+                            body: JSON.stringify({selector: note.selector, password: pw.value})
+                        });
+                        if (r.status === 401) { err.textContent = 'Wrong password'; pw.select(); return; }
+                        const d = await r.json();
+                        _encPassword = pw.value;
+                        _decryptAndRender(note, content, d.content);
+                    } catch(e) {
+                        err.textContent = 'Error: ' + e.message;
+                    } finally {
+                        unlockBtn.disabled = false; unlockBtn.textContent = 'Unlock';
+                    }
+                };
+                pw.addEventListener('keydown', e => { if (e.key === 'Enter') doUnlock(); });
+                content.querySelector('#nb-enc-unlock-btn').addEventListener('click', doUnlock);
+                setTimeout(() => pw.focus(), 50);
+            }
+            return;
         } else if (['note','file',''].includes(note.type)) {
             html = _renderMarkdown(note.body);
         } else {
@@ -492,32 +536,32 @@ const NbMain = (() => {
         }
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
+        _finishRendered(content, note);
+    }
 
-        _renderCsvBlocks(content);
-        _renderTwBlocks(content);
-        _renderHledgerBlocks(content);
-        _renderTBlocks(content);
-        _renderNbBlocks(content);
-        _renderGitBlocks(content);
+    function _finishRendered(container, note) {
+        _renderCsvBlocks(container);
+        _renderTwBlocks(container);
+        _renderHledgerBlocks(container);
+        _renderTBlocks(container);
+        _renderNbBlocks(container);
+        _renderGitBlocks(container);
 
-        // Highlight active search / tag terms in the rendered preview
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
             .filter(Boolean).join(' ');
-        if (_hq) _highlightTerms(content.querySelector('.nb-rendered'), _hq);
+        if (_hq) _highlightTerms(container.querySelector('.nb-rendered'), _hq);
 
-        // Wire wiki-links and tag-links
-        content.querySelectorAll('.nb-wiki-link').forEach(el => {
+        container.querySelectorAll('.nb-wiki-link').forEach(el => {
             el.addEventListener('click', () => openNote(el.dataset.selector || el.textContent));
         });
-        _resolveWikilinks(content);
-        content.querySelectorAll('.nb-tag-link').forEach(el => {
+        _resolveWikilinks(container);
+        container.querySelectorAll('.nb-tag-link').forEach(el => {
             el.addEventListener('click', () => {
                 const tag      = el.textContent.trim();
                 const norm     = tag.startsWith('#') ? tag : '#' + tag;
                 const tagsEl   = document.getElementById('nb-tags');
                 const tagsCl   = document.getElementById('nb-tags-clear');
                 const current  = NbNav.tagsQuery?.trim() || '';
-                // Cumulative: append if not already in the filter
                 const newQuery = current.includes(norm) ? current
                                : current ? current + ' ' + norm : norm;
                 tagsEl.value   = newQuery;
@@ -527,31 +571,63 @@ const NbMain = (() => {
             });
         });
 
-        // Markdown links: external ones get target=_blank; nb-selector hrefs open the note
-        content.querySelectorAll('.nb-rendered a[href]').forEach(el => {
+        container.querySelectorAll('.nb-rendered a[href]').forEach(el => {
             const href = el.getAttribute('href');
             if (!href) return;
             if (/^(https?|mailto|ftp):/.test(href)) {
                 el.setAttribute('target', '_blank');
                 el.setAttribute('rel', 'noopener noreferrer');
             } else if (/^[a-z][a-z0-9_-]*:[^/]/.test(href)) {
-                // nb selector: notebook:id or notebook:filename
                 el.addEventListener('click', e => { e.preventDefault(); openNote(href); });
                 el.classList.add('nb-nb-link');
             }
         });
 
-        // uuid8 refs in content → nb info popover (inline code spans included)
-        _wrapUuids(content);
-        content.querySelectorAll('.nb-uuid-ref').forEach(el =>
+        _wrapUuids(container);
+        container.querySelectorAll('.nb-uuid-ref').forEach(el =>
             el.addEventListener('click', e => _showInfoPopover(e, el.dataset.uuid)));
 
-        // Todo checkboxes
-        content.querySelectorAll('.nb-todo-check').forEach(cb => {
+        container.querySelectorAll('.nb-todo-check').forEach(cb => {
             cb.addEventListener('change', () => _toggleTask(note.selector, cb.dataset.task, cb.checked));
         });
 
-        _appendAnnotation(content, note);
+        _appendAnnotation(container, note);
+    }
+
+    // ── Encrypted note decrypt/render ──────────────────────────────────────
+
+    async function _decryptAndRender(note, container, decryptedContent) {
+        if (decryptedContent === undefined) {
+            container.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Decrypting…</div>';
+            try {
+                const r = await fetch('/api/note/decrypt', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({selector: note.selector, password: _encPassword})
+                });
+                if (r.status === 401) {
+                    _encPassword = null;
+                    renderPreview(note);   // re-render → shows lock prompt
+                    return;
+                }
+                const d = await r.json();
+                decryptedContent = d.content;
+            } catch(e) {
+                container.innerHTML = `<div style="padding:40px;color:var(--red)">Decrypt error: ${_esc(String(e))}</div>`;
+                return;
+            }
+        }
+
+        if (_encPendingEdit) {
+            _encPendingEdit = false;
+            _editing = true;
+            _setPaneMode('edit');
+            _populateEditor(_activeSelector, decryptedContent, _saveEncryptedNote);
+            return;
+        }
+
+        container.innerHTML = `<div class="nb-rendered">${_renderMarkdown(decryptedContent)}</div>`;
+        _finishRendered(container, note);
     }
 
     // ── Annotation footnote ────────────────────────────────────────────────
@@ -2965,22 +3041,74 @@ const NbMain = (() => {
         }
     }
 
+    function _populateEditor(sel, raw, saveFn) {
+        _undoBuffer[sel] = raw;
+        const ta = document.getElementById('nb-editor');
+        ta.value = raw;
+        document.getElementById('nb-save-btn').onclick = saveFn;
+        ta.focus();
+    }
+
     function _openEditor(targetSelector) {
         const sel = targetSelector || _activeSelector;
         if (!sel) return;
         _activeSelector = sel;
+
+        if (_activeType === 'encrypted') {
+            if (!_encPassword) {
+                _encPendingEdit = true;
+                openNote(sel, false);   // re-opens lock prompt; after unlock editor auto-opens
+                return;
+            }
+            _editing = true;
+            _setPaneMode('edit');
+            fetch('/api/note/decrypt', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({selector: sel, password: _encPassword})
+            })
+            .then(r => { if (r.status === 401) throw Object.assign(new Error('Wrong password'), {status: 401}); return r.json(); })
+            .then(d => _populateEditor(sel, d.content, _saveEncryptedNote))
+            .catch(err => {
+                _closeEditor();
+                if (err.status === 401) { _encPassword = null; _encPendingEdit = true; openNote(sel, false); }
+                else alert('Decrypt error: ' + err.message);
+            });
+            return;
+        }
+
         _editing = true;
         _setPaneMode('edit');
         fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
-            .then(d => {
-                const raw = d.raw || d.body || '';
-                _undoBuffer[sel] = raw;
-                const ta = document.getElementById('nb-editor');
-                ta.value = raw;
-                document.getElementById('nb-save-btn').onclick = _saveNote;
-                ta.focus();
+            .then(d => _populateEditor(sel, d.raw || d.body || '', _saveNote));
+    }
+
+    async function _saveEncryptedNote() {
+        if (!_activeSelector || !_encPassword) return;
+        const content = document.getElementById('nb-editor').value;
+        const btn = document.getElementById('nb-save-btn');
+        btn.textContent = 'Saving…';
+        try {
+            const r = await fetch('/api/note/encrypted', {
+                method: 'PUT',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({selector: _activeSelector, content, password: _encPassword})
             });
+            const d = await r.json();
+            if (d.success) {
+                const savedSel = _activeSelector;
+                _closeEditor();
+                _noAutoSelect = true;
+                NbNav.reexecute();
+                NbNav.pollSyncStatus();
+                openNote(savedSel).finally(() => { _noAutoSelect = false; });
+            } else {
+                alert('Save failed: ' + (d.error || 'unknown error'));
+            }
+        } finally {
+            btn.textContent = 'Save';
+        }
     }
 
     async function _saveNote() {
@@ -3380,6 +3508,14 @@ const NbMain = (() => {
               ${extraFields}
               <label>Tags (comma-separated)<br><input type="text" id="nf-tags" placeholder="tag1, tag2" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
               ${type === 'note' ? '<label>Content<br><textarea id="nf-content" rows="6" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px;font-family:var(--font-mono);font-size:13px;resize:vertical"></textarea></label>' : ''}
+              ${type === 'note' ? `
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px">
+                <input type="checkbox" id="nf-encrypt"> Encrypt note
+              </label>
+              <div id="nf-enc-pw-row" style="display:none">
+                <label>Password<br><input type="password" id="nf-enc-pw" placeholder="Encryption password"
+                  style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
+              </div>` : ''}
               <div style="display:flex;gap:8px;margin-top:4px">
                 <button id="nf-save" class="nb-tool-btn nb-btn-primary">Create</button>
                 <button id="nf-cancel" class="nb-tool-btn">Cancel</button>
@@ -3388,6 +3524,25 @@ const NbMain = (() => {
           </div>`;
 
         document.getElementById('nf-title').focus();
+
+        // Encrypt checkbox: reveal password field, pre-fill from session password
+        document.getElementById('nf-encrypt')?.addEventListener('change', e => {
+            const row  = document.getElementById('nf-enc-pw-row');
+            const pwEl = document.getElementById('nf-enc-pw');
+            row.style.display = e.target.checked ? '' : 'none';
+            if (e.target.checked) {
+                if (_encPassword) pwEl.value = _encPassword;
+                pwEl.addEventListener('keydown', ev => {
+                    if (ev.key !== 'Enter' || ev.shiftKey) return;
+                    const btn = document.getElementById('nf-save');
+                    if (btn?.disabled) return;
+                    ev.preventDefault();
+                    _submitAdd(type, ev.ctrlKey || ev.metaKey);
+                });
+                pwEl.focus();
+            }
+        });
+
         document.getElementById('nf-cancel').addEventListener('click', () => {
             content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
         });
@@ -3432,16 +3587,29 @@ const NbMain = (() => {
             comment: commentEl?.value.trim() || '',
         };
 
+        const encryptEl  = document.getElementById('nf-encrypt');
+        const encPwEl    = document.getElementById('nf-enc-pw');
+        const wantEncrypt = encryptEl?.checked && type === 'note';
+        const encPw      = encPwEl?.value || '';
+
+        if (wantEncrypt && !encPw) {
+            document.getElementById('nf-enc-pw')?.focus();
+            return;
+        }
+
         const btn = document.getElementById('nf-save');
         btn.textContent = 'Creating…'; btn.disabled = true;
         try {
-            const r = await fetch('/api/notes', {
+            const url  = wantEncrypt ? '/api/note/new-encrypted' : '/api/notes';
+            const payload = wantEncrypt ? {...body, password: encPw} : body;
+            const r = await fetch(url, {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify(body),
+                body: JSON.stringify(payload),
             });
             const d = await r.json();
             if (d.success) {
+                if (wantEncrypt) _encPassword = encPw;   // cache for viewing/editing
                 // Switch to list and refresh — reexecute() is a no-op when _activeCmd==='add'
                 _noAutoSelect = true;
                 NbNav.activateCmd('list', { internal: true });

@@ -2103,6 +2103,132 @@ def api_edit_note():
 
 
 # ---------------------------------------------------------------------------
+# API: Decrypt / re-encrypt encrypted notes (openssl AES-256-CBC)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/note/decrypt', methods=['POST'])
+def api_decrypt_note():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '')
+    password = data.get('password', '')
+    if not selector or not password:
+        return jsonify({'error': 'selector and password required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': 'not found'}), 404
+    if not fpath.name.endswith('.enc'):
+        return jsonify({'error': 'not an encrypted file'}), 400
+    for md in ('sha256', 'md5'):
+        r = subprocess.run(
+            ['openssl', 'enc', '-d', '-aes-256-cbc', '-md', md,
+             '-pass', f'pass:{password}', '-in', str(fpath)],
+            capture_output=True, timeout=10)
+        if r.returncode == 0:
+            return jsonify({'content': r.stdout.decode('utf-8', errors='replace')})
+    return jsonify({'error': 'wrong password'}), 401
+
+
+@app.route('/api/note/encrypted', methods=['PUT'])
+def api_save_encrypted_note():
+    data     = request.get_json() or {}
+    selector = data.get('selector', '')
+    password = data.get('password', '')
+    content  = data.get('content', '')
+    if not selector or not password:
+        return jsonify({'error': 'selector and password required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': 'not found'}), 404
+    if not fpath.name.endswith('.enc'):
+        return jsonify({'error': 'not an encrypted file'}), 400
+    tmp = Path(tempfile.mktemp(suffix='.enc.tmp', dir=str(fpath.parent)))
+    try:
+        r = subprocess.run(
+            ['openssl', 'enc', '-aes-256-cbc', '-md', 'sha256',
+             '-pass', f'pass:{password}', '-out', str(tmp)],
+            input=content.encode('utf-8'),
+            capture_output=True, timeout=10)
+        if r.returncode != 0:
+            return jsonify({'error': 'encryption failed',
+                            'detail': r.stderr.decode(errors='replace')}), 500
+        tmp.replace(fpath)
+        rel      = fpath.relative_to(NB_DIR)
+        nb_dir   = NB_DIR / rel.parts[0]
+        rel_in_nb = fpath.relative_to(nb_dir)
+        env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+        subprocess.run(['git', 'add', str(rel_in_nb)],
+                       cwd=str(nb_dir), capture_output=True, env=env)
+        subprocess.run(['git', 'commit', '-m', f'Updated {fpath.name}'],
+                       cwd=str(nb_dir), capture_output=True, env=env)
+        return jsonify({'success': True})
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/note/new-encrypted', methods=['POST'])
+def api_create_encrypted_note():
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', 'home')
+    folder   = data.get('folder', '')
+    title    = data.get('title', '') or 'Encrypted note'
+    tags     = data.get('tags', [])
+    content  = data.get('content', '')
+    password = data.get('password', '')
+
+    if not password:
+        return jsonify({'error': 'password required'}), 400
+
+    nb_root = NB_DIR / notebook
+    if not nb_root.is_dir():
+        return jsonify({'error': f'notebook {notebook!r} not found'}), 404
+
+    note_dir = nb_root / folder if folder else nb_root
+    note_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build markdown body same as nb add --title / --tags
+    parts = [f'# {title}', '']
+    if tags:
+        parts.append(' '.join(f'#{t}' for t in tags))
+        parts.append('')
+    if content:
+        parts.append(content)
+    note_text = '\n'.join(parts)
+
+    slug = re.sub(r'[^\w]+', '_', title).strip('_').lower()
+    dated_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md.enc"
+    fpath = note_dir / dated_filename
+    tmp   = Path(tempfile.mktemp(suffix='.enc.tmp', dir=str(note_dir)))
+    try:
+        r = subprocess.run(
+            ['openssl', 'enc', '-aes-256-cbc', '-md', 'sha256',
+             '-pass', f'pass:{password}', '-out', str(tmp)],
+            input=note_text.encode('utf-8'),
+            capture_output=True, timeout=10)
+        if r.returncode != 0:
+            return jsonify({'error': 'encryption failed',
+                            'detail': r.stderr.decode(errors='replace')}), 500
+        tmp.replace(fpath)
+
+        # Append to nb's .index so the file gets a numeric ID
+        rel_in_nb = fpath.relative_to(nb_root)
+        index_path = nb_root / '.index'
+        with open(index_path, 'a') as f:
+            f.write(str(rel_in_nb) + '\n')
+
+        env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+        subprocess.run(['git', 'add', str(rel_in_nb), '.index'],
+                       cwd=str(nb_root), capture_output=True, env=env)
+        subprocess.run(['git', 'commit', '-m', f'Added {dated_filename}'],
+                       cwd=str(nb_root), capture_output=True, env=env)
+
+        return jsonify({'success': True, 'selector': f'{notebook}:{dated_filename}'})
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
 # API: Delete note
 # ---------------------------------------------------------------------------
 
