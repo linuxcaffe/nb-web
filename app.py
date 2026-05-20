@@ -1512,14 +1512,23 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
     search_root = NB_DIR / notebook if notebook else NB_DIR
     try:
         # Positive tags: intersect (file must contain ALL)
-        path_sets = []
-        for tag in pos_tags:
-            r = subprocess.run(
-                ['grep', '-rl', tag, str(search_root)],
+        if pos_tags:
+            path_sets = []
+            for tag in pos_tags:
+                r = subprocess.run(
+                    ['grep', '-rl', tag, str(search_root)],
+                    capture_output=True, text=True, timeout=15
+                )
+                path_sets.append(set(r.stdout.splitlines()))
+            matched_set = path_sets[0].intersection(*path_sets[1:])
+        else:
+            # Negative-only: start from all non-hidden files in the notebook
+            r_all = subprocess.run(
+                ['find', str(search_root), '-type', 'f',
+                 '!', '-path', '*/.git/*', '!', '-name', '.*'],
                 capture_output=True, text=True, timeout=15
             )
-            path_sets.append(set(r.stdout.splitlines()))
-        matched_set = path_sets[0].intersection(*path_sets[1:]) if path_sets else set()
+            matched_set = set(r_all.stdout.splitlines())
 
         # Negative tags: subtract (file must contain NONE)
         for tag in neg_tags:
