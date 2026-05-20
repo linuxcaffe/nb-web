@@ -3441,7 +3441,13 @@ const NbMain = (() => {
             clear.hidden = !input.value;
             clearTimeout(_tagsTimer);
             const raw = input.value.trim();
-            const q   = raw ? (raw.startsWith('#') ? raw : `#${raw}`) : '';
+            const q   = raw ? raw.split(/[\s,]+/).filter(Boolean).map(tok => {
+                if (tok.startsWith('-')) {
+                    const rest = tok.slice(1);
+                    return '-' + (rest.startsWith('#') ? rest : '#' + rest);
+                }
+                return tok.startsWith('#') ? tok : '#' + tok;
+            }).join(' ') : '';
             NbNav.setTagsQuery(q);
             _tagsTimer = setTimeout(() => {
                 NbNav.reexecute();
