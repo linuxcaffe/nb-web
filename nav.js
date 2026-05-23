@@ -842,8 +842,13 @@ const NbNav = (() => {
 
     function _makeChip(label, isActive, onClick) {
         const btn = document.createElement('button');
-        btn.className   = 'nb-opt-chip' + (isActive ? ' active' : '');
-        btn.textContent = label;
+        btn.className = 'nb-opt-chip' + (isActive ? ' active' : '');
+        const m = label.match(/^(\S+)\s+(.+)$/);
+        if (m) {
+            btn.innerHTML = `${m[1]}<span class="nb-chip-label"> ${m[2]}</span>`;
+        } else {
+            btn.textContent = label;
+        }
         btn.addEventListener('click', onClick);
         return btn;
     }

@@ -327,7 +327,8 @@ body {
   transition: border-color 0.12s;
   font-family: var(--font-ui);
   color-scheme: dark;   /* makes native option list respect dark theme */
-  min-width: 90px;
+  min-width: 60px;
+  max-width: 160px;
 }
 .nb-scope-select:focus { border-color: var(--accent); }
 
@@ -1421,6 +1422,8 @@ body.nb-fullscreen #nb-cmd-bar::after {
   #nb-list-pane { max-height: 35vh; }
   #nb-preview-content { padding: 16px; }
   .nb-cmd { font-size: 12px; padding: 3px 7px; }
+  .nb-chip-label { display: none; }
+  .nb-scope-select { min-width: 0; max-width: 76px; }
 }
 
 /* ── Light mode (page area only — nav/menus/dropdowns stay dark) ─ */
