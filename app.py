@@ -860,35 +860,61 @@ _HLEDGER_READ_CMDS = {
     'prices','commodities','stats','tags','files',
 }
 
+def _hledger_resolve_file(path_str):
+    """Resolve and validate a ledger file path; returns Path or raises ValueError."""
+    resolved = Path(os.path.expanduser(path_str)).resolve()
+    if not resolved.is_relative_to(Path.home()):
+        raise ValueError('File path must be within home directory')
+    return resolved
+
+
 @app.route('/api/hledger-query')
 def api_hledger_query():
     """Run a read-only hledger report and return JSON or plain text."""
     q    = request.args.get('q', '').strip()
     args = q.split() if q else ['balance']
-    cmd  = args[0].lower()
+
+    # Positional file path: first token starting with ~ or / is the ledger file.
+    file_path = None
+    if args and (args[0].startswith('~') or args[0].startswith('/')):
+        try:
+            file_path = _hledger_resolve_file(args[0])
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 403
+        args = args[1:] or ['balance']
+
+    cmd = args[0].lower()
     if cmd not in _HLEDGER_READ_CMDS:
         return jsonify({'error': f'Command not allowed: {args[0]}'}), 400
+
     # Expand ~ in -f / --file args so codeblocks can reference home-dir paths.
     expanded = [args[0]]
     i = 1
     while i < len(args):
         a = args[i]
         if a in ('-f', '--file') and i + 1 < len(args):
-            resolved = Path(os.path.expanduser(args[i + 1])).resolve()
-            if not resolved.is_relative_to(Path.home()):
-                return jsonify({'error': f'File path must be within home directory'}), 403
+            try:
+                resolved = _hledger_resolve_file(args[i + 1])
+            except ValueError as e:
+                return jsonify({'error': str(e)}), 403
             expanded.append(a)
             expanded.append(str(resolved))
             i += 2
         elif a.startswith('--file='):
-            resolved = Path(os.path.expanduser(a[7:])).resolve()
-            if not resolved.is_relative_to(Path.home()):
-                return jsonify({'error': f'File path must be within home directory'}), 403
+            try:
+                resolved = _hledger_resolve_file(a[7:])
+            except ValueError as e:
+                return jsonify({'error': str(e)}), 403
             expanded.append(f'--file={resolved}')
             i += 1
         else:
             expanded.append(a)
             i += 1
+
+    # Inject positional file path as -f (before other args, after command).
+    if file_path:
+        expanded = [expanded[0], '-f', str(file_path)] + expanded[1:]
+
     try:
         result = subprocess.run(
             ['hledger'] + expanded + ['--output-format', 'json'],
@@ -901,6 +927,8 @@ def api_hledger_query():
             return jsonify({'error': stderr or 'hledger error'}), 500
         web_url = (os.environ.get('HLEDGER_WEB_URL') or _settings.get('hledger_web_url', '')).rstrip('/')
         extra   = {'webUrl': web_url} if web_url else {}
+        if file_path:
+            extra['file'] = str(file_path)
         try:
             data = json.loads(result.stdout or 'null')
             return jsonify({'cmd': cmd, 'data': data, **extra})
@@ -914,7 +942,7 @@ def api_hledger_query():
 
 @app.route('/api/hledger-add', methods=['POST'])
 def api_hledger_add():
-    """Append a new transaction to LEDGER_FILE; validates and rolls back on error."""
+    """Append a new transaction to the ledger file; validates and rolls back on error."""
     data      = request.get_json(silent=True) or {}
     date      = data.get('date', '').strip()
     desc      = data.get('description', '').strip()
@@ -926,10 +954,17 @@ def api_hledger_add():
     if not postings:
         return jsonify({'error': 'At least one posting is required'}), 400
 
-    ledger_env = os.environ.get('LEDGER_FILE', '')
-    if not ledger_env:
-        return jsonify({'error': 'LEDGER_FILE not set — cannot write'}), 400
-    ledger_path = Path(os.path.expanduser(ledger_env))
+    # File resolution priority: codeblock path > LEDGER_FILE env > hledger default.
+    file_param = data.get('file', '').strip()
+    if file_param:
+        try:
+            ledger_path = _hledger_resolve_file(file_param)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 403
+    else:
+        ledger_env = os.environ.get('LEDGER_FILE', '')
+        ledger_path = Path(os.path.expanduser(ledger_env)) if ledger_env \
+                      else Path.home() / '.hledger.journal'
     if not ledger_path.exists():
         return jsonify({'error': f'Ledger file not found: {ledger_path}'}), 400
 

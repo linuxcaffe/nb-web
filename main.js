@@ -1815,6 +1815,8 @@ const NbMain = (() => {
             const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
+            // Store resolved file path so the add form can target the same file.
+            el.dataset.hlFile = d.file || '';
             const webUrl = d.webUrl || null;
             if (d.text != null) { _buildHledgerPre(el, d.text, q, webUrl); return; }
             const cmd = d.cmd || 'balance';
@@ -1828,6 +1830,12 @@ const NbMain = (() => {
         } catch(e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
         }
+    }
+
+    // Negate a user-typed amount string: "$10" → "-$10", "-$10" → "$10".
+    function _negateHlAmount(s) {
+        s = (s || '').trim();
+        return s.startsWith('-') ? s.slice(1).trim() : s ? '-' + s : '';
     }
 
     // Format an hledger amount array → display string
@@ -1929,8 +1937,20 @@ const NbMain = (() => {
             </div>`;
 
         const postingsEl = form.querySelector('.nb-hl-postings');
-        postingsEl.appendChild(makePostingRow());
-        postingsEl.appendChild(makePostingRow());
+        const row1 = makePostingRow();
+        const row2 = makePostingRow();
+        postingsEl.appendChild(row1);
+        postingsEl.appendChild(row2);
+
+        // Auto-balance: row2 amount mirrors the negative of row1 until the user edits it.
+        const amt1 = row1.querySelector('.nb-hl-amt-inp');
+        const amt2 = row2.querySelector('.nb-hl-amt-inp');
+        amt1.addEventListener('input', () => {
+            if (!amt2._userEdited) amt2.value = _negateHlAmount(amt1.value);
+        });
+        amt2.addEventListener('input', () => {
+            amt2._userEdited = amt2.value !== '' && amt2.value !== _negateHlAmount(amt1.value);
+        });
 
         form.querySelector('.nb-hl-add-row').addEventListener('click', () =>
             postingsEl.appendChild(makePostingRow()));
@@ -1955,10 +1975,11 @@ const NbMain = (() => {
             status.textContent = 'Saving…';
             status.style.color = '';
             try {
+                const hlFile = el.dataset.hlFile || '';
                 const r = await fetch('/api/hledger-add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ date, description: desc, postings }),
+                    body: JSON.stringify({ date, description: desc, postings, ...(hlFile && { file: hlFile }) }),
                 });
                 const d = await r.json();
                 if (d.error) {
