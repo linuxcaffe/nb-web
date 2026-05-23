@@ -1889,6 +1889,13 @@ const NbMain = (() => {
             acts.appendChild(webBtn);
         }
 
+        const helpBtn = document.createElement('button');
+        helpBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-help-btn';
+        helpBtn.title = 'Help';
+        helpBtn.textContent = '?';
+        helpBtn.addEventListener('click', () => _showHledgerHelp(helpBtn));
+        acts.appendChild(helpBtn);
+
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-refresh';
         refBtn.title = 'Refresh';
@@ -1899,6 +1906,52 @@ const NbMain = (() => {
         hdr.appendChild(acts);
         el.appendChild(hdr);
         _initCollapseToggle(el);
+    }
+
+    function _showHledgerHelp(trigger) {
+        if (trigger._helpPop) {
+            trigger._helpPop.remove();
+            trigger._helpPop = null;
+            trigger.classList.remove('nb-hl-btn-active');
+            return;
+        }
+        trigger.classList.add('nb-hl-btn-active');
+
+        const pop = document.createElement('div');
+        pop.className = 'nb-hl-help-pop';
+        pop.innerHTML = `
+            <b class="nb-hl-hp-title">hledger block</b>
+            <table class="nb-hl-hp-cmds">
+                <tr><td>balance · bal · b</td><td>account tree</td></tr>
+                <tr><td>register · reg · r</td><td>ledger + running balance</td></tr>
+                <tr><td>incomestatement · is</td><td>revenues / expenses</td></tr>
+                <tr><td>balancesheet · bs</td><td>assets / liabilities</td></tr>
+                <tr><td>cashflow · cf</td><td>cash flow</td></tr>
+            </table>
+            <div class="nb-hl-hp-sec">File</div>
+            <code class="nb-hl-hp-code">~/path/ledger.journal reg thismonth</code>
+            <div class="nb-hl-hp-sec">Filters</div>
+            <code class="nb-hl-hp-code">--period thisweek · --depth 2 · tag:name</code>
+            <code class="nb-hl-hp-code">--begin 2026-01-01 · --end 2026-12-31</code>`;
+
+        document.body.appendChild(pop);
+        const rect = trigger.getBoundingClientRect();
+        pop.style.top  = (rect.bottom + 4) + 'px';
+        pop.style.left = rect.left + 'px';
+        const pr = pop.getBoundingClientRect();
+        if (pr.right  > window.innerWidth  - 8) pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
+        if (pr.bottom > window.innerHeight - 8) pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
+
+        trigger._helpPop = pop;
+
+        const dismiss = () => {
+            pop.remove();
+            trigger._helpPop = null;
+            trigger.classList.remove('nb-hl-btn-active');
+            document.removeEventListener('click', outside, true);
+        };
+        const outside = e => { if (!pop.contains(e.target) && e.target !== trigger) dismiss(); };
+        setTimeout(() => document.addEventListener('click', outside, true), 0);
     }
 
     function _showHledgerAddForm(el, q, trigger) {
