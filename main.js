@@ -5538,12 +5538,17 @@ const NbDialog = (() => {
         const none = document.createElement('option');
         none.value = ''; none.textContent = '(root)';
         sel.appendChild(none);
-        (folders || []).filter(f => f !== exclude).forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f; opt.textContent = f + '/';
+        const available = (folders || []).filter(f =>
+            f !== exclude && !(exclude && f.startsWith(exclude + '/')));
+        available.forEach(f => {
+            const depth = (f.match(/\//g) || []).length;
+            const name  = f.split('/').pop();
+            const opt   = document.createElement('option');
+            opt.value   = f;
+            opt.textContent = '  '.repeat(depth) + name + '/';
             sel.appendChild(opt);
         });
-        sel.disabled = !(folders || []).filter(f => f !== exclude).length;
+        sel.disabled = !available.length;
         return sel;
     }
 

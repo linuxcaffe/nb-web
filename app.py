@@ -1402,15 +1402,26 @@ def api_notebooks():
                     'notebook_prefs': notebook_prefs})
 
 
+def _list_folders_recursive(base, rel=''):
+    """Return sorted list of relative folder paths (with .index) under base."""
+    result = []
+    try:
+        children = sorted(base.iterdir(), key=lambda p: p.name)
+    except PermissionError:
+        return result
+    for p in children:
+        if p.is_dir() and not p.name.startswith('.') and (p / '.index').exists():
+            path = f'{rel}/{p.name}' if rel else p.name
+            result.append(path)
+            result.extend(_list_folders_recursive(p, path))
+    return result
+
+
 @app.route('/api/folders')
 def api_folders():
     notebook = request.args.get('notebook', 'home')
     nb_path  = nb_dir_for(notebook)
-    folders  = []
-    if nb_path.exists():
-        for p in sorted(nb_path.iterdir()):
-            if p.is_dir() and not p.name.startswith('.') and (p / '.index').exists():
-                folders.append(p.name)
+    folders  = _list_folders_recursive(nb_path) if nb_path.exists() else []
     return jsonify({'folders': folders})
 
 
