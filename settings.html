@@ -125,6 +125,22 @@
     .nb-setting-value { color: var(--text); }
     .nb-settings-loading { color: var(--text-dim); font-size: 0.88em; }
 
+    .sec-index {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-bottom: 2.4em;
+    }
+    .sec-index a {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 12px;
+      padding: 3px 11px;
+      font-size: 0.78em;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .sec-index a:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
     button.tool-btn {
       background: var(--bg3);
       border: 1px solid var(--border);
@@ -156,6 +172,36 @@
 <h1>nb-web Settings</h1>
 <p class="subtitle">Saved to <code>nb-settings.json</code> alongside app.py.</p>
 
+<nav class="sec-index">
+  <a href="#sec-appearance">Appearance</a>
+  <a href="#sec-codeblocks">Codeblocks</a>
+  <a href="#sec-git">Git</a>
+  <a href="#sec-terminal">Terminal</a>
+  <a href="#sec-import">Import</a>
+  <a href="#sec-nb">nb settings</a>
+  <a href="#sec-server">Server</a>
+</nav>
+
+<!-- ── Appearance ───────────────────────────────────────────────── -->
+<section id="sec-appearance">
+  <h2>Appearance</h2>
+  <div class="field">
+    <label>Page theme</label>
+    <div class="theme-toggle">
+      <button class="theme-btn" id="theme-dark">☾ Dark</button>
+      <button class="theme-btn" id="theme-light">☀ Light</button>
+    </div>
+    <p class="hint">Stored in browser localStorage. Only the content area switches; nav and menus stay dark.</p>
+  </div>
+  <div class="field">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="folders-first" style="width:15px;height:15px;cursor:pointer">
+      Folders first
+    </label>
+    <p class="hint">Show folders above notes in the list. Default: on.</p>
+  </div>
+</section>
+
 <!-- ── Codeblocks ────────────────────────────────────────────────── -->
 <section id="sec-codeblocks">
   <h2>Codeblocks</h2>
@@ -184,7 +230,7 @@
   <h2>Git</h2>
   <div class="field">
     <label for="default-git-remote">Default remote URL</label>
-    <input type="text" id="default-git-remote" placeholder="git@github.com:you/nb-notes.git" autocomplete="off">
+    <input type="text" id="default-git-remote" placeholder="git@codeberg.org:you/nb-notes.git" autocomplete="off">
     <p class="hint">Each notebook is pushed to this remote on a branch named after itself — one repo, one branch per notebook. Leave blank to skip.</p>
   </div>
   <div class="row">
@@ -199,26 +245,6 @@
       <span class="status" id="status-wire"></span>
     </div>
     <pre id="wire-output" class="tool-output" hidden></pre>
-  </div>
-</section>
-
-<!-- ── Appearance ───────────────────────────────────────────────── -->
-<section id="sec-appearance">
-  <h2>Appearance</h2>
-  <div class="field">
-    <label>Page theme</label>
-    <div class="theme-toggle">
-      <button class="theme-btn" id="theme-dark">☾ Dark</button>
-      <button class="theme-btn" id="theme-light">☀ Light</button>
-    </div>
-    <p class="hint">Stored in browser localStorage. Only the content area switches; nav and menus stay dark.</p>
-  </div>
-  <div class="field">
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-      <input type="checkbox" id="folders-first" style="width:15px;height:15px;cursor:pointer">
-      📂 Folders first
-    </label>
-    <p class="hint">Show folders above notes in the list. Default: on.</p>
   </div>
 </section>
 
@@ -270,15 +296,6 @@
   </div>
 </section>
 
-<!-- ── Server ────────────────────────────────────────────────────── -->
-<section id="sec-server">
-  <h2>Server</h2>
-  <div class="row">
-    <button class="tool-btn" id="btn-restart">Restart server</button>
-    <span class="status" id="status-restart"></span>
-  </div>
-</section>
-
 <!-- ── nb settings (read-only view) ────────────────────────────── -->
 <section id="sec-nb">
   <h2>nb settings (read-only)</h2>
@@ -286,6 +303,15 @@
   <p class="hint" style="margin-top:.8em">
     Change with <code>nb settings set &lt;key&gt; &lt;value&gt;</code> in your terminal.
   </p>
+</section>
+
+<!-- ── Server ────────────────────────────────────────────────────── -->
+<section id="sec-server">
+  <h2>Server</h2>
+  <div class="row">
+    <button class="tool-btn" id="btn-restart">Restart server</button>
+    <span class="status" id="status-restart"></span>
+  </div>
 </section>
 
 <script>
