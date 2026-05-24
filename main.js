@@ -5548,7 +5548,6 @@ const NbDialog = (() => {
             opt.textContent = '  '.repeat(depth) + name + '/';
             sel.appendChild(opt);
         });
-        sel.disabled = !available.length;
         return sel;
     }
 
@@ -6088,10 +6087,13 @@ const NbDialog = (() => {
         cancelBtn.addEventListener('click', close);
 
         moveBtn.addEventListener('click', async () => {
-            const dest = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
+            const destPrefix = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
             moveBtn.textContent = 'Moving…'; moveBtn.disabled = true;
             let failed = 0;
             for (const sel of selectors) {
+                // Include the filename so nb doesn't preserve the source folder structure
+                const filename = sel.split(':').slice(1).join(':').split('/').pop();
+                const dest = destPrefix + filename;
                 try {
                     const resp = await fetch('/api/note/move', {
                         method: 'POST',
