@@ -1867,7 +1867,18 @@ const NbMain = (() => {
         hdr.className = 'nb-hl-header';
         const countHtml = count != null ? `<span class="nb-hl-count">${count}</span>` : '';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
-        hdr.innerHTML = `<span class="nb-hl-meta"><span class="nb-hl-name nb-collapse-zone">hledger</span>${countHtml}${filterHtml}</span>`;
+        const nameCls = webUrl ? 'nb-hl-name nb-hl-name-link' : 'nb-hl-name';
+        hdr.innerHTML = `<span class="nb-hl-meta"><span class="${nameCls}" title="${webUrl ? 'Open in hledger-web' : ''}">hledger</span>${countHtml}${filterHtml}</span>`;
+
+        if (webUrl) {
+            const nameEl = hdr.querySelector('.nb-hl-name');
+            nameEl.addEventListener('click', () => {
+                const args    = (q || '').split(/\s+/);
+                const pattern = args.slice(1).find(a => !a.startsWith('-')) || '';
+                const hash    = pattern ? `#${encodeURIComponent(pattern)}` : '';
+                window.open(`${webUrl}${hash}`, 'hledger-web');
+            });
+        }
 
         const acts = document.createElement('span');
         acts.className = 'nb-hl-actions';
@@ -1879,21 +1890,6 @@ const NbMain = (() => {
         addBtn.textContent = '+';
         addBtn.addEventListener('click', () => _showHledgerAddForm(el, q, addBtn));
         acts.appendChild(addBtn);
-
-        // ⎋ only when hledger-web URL is configured
-        if (webUrl) {
-            const webBtn = document.createElement('button');
-            webBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-web-btn';
-            webBtn.title = 'Open in hledger-web';
-            webBtn.textContent = '⎋';
-            webBtn.addEventListener('click', () => {
-                const args    = (q || '').split(/\s+/);
-                const pattern = args.slice(1).find(a => !a.startsWith('-')) || '';
-                const hash    = pattern ? `#${encodeURIComponent(pattern)}` : '';
-                window.open(`${webUrl}${hash}`, 'hledger-web');
-            });
-            acts.appendChild(webBtn);
-        }
 
         const helpBtn = document.createElement('button');
         helpBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-help-btn';
