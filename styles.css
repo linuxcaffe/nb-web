@@ -1451,11 +1451,17 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-tw-empty  { color: var(--text-dim); font-size: 0.88em; }
 
 .nb-tw-header {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 4px;
   margin-bottom: 4px;
 }
-.nb-tw-meta-inline { font-size: 0.78em; color: var(--text-dim); }
-.nb-tw-meta-inline code { font-family: var(--font-mono); }
+.nb-tw-meta           { flex: 1; font-size: 0.78em; color: var(--text-dim); margin-left: 6px; }
+.nb-tw-meta code      { font-family: var(--font-mono); }
+.nb-tw-name           { font-weight: 600; color: var(--text-muted); margin-right: 4px; cursor: pointer; }
+.nb-tw-name:hover     { color: var(--accent); }
+.nb-tw-name-launching { opacity: 0.45; }
+.nb-tw-count          { display: inline-block; font-size: 0.88em; color: var(--text-dim);
+                        background: var(--bg3); border-radius: 8px;
+                        padding: 0 5px; margin: 0 4px; line-height: 1.5; }
 
 /* Action buttons */
 .nb-tw-btn {
@@ -1590,6 +1596,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
   background: var(--bg2);
   font-size: 0.82em;
 }
+.nb-nb-name { font-weight: 600; color: var(--text-muted); margin-right: 4px; }
 .nb-nb-meta { color: var(--text-dim); }
 .nb-nb-meta code { font-family: var(--font-mono); color: var(--accent); font-style: normal; }
 .nb-nb-count { color: var(--text-dim); font-size: 0.9em; }
@@ -1652,7 +1659,8 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-git-meta { color: var(--text-dim); }
 .nb-git-meta code { font-family: var(--font-mono); color: var(--text-dim); font-style: normal; }
-.nb-git-repo { color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
+.nb-git-repo { color: var(--accent); font-weight: 600; font-family: var(--font-mono); cursor: pointer; }
+.nb-git-repo:hover { opacity: 0.75; }
 .nb-git-error { color: var(--red); font-size: 0.85em; padding: 6px 10px; display: block; }
 .nb-git-pre {
   margin: 0; padding: 10px 12px;

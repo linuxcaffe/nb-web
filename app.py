@@ -52,8 +52,8 @@ _SETTINGS_PATH = Path(__file__).parent / 'nb-settings.json'
 _SETTINGS_SCHEMA = {
     'hledger_web_cmd': {'type': str,  'default': '',
                         'coerce': lambda v: str(v).strip()},
-    'tw_web_url':      {'type': str,  'default': 'http://localhost:5000',
-                        'coerce': lambda v: str(v).strip().rstrip('/')},
+    'tw_web_cmd':      {'type': str,  'default': '',
+                        'coerce': lambda v: str(v).strip()},
     'pty_height':      {'type': int,  'default': 320,
                         'coerce': lambda v: max(60, min(1200, int(v)))},
     'pty_init':        {'type': str,  'default': '',
@@ -790,7 +790,11 @@ def api_task_query():
         )
         # task exits 1 for "no tasks match" — still valid
         tasks = json.loads(result.stdout or '[]')
-        return jsonify({'tasks': tasks})
+        tw_cmd = _settings.get('tw_web_cmd', '').strip()
+        tw_h, tw_p = _parse_web_host_port(tw_cmd, 3000) if tw_cmd else ('localhost', 3000)
+        tw_url = f'http://{tw_h}:{tw_p}' if tw_cmd else ''
+        extra  = {'twWebUrl': tw_url} if tw_url else {}
+        return jsonify({'tasks': tasks, **extra})
     except FileNotFoundError:
         return jsonify({'error': 'taskwarrior not found'}), 500
     except (json.JSONDecodeError, subprocess.TimeoutExpired) as e:
@@ -944,13 +948,13 @@ def api_hledger_query():
         return jsonify({'error': 'hledger timed out'}), 500
 
 
-def _hledger_web_parse_host_port(cmd_str):
-    """Return (host, port) from a 'hledger web [opts]' command string."""
+def _parse_web_host_port(cmd_str, default_port=5000):
+    """Return (host, port) from a web-server launch command string."""
     try:
         tokens = shlex.split(cmd_str)
     except ValueError:
         tokens = cmd_str.split()
-    host, port = 'localhost', 5000
+    host, port = 'localhost', default_port
     i = 0
     while i < len(tokens):
         t = tokens[i]
@@ -967,6 +971,9 @@ def _hledger_web_parse_host_port(cmd_str):
         i += 1
     return host, port
 
+def _hledger_web_parse_host_port(cmd_str):
+    return _parse_web_host_port(cmd_str, default_port=5000)
+
 
 @app.route('/api/hledger/launch', methods=['POST'])
 def api_hledger_launch():
@@ -976,6 +983,36 @@ def api_hledger_launch():
         return jsonify({'error': 'hledger_web_cmd not configured'}), 400
 
     host, port = _hledger_web_parse_host_port(cmd_str)
+    url = f'http://{host}:{port}'
+
+    def _is_up():
+        with socket.socket() as s:
+            s.settimeout(0.3)
+            return s.connect_ex((host, port)) == 0
+
+    if not _is_up():
+        try:
+            tokens = shlex.split(cmd_str)
+        except ValueError:
+            tokens = cmd_str.split()
+        subprocess.Popen(tokens, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            time.sleep(0.25)
+            if _is_up():
+                break
+
+    return jsonify({'url': url})
+
+
+@app.route('/api/tw/launch', methods=['POST'])
+def api_tw_launch():
+    """Start tw-web if not running, return its URL."""
+    cmd_str = _settings.get('tw_web_cmd', '').strip()
+    if not cmd_str:
+        return jsonify({'error': 'tw_web_cmd not configured'}), 400
+
+    host, port = _parse_web_host_port(cmd_str, default_port=3000)
     url = f'http://{host}:{port}'
 
     def _is_up():

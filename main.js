@@ -1368,14 +1368,14 @@ const NbMain = (() => {
             const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(d.error)}</span>`; return; }
-            _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q, colSpec);
+            _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q, colSpec, d.twWebUrl || null);
         } catch(e) {
             el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(e.message)}</span>`;
         }
         _initCollapseToggle(el);
     }
 
-    function _buildTwTable(el, tasks, q, colSpec) {
+    function _buildTwTable(el, tasks, q, colSpec, webUrl) {
         const todayYmd = _localDateStr().replace(/-/g,'');
         const soonYmd  = _localDateStr(3).replace(/-/g,'');
         const fmtDate  = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
@@ -1410,13 +1410,22 @@ const NbMain = (() => {
             return '';
         };
 
-        const metaHtml = cnt =>
-            `${cnt} task${cnt !== 1 ? 's' : ''}${q ? ` · <code>${_esc(q)}</code>` : ''}`;
-
         el.innerHTML = '';
         const hdr = document.createElement('div');
         hdr.className = 'nb-tw-header';
-        hdr.innerHTML = `<span class="nb-tw-meta-inline">${metaHtml(tasks.length)}</span>`;
+        const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
+        const nameTitle = webUrl ? 'Open in tw-web' : 'Configure launch in Settings → Codeblocks';
+        hdr.innerHTML = `<span class="nb-tw-meta"><span class="nb-tw-name" title="${nameTitle}">task</span><span class="nb-tw-count">${tasks.length}</span>${filterHtml}</span>`;
+        const twNameEl = hdr.querySelector('.nb-tw-name');
+        twNameEl.addEventListener('click', async () => {
+            if (!webUrl) { NbTerminal.openSettings('sec-codeblocks'); return; }
+            twNameEl.classList.add('nb-tw-name-launching');
+            try {
+                const d = await fetch('/api/tw/launch', {method: 'POST'}).then(r => r.json());
+                if (d.url) window.open(d.url, 'tw-web');
+            } catch(e) { console.error('tw launch:', e); }
+            finally { twNameEl.classList.remove('nb-tw-name-launching'); }
+        });
 
         const acts = document.createElement('span');
         acts.className = 'nb-tw-header-acts';
@@ -1515,8 +1524,8 @@ const NbMain = (() => {
                     setTimeout(() => {
                         tr.remove();
                         const remaining = el.querySelectorAll('tbody tr:not(.nb-tw-detail-row)').length;
-                        const meta = el.querySelector('.nb-tw-meta-inline');
-                        if (meta) meta.innerHTML = metaHtml(remaining);
+                        const countEl = el.querySelector('.nb-tw-count');
+                        if (countEl) countEl.textContent = remaining;
                         if (!remaining) el.querySelector('tbody').innerHTML =
                             `<tr><td colspan="${colspan}" class="nb-tw-all-done">✓ All done!</td></tr>`;
                     }, 380);
@@ -1676,7 +1685,7 @@ const NbMain = (() => {
         const hdr = document.createElement('div');
         hdr.className = 'nb-nb-header';
         const countHint = backlinks.length === limit ? `top ${limit}` : backlinks.length;
-        hdr.innerHTML = `<span class="nb-nb-meta">backlinks · <code>${_esc(title)}</code> <span class="nb-nb-count">${countHint}</span></span>`;
+        hdr.innerHTML = `<span class="nb-nb-meta"><span class="nb-nb-name">nb</span> backlinks · <code>${_esc(title)}</code> <span class="nb-nb-count">${countHint}</span></span>`;
 
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn';
@@ -1718,7 +1727,7 @@ const NbMain = (() => {
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
         refBtn.addEventListener('click', () => _loadNbBlock(el));
-        hdr.innerHTML = `<span class="nb-nb-meta">notebooks <span class="nb-nb-count">${notebooks.length}</span></span>`;
+        hdr.innerHTML = `<span class="nb-nb-meta"><span class="nb-nb-name">nb</span> notebooks <span class="nb-nb-count">${notebooks.length}</span></span>`;
         hdr.appendChild(refBtn);
         el.appendChild(hdr);
 
@@ -1788,6 +1797,15 @@ const NbMain = (() => {
         _initCollapseToggle(el);
     }
 
+    function _gitRemoteToWebUrl(raw) {
+        const s = raw.trim();
+        if (!s || s.startsWith('error') || s.startsWith('fatal')) return null;
+        if (s.startsWith('https://') || s.startsWith('http://'))
+            return s.replace(/\.git$/, '');
+        const m = s.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+        return m ? `https://${m[1]}/${m[2]}` : null;
+    }
+
     function _buildGitOutput(el, text, repo, args) {
         el.innerHTML = '';
         const hdr = document.createElement('div');
@@ -1795,7 +1813,17 @@ const NbMain = (() => {
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
         refBtn.addEventListener('click', () => _loadGitBlock(el));
-        hdr.innerHTML = `<span class="nb-git-meta"><span class="nb-git-repo">${_esc(repo)}</span> <code>git ${_esc(args)}</code></span>`;
+        hdr.innerHTML = `<span class="nb-git-meta"><span class="nb-git-repo" title="Open remote in browser">${_esc(repo)}</span> <code>git ${_esc(args)}</code></span>`;
+        const repoEl = hdr.querySelector('.nb-git-repo');
+        repoEl.addEventListener('click', async () => {
+            try {
+                const d = await fetch(
+                    `/api/nb/git?repo=${encodeURIComponent(repo)}&args=${encodeURIComponent('remote get-url origin')}`
+                ).then(r => r.json());
+                const url = _gitRemoteToWebUrl(d.output || '');
+                if (url) window.open(url, '_blank');
+            } catch(e) { console.error('git remote:', e); }
+        });
         hdr.appendChild(refBtn);
         el.appendChild(hdr);
         const pre = document.createElement('pre');
