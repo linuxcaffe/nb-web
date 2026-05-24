@@ -156,20 +156,21 @@
 <h1>nb-web Settings</h1>
 <p class="subtitle">Saved to <code>nb-settings.json</code> alongside app.py.</p>
 
-<!-- ── Integrations ─────────────────────────────────────────────── -->
-<section id="sec-integrations">
-  <h2>Integrations</h2>
+<!-- ── Codeblocks ────────────────────────────────────────────────── -->
+<section id="sec-codeblocks">
+  <h2>Codeblocks</h2>
+  <p class="hint" style="margin-bottom:1em">Launch URLs enable the ⎋ button on each block type. Leave blank to hide the button.</p>
 
   <div class="field">
-    <label for="hledger-web-url">hledger-web URL</label>
+    <label for="hledger-web-url">hledger launch URL</label>
     <input type="text" id="hledger-web-url" placeholder="http://localhost:5002" autocomplete="off">
-    <p class="hint">Enables ⎋ (open in hledger-web) button on hledger codeblocks. Leave blank if not running hledger-web.</p>
+    <p class="hint">Opens hledger-web pre-filtered to the block's account pattern.</p>
   </div>
 
   <div class="field">
-    <label for="tw-web-url">tw-web URL</label>
+    <label for="tw-web-url">tw launch URL</label>
     <input type="text" id="tw-web-url" placeholder="http://localhost:5000" autocomplete="off">
-    <p class="hint">Used by tw codeblock launcher and nb: annotation links.</p>
+    <p class="hint">Opens taskwarrior-web filtered to the block's query.</p>
   </div>
 
   <div class="row">

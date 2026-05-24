@@ -5131,11 +5131,11 @@ const NbTerminal = (() => {
     function _previewEl()  { return document.getElementById('nb-preview-content'); }
     function _toolbarEl()  { return document.getElementById('nb-preview-toolbar'); }
 
-    function openSettings() {
+    function openSettings(anchor = '') {
         const el = _previewEl();
         if (!el) return;
         _toolbarEl().hidden = true;
-        el.innerHTML = '<iframe src="/settings.html" style="width:100%;height:100%;min-height:600px;border:none"></iframe>';
+        el.innerHTML = `<iframe src="/settings.html${anchor ? '#' + anchor : ''}" style="width:100%;height:100%;min-height:600px;border:none"></iframe>`;
     }
 
     async function open() {

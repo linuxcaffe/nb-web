@@ -1174,7 +1174,8 @@ const NbNav = (() => {
             else if (cmd === 'export')      NbDialog.open('export');
             else if (cmd === 'link-file')   NbMain.doLinkFile();
             else if (cmd === 'contacts')    activateCmd('contacts');
-            else if (cmd === 'nb-settings') NbTerminal.openSettings();
+            else if (cmd === 'nb-settings')            NbTerminal.openSettings();
+            else if (cmd === 'nb-settings-codeblocks') NbTerminal.openSettings('sec-codeblocks');
             else if (cmd === 'terminal')    NbTerminal.open();
             else                        NbMain.runCmd(cmd);
         }
@@ -1401,7 +1402,10 @@ const NbNav = (() => {
             { label: 'Notebooks', cmd: 'nb-notebooks' },
             { label: 'Plugins',   cmd: 'plugins' },
             { label: 'Terminal',  cmd: 'terminal' },
-            { label: 'Settings',  cmd: 'nb-settings' },
+            { label: 'Settings', items: [
+                { label: 'Codeblocks', cmd: 'nb-settings-codeblocks' },
+                { label: 'General',    cmd: 'nb-settings' },
+            ]},
             { label: 'Templates', cmd: 'templates' },
             { label: 'Undo',      cmd: 'undo' },
         ];
