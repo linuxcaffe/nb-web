@@ -208,9 +208,9 @@
   <p class="hint" style="margin-bottom:1em">Launch URLs enable the ⎋ button on each block type. Leave blank to hide the button.</p>
 
   <div class="field">
-    <label for="hledger-web-url">hledger launch URL</label>
-    <input type="text" id="hledger-web-url" placeholder="http://localhost:5002" autocomplete="off">
-    <p class="hint">Opens hledger-web pre-filtered to the block's account pattern.</p>
+    <label for="hledger-web-cmd">hledger-web command</label>
+    <input type="text" id="hledger-web-cmd" placeholder="hledger web --port 5002" autocomplete="off">
+    <p class="hint">Clicking the "hledger" label in any block launches this command (if not already running) and opens the UI. Leave blank to disable.</p>
   </div>
 
   <div class="field">
@@ -368,7 +368,7 @@
     try {
       const r = await fetch('/api/nb-settings');
       const d = await r.json();
-      document.getElementById('hledger-web-url').value  = d.hledger_web_url  || '';
+      document.getElementById('hledger-web-cmd').value  = d.hledger_web_cmd  || '';
       document.getElementById('tw-web-url').value       = d.tw_web_url       || '';
       document.getElementById('pty-height').value       = d.pty_height       || 320;
       document.getElementById('pty-cwd').value          = d.pty_cwd          || '';
@@ -384,7 +384,7 @@
   async function saveNbWebSettings(keys, statusId) {
     const status = document.getElementById(statusId);
     const all = {
-      hledger_web_url:  document.getElementById('hledger-web-url').value.trim(),
+      hledger_web_cmd:  document.getElementById('hledger-web-cmd').value.trim(),
       tw_web_url:       document.getElementById('tw-web-url').value.trim(),
       pty_height:       parseInt(document.getElementById('pty-height').value)       || 320,
       pty_cwd:          document.getElementById('pty-cwd').value.trim(),
@@ -413,7 +413,7 @@
   }
 
   document.getElementById('save-integrations').addEventListener('click', () =>
-    saveNbWebSettings(['hledger_web_url', 'tw_web_url'], 'status-integrations'));
+    saveNbWebSettings(['hledger_web_cmd', 'tw_web_url'], 'status-integrations'));
   document.getElementById('save-terminal').addEventListener('click', () =>
     saveNbWebSettings(['pty_height', 'pty_cwd', 'pty_init'], 'status-terminal'));
   document.getElementById('save-import').addEventListener('click', () =>

@@ -1867,18 +1867,24 @@ const NbMain = (() => {
         hdr.className = 'nb-hl-header';
         const countHtml = count != null ? `<span class="nb-hl-count">${count}</span>` : '';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
-        const nameCls = webUrl ? 'nb-hl-name nb-hl-name-link' : 'nb-hl-name';
-        hdr.innerHTML = `<span class="nb-hl-meta"><span class="${nameCls}" title="${webUrl ? 'Open in hledger-web' : ''}">hledger</span>${countHtml}${filterHtml}</span>`;
+        const nameTitle = webUrl ? 'Open in hledger-web' : 'Configure launch in Settings → Codeblocks';
+        hdr.innerHTML = `<span class="nb-hl-meta"><span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}</span>`;
 
-        if (webUrl) {
-            const nameEl = hdr.querySelector('.nb-hl-name');
-            nameEl.addEventListener('click', () => {
-                const args    = (q || '').split(/\s+/);
-                const pattern = args.slice(1).find(a => !a.startsWith('-')) || '';
-                const hash    = pattern ? `#${encodeURIComponent(pattern)}` : '';
-                window.open(`${webUrl}${hash}`, 'hledger-web');
-            });
-        }
+        const nameEl = hdr.querySelector('.nb-hl-name');
+        nameEl.addEventListener('click', async () => {
+            if (!webUrl) { NbTerminal.openSettings('sec-codeblocks'); return; }
+            nameEl.classList.add('nb-hl-name-launching');
+            try {
+                const d = await fetch('/api/hledger/launch', {method: 'POST'}).then(r => r.json());
+                if (d.url) {
+                    const args    = (q || '').split(/\s+/);
+                    const pattern = args.slice(1).find(a => !a.startsWith('-')) || '';
+                    const hash    = pattern ? `#${encodeURIComponent(pattern)}` : '';
+                    window.open(`${d.url}${hash}`, 'hledger-web');
+                }
+            } catch(e) { console.error('hledger launch:', e); }
+            finally { nameEl.classList.remove('nb-hl-name-launching'); }
+        });
 
         const acts = document.createElement('span');
         acts.className = 'nb-hl-actions';

@@ -1780,9 +1780,9 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-hl-meta      { flex: 1; font-size: 0.78em; color: var(--text-dim); margin-left: 6px; }
 .nb-hl-meta code { font-family: var(--font-mono); }
-.nb-hl-name  { font-weight: 600; color: var(--text-muted); margin-right: 4px; }
-.nb-hl-name-link { cursor: pointer; }
-.nb-hl-name-link:hover { color: var(--accent); }
+.nb-hl-name           { font-weight: 600; color: var(--text-muted); margin-right: 4px; cursor: pointer; }
+.nb-hl-name:hover     { color: var(--accent); }
+.nb-hl-name-launching { opacity: 0.45; }
 .nb-hl-count { display: inline-block; font-size: 0.88em; color: var(--text-dim);
                background: var(--bg3); border-radius: 8px;
                padding: 0 5px; margin: 0 4px; line-height: 1.5; }

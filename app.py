@@ -21,6 +21,7 @@ except ImportError:
 
 import shlex
 import shutil
+import socket
 
 from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 from flask_sock import Sock
@@ -49,8 +50,8 @@ _STARTED_AT = datetime.now().strftime('%m-%d %H:%M')
 _SETTINGS_PATH = Path(__file__).parent / 'nb-settings.json'
 
 _SETTINGS_SCHEMA = {
-    'hledger_web_url': {'type': str,  'default': '',
-                        'coerce': lambda v: str(v).strip().rstrip('/')},
+    'hledger_web_cmd': {'type': str,  'default': '',
+                        'coerce': lambda v: str(v).strip()},
     'tw_web_url':      {'type': str,  'default': 'http://localhost:5000',
                         'coerce': lambda v: str(v).strip().rstrip('/')},
     'pty_height':      {'type': int,  'default': 320,
@@ -925,7 +926,10 @@ def api_hledger_query():
         stderr = result.stderr.strip()
         if result.returncode != 0:
             return jsonify({'error': stderr or 'hledger error'}), 500
-        web_url = (os.environ.get('HLEDGER_WEB_URL') or _settings.get('hledger_web_url', '')).rstrip('/')
+        _hl_cmd = _settings.get('hledger_web_cmd', '').strip()
+        _hl_h, _hl_p = _hledger_web_parse_host_port(_hl_cmd) if _hl_cmd else ('localhost', 5000)
+        web_url = os.environ.get('HLEDGER_WEB_URL', '').rstrip('/') or (
+            f'http://{_hl_h}:{_hl_p}' if _hl_cmd else '')
         extra   = {'webUrl': web_url} if web_url else {}
         if file_path:
             extra['file'] = str(file_path)
@@ -938,6 +942,60 @@ def api_hledger_query():
         return jsonify({'error': 'hledger not found — is it installed?'}), 500
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'hledger timed out'}), 500
+
+
+def _hledger_web_parse_host_port(cmd_str):
+    """Return (host, port) from a 'hledger web [opts]' command string."""
+    try:
+        tokens = shlex.split(cmd_str)
+    except ValueError:
+        tokens = cmd_str.split()
+    host, port = 'localhost', 5000
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t == '--port' and i + 1 < len(tokens):
+            try: port = int(tokens[i + 1]); i += 1
+            except ValueError: pass
+        elif t.startswith('--port='):
+            try: port = int(t.split('=', 1)[1])
+            except ValueError: pass
+        elif t == '--host' and i + 1 < len(tokens):
+            host = tokens[i + 1]; i += 1
+        elif t.startswith('--host='):
+            host = t.split('=', 1)[1]
+        i += 1
+    return host, port
+
+
+@app.route('/api/hledger/launch', methods=['POST'])
+def api_hledger_launch():
+    """Start hledger-web if not running, return its URL."""
+    cmd_str = _settings.get('hledger_web_cmd', '').strip()
+    if not cmd_str:
+        return jsonify({'error': 'hledger_web_cmd not configured'}), 400
+
+    host, port = _hledger_web_parse_host_port(cmd_str)
+    url = f'http://{host}:{port}'
+
+    def _is_up():
+        with socket.socket() as s:
+            s.settimeout(0.3)
+            return s.connect_ex((host, port)) == 0
+
+    if not _is_up():
+        try:
+            tokens = shlex.split(cmd_str)
+        except ValueError:
+            tokens = cmd_str.split()
+        subprocess.Popen(tokens, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.time() + 6
+        while time.time() < deadline:
+            time.sleep(0.25)
+            if _is_up():
+                break
+
+    return jsonify({'url': url})
 
 
 @app.route('/api/hledger-add', methods=['POST'])
