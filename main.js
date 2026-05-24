@@ -5242,8 +5242,9 @@ const NbTerminal = (() => {
 
         ws.onopen = () => {
             const cols = term.cols, rows = term.rows;
-            const initParts = [cfg.pty_init, extraCmd].filter(Boolean);
-            ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init: initParts.join('\n'), cols, rows }));
+            // Codeblock launches bypass the init script — just run the app directly.
+            const init = extraCmd || cfg.pty_init || '';
+            ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init, cols, rows }));
         };
         ws.onmessage = e => term.write(e.data);
         ws.onclose   = ()  => { term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); setTimeout(close, 1500); };
