@@ -1150,12 +1150,16 @@ const NbMain = (() => {
             btn.textContent = collapsed ? '▶' : '▼';
         };
         apply(localStorage.getItem(key) === '1');
-        btn.addEventListener('click', e => {
+        const toggle = e => {
             e.stopPropagation();
             const collapsed = !block.classList.contains('nb-collapsed');
             apply(collapsed);
             collapsed ? localStorage.setItem(key, '1') : localStorage.removeItem(key);
-        });
+        };
+        btn.addEventListener('click', toggle);
+        // Any element marked nb-collapse-zone in the header extends the click target.
+        header.querySelectorAll('.nb-collapse-zone').forEach(z =>
+            z.addEventListener('click', toggle));
     }
 
     // ── t timeclock codeblock ──────────────────────────────────────
@@ -1863,7 +1867,7 @@ const NbMain = (() => {
         hdr.className = 'nb-hl-header';
         const countHtml = count != null ? `<span class="nb-hl-count">${count}</span>` : '';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
-        hdr.innerHTML = `<span class="nb-hl-meta"><span class="nb-hl-name">hledger</span>${countHtml}${filterHtml}</span>`;
+        hdr.innerHTML = `<span class="nb-hl-meta"><span class="nb-hl-name nb-collapse-zone">hledger</span>${countHtml}${filterHtml}</span>`;
 
         const acts = document.createElement('span');
         acts.className = 'nb-hl-actions';
