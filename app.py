@@ -52,8 +52,12 @@ _SETTINGS_PATH = Path(__file__).parent / 'nb-settings.json'
 _SETTINGS_SCHEMA = {
     'hledger_web_cmd': {'type': str,  'default': '',
                         'coerce': lambda v: str(v).strip()},
+    'hledger_terminal':{'type': bool, 'default': False,
+                        'coerce': lambda v: bool(v)},
     'tw_web_cmd':      {'type': str,  'default': '',
                         'coerce': lambda v: str(v).strip()},
+    'tw_terminal':     {'type': bool, 'default': False,
+                        'coerce': lambda v: bool(v)},
     'pty_height':      {'type': int,  'default': 320,
                         'coerce': lambda v: max(60, min(1200, int(v)))},
     'pty_init':        {'type': str,  'default': '',
@@ -790,11 +794,16 @@ def api_task_query():
         )
         # task exits 1 for "no tasks match" — still valid
         tasks = json.loads(result.stdout or '[]')
-        tw_cmd = _settings.get('tw_web_cmd', '').strip()
-        tw_h, tw_p = _parse_web_host_port(tw_cmd, 3000) if tw_cmd else ('localhost', 3000)
-        tw_url = f'http://{tw_h}:{tw_p}' if tw_cmd else ''
-        extra  = {'twWebUrl': tw_url} if tw_url else {}
-        return jsonify({'tasks': tasks, **extra})
+        tw_cmd      = _settings.get('tw_web_cmd', '').strip()
+        tw_terminal = _settings.get('tw_terminal', False)
+        if tw_cmd and tw_terminal:
+            tw_extra = {'twTerminalMode': True, 'twLaunchCmd': tw_cmd}
+        elif tw_cmd:
+            tw_h, tw_p = _parse_web_host_port(tw_cmd, 3000)
+            tw_extra = {'twWebUrl': f'http://{tw_h}:{tw_p}'}
+        else:
+            tw_extra = {}
+        return jsonify({'tasks': tasks, **tw_extra})
     except FileNotFoundError:
         return jsonify({'error': 'taskwarrior not found'}), 500
     except (json.JSONDecodeError, subprocess.TimeoutExpired) as e:
@@ -930,11 +939,16 @@ def api_hledger_query():
         stderr = result.stderr.strip()
         if result.returncode != 0:
             return jsonify({'error': stderr or 'hledger error'}), 500
-        _hl_cmd = _settings.get('hledger_web_cmd', '').strip()
-        _hl_h, _hl_p = _hledger_web_parse_host_port(_hl_cmd) if _hl_cmd else ('localhost', 5000)
-        web_url = os.environ.get('HLEDGER_WEB_URL', '').rstrip('/') or (
-            f'http://{_hl_h}:{_hl_p}' if _hl_cmd else '')
-        extra   = {'webUrl': web_url} if web_url else {}
+        _hl_cmd      = _settings.get('hledger_web_cmd', '').strip()
+        _hl_terminal = _settings.get('hledger_terminal', False)
+        if _hl_cmd and _hl_terminal:
+            extra = {'terminalMode': True, 'launchCmd': _hl_cmd}
+        elif _hl_cmd:
+            _hl_h, _hl_p = _hledger_web_parse_host_port(_hl_cmd)
+            web_url = os.environ.get('HLEDGER_WEB_URL', '').rstrip('/') or f'http://{_hl_h}:{_hl_p}'
+            extra = {'webUrl': web_url}
+        else:
+            extra = {}
         if file_path:
             extra['file'] = str(file_path)
         try:

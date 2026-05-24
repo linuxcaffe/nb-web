@@ -1368,14 +1368,17 @@ const NbMain = (() => {
             const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(d.error)}</span>`; return; }
-            _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q, colSpec, d.twWebUrl || null);
+            const twLaunch = d.twTerminalMode ? {terminal: true, cmd: d.twLaunchCmd}
+                           : d.twWebUrl      ? {url: d.twWebUrl}
+                           : null;
+            _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q, colSpec, twLaunch);
         } catch(e) {
             el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(e.message)}</span>`;
         }
         _initCollapseToggle(el);
     }
 
-    function _buildTwTable(el, tasks, q, colSpec, webUrl) {
+    function _buildTwTable(el, tasks, q, colSpec, launch) {
         const todayYmd = _localDateStr().replace(/-/g,'');
         const soonYmd  = _localDateStr(3).replace(/-/g,'');
         const fmtDate  = s => s ? s.replace(/^(\d{4})(\d{2})(\d{2}).*/, '$1-$2-$3') : '';
@@ -1414,11 +1417,14 @@ const NbMain = (() => {
         const hdr = document.createElement('div');
         hdr.className = 'nb-tw-header';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
-        const nameTitle = webUrl ? 'Open in tw-web' : 'Configure launch in Settings → Codeblocks';
-        hdr.innerHTML = `<span class="nb-tw-meta"><span class="nb-tw-name" title="${nameTitle}">task</span><span class="nb-tw-count">${tasks.length}</span>${filterHtml}</span>`;
+        const twTitle = !launch         ? 'Configure launch in Settings → Codeblocks'
+                      : launch.terminal ? 'Run in terminal'
+                      :                   'Open in tw-web';
+        hdr.innerHTML = `<span class="nb-tw-meta"><span class="nb-tw-name" title="${twTitle}">task</span><span class="nb-tw-count">${tasks.length}</span>${filterHtml}</span>`;
         const twNameEl = hdr.querySelector('.nb-tw-name');
         twNameEl.addEventListener('click', async () => {
-            if (!webUrl) { NbTerminal.openSettings('sec-codeblocks'); return; }
+            if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
+            if (launch.terminal) { NbTerminal.run(launch.cmd); return; }
             twNameEl.classList.add('nb-tw-name-launching');
             try {
                 const d = await fetch('/api/tw/launch', {method: 'POST'}).then(r => r.json());
@@ -1849,16 +1855,18 @@ const NbMain = (() => {
             if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
             // Store resolved file path so the add form can target the same file.
             el.dataset.hlFile = d.file || '';
-            const webUrl = d.webUrl || null;
-            if (d.text != null) { _buildHledgerPre(el, d.text, q, webUrl); return; }
+            const launch = d.terminalMode ? {terminal: true, cmd: d.launchCmd}
+                         : d.webUrl       ? {url: d.webUrl}
+                         : null;
+            if (d.text != null) { _buildHledgerPre(el, d.text, q, launch); return; }
             const cmd = d.cmd || 'balance';
             const BALANCE   = new Set(['balance','bal','b']);
             const REGISTER  = new Set(['register','reg','r']);
             const SECTIONED = new Set(['incomestatement','is','balancesheet','bs','cashflow','cf']);
-            if (BALANCE.has(cmd))        _buildHledgerBalance(el, d.data, q, webUrl);
-            else if (REGISTER.has(cmd))  _buildHledgerRegister(el, d.data, q, webUrl);
-            else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q, webUrl);
-            else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q, webUrl);
+            if (BALANCE.has(cmd))        _buildHledgerBalance(el, d.data, q, launch);
+            else if (REGISTER.has(cmd))  _buildHledgerRegister(el, d.data, q, launch);
+            else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q, launch);
+            else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q, launch);
         } catch(e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
         }
@@ -1890,17 +1898,20 @@ const NbMain = (() => {
         return total < -0.001 ? 'nb-hl-neg' : total > 0.001 ? 'nb-hl-pos' : 'nb-hl-zero';
     }
 
-    function _hlHeader(el, q, refresh, webUrl, count = null) {
+    function _hlHeader(el, q, refresh, launch, count = null) {
         const hdr = document.createElement('div');
         hdr.className = 'nb-hl-header';
         const countHtml = count != null ? `<span class="nb-hl-count">${count}</span>` : '';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
-        const nameTitle = webUrl ? 'Open in hledger-web' : 'Configure launch in Settings → Codeblocks';
+        const nameTitle = !launch                ? 'Configure launch in Settings → Codeblocks'
+                        : launch.terminal        ? 'Run in terminal'
+                        :                          'Open in hledger-web';
         hdr.innerHTML = `<span class="nb-hl-meta"><span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}</span>`;
 
         const nameEl = hdr.querySelector('.nb-hl-name');
         nameEl.addEventListener('click', async () => {
-            if (!webUrl) { NbTerminal.openSettings('sec-codeblocks'); return; }
+            if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
+            if (launch.terminal) { NbTerminal.run(launch.cmd); return; }
             nameEl.classList.add('nb-hl-name-launching');
             try {
                 const d = await fetch('/api/hledger/launch', {method: 'POST'}).then(r => r.json());
@@ -2088,12 +2099,12 @@ const NbMain = (() => {
     }
 
     // ── balance / bal / b ─────────────────────────────────────────
-    function _buildHledgerBalance(el, data, q, webUrl) {
+    function _buildHledgerBalance(el, data, q, launch) {
         // data = [rows_array, totals_array]
         const rows   = Array.isArray(data?.[0]) ? data[0] : [];
         const totals = Array.isArray(data?.[1]) ? data[1] : [];
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl, rows.length);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), launch, rows.length);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No accounts matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -2117,12 +2128,12 @@ const NbMain = (() => {
     }
 
     // ── register / reg / r ────────────────────────────────────────
-    function _buildHledgerRegister(el, data, q, webUrl) {
+    function _buildHledgerRegister(el, data, q, launch) {
         const rows = Array.isArray(data) ? data : [];
         // Count transactions (non-continuation rows where date is non-null)
         const txnCount = rows.filter(r => r[0] != null).length;
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl, txnCount);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), launch, txnCount);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No transactions matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -2149,11 +2160,11 @@ const NbMain = (() => {
     }
 
     // ── incomestatement / balancesheet / cashflow ─────────────────
-    function _buildHledgerSectioned(el, data, q, webUrl) {
+    function _buildHledgerSectioned(el, data, q, launch) {
         const subreports = data?.cbrSubreports || [];
         const rowCount = subreports.reduce((n, [, r]) => n + (r?.prRows?.length || 0), 0);
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl, rowCount || null);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), launch, rowCount || null);
 
         for (const [sectionName, report] of subreports) {
             const rows   = report?.prRows   || [];
@@ -2188,9 +2199,9 @@ const NbMain = (() => {
     }
 
     // Fallback: plain text in a <pre>
-    function _buildHledgerPre(el, text, q, webUrl) {
+    function _buildHledgerPre(el, text, q, launch) {
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), launch);
         el.insertAdjacentHTML('beforeend', `<pre class="nb-hl-pre">${_esc(text)}</pre>`);
     }
 
@@ -5168,12 +5179,20 @@ const NbTerminal = (() => {
         el.innerHTML = `<iframe src="/settings.html${anchor ? '#' + anchor : ''}" style="width:100%;height:100%;min-height:600px;border:none"></iframe>`;
     }
 
-    async function open() {
+    async function run(cmd) {
+        if (_ws?.readyState === WebSocket.OPEN) {
+            _ws.send(cmd + '\r');
+            return;
+        }
+        await open(cmd);
+    }
+
+    async function open(extraCmd = '') {
         const el = _previewEl();
         if (!el) return;
 
-        // Toggle off if already showing terminal
-        if (el.querySelector('#nb-pty-wrap')) {
+        // Toggle off if already showing terminal (only via plain open(), not run())
+        if (!extraCmd && el.querySelector('#nb-pty-wrap')) {
             close();
             return;
         }
@@ -5223,7 +5242,8 @@ const NbTerminal = (() => {
 
         ws.onopen = () => {
             const cols = term.cols, rows = term.rows;
-            ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init: cfg.pty_init || '', cols, rows }));
+            const initParts = [cfg.pty_init, extraCmd].filter(Boolean);
+            ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init: initParts.join('\n'), cols, rows }));
         };
         ws.onmessage = e => term.write(e.data);
         ws.onclose   = ()  => { term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); setTimeout(close, 1500); };
@@ -5246,7 +5266,7 @@ const NbTerminal = (() => {
         if (sel) NbMain.openNote(sel, false);
     }
 
-    return { open, close, openSettings };
+    return { open, close, run, openSettings };
 })();
 
 // ── Import / Export / Move panel ──────────────────────────────

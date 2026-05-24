@@ -75,6 +75,11 @@
     input[type="number"] { width: 7em; }
 
     .hint { font-size: 0.78em; color: var(--text-dim); margin-top: 3px; }
+    .terminal-toggle {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 0.82em; color: var(--text-muted);
+      white-space: nowrap; cursor: pointer;
+    }
 
     .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
@@ -208,15 +213,21 @@
   <p class="hint" style="margin-bottom:1em">Launch URLs enable the ⎋ button on each block type. Leave blank to hide the button.</p>
 
   <div class="field">
-    <label for="hledger-web-cmd">hledger-web command</label>
-    <input type="text" id="hledger-web-cmd" placeholder="hledger web --port 5002" autocomplete="off">
-    <p class="hint">Clicking the "hledger" label in any block launches this command (if not already running) and opens the UI. Leave blank to disable.</p>
+    <label for="hledger-web-cmd">hledger command</label>
+    <div class="row" style="flex-wrap:nowrap;gap:10px">
+      <input type="text" id="hledger-web-cmd" placeholder="hledger web --port 5002" autocomplete="off" style="flex:1;max-width:none">
+      <label class="terminal-toggle"><input type="checkbox" id="hledger-terminal"> terminal</label>
+    </div>
+    <p class="hint">Clicking "hledger" in any block launches this command. Unchecked: starts as web service, opens in new browser tab (add <code>--serve</code> to suppress auto-browser). Checked: runs in the nb-web terminal panel (for TUI apps like <code>hledger ui</code>).</p>
   </div>
 
   <div class="field">
-    <label for="tw-web-cmd">tw-web command</label>
-    <input type="text" id="tw-web-cmd" placeholder="~/dev/tw-web/target/release/taskwarrior-web" autocomplete="off">
-    <p class="hint">Clicking "task" in any tw block launches this command (if not already running) and opens the UI. Leave blank to disable.</p>
+    <label for="tw-web-cmd">tw command</label>
+    <div class="row" style="flex-wrap:nowrap;gap:10px">
+      <input type="text" id="tw-web-cmd" placeholder="~/dev/tw-web/target/release/taskwarrior-web" autocomplete="off" style="flex:1;max-width:none">
+      <label class="terminal-toggle"><input type="checkbox" id="tw-terminal"> terminal</label>
+    </div>
+    <p class="hint">Clicking "task" in any tw block launches this command. Unchecked: opens in new browser tab. Checked: runs in the nb-web terminal panel (e.g. <code>tasksh</code>).</p>
   </div>
 
   <div class="row">
@@ -368,8 +379,10 @@
     try {
       const r = await fetch('/api/nb-settings');
       const d = await r.json();
-      document.getElementById('hledger-web-cmd').value  = d.hledger_web_cmd  || '';
-      document.getElementById('tw-web-cmd').value       = d.tw_web_cmd       || '';
+      document.getElementById('hledger-web-cmd').value    = d.hledger_web_cmd  || '';
+      document.getElementById('hledger-terminal').checked = d.hledger_terminal || false;
+      document.getElementById('tw-web-cmd').value         = d.tw_web_cmd       || '';
+      document.getElementById('tw-terminal').checked      = d.tw_terminal      || false;
       document.getElementById('pty-height').value       = d.pty_height       || 320;
       document.getElementById('pty-cwd').value          = d.pty_cwd          || '';
       document.getElementById('pty-init').value         = d.pty_init         || '';
@@ -385,7 +398,9 @@
     const status = document.getElementById(statusId);
     const all = {
       hledger_web_cmd:  document.getElementById('hledger-web-cmd').value.trim(),
+      hledger_terminal: document.getElementById('hledger-terminal').checked,
       tw_web_cmd:       document.getElementById('tw-web-cmd').value.trim(),
+      tw_terminal:      document.getElementById('tw-terminal').checked,
       pty_height:       parseInt(document.getElementById('pty-height').value)       || 320,
       pty_cwd:          document.getElementById('pty-cwd').value.trim(),
       pty_init:         document.getElementById('pty-init').value,
@@ -413,7 +428,7 @@
   }
 
   document.getElementById('save-integrations').addEventListener('click', () =>
-    saveNbWebSettings(['hledger_web_cmd', 'tw_web_cmd'], 'status-integrations'));
+    saveNbWebSettings(['hledger_web_cmd', 'hledger_terminal', 'tw_web_cmd', 'tw_terminal'], 'status-integrations'));
   document.getElementById('save-terminal').addEventListener('click', () =>
     saveNbWebSettings(['pty_height', 'pty_cwd', 'pty_init'], 'status-terminal'));
   document.getElementById('save-import').addEventListener('click', () =>
