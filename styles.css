@@ -1780,6 +1780,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-hl-meta      { font-size: 0.78em; color: var(--text-dim); }
 .nb-hl-meta code { font-family: var(--font-mono); }
+.nb-hl-name  { font-weight: 600; color: var(--text-muted); margin-right: 4px; }
+.nb-hl-count { display: inline-block; font-size: 0.88em; color: var(--text-dim);
+               background: var(--bg3); border-radius: 8px;
+               padding: 0 5px; margin: 0 4px; line-height: 1.5; }
 .nb-hl-actions   { display: flex; align-items: center; gap: 2px; }
 .nb-hl-btn         { font-size: 1em; }
 .nb-hl-add-btn     { font-size: 1.1em; font-weight: bold; }

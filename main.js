@@ -1858,10 +1858,12 @@ const NbMain = (() => {
         return total < -0.001 ? 'nb-hl-neg' : total > 0.001 ? 'nb-hl-pos' : 'nb-hl-zero';
     }
 
-    function _hlHeader(el, q, refresh, webUrl) {
+    function _hlHeader(el, q, refresh, webUrl, count = null) {
         const hdr = document.createElement('div');
         hdr.className = 'nb-hl-header';
-        hdr.innerHTML = `<span class="nb-hl-meta">${q ? `<code>${_esc(q)}</code>` : 'hledger'}</span>`;
+        const countHtml = count != null ? `<span class="nb-hl-count">${count}</span>` : '';
+        const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
+        hdr.innerHTML = `<span class="nb-hl-meta"><span class="nb-hl-name">hledger</span>${countHtml}${filterHtml}</span>`;
 
         const acts = document.createElement('span');
         acts.className = 'nb-hl-actions';
@@ -2057,7 +2059,7 @@ const NbMain = (() => {
         const rows   = Array.isArray(data?.[0]) ? data[0] : [];
         const totals = Array.isArray(data?.[1]) ? data[1] : [];
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl, rows.length);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No accounts matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -2083,8 +2085,10 @@ const NbMain = (() => {
     // ── register / reg / r ────────────────────────────────────────
     function _buildHledgerRegister(el, data, q, webUrl) {
         const rows = Array.isArray(data) ? data : [];
+        // Count transactions (non-continuation rows where date is non-null)
+        const txnCount = rows.filter(r => r[0] != null).length;
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl, txnCount);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No transactions matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -2113,8 +2117,9 @@ const NbMain = (() => {
     // ── incomestatement / balancesheet / cashflow ─────────────────
     function _buildHledgerSectioned(el, data, q, webUrl) {
         const subreports = data?.cbrSubreports || [];
+        const rowCount = subreports.reduce((n, [, r]) => n + (r?.prRows?.length || 0), 0);
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), webUrl, rowCount || null);
 
         for (const [sectionName, report] of subreports) {
             const rows   = report?.prRows   || [];
