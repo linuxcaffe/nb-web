@@ -195,7 +195,11 @@ const NbNav = (() => {
             _executeCmd();   // honours _searchQuery / _tagsQuery alongside type + status
         }
 
-        bar.appendChild(_makeScopeSelect(nb => { _applyNotebookDefaults(nb); renderOptsBar(); _run(); }));
+        bar.appendChild(_makeScopeSelect(nb => {
+            _folder[_activeCmd] = '';
+            updateBreadcrumb([]);
+            _applyNotebookDefaults(nb); renderOptsBar(); _run();
+        }));
         bar.appendChild(_makeSep());
 
         bar.appendChild(_makeChipRow([
