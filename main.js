@@ -3142,9 +3142,8 @@ const NbMain = (() => {
             titleEl.style.cursor = 'pointer';
             titleEl.title = 'Click to copy notebook:filename wikilink';
             titleEl.addEventListener('click', () => {
-                if (!_activeSelector || !_activeFilename) return;
-                const nb  = _activeSelector.split(':')[0];
-                const link = `${nb}:${_activeFilename}`;
+                if (!_activeSelector) return;
+                const link = _activeSelector;
                 navigator.clipboard.writeText(link).then(() => {
                     const orig = titleEl.textContent;
                     titleEl.textContent = `✓ ${link}`;
