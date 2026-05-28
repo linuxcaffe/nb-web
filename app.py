@@ -678,14 +678,24 @@ def api_create_export_template():
 def _resolve_to_nb_path(selector):
     """Return Path within NB_DIR for selector, or None on error/traversal."""
     path_r = run_nb('show', selector, '--path')
-    if not nb_ok(path_r):
-        return None
-    p = Path(path_r['stdout'].strip())
-    try:
-        p.relative_to(NB_DIR)
-    except ValueError:
-        return None
-    return p
+    if nb_ok(path_r):
+        p = Path(path_r['stdout'].strip())
+        try:
+            p.relative_to(NB_DIR)
+        except ValueError:
+            return None
+        return p
+    # Fallback for non-indexed files (images, attachments) via direct path construction.
+    # nb show won't find them but the file exists at NB_DIR/notebook/rel_path.
+    if ':' in selector:
+        nb_name, rel = selector.split(':', 1)
+        try:
+            p = (NB_DIR / nb_name / rel).resolve()
+            p.relative_to(NB_DIR)  # must stay within NB_DIR
+            return p if p.exists() else None
+        except (ValueError, OSError):
+            pass
+    return None
 
 
 @app.route('/api/file')

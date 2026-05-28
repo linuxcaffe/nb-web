@@ -2222,7 +2222,19 @@ const NbMain = (() => {
             const folder = rest.includes('/') ? rest.slice(0, rest.lastIndexOf('/') + 1) : '';
             html = html.replace(/(<img\b[^>]*?\bsrc=")([^"]+)(")/g, (_, pre, src, post) => {
                 if (/^(https?:|data:|\/api\/|\/\/)/.test(src)) return _;
-                const imgSel = /^[\w-]+:/.test(src) ? src : `${nb}:${folder}${src}`;
+                let imgSel;
+                if (/^[\w.-]+:/.test(src)) {
+                    imgSel = src;
+                } else {
+                    // Normalise path: resolve any ../ so nb show gets a clean selector
+                    const parts = (folder + src).split('/');
+                    const resolved = [];
+                    for (const p of parts) {
+                        if (p === '..') resolved.pop();
+                        else if (p && p !== '.') resolved.push(p);
+                    }
+                    imgSel = `${nb}:${resolved.join('/')}`;
+                }
                 return `${pre}/api/file?selector=${encodeURIComponent(imgSel)}${post}`;
             });
         }
