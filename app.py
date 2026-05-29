@@ -2296,15 +2296,19 @@ def api_create_note():
             args += ['--title', title]
         args += ['--content', note_content]
         if tags:    args += ['--tags', ','.join(tags)]
-        # Datestamp-prefixed filename keeps the clean title while making notes cal-visible
         slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
-        dated_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
-        args += ['--filename', dated_filename]
+        # Subfolder notes (e.g. items/) use a clean slug filename — no date prefix,
+        # since they are identified by item code, not by date.
+        if folder:
+            note_filename = f"{slug}.md"
+        else:
+            note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
+        args += ['--filename', note_filename]
         r = run_nb(*args)
         if nb_ok(r):
             # We control the filename, so build the selector directly — avoids
             # parsing nb's ID-based output which won't match filename selectors in the list.
-            rel = f'{folder}/{dated_filename}' if folder else dated_filename
+            rel = f'{folder}/{note_filename}' if folder else note_filename
             return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
                             'selector': f'{notebook}:{rel}'})
 

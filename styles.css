@@ -966,6 +966,19 @@ body {
 
 .nb-contact-notes     { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 
+/* Item card (preciousfinds-style item notes in items/ subfolder) */
+.nb-item-card         { max-width: 640px; }
+.nb-item-img-wrap     { margin-bottom: 16px; }
+.nb-item-img          { max-width: 100%; max-height: 360px; object-fit: contain; border-radius: 6px; display: block; }
+.nb-item-body         { padding: 0 32px 28px; }
+.nb-item-header       { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+.nb-item-name         { font-size: 1.4em; font-weight: 600; color: var(--text); }
+.nb-item-status       { font-size: 0.75em; font-weight: 700; padding: 0.2em 0.6em; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.nb-item-status--available { background: color-mix(in srgb, #4a9 12%, transparent); color: #2a7a5a; border: 1px solid color-mix(in srgb, #4a9 28%, transparent); }
+.nb-item-status--sold      { background: color-mix(in srgb, var(--text-muted) 10%, transparent); color: var(--text-muted); border: 1px solid var(--border); }
+.nb-item-caption      { font-size: 1em; color: var(--text-muted); margin-bottom: 6px; font-style: italic; }
+.nb-item-description  { font-size: 0.95em; color: var(--text); margin-bottom: 12px; }
+
 /* Rendered Markdown */
 #nb-preview-content .nb-rendered { max-width: 720px; }
 #nb-preview-content .nb-rendered h1 { font-size: 1.6em; margin-bottom: .5em; color: var(--text); }

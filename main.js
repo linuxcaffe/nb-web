@@ -440,6 +440,8 @@ const NbMain = (() => {
             return;
         } else if (note.type === 'contact') {
             html = _renderContact(note);
+        } else if (note.selector && /:[^:]*\/items\//.test(note.selector)) {
+            html = _renderItem(note);
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
@@ -1049,6 +1051,65 @@ const NbMain = (() => {
   ${rows ? `<div class="nb-contact-fields">${rows}</div>` : ''}
   ${tagHtml}
   ${bodyHtml}
+</div>`;
+    }
+
+    function _renderItem(note) {
+        const m      = note.meta || {};
+        const nb     = note.notebook || (note.selector || '').split(':')[0];
+        const title  = String(m.title || note.title || '');
+        const status = String(m.status || 'available');
+        const statusLabel = status === 'available' ? 'Available' : status === 'sold' ? 'Sold' : status;
+        const statusClass = status === 'available' ? 'nb-item-status--available' : 'nb-item-status--sold';
+
+        const imgSel = m.image ? `${nb}:${m.image}` : null;
+        const imgHtml = imgSel
+            ? `<img class="nb-item-img" src="/api/file?selector=${encodeURIComponent(imgSel)}" alt="${_esc(title)}">`
+            : '';
+
+        const row = (label, val) => val
+            ? `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(label)}</span><span class="nb-contact-value">${_esc(String(val))}</span></div>`
+            : '';
+        const linkRow = (label, href, text) => href
+            ? `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(label)}</span><a class="nb-contact-value" href="${_esc(href)}" target="_blank" rel="noopener">${_esc(text)}</a></div>`
+            : '';
+
+        const fields = [
+            row('category',  m.category),
+            row('price',     m.price),
+            row('condition', m.condition),
+            linkRow('listing', m.listing, `View on ${m.platform || m.listing}`),
+            !m.listing && m.platform ? row('platform', m.platform) : '',
+        ].join('');
+
+        const tags = Array.isArray(m.tags) ? m.tags : (m.tags ? String(m.tags).split(',').map(t => t.trim()) : []);
+        const tagHtml = tags.length
+            ? `<div class="nb-contact-tags">${tags.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join('')}</div>`
+            : '';
+
+        // Body: strip the leading image line and comment placeholder
+        const cleanBody = (note.body || '')
+            .replace(/^!\[.*?\]\(.*?\)\s*\n?/m, '')
+            .replace(/<!--.*?-->/gs, '')
+            .trim();
+        const bodyHtml = cleanBody
+            ? `<div class="nb-contact-notes">${_renderMarkdown(cleanBody)}</div>` : '';
+
+        const caption = m.caption ? `<div class="nb-item-caption">${_esc(String(m.caption))}</div>` : '';
+        const desc    = m.description ? `<div class="nb-item-description">${_esc(String(m.description))}</div>` : '';
+
+        return `<div class="nb-item-card">
+  ${imgHtml ? `<div class="nb-item-img-wrap">${imgHtml}</div>` : ''}
+  <div class="nb-item-body">
+    <div class="nb-item-header">
+      <div class="nb-item-name">${_esc(title)}</div>
+      <span class="nb-item-status ${statusClass}">${_esc(statusLabel)}</span>
+    </div>
+    ${caption}${desc}
+    ${fields ? `<div class="nb-contact-fields">${fields}</div>` : ''}
+    ${tagHtml}
+    ${bodyHtml}
+  </div>
 </div>`;
     }
 
