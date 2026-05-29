@@ -3824,12 +3824,12 @@ const NbMain = (() => {
 
     // ── Add note (called from opts bar form) ───────────────────────
 
-    async function addNote({ notebook, type, title, url, template_path }) {
+    async function addNote({ notebook, folder, type, title, url, template_path }) {
         try {
             const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ notebook, type, title, url,
+                body: JSON.stringify({ notebook, folder: folder || '', type, title, url,
                                        tags: [], content: '', comment: '',
                                        template_path: template_path || '' }),
             });

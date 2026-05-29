@@ -480,21 +480,32 @@ def api_update_template():
 
 @app.route('/api/template/default')
 def api_get_template_default():
-    """Return the auto-default template for a notebook (exactly one in its .templates/)."""
+    """Return the auto-default template for a notebook (exactly one in its .templates/).
+    If ?folder=items is given, check {notebook}/{folder}/.templates/ first."""
     notebook = request.args.get('notebook', '').strip()
+    folder   = request.args.get('folder', '').strip().strip('/')
     if not notebook:
         return jsonify({'template': None})
-    tmpl_dir = NB_DIR / notebook / '.templates'
-    if not tmpl_dir.is_dir():
-        return jsonify({'template': None})
-    templates = sorted(
-        f for f in tmpl_dir.iterdir()
-        if f.is_file() and not f.name.startswith('.') and f.suffix in ('.md', '.txt', '.org')
-    )
-    if len(templates) == 1:
-        t = templates[0]
-        return jsonify({'template': {'name': t.stem, 'path': str(t)}})
-    return jsonify({'template': None})
+
+    def _pick(tmpl_dir):
+        if not tmpl_dir.is_dir():
+            return None
+        templates = sorted(
+            f for f in tmpl_dir.iterdir()
+            if f.is_file() and not f.name.startswith('.') and f.suffix in ('.md', '.txt', '.org')
+        )
+        if len(templates) == 1:
+            t = templates[0]
+            return {'name': t.stem, 'path': str(t)}
+        return None
+
+    if folder:
+        result = _pick(NB_DIR / notebook / folder / '.templates')
+        if result:
+            return jsonify({'template': result, 'folder': folder})
+
+    result = _pick(NB_DIR / notebook / '.templates')
+    return jsonify({'template': result})
 
 
 @app.route('/api/template/default', methods=['POST'])
@@ -2261,8 +2272,9 @@ def api_create_note():
         if nb_ok(r):
             # We control the filename, so build the selector directly — avoids
             # parsing nb's ID-based output which won't match filename selectors in the list.
+            rel = f'{folder}/{dated_filename}' if folder else dated_filename
             return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
-                            'selector': f'{notebook}:{dated_filename}'})
+                            'selector': f'{notebook}:{rel}'})
 
     if not nb_ok(r):
         return jsonify({'success': False, 'error': r['stderr']}), 400

@@ -248,15 +248,18 @@ const NbNav = (() => {
                 : 'Use template';
         }
 
-        async function _applyDefaultTemplate(nb) {
+        async function _applyDefaultTemplate(nb, folder = '') {
             try {
-                const r = await fetch(`/api/template/default?notebook=${encodeURIComponent(nb)}`);
+                let url = `/api/template/default?notebook=${encodeURIComponent(nb)}`;
+                if (folder) url += `&folder=${encodeURIComponent(folder)}`;
+                const r = await fetch(url);
                 const d = await r.json();
                 if (d.template) {
-                    st.template     = d.template.path;
-                    st.templateName = d.template.name;
+                    st.template      = d.template.path;
+                    st.templateName  = d.template.name;
+                    st.templateFolder = d.folder || '';
                 } else {
-                    st.template = null; st.templateName = '';
+                    st.template = null; st.templateName = ''; st.templateFolder = '';
                 }
                 _syncTmplBtn();
                 _updateOutputBar();
@@ -266,7 +269,7 @@ const NbNav = (() => {
         // Scope select — first/leftmost; hidden when creating a notebook (they're top-level)
         scopeWrap = _makeScopeSelect(async nb => {
             _updateOutputBar();
-            await _applyDefaultTemplate(nb === '_all' ? 'home' : nb);
+            await _applyDefaultTemplate(nb === '_all' ? 'home' : nb, _folder['list'] || '');
             _tmplMode ? NbMain.loadTemplatesForAdd() : NbMain.loadNotes();
         });
         scopeWrap.hidden = st.type === 'notebook';
@@ -448,6 +451,7 @@ const NbNav = (() => {
         function _noteArgs() {
             return {
                 notebook:      _scope === '_all' ? 'home' : _scope,
+                folder:        st.templateFolder || _folder['list'] || '',
                 type:          st.type,
                 title:         st.title,
                 url:           st.url,
@@ -500,8 +504,9 @@ const NbNav = (() => {
         requestAnimationFrame(() => titleInput.focus());
 
         // Auto-apply notebook default template on open (async — won't delay render)
+        // Pass list-folder context so items/.templates/ wins when user is browsing items/
         if (st.type === 'note' && !st.dirty) {
-            _applyDefaultTemplate(_scope === '_all' ? 'home' : _scope);
+            _applyDefaultTemplate(_scope === '_all' ? 'home' : _scope, _folder['list'] || '');
         }
     }
 
