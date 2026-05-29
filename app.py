@@ -395,10 +395,41 @@ def strip_ansi(s):
 @app.route('/api/templates')
 def api_templates():
     notebook = request.args.get('notebook', 'home')
-    local_dir  = NB_DIR / notebook / '.templates'
+    nb_root    = NB_DIR / notebook
     global_dir = GLOBAL_TEMPLATES_DIR
     seen, templates = set(), []
-    for scope, tdir in [('local', local_dir), ('global', global_dir)]:
+
+    # Scan notebook root .templates/ then every subfolder's .templates/
+    tmpl_dirs = []
+    if (nb_root / '.templates').is_dir():
+        tmpl_dirs.append(('local', nb_root / '.templates', ''))
+    for sub in sorted(nb_root.rglob('.templates')):
+        if sub == nb_root / '.templates' or not sub.is_dir():
+            continue
+        rel = sub.parent.relative_to(nb_root)
+        tmpl_dirs.append(('local', sub, str(rel)))
+
+    for scope, tdir, subfolder in tmpl_dirs:
+        for f in sorted(tdir.glob('*.md')):
+            if f.name.startswith('.'):
+                continue
+            key = f'{subfolder}/{f.stem}' if subfolder else f.stem
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                preview = f.read_text(errors='replace')[:200]
+            except OSError:
+                preview = ''
+            templates.append({
+                'name':      f'{subfolder}/{f.stem}' if subfolder else f.stem,
+                'path':      str(f),
+                'scope':     scope,
+                'subfolder': subfolder,
+                'preview':   preview,
+            })
+
+    for scope, tdir, subfolder in [('global', global_dir, '')]:
         if not tdir.is_dir():
             continue
         for f in sorted(tdir.glob('*.md')):
@@ -410,10 +441,11 @@ def api_templates():
             except OSError:
                 preview = ''
             templates.append({
-                'name':    f.stem,
-                'path':    str(f),
-                'scope':   scope,
-                'preview': preview,
+                'name':      f.stem,
+                'path':      str(f),
+                'scope':     'global',
+                'subfolder': '',
+                'preview':   preview,
             })
     # Also include any .export.template.html files (notebook overrides global)
     for scope, loc in [('local',  NB_DIR / notebook / '.export.template.html'),

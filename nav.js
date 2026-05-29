@@ -1094,9 +1094,10 @@ const NbNav = (() => {
         _updateOutputBar();
     }
 
-    function setAddTemplate(path, name = '') {
-        _state.add.template     = path;
-        _state.add.templateName = name || (path ? path.split('/').pop().replace(/\.[^.]*$/, '') : '');
+    function setAddTemplate(path, name = '', subfolder = '') {
+        _state.add.template       = path;
+        _state.add.templateName   = name || (path ? path.split('/').pop().replace(/\.[^.]*$/, '') : '');
+        _state.add.templateFolder = subfolder;
         _updateOutputBar();
     }
 

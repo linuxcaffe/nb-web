@@ -3950,7 +3950,7 @@ const NbMain = (() => {
                     scopeLabel,
                     t.path === curTemplate,
                     () => {
-                        NbNav.setAddTemplate(t.path);
+                        NbNav.setAddTemplate(t.path, t.name, t.subfolder || '');
                         _previewTemplate(t.path, t.name, t.scope);
                     }
                 );
@@ -4029,7 +4029,7 @@ const NbMain = (() => {
                     if (t.template_type === 'export_html') {
                         _openExportTemplate(t.path, t.name, t.scope);
                     } else {
-                        _openTemplate(t.path, t.name, t.scope);
+                        _openTemplate(t.path, t.name, t.scope, t.subfolder || '');
                     }
                 });
                 list.appendChild(li);
@@ -4517,7 +4517,7 @@ const NbMain = (() => {
         }
     }
 
-    async function _openTemplate(path, name, scope) {
+    async function _openTemplate(path, name, scope, subfolder = '') {
         const content = document.getElementById('nb-preview-content');
         content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
         document.getElementById('nb-preview-toolbar').hidden = true;
@@ -4575,6 +4575,7 @@ const NbMain = (() => {
                     try {
                         const ok = await addNote({
                             notebook:      NbNav.notebook === '_all' ? 'home' : NbNav.notebook,
+                            folder:        subfolder,
                             type:          'note', title, url: '', template_path: path,
                         });
                         if (ok) { NbNav.activateCmd('list'); if (ok.selector) openNote(ok.selector); }
