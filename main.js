@@ -440,7 +440,7 @@ const NbMain = (() => {
             return;
         } else if (note.type === 'contact') {
             html = _renderContact(note);
-        } else if (note.selector && /:[^:]*\/items\//.test(note.selector)) {
+        } else if (note.selector && /:items\//.test(note.selector)) {
             html = _renderItem(note);
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
@@ -1062,7 +1062,11 @@ const NbMain = (() => {
         const statusLabel = status === 'available' ? 'Available' : status === 'sold' ? 'Sold' : status;
         const statusClass = status === 'available' ? 'nb-item-status--available' : 'nb-item-status--sold';
 
-        const imgSel = m.image ? `${nb}:${m.image}` : null;
+        // Resolve image path to notebook-root-relative (handles ../images/ from items/ subfolder)
+        let imgPath = (m.image || '').trim();
+        if (imgPath.startsWith('../')) imgPath = imgPath.slice(3);   // ../images/foo → images/foo
+        else if (imgPath.startsWith('./')) imgPath = 'items/' + imgPath.slice(2);
+        const imgSel = imgPath ? `${nb}:${imgPath}` : null;
         const imgHtml = imgSel
             ? `<img class="nb-item-img" src="/api/file?selector=${encodeURIComponent(imgSel)}" alt="${_esc(title)}">`
             : '';
