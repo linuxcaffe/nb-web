@@ -4,6 +4,7 @@ const NbMain = (() => {
     let _activeSelector = null;
     let _activeType     = null;   // classify() type of current note
     let _activeFilename = null;   // original filename for raw export
+    let _activeNoteRef  = null;   // "notebook:id" for clipboard copy
     let _editing        = false;
     const _undoBuffer   = {};     // selector → raw content before last edit (level-1 undo)
     let _searchTimer    = null;
@@ -365,6 +366,7 @@ const NbMain = (() => {
     function renderPreview(note) {
         _activeType     = note.type;
         _activeFilename = note.filename;
+        _activeNoteRef  = (note.notebook && note.id) ? `${note.notebook}:${note.id}` : null;
         const content = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
         document.getElementById('nb-done-bar')?.remove();
@@ -3342,14 +3344,14 @@ const NbMain = (() => {
         document.getElementById('nb-delete-btn').addEventListener('click', _deleteNote);
         document.getElementById('nb-pin-indicator')?.addEventListener('click', _togglePin);
 
-        // Click title to copy notebook:filename wikilink to clipboard
+        // Click title to copy notebook:id selector to clipboard
         const titleEl = document.getElementById('nb-preview-title');
         if (titleEl) {
             titleEl.style.cursor = 'pointer';
-            titleEl.title = 'Click to copy notebook:filename wikilink';
+            titleEl.title = 'Click to copy notebook:id selector';
             titleEl.addEventListener('click', () => {
-                if (!_activeSelector) return;
-                const link = _activeSelector;
+                const link = _activeNoteRef || _activeSelector;
+                if (!link) return;
                 navigator.clipboard.writeText(link).then(() => {
                     const orig = titleEl.textContent;
                     titleEl.textContent = `✓ ${link}`;
@@ -4407,6 +4409,9 @@ const NbMain = (() => {
             const sortOpts = ['default','az','za','newest','oldest']
                 .map(v => `<option value="${v}"${prefs.default_sort === v ? ' selected' : ''}>${v}</option>`)
                 .join('');
+            const typeOpts = ['all','note','bookmark','todo','contact','folder','image']
+                .map(v => `<option value="${v}"${prefs.default_list_type === v ? ' selected' : ''}>${v}</option>`)
+                .join('');
 
             content.innerHTML = `
                 <div style="padding:10px 28px 8px;border-bottom:1px solid var(--border);
@@ -4475,6 +4480,8 @@ const NbMain = (() => {
                     <div style="display:grid;gap:8px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px">
                         <label style="color:var(--text-dim)" for="nb-nb-sort">Sort</label>
                         <select id="nb-nb-sort" class="nb-scope-select">${sortOpts}</select>
+                        <label style="color:var(--text-dim)" for="nb-nb-type">Type</label>
+                        <select id="nb-nb-type" class="nb-scope-select">${typeOpts}</select>
                         <label style="color:var(--text-dim)" for="nb-nb-template">Template</label>
                         <div style="display:flex;gap:6px;align-items:center">
                             <span id="nb-nb-tmpl-name" style="font-size:11px;font-family:var(--font-mono);
@@ -4488,6 +4495,22 @@ const NbMain = (() => {
                         <span id="nb-nb-prefs-status" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
                     </div>
                 </div>`;
+
+            // Folders — async-fetched and injected into the info grid
+            fetch(`/api/folders?notebook=${encodeURIComponent(name)}`).then(r => r.json()).then(fd => {
+                const folders = fd.folders || [];
+                if (!folders.length) return;
+                const grid = content.querySelector('[style*="grid-template-columns"]');
+                if (!grid) return;
+                const lbl = document.createElement('span');
+                lbl.style.cssText = 'color:var(--text-dim)';
+                lbl.textContent = 'Folders';
+                const val = document.createElement('span');
+                val.style.cssText = 'color:var(--text);font-family:var(--font-mono);font-size:11px';
+                val.textContent = folders.join('  ·  ');
+                grid.appendChild(lbl);
+                grid.appendChild(val);
+            }).catch(() => {});
 
             // Wire remote toggle
             const wireBtn = document.getElementById('nb-nb-wire');
@@ -4605,12 +4628,13 @@ const NbMain = (() => {
                 const btn = document.getElementById('nb-nb-save-prefs');
                 const status = document.getElementById('nb-nb-prefs-status');
                 const sort = document.getElementById('nb-nb-sort').value;
+                const listType = document.getElementById('nb-nb-type').value;
                 btn.textContent = 'Saving…'; btn.disabled = true;
                 try {
                     const pr = await fetch('/api/nb/notebook-prefs', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ notebook: name, prefs: { default_sort: sort } }),
+                        body: JSON.stringify({ notebook: name, prefs: { default_sort: sort, default_list_type: listType } }),
                     });
                     const pd = await pr.json();
                     status.textContent = pd.success ? '✓ Saved' : ('Error: ' + (pd.error || '?'));
