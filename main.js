@@ -1837,9 +1837,138 @@ const NbMain = (() => {
             li.appendChild(btn);
             li.appendChild(count);
             li.appendChild(age);
+            if (nb.website) li.appendChild(_buildWebsitePanel(nb.name, nb.website));
             list.appendChild(li);
         });
         el.appendChild(list);
+    }
+
+    function _buildWebsitePanel(notebook, cfg) {
+        const panel = document.createElement('div');
+        panel.className = 'nb-website-panel';
+
+        // ── status row ──────────────────────────────────────────────
+        const statusRow = document.createElement('div');
+        statusRow.className = 'nb-website-status-row';
+
+        const badge = document.createElement('span');
+        badge.className = 'nb-website-badge';
+        badge.textContent = '🌐 ' + (cfg.name || notebook);
+
+        const openBtn = document.createElement('a');
+        openBtn.className = 'nb-website-open';
+        openBtn.textContent = 'Open ↗';
+        openBtn.href = cfg.url || '#';
+        openBtn.target = '_blank';
+        openBtn.rel = 'noopener';
+
+        statusRow.appendChild(badge);
+        statusRow.appendChild(openBtn);
+        panel.appendChild(statusRow);
+
+        // ── log ──────────────────────────────────────────────────────
+        const log = document.createElement('pre');
+        log.className = 'nb-website-log';
+        log.hidden = true;
+        panel.appendChild(log);
+
+        // ── action row ───────────────────────────────────────────────
+        const actionRow = document.createElement('div');
+        actionRow.className = 'nb-website-action-row';
+
+        const deployBtn = document.createElement('button');
+        deployBtn.className = 'nb-btn nb-website-deploy-btn';
+        deployBtn.textContent = 'Build & Deploy';
+        deployBtn.addEventListener('click', async () => {
+            deployBtn.disabled = true;
+            deployBtn.textContent = 'Deploying…';
+            log.hidden = false;
+            log.textContent = '⟳ running: ' + (cfg.deploy_command || 'npx quartz sync') + '\n';
+            try {
+                const r = await fetch('/api/website/deploy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notebook })
+                }).then(r => r.json());
+                log.textContent = r.output || '(no output)';
+                deployBtn.textContent = r.ok ? '✓ Deployed' : '✗ Failed';
+                if (r.ok) setTimeout(() => { deployBtn.textContent = 'Build & Deploy'; deployBtn.disabled = false; }, 4000);
+                else deployBtn.disabled = false;
+            } catch(e) {
+                log.textContent = 'Error: ' + e.message;
+                deployBtn.textContent = 'Build & Deploy';
+                deployBtn.disabled = false;
+            }
+        });
+
+        const settingsToggle = document.createElement('button');
+        settingsToggle.className = 'nb-btn-muted nb-website-settings-toggle';
+        settingsToggle.textContent = '▸ Settings';
+
+        actionRow.appendChild(deployBtn);
+        actionRow.appendChild(settingsToggle);
+        panel.appendChild(actionRow);
+
+        // ── settings form (collapsed) ────────────────────────────────
+        const settingsForm = document.createElement('div');
+        settingsForm.className = 'nb-website-settings';
+        settingsForm.hidden = true;
+
+        const fields = [
+            { key: 'name',           label: 'Site name' },
+            { key: 'url',            label: 'URL' },
+            { key: 'quartz_path',    label: 'Quartz path' },
+            { key: 'deploy_command', label: 'Deploy command' },
+        ];
+        const inputs = {};
+        fields.forEach(f => {
+            const row = document.createElement('div');
+            row.className = 'nb-website-field';
+            const lbl = document.createElement('label');
+            lbl.textContent = f.label;
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.className = 'nb-website-input';
+            inp.value = cfg[f.key] || '';
+            inputs[f.key] = inp;
+            row.appendChild(lbl);
+            row.appendChild(inp);
+            settingsForm.appendChild(row);
+        });
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'nb-btn nb-website-save-btn';
+        saveBtn.textContent = 'Save';
+        saveBtn.addEventListener('click', async () => {
+            const updated = {};
+            fields.forEach(f => { updated[f.key] = inputs[f.key].value.trim(); });
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving…';
+            try {
+                await fetch('/api/website/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notebook, ...updated })
+                });
+                saveBtn.textContent = '✓ Saved';
+                setTimeout(() => { saveBtn.textContent = 'Save'; saveBtn.disabled = false; }, 2000);
+                badge.textContent = '🌐 ' + (updated.name || notebook);
+                openBtn.href = updated.url || '#';
+            } catch(e) {
+                saveBtn.textContent = 'Error';
+                saveBtn.disabled = false;
+            }
+        });
+        settingsForm.appendChild(saveBtn);
+        panel.appendChild(settingsForm);
+
+        settingsToggle.addEventListener('click', () => {
+            const open = !settingsForm.hidden;
+            settingsForm.hidden = open;
+            settingsToggle.textContent = open ? '▸ Settings' : '▾ Settings';
+        });
+
+        return panel;
     }
 
     // ── git codeblock ──────────────────────────────────────────────
@@ -4503,6 +4632,19 @@ const NbMain = (() => {
                     document.getElementById('nb-nb-tmpl-name').textContent = '(none)';
                     tmplClear.hidden = true;
                 });
+            }
+
+            // Website panel (if notebook has .nb-website.json)
+            const _nbEntry = _lastNbList.find(n => n.name === name);
+            if (_nbEntry && _nbEntry.website) {
+                const wsWrapper = document.createElement('div');
+                wsWrapper.style.cssText = 'padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px';
+                const wsHeading = document.createElement('div');
+                wsHeading.style.cssText = 'font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase';
+                wsHeading.textContent = 'Website';
+                wsWrapper.appendChild(wsHeading);
+                wsWrapper.appendChild(_buildWebsitePanel(name, _nbEntry.website));
+                content.appendChild(wsWrapper);
             }
 
             // Danger zone

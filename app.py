@@ -3254,16 +3254,73 @@ def api_nb_notebooks():
                         try: unpushed = int(up_r.stdout.strip())
                         except: pass
 
+            website = None
+            website_json = entry / '.nb-website.json'
+            if website_json.exists():
+                try:
+                    website = json.loads(website_json.read_text())
+                except Exception:
+                    website = {}
+
             notebooks.append({
                 'name': entry.name, 'count': count, 'mtime': mtime,
                 'folder_count': folder_count,
                 'has_remote': has_remote, 'unpushed': unpushed,
                 'is_current': entry.name == current_nb,
+                'website': website,
             })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
     notebooks.sort(key=lambda n: n['mtime'], reverse=True)
     return jsonify({'notebooks': notebooks, 'current_notebook': current_nb})
+
+
+@app.route('/api/website/config', methods=['GET', 'POST'])
+def api_website_config():
+    notebook = request.args.get('notebook') or (request.get_json() or {}).get('notebook', '')
+    nb_path = NB_DIR / notebook
+    cfg_path = nb_path / '.nb-website.json'
+    if request.method == 'GET':
+        if cfg_path.exists():
+            return jsonify(json.loads(cfg_path.read_text()))
+        return jsonify({})
+    data = {k: v for k, v in (request.get_json() or {}).items() if k != 'notebook'}
+    cfg_path.write_text(json.dumps(data, indent=2) + '\n')
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', '-C', str(nb_path), 'add', '.nb-website.json'],
+                   capture_output=True, env=env)
+    subprocess.run(['git', '-C', str(nb_path), 'commit', '-m', '[nb] Update .nb-website.json'],
+                   capture_output=True, env=env)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/website/deploy', methods=['POST'])
+def api_website_deploy():
+    data = request.get_json() or {}
+    notebook = data.get('notebook', '')
+    cfg_path = NB_DIR / notebook / '.nb-website.json'
+    if not cfg_path.exists():
+        return jsonify({'ok': False, 'output': 'No .nb-website.json found for this notebook.'})
+    try:
+        cfg = json.loads(cfg_path.read_text())
+    except Exception as e:
+        return jsonify({'ok': False, 'output': f'Bad .nb-website.json: {e}'})
+    quartz_path = Path(cfg.get('quartz_path', '')).expanduser()
+    deploy_cmd  = cfg.get('deploy_command', 'npx quartz sync')
+    if not quartz_path.is_dir():
+        return jsonify({'ok': False, 'output': f'Quartz path not found: {quartz_path}'})
+    env = {**os.environ, 'NO_COLOR': '1', 'FORCE_COLOR': '0'}
+    try:
+        r = subprocess.run(
+            deploy_cmd, shell=True, capture_output=True, text=True,
+            cwd=str(quartz_path), timeout=180, env=env
+        )
+        output = (r.stdout + r.stderr).strip()
+        return jsonify({'ok': r.returncode == 0, 'output': output})
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'output': 'Deploy timed out after 3 minutes.'})
+    except Exception as e:
+        return jsonify({'ok': False, 'output': str(e)})
 
 
 @app.route('/api/nb/use', methods=['POST'])

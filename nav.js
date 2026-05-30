@@ -1178,6 +1178,7 @@ const NbNav = (() => {
             else if (cmd === 'sync')    _openSyncDialog();
             else if (cmd === 'git-log')  NbMain.showNbGitLog();
             else if (cmd === 'git-wire') NbMain.showNbGitWire();
+            else if (cmd === 'website')  activateCmd('nb-notebooks');
             else if (cmd === 'about')   NbMain.showAbout();
             else if (cmd === 'restart') _restartServer();
             else if (cmd === 'import')      NbDialog.open('import');
@@ -1409,6 +1410,7 @@ const NbNav = (() => {
             { label: 'Export',    cmd: 'export' },
             { label: 'History',   cmd: 'history' },
             { label: 'Notebooks', cmd: 'nb-notebooks' },
+            { label: 'Website',   cmd: 'website' },
             { label: 'Plugins',   cmd: 'plugins' },
             { label: 'Terminal',  cmd: 'terminal' },
             { label: 'Settings',  cmd: 'nb-settings' },
