@@ -1693,6 +1693,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-sync-dialog {
   background: var(--bg2); border: 1px solid var(--border);
   border-radius: 8px; width: min(420px, 92vw);
+  max-height: min(90vh, 700px);
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -1710,6 +1711,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-sync-close:hover { color: var(--text); }
 .nb-sync-body {
   padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto; min-height: 0;
 }
 .nb-sync-changes {
   font-size: 0.84em; color: var(--text);
