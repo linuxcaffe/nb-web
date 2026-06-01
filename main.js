@@ -1903,11 +1903,37 @@ const NbMain = (() => {
             }
         });
 
+        const publishBtn = document.createElement('button');
+        publishBtn.className = 'nb-btn nb-website-publish-btn';
+        publishBtn.textContent = 'Publish Now ↑';
+        publishBtn.addEventListener('click', async () => {
+            publishBtn.disabled = true;
+            publishBtn.textContent = 'Publishing…';
+            log.hidden = false;
+            log.textContent = '⟳ pushing notebook + triggering deploy…\n';
+            try {
+                const r = await fetch('/api/website/publish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notebook })
+                }).then(r => r.json());
+                log.textContent = r.output || '(no output)';
+                publishBtn.textContent = r.ok ? '✓ Published' : '✗ Failed';
+                if (r.ok) setTimeout(() => { publishBtn.textContent = 'Publish Now ↑'; publishBtn.disabled = false; }, 4000);
+                else publishBtn.disabled = false;
+            } catch(e) {
+                log.textContent = 'Error: ' + e.message;
+                publishBtn.textContent = 'Publish Now ↑';
+                publishBtn.disabled = false;
+            }
+        });
+
         const settingsToggle = document.createElement('button');
         settingsToggle.className = 'nb-btn-muted nb-website-settings-toggle';
         settingsToggle.textContent = '▸ Settings';
 
         actionRow.appendChild(deployBtn);
+        actionRow.appendChild(publishBtn);
         actionRow.appendChild(settingsToggle);
         panel.appendChild(actionRow);
 
@@ -1921,6 +1947,7 @@ const NbMain = (() => {
             { key: 'url',            label: 'URL' },
             { key: 'quartz_path',    label: 'Quartz path' },
             { key: 'deploy_command', label: 'Deploy command' },
+            { key: 'github_repo',    label: 'GitHub repo (auto-detected if blank)' },
         ];
         const inputs = {};
         fields.forEach(f => {

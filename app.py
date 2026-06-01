@@ -3329,6 +3329,60 @@ def api_website_deploy():
         return jsonify({'ok': False, 'output': str(e)})
 
 
+@app.route('/api/website/publish', methods=['POST'])
+def api_website_publish():
+    import re as _re
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '')
+    nb_path  = NB_DIR / notebook
+    cfg_path = nb_path / '.nb-website.json'
+    if not cfg_path.exists():
+        return jsonify({'ok': False, 'output': 'No .nb-website.json found for this notebook.'})
+    try:
+        cfg = json.loads(cfg_path.read_text())
+    except Exception as e:
+        return jsonify({'ok': False, 'output': f'Bad .nb-website.json: {e}'})
+
+    env   = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    parts = []
+
+    # Push nb notebook so GitHub has the latest content
+    push = subprocess.run(
+        ['git', '-C', str(nb_path), 'push', 'origin', f'HEAD:{notebook}'],
+        capture_output=True, text=True, env=env, timeout=60,
+    )
+    push_out = (push.stdout + push.stderr).strip()
+    parts.append('notebook push:\n' + (push_out or '(nothing to push)'))
+
+    # Resolve github_repo: explicit config field, or derive from Quartz git remote
+    github_repo = cfg.get('github_repo', '').strip()
+    if not github_repo:
+        quartz_path = Path(cfg.get('quartz_path', '')).expanduser()
+        if quartz_path.is_dir():
+            r = subprocess.run(
+                ['git', '-C', str(quartz_path), 'remote', 'get-url', 'origin'],
+                capture_output=True, text=True,
+            )
+            m = _re.search(r'[:/]([^/:]+/[^/]+?)(?:\.git)?$', r.stdout.strip())
+            if m:
+                github_repo = m.group(1)
+
+    if not github_repo:
+        parts.append('Could not detect GitHub repo. Add a "github_repo" field in Settings.')
+        return jsonify({'ok': False, 'output': '\n\n'.join(parts)})
+
+    # Trigger immediate workflow dispatch
+    gh = subprocess.run(
+        ['gh', 'workflow', 'run', 'deploy.yml', '--repo', github_repo],
+        capture_output=True, text=True, timeout=30,
+    )
+    gh_out = (gh.stdout + gh.stderr).strip()
+    parts.append(f'workflow dispatch ({github_repo}):\n' + (gh_out or 'triggered'))
+
+    ok = push.returncode == 0 and gh.returncode == 0
+    return jsonify({'ok': ok, 'output': '\n\n'.join(parts)})
+
+
 @app.route('/api/nb/use', methods=['POST'])
 def api_nb_use():
     """Call 'nb use <notebook>' to set nb's current notebook persistently."""
