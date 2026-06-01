@@ -3309,7 +3309,13 @@ def api_website_deploy():
     deploy_cmd  = cfg.get('deploy_command', 'npx quartz sync')
     if not quartz_path.is_dir():
         return jsonify({'ok': False, 'output': f'Quartz path not found: {quartz_path}'})
+    # Prepend nvm's node bin so deploy commands (npx quartz) use node v22+
+    nvm_node = Path.home() / '.nvm' / 'versions' / 'node'
+    node_bins = sorted(nvm_node.glob('*/bin'), reverse=True)  # newest first
+    extra_path = ':'.join(str(p) for p in node_bins)
     env = {**os.environ, 'NO_COLOR': '1', 'FORCE_COLOR': '0'}
+    if extra_path:
+        env['PATH'] = extra_path + ':' + env.get('PATH', '')
     try:
         r = subprocess.run(
             deploy_cmd, shell=True, capture_output=True, text=True,
