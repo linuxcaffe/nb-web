@@ -1064,14 +1064,17 @@ const NbMain = (() => {
         const statusLabel = status === 'available' ? 'Available' : status === 'sold' ? 'Sold' : status;
         const statusClass = status === 'available' ? 'nb-item-status--available' : 'nb-item-status--sold';
 
-        // Resolve image path — take first from comma-separated, normalise to images/filename
-        let imgPath = (m.image || '').split(',')[0].trim();
-        if (imgPath.startsWith('../images/')) imgPath = imgPath.slice(3);  // ../images/x → images/x
-        else if (imgPath.startsWith('./')) imgPath = 'items/' + imgPath.slice(2);
-        else if (imgPath && !imgPath.startsWith('images/')) imgPath = `images/${imgPath}`; // bare → images/x
-        const imgSel = imgPath ? `${nb}:${imgPath}` : null;
-        const imgHtml = imgSel
-            ? `<img class="nb-item-img" src="/api/file?selector=${encodeURIComponent(imgSel)}" alt="${_esc(title)}">`
+        // Resolve all images from comma-separated list, normalise paths
+        const imgSels = (m.image || '').split(',').map(s => s.trim()).filter(Boolean).map(p => {
+            if (p.startsWith('../images/')) p = p.slice(3);
+            else if (p.startsWith('./')) p = 'items/' + p.slice(2);
+            else if (!p.startsWith('images/')) p = `images/${p}`;
+            return `${nb}:${p}`;
+        });
+        const imgsHtml = imgSels.length
+            ? `<div class="nb-item-imgs">${imgSels.map(sel =>
+                `<img class="nb-item-img" src="/api/file?selector=${encodeURIComponent(sel)}" alt="${_esc(title)}">`
+              ).join('')}</div>`
             : '';
 
         const row = (label, val) => val
@@ -1106,7 +1109,6 @@ const NbMain = (() => {
         const desc    = m.description ? `<div class="nb-item-description">${_esc(String(m.description))}</div>` : '';
 
         return `<div class="nb-item-card">
-  ${imgHtml ? `<div class="nb-item-img-wrap">${imgHtml}</div>` : ''}
   <div class="nb-item-body">
     <div class="nb-item-header">
       <div class="nb-item-name">${_esc(title)}</div>
@@ -1115,6 +1117,7 @@ const NbMain = (() => {
     ${caption}${desc}
     ${fields ? `<div class="nb-contact-fields">${fields}</div>` : ''}
     ${tagHtml}
+    ${imgsHtml}
     ${bodyHtml}
   </div>
 </div>`;

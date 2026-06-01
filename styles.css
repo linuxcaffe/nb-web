@@ -968,8 +968,8 @@ body {
 
 /* Item card (preciousfinds-style item notes in items/ subfolder) */
 .nb-item-card         { max-width: 640px; }
-.nb-item-img-wrap     { margin-bottom: 16px; }
-.nb-item-img          { max-width: 100%; max-height: 360px; object-fit: contain; border-radius: 6px; display: block; }
+.nb-item-imgs         { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.nb-item-img          { max-height: 280px; max-width: 100%; object-fit: contain; border-radius: 6px; flex: 1 1 auto; }
 .nb-item-body         { padding: 0 32px 28px; }
 .nb-item-header       { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
 .nb-item-name         { font-size: 1.4em; font-weight: 600; color: var(--text); }
