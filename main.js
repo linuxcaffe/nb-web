@@ -1064,10 +1064,11 @@ const NbMain = (() => {
         const statusLabel = status === 'available' ? 'Available' : status === 'sold' ? 'Sold' : status;
         const statusClass = status === 'available' ? 'nb-item-status--available' : 'nb-item-status--sold';
 
-        // Resolve image path to notebook-root-relative (handles ../images/ from items/ subfolder)
-        let imgPath = (m.image || '').trim();
-        if (imgPath.startsWith('../')) imgPath = imgPath.slice(3);   // ../images/foo → images/foo
+        // Resolve image path — take first from comma-separated, normalise to images/filename
+        let imgPath = (m.image || '').split(',')[0].trim();
+        if (imgPath.startsWith('../images/')) imgPath = imgPath.slice(3);  // ../images/x → images/x
         else if (imgPath.startsWith('./')) imgPath = 'items/' + imgPath.slice(2);
+        else if (imgPath && !imgPath.startsWith('images/')) imgPath = `images/${imgPath}`; // bare → images/x
         const imgSel = imgPath ? `${nb}:${imgPath}` : null;
         const imgHtml = imgSel
             ? `<img class="nb-item-img" src="/api/file?selector=${encodeURIComponent(imgSel)}" alt="${_esc(title)}">`
