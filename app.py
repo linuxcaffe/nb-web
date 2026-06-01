@@ -3354,22 +3354,32 @@ def api_website_publish():
     push_out = (push.stdout + push.stderr).strip()
     parts.append('notebook push:\n' + (push_out or '(nothing to push)'))
 
-    # Resolve github_repo: explicit config field, or derive from Quartz git remote
+    # Resolve quartz_path and github_repo
+    quartz_path = Path(cfg.get('quartz_path', '')).expanduser()
     github_repo = cfg.get('github_repo', '').strip()
-    if not github_repo:
-        quartz_path = Path(cfg.get('quartz_path', '')).expanduser()
-        if quartz_path.is_dir():
-            r = subprocess.run(
-                ['git', '-C', str(quartz_path), 'remote', 'get-url', 'origin'],
-                capture_output=True, text=True,
-            )
-            m = _re.search(r'[:/]([^/:]+/[^/]+?)(?:\.git)?$', r.stdout.strip())
-            if m:
-                github_repo = m.group(1)
+    if not github_repo and quartz_path.is_dir():
+        r = subprocess.run(
+            ['git', '-C', str(quartz_path), 'remote', 'get-url', 'origin'],
+            capture_output=True, text=True,
+        )
+        m = _re.search(r'[:/]([^/:]+/[^/]+?)(?:\.git)?$', r.stdout.strip())
+        if m:
+            github_repo = m.group(1)
 
     if not github_repo:
         parts.append('Could not detect GitHub repo. Add a "github_repo" field in Settings.')
         return jsonify({'ok': False, 'output': '\n\n'.join(parts)})
+
+    # Push Quartz config repo so the workflow builds from the latest components/CSS
+    if quartz_path.is_dir():
+        qpush = subprocess.run(
+            ['git', '-C', str(quartz_path), 'push', 'origin', 'main'],
+            capture_output=True, text=True, env=env, timeout=60,
+        )
+        qpush_out = (qpush.stdout + qpush.stderr).strip()
+        parts.append('quartz config push:\n' + (qpush_out or '(nothing to push)'))
+    else:
+        parts.append('quartz config push:\n(quartz_path not set or not found — skipped)')
 
     # Trigger immediate workflow dispatch
     gh = subprocess.run(
