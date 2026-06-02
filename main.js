@@ -1922,9 +1922,48 @@ const NbMain = (() => {
                     body: JSON.stringify({ notebook })
                 }).then(r => r.json());
                 log.textContent = r.output || '(no output)';
-                publishBtn.textContent = r.ok ? '✓ Published' : '✗ Failed';
-                if (r.ok) setTimeout(() => { publishBtn.textContent = 'Publish Now ↑'; publishBtn.disabled = false; }, 4000);
-                else publishBtn.disabled = false;
+                if (!r.ok) {
+                    publishBtn.textContent = '✗ Failed';
+                    publishBtn.disabled = false;
+                    return;
+                }
+                if (!r.run_id) {
+                    publishBtn.textContent = '✓ Triggered';
+                    setTimeout(() => { publishBtn.textContent = 'Publish Now ↑'; publishBtn.disabled = false; }, 4000);
+                    return;
+                }
+                // Poll build status until complete
+                publishBtn.textContent = '⏳ Building…';
+                const start = Date.now();
+                const repo  = encodeURIComponent(r.github_repo);
+                const timer = setInterval(async () => {
+                    const elapsed = Math.round((Date.now() - start) / 1000);
+                    if (elapsed > 300) {
+                        clearInterval(timer);
+                        log.textContent += '\n\n(timed out waiting for build result)';
+                        publishBtn.textContent = 'Publish Now ↑';
+                        publishBtn.disabled = false;
+                        return;
+                    }
+                    try {
+                        const s = await fetch(`/api/website/build-status?run_id=${r.run_id}&repo=${repo}`).then(x => x.json());
+                        if (s.status !== 'completed') {
+                            publishBtn.textContent = `⏳ Building… ${elapsed}s`;
+                            return;
+                        }
+                        clearInterval(timer);
+                        if (s.conclusion === 'success') {
+                            publishBtn.textContent = `✓ Build passed (${elapsed}s)`;
+                            log.textContent += `\n\n✓ Build passed in ${elapsed}s`;
+                            setTimeout(() => { publishBtn.textContent = 'Publish Now ↑'; publishBtn.disabled = false; }, 5000);
+                        } else {
+                            publishBtn.textContent = '✗ Build failed';
+                            log.textContent += `\n\n✗ Build failed (${elapsed}s)`;
+                            if (s.error_excerpt) log.textContent += '\n\n' + s.error_excerpt;
+                            publishBtn.disabled = false;
+                        }
+                    } catch(_) { /* transient network error, keep polling */ }
+                }, 6000);
             } catch(e) {
                 log.textContent = 'Error: ' + e.message;
                 publishBtn.textContent = 'Publish Now ↑';

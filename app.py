@@ -3389,8 +3389,49 @@ def api_website_publish():
     gh_out = (gh.stdout + gh.stderr).strip()
     parts.append(f'workflow dispatch ({github_repo}):\n' + (gh_out or 'triggered'))
 
+    # Grab the run ID so the frontend can poll build status
+    run_id = None
+    if gh.returncode == 0:
+        import time as _time
+        _time.sleep(3)
+        list_r = subprocess.run(
+            ['gh', 'run', 'list', '--workflow', 'deploy.yml', '--repo', github_repo,
+             '--limit', '3', '--json', 'databaseId,status'],
+            capture_output=True, text=True, timeout=15,
+        )
+        if list_r.returncode == 0:
+            runs = json.loads(list_r.stdout or '[]')
+            if runs:
+                run_id = str(runs[0]['databaseId'])
+
     ok = push.returncode == 0 and gh.returncode == 0
-    return jsonify({'ok': ok, 'output': '\n\n'.join(parts)})
+    return jsonify({'ok': ok, 'output': '\n\n'.join(parts),
+                    'run_id': run_id, 'github_repo': github_repo})
+
+
+@app.route('/api/website/build-status')
+def api_website_build_status():
+    run_id = request.args.get('run_id', '').strip()
+    repo   = request.args.get('repo', '').strip()
+    if not run_id or not repo:
+        return jsonify({'error': 'run_id and repo required'}), 400
+    r = subprocess.run(
+        ['gh', 'run', 'view', run_id, '--repo', repo,
+         '--json', 'status,conclusion,url'],
+        capture_output=True, text=True, timeout=15,
+    )
+    if r.returncode != 0:
+        return jsonify({'status': 'unknown', 'conclusion': None})
+    data = json.loads(r.stdout)
+    if data.get('conclusion') == 'failure':
+        log_r = subprocess.run(
+            ['gh', 'run', 'view', run_id, '--repo', repo, '--log-failed'],
+            capture_output=True, text=True, timeout=30,
+        )
+        lines = log_r.stdout.splitlines()
+        error_lines = [l for l in lines if 'ERROR' in l or 'Failed to process' in l or 'Error' in l]
+        data['error_excerpt'] = '\n'.join(error_lines[-6:]) if error_lines else log_r.stdout[-600:]
+    return jsonify(data)
 
 
 @app.route('/api/nb/use', methods=['POST'])
