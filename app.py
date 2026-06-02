@@ -394,26 +394,52 @@ def strip_ansi(s):
 
 @app.route('/api/templates')
 def api_templates():
-    notebook = request.args.get('notebook', 'home')
-    nb_root    = NB_DIR / notebook
+    # `notebook` param kept for API compat but no longer used for filtering —
+    # we return all templates from every notebook plus global, always.
     global_dir = GLOBAL_TEMPLATES_DIR
     seen, templates = set(), []
 
-    # Scan notebook root .templates/ then every subfolder's .templates/
-    tmpl_dirs = []
-    if (nb_root / '.templates').is_dir():
-        tmpl_dirs.append(('local', nb_root / '.templates', ''))
-    for sub in sorted(nb_root.rglob('.templates')):
-        if sub == nb_root / '.templates' or not sub.is_dir():
+    # Scan every notebook's .templates/ (root + subfolders)
+    for nb_dir in sorted(NB_DIR.iterdir()):
+        if not nb_dir.is_dir() or nb_dir.name.startswith('.') or nb_dir.name.startswith('-'):
             continue
-        rel = sub.parent.relative_to(nb_root)
-        tmpl_dirs.append(('local', sub, str(rel)))
+        nb_name = nb_dir.name
+        tmpl_dirs = []
+        if (nb_dir / '.templates').is_dir():
+            tmpl_dirs.append((nb_dir / '.templates', ''))
+        for sub in sorted(nb_dir.rglob('.templates')):
+            if sub == nb_dir / '.templates' or not sub.is_dir():
+                continue
+            rel = sub.parent.relative_to(nb_dir)
+            tmpl_dirs.append((sub, str(rel)))
 
-    for scope, tdir, subfolder in tmpl_dirs:
-        for f in sorted(tdir.glob('*.md')):
+        for tdir, subfolder in tmpl_dirs:
+            for f in sorted(tdir.glob('*.md')):
+                if f.name.startswith('.'):
+                    continue
+                key = f'{nb_name}/{subfolder}/{f.stem}' if subfolder else f'{nb_name}/{f.stem}'
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    preview = f.read_text(errors='replace')[:200]
+                except OSError:
+                    preview = ''
+                templates.append({
+                    'name':      f'{subfolder}/{f.stem}' if subfolder else f.stem,
+                    'path':      str(f),
+                    'scope':     'local',
+                    'notebook':  nb_name,
+                    'subfolder': subfolder,
+                    'preview':   preview,
+                })
+
+    # Global templates
+    if global_dir.is_dir():
+        for f in sorted(global_dir.glob('*.md')):
             if f.name.startswith('.'):
                 continue
-            key = f'{subfolder}/{f.stem}' if subfolder else f.stem
+            key = f'global/{f.stem}'
             if key in seen:
                 continue
             seen.add(key)
@@ -422,42 +448,43 @@ def api_templates():
             except OSError:
                 preview = ''
             templates.append({
-                'name':      f'{subfolder}/{f.stem}' if subfolder else f.stem,
-                'path':      str(f),
-                'scope':     scope,
-                'subfolder': subfolder,
-                'preview':   preview,
-            })
-
-    for scope, tdir, subfolder in [('global', global_dir, '')]:
-        if not tdir.is_dir():
-            continue
-        for f in sorted(tdir.glob('*.md')):
-            if f.name.startswith('.') or f.stem in seen:
-                continue
-            seen.add(f.stem)
-            try:
-                preview = f.read_text(errors='replace')[:200]
-            except OSError:
-                preview = ''
-            templates.append({
                 'name':      f.stem,
                 'path':      str(f),
                 'scope':     'global',
+                'notebook':  '',
                 'subfolder': '',
                 'preview':   preview,
             })
-    # Also include any .export.template.html files (notebook overrides global)
-    for scope, loc in [('local',  NB_DIR / notebook / '.export.template.html'),
-                        ('global', NB_DIR / '.export.template.html')]:
-        if loc.exists() and str(loc) not in seen:
-            seen.add(str(loc))
+
+    # Export templates — one per notebook + global
+    for nb_dir in sorted(NB_DIR.iterdir()):
+        if not nb_dir.is_dir() or nb_dir.name.startswith('.') or nb_dir.name.startswith('-'):
+            continue
+        loc = nb_dir / '.export.template.html'
+        if loc.exists():
+            key = f'{nb_dir.name}/.export.template.html'
+            if key not in seen:
+                seen.add(key)
+                templates.append({
+                    'name':          '.export.template.html',
+                    'path':          str(loc),
+                    'scope':         'local',
+                    'notebook':      nb_dir.name,
+                    'template_type': 'export_html',
+                })
+    global_export = NB_DIR / '.export.template.html'
+    if global_export.exists():
+        key = 'global/.export.template.html'
+        if key not in seen:
+            seen.add(key)
             templates.append({
                 'name':          '.export.template.html',
-                'path':          str(loc),
-                'scope':         scope,
+                'path':          str(global_export),
+                'scope':         'global',
+                'notebook':      '',
                 'template_type': 'export_html',
             })
+
     return jsonify({'templates': templates})
 
 

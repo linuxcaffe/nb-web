@@ -4237,9 +4237,9 @@ const NbMain = (() => {
             }));
 
             templates.forEach(t => {
-                const scopeLabel = t.scope === 'local' ? nb : 'global';
+                const scopeLabel = t.notebook || 'global';
                 const item = makeTmplItem(
-                    t.scope === 'local' ? '📒' : '🌐',
+                    t.notebook ? '📒' : '🌐',
                     t.name,
                     scopeLabel,
                     t.path === curTemplate,
@@ -4299,10 +4299,10 @@ const NbMain = (() => {
                 icon.className = 'nb-list-icon';
                 if (t.template_type === 'export_html') {
                     icon.textContent = '🖨';
-                    icon.title = t.scope === 'local' ? 'Notebook export template' : 'Global export template';
+                    icon.title = t.notebook ? 'Notebook export template' : 'Global export template';
                 } else {
-                    icon.textContent = t.scope === 'local' ? '📒' : '🌐';
-                    icon.title = t.scope === 'local' ? 'Notebook template' : 'Global template';
+                    icon.textContent = t.notebook ? '📒' : '🌐';
+                    icon.title = t.notebook ? 'Notebook template' : 'Global template';
                 }
 
                 const title = document.createElement('span');
@@ -4311,9 +4311,9 @@ const NbMain = (() => {
 
                 const excerpt = document.createElement('span');
                 excerpt.className = 'nb-list-excerpt';
-                excerpt.textContent = t.scope === 'local' ? `${nb}: export` : 'global export';
+                excerpt.textContent = t.notebook ? `${t.notebook}: export` : 'global export';
                 if (t.template_type !== 'export_html') {
-                    excerpt.textContent = t.scope === 'local' ? `${nb}: template` : 'global';
+                    excerpt.textContent = t.notebook || 'global';
                 }
 
                 li.append(icon, title, excerpt);
