@@ -979,6 +979,15 @@ body {
 .nb-item-caption      { font-size: 1em; color: var(--text-muted); margin-bottom: 6px; font-style: italic; }
 .nb-item-description  { font-size: 0.95em; color: var(--text); margin-bottom: 12px; }
 
+/* Webpage note preview */
+.nb-wp-card          { max-width: 640px; }
+.nb-wp-title         { font-size: 1.4em; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.nb-wp-caption       { font-size: 1em; color: var(--text-muted); font-style: italic; margin-bottom: 14px; }
+.nb-wp-body          { margin: 16px 0; }
+.nb-wp-footnote      { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border);
+                       color: var(--text-muted); font-style: italic; font-size: 0.88em; line-height: 1.6; }
+.nb-wp-footnote p    { margin: 0; }
+
 /* Rendered Markdown */
 #nb-preview-content .nb-rendered { max-width: 720px; }
 #nb-preview-content .nb-rendered h1 { font-size: 1.6em; margin-bottom: .5em; color: var(--text); }

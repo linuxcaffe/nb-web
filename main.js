@@ -444,6 +444,9 @@ const NbMain = (() => {
             html = _renderContact(note);
         } else if (note.selector && /:items\//.test(note.selector)) {
             html = _renderItem(note);
+        } else if (note.meta?.caption || note.meta?.footnote ||
+                   (note.meta && 'SEO' in note.meta)) {
+            html = _renderWebpage(note);
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
@@ -1119,6 +1122,31 @@ const NbMain = (() => {
     ${tagHtml}
     ${imgsHtml}
     ${bodyHtml}
+  </div>
+</div>`;
+    }
+
+    function _renderWebpage(note) {
+        const m       = note.meta || {};
+        const title   = _esc(String(m.title || note.title || ''));
+        const caption = m.caption
+            ? `<div class="nb-wp-caption">${_esc(String(m.caption))}</div>` : '';
+        const seoVal  = m.SEO != null && String(m.SEO).trim()
+            ? `<div class="nb-contact-fields"><div class="nb-contact-row">` +
+              `<span class="nb-contact-label">SEO</span>` +
+              `<span class="nb-contact-value">${_esc(String(m.SEO))}</span>` +
+              `</div></div>` : '';
+        const bodyHtml = (note.body || '').trim()
+            ? `<div class="nb-wp-body">${_renderMarkdown(note.body)}</div>` : '';
+        const footnote = m.footnote
+            ? `<div class="nb-wp-footnote">${_renderMarkdown(String(m.footnote))}</div>` : '';
+        return `<div class="nb-wp-card">
+  <div class="nb-item-body">
+    <div class="nb-wp-title">${title}</div>
+    ${caption}
+    ${seoVal}
+    ${bodyHtml}
+    ${footnote}
   </div>
 </div>`;
     }
