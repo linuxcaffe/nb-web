@@ -1584,9 +1584,13 @@ def _build_all_notes() -> list:
                     continue
                 meta, body = parse_frontmatter(raw)
             title = meta.get('title') or meta.get('name') or note_title(fname, body)
-            excerpt = next((l.strip()[:120] for l in body.splitlines()
-                            if l.strip() and not _RE_HEADING.match(l)
-                            and not l.strip().startswith('<!--')), '')
+            if '/items/' in str(fpath):
+                parts = [str(meta[k]) for k in ('category', 'price', 'status') if meta.get(k)]
+                excerpt = ' · '.join(parts)
+            else:
+                excerpt = next((l.strip()[:120] for l in body.splitlines()
+                                if l.strip() and not _RE_HEADING.match(l)
+                                and not l.strip().startswith('<!--')), '')
             todo_status = None
             if itype == 'todo':
                 first = next((l.strip() for l in body.splitlines() if l.strip()), '')

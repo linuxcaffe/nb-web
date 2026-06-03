@@ -1089,8 +1089,14 @@ const NbMain = (() => {
 
         const fields = [
             row('category',  m.category),
+            m.qtty && String(m.qtty) !== '1' ? row('qty', m.qtty) : '',
             row('price',     m.price),
+            row('date',      m.date instanceof Date
+                ? m.date.toLocaleDateString('en-CA', {year:'numeric',month:'short',day:'numeric'})
+                : m.date),
+            row('size',      m.size),
             row('condition', m.condition),
+            row('shipping',  m.shipping),
             linkRow('listing', m.listing, `View on ${m.platform || m.listing}`),
             !m.listing && m.platform ? row('platform', m.platform) : '',
         ].join('');
@@ -1136,6 +1142,9 @@ const NbMain = (() => {
               `<span class="nb-contact-label">SEO</span>` +
               `<span class="nb-contact-value">${_esc(String(m.SEO))}</span>` +
               `</div></div>` : '';
+        const wpTags = Array.isArray(m.tags) ? m.tags : (m.tags ? String(m.tags).split(',').map(t => t.trim()).filter(Boolean) : []);
+        const tagHtml = wpTags.length
+            ? `<div class="nb-contact-tags">${wpTags.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join('')}</div>` : '';
         const bodyHtml = (note.body || '').trim()
             ? `<div class="nb-wp-body">${_renderMarkdown(note.body)}</div>` : '';
         const footnote = m.footnote
@@ -1145,6 +1154,7 @@ const NbMain = (() => {
     <div class="nb-wp-title">${title}</div>
     ${caption}
     ${seoVal}
+    ${tagHtml}
     ${bodyHtml}
     ${footnote}
   </div>
@@ -4846,6 +4856,22 @@ const NbMain = (() => {
         }
     }
 
+    function _renderFrontmatterFields(raw) {
+        const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+        if (!match) return ''
+        const rows = match[1].split(/\r?\n/).flatMap(line => {
+            const colonIdx = line.indexOf(':')
+            if (colonIdx < 1) return []
+            const key = line.slice(0, colonIdx).trim()
+            const val = line.slice(colonIdx + 1).trim()
+            return [`<div class="nb-contact-row">` +
+                `<span class="nb-contact-label">${_esc(key)}</span>` +
+                `<span class="nb-contact-value">${val ? _esc(val) : '<em style="opacity:0.35">—</em>'}</span>` +
+                `</div>`]
+        })
+        return rows.length ? `<div class="nb-contact-fields">${rows.join('')}</div>` : ''
+    }
+
     async function _openTemplate(path, name, scope, subfolder = '') {
         const content = document.getElementById('nb-preview-content');
         content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
@@ -4859,6 +4885,10 @@ const NbMain = (() => {
             let latestRaw = raw;  // local — reset per _openTemplate call, no stale cross-template state
 
             const showPreview = () => {
+                const fmHtml  = _renderFrontmatterFields(latestRaw)
+                const bodyRaw = latestRaw.replace(/^---[\s\S]*?---\r?\n?/, '')
+                const bodyHtml = bodyRaw.trim()
+                    ? `<div class="nb-rendered" style="margin-top:12px;opacity:0.85">${_renderMarkdown(bodyRaw)}</div>` : ''
                 content.innerHTML = `
                     <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
                                 font-family:var(--font-mono);border-bottom:1px solid var(--border);
@@ -4866,7 +4896,7 @@ const NbMain = (() => {
                         <span>📋 <strong>${_esc(name)}</strong></span>
                         <span style="opacity:0.6">${scopeLabel}</span>
                     </div>
-                    <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${_renderMarkdown(latestRaw)}</div>`;
+                    <div style="padding:16px 32px 8px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
 
                 // Render CSV blocks; then reclaim the note-save button (we use our own footer btn)
                 _renderCsvBlocks(content.querySelector('.nb-rendered'));
