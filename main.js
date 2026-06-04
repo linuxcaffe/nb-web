@@ -559,7 +559,10 @@ const NbMain = (() => {
         if (_hq) _highlightTerms(container.querySelector('.nb-rendered'), _hq);
 
         container.querySelectorAll('.nb-wiki-link').forEach(el => {
-            el.addEventListener('click', () => openNote(el.dataset.selector || el.textContent));
+            el.addEventListener('click', async () => {
+                const sel = el.dataset.selector || el.textContent.trim()
+                openNote(await _resolveWikilinkSelector(sel))
+            });
         });
         _resolveWikilinks(container);
         container.querySelectorAll('.nb-tag-link').forEach(el => {
@@ -1161,13 +1164,33 @@ const NbMain = (() => {
 </div>`;
     }
 
+    // Resolve a wikilink selector to a full nb selector.
+    // Plain titles (no ":" and not a bare integer) are matched by title
+    // within the current notebook, enabling [[Shop]] to work like Quartz wikilinks.
+    async function _resolveWikilinkSelector(sel) {
+        if (!sel) return sel
+        if (sel.includes(':') || /^\d+$/.test(sel)) return sel
+        const cached = _wikilinkCache.get('\x00' + sel)
+        if (cached) return cached
+        try {
+            const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook
+            const r  = await fetch(`/api/notes?notebook=${encodeURIComponent(nb)}&q=${encodeURIComponent(sel)}`)
+            const d  = await r.json()
+            const match = (d.notes || []).find(n => (n.title || '').toLowerCase() === sel.toLowerCase())
+            if (match) { _wikilinkCache.set('\x00' + sel, match.selector); return match.selector }
+        } catch(e) { /* fall through */ }
+        return sel
+    }
+
     async function _resolveWikilinks(container) {
         const spans = [...container.querySelectorAll('.nb-wiki-link[data-autolabel]')];
         if (!spans.length) return;
         await Promise.all(spans.map(async span => {
-            const sel = span.dataset.selector;
-            if (!sel) return;
+            const raw = span.dataset.selector;
+            if (!raw) return;
             try {
+                // Resolve plain titles to full selectors first
+                const sel = await _resolveWikilinkSelector(raw)
                 let title;
                 if (_wikilinkCache.has(sel)) {
                     title = _wikilinkCache.get(sel);
@@ -1178,7 +1201,7 @@ const NbMain = (() => {
                     title = d.title || d.filename || sel;
                     _wikilinkCache.set(sel, title);
                 }
-                if (title && title !== sel) span.textContent = title;
+                if (title && title !== raw) span.textContent = title;
             } catch(e) { /* leave as-is */ }
         }));
     }
