@@ -444,8 +444,8 @@ const NbMain = (() => {
             html = _renderContact(note);
         } else if (note.selector && /:items\//.test(note.selector)) {
             html = _renderItem(note);
-        } else if (note.meta?.caption || note.meta?.footnote ||
-                   (note.meta && 'SEO' in note.meta)) {
+        } else if (note.meta && ('caption' in note.meta || 'footnote' in note.meta ||
+                   'SEO' in note.meta || 'tags' in note.meta)) {
             html = _renderWebpage(note);
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
@@ -4274,7 +4274,8 @@ const NbMain = (() => {
     }
 
     async function runTemplates() {
-        const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const nb  = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const seq = ++_listSeq;
         const list   = document.getElementById('nb-list');
         const empty  = document.getElementById('nb-list-empty');
         const countEl = document.getElementById('nb-count');
@@ -4288,7 +4289,9 @@ const NbMain = (() => {
 
         try {
             const r = await fetch(`/api/templates?notebook=${encodeURIComponent(nb)}`);
+            if (seq !== _listSeq) return;
             const d = await r.json();
+            if (seq !== _listSeq) return;
             const templates = d.templates || [];
 
             countEl.textContent = `${templates.length} template${templates.length !== 1 ? 's' : ''}`;
@@ -4899,7 +4902,8 @@ const NbMain = (() => {
                     <div style="padding:16px 32px 8px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
 
                 // Render CSV blocks; then reclaim the note-save button (we use our own footer btn)
-                _renderCsvBlocks(content.querySelector('.nb-rendered'));
+                const _renderedEl = content.querySelector('.nb-rendered');
+                if (_renderedEl) _renderCsvBlocks(_renderedEl);
                 const ssb = document.getElementById('nb-sheet-save-btn');
                 if (ssb) { ssb.hidden = true; ssb.onclick = null; }
                 const hasCsvBlocks = !!content.querySelector('.nb-csv-block');

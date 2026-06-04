@@ -37,7 +37,28 @@ PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
 GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
 CMDS_FILE            = Path(__file__).parent / 'cmds.txt'
 
-_RE_HEADING = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
+_RE_HEADING  = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
+_RE_FENCE    = re.compile(r'^```')            # fenced code block opening/closing line
+
+def _first_excerpt_line(body: str, meta: dict) -> str:
+    """Return the best single-line excerpt for a note body.
+
+    Priority: caption field → first non-heading, non-comment, non-fence body line.
+    Entire fenced blocks are skipped so ` ```csv ` doesn't show as an excerpt.
+    """
+    if meta.get('caption'):
+        return str(meta['caption'])[:120]
+    in_fence = False
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if _RE_FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line and not _RE_HEADING.match(line) and not line.startswith('<!--'):
+            return line[:120]
+    return ''
 
 # Startup stamp — visible in menu so you can confirm a restart happened
 from datetime import datetime
@@ -426,7 +447,7 @@ def api_templates():
                 except OSError:
                     preview = ''
                 templates.append({
-                    'name':      f'{subfolder}/{f.stem}' if subfolder else f.stem,
+                    'name':      f.stem,
                     'path':      str(f),
                     'scope':     'local',
                     'notebook':  nb_name,
@@ -1588,9 +1609,7 @@ def _build_all_notes() -> list:
                 parts = [str(meta[k]) for k in ('category', 'price', 'status') if meta.get(k)]
                 excerpt = ' · '.join(parts)
             else:
-                excerpt = next((l.strip()[:120] for l in body.splitlines()
-                                if l.strip() and not _RE_HEADING.match(l)
-                                and not l.strip().startswith('<!--')), '')
+                excerpt = _first_excerpt_line(body, meta)
             todo_status = None
             if itype == 'todo':
                 first = next((l.strip() for l in body.splitlines() if l.strip()), '')
@@ -1665,12 +1684,7 @@ def _list_notes(notebook, folder, limit):
                 continue
             meta, body = parse_frontmatter(raw)
         title = meta.get('title') or meta.get('name') or note_title(fname, body)
-        excerpt = ''
-        for line in body.splitlines():
-            line = line.strip()
-            if line and not _RE_HEADING.match(line) and not line.startswith('<!--'):
-                excerpt = line[:120]
-                break
+        excerpt = _first_excerpt_line(body, meta)
         todo_status = None
         if itype == 'todo':
             first = next((l.strip() for l in body.splitlines() if l.strip()), '')
@@ -1835,9 +1849,7 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
                 raw  = fpath.read_text(errors='replace')
                 meta, body = parse_frontmatter(raw)
                 title   = meta.get('title') or meta.get('name') or note_title(fname, body)
-                excerpt = next((l.strip()[:120] for l in body.splitlines()
-                                if l.strip() and not _RE_HEADING.match(l)
-                                and not l.strip().startswith('<!--')), '')
+                excerpt = _first_excerpt_line(body, meta)
                 todo_status = None
                 if itype == 'todo':
                     first = next((l.strip() for l in body.splitlines() if l.strip()), '')

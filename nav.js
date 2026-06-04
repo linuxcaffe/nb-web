@@ -826,8 +826,8 @@ const NbNav = (() => {
         requestAnimationFrame(() => patInput.focus());
     }
 
-    function _renderTemplatesOpts(bar) {
-        bar.appendChild(_makeScopeSelect(() => _executeCmd()));
+    function _renderTemplatesOpts(_bar) {
+        // All templates (notebook + global) are always shown; no scope filter needed.
     }
 
     // ── Helpers ───────────────────────────────────────────────────
