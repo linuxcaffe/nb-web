@@ -2340,9 +2340,10 @@ def api_create_note():
         args += ['--content', note_content]
         if tags:    args += ['--tags', ','.join(tags)]
         slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
-        # Subfolder notes (e.g. items/) use a clean slug filename — no date prefix,
-        # since they are identified by item code, not by date.
-        if folder:
+        # Clean slug when: subfolder note (items/ etc.) OR template-driven note.
+        # Template = intentional structured content that needs a predictable URL.
+        # Timestamp prefix reserved for casual root-level notes (no template).
+        if folder or template_path:
             note_filename = f"{slug}.md"
         else:
             note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
