@@ -96,6 +96,47 @@ Place a single contact template at `~/.nb/contacts/.templates/contact.md`.
 Every time you open **Add** while the contacts notebook is active, nb-web
 silently pre-applies it — just type the contact's name and press Save.
 
+## Wikilinks
+
+nb-web supports `[[wikilink]]` syntax in note bodies for linking between notes.
+
+### Basic syntax
+
+| Syntax | Effect |
+|---|---|
+| `[[Note Title]]` | Link to a note by title; display text resolved automatically |
+| `[[Note Title\|display text]]` | Link with custom display text |
+| `[[notebook:id]]` | Link by explicit nb selector |
+
+Plain-title wikilinks are resolved within the current notebook first. Matching
+is case-insensitive, so `[[shop]]` and `[[Shop]]` both find a note titled "Shop".
+
+### Anchor links — linking to a heading
+
+Append `#Heading Text` to jump directly to a section within a note:
+
+| Syntax | Effect |
+|---|---|
+| `[[Page#Heading]]` | Open note and scroll to that heading |
+| `[[Page#Heading\|label]]` | Same, with custom display text |
+| `[[#Heading]]` | Scroll to a heading in the **current** note (no page reload) |
+
+The heading match is case-insensitive and matched by text content, so the
+heading text in the wikilink must match the heading as written in the note
+(punctuation is stripped when comparing).
+
+### Backlinks
+
+Use a `backlinks` codeblock to see all notes that link to the current one:
+
+~~~
+```nb
+backlinks
+```
+~~~
+
+See [Live codeblocks → `nb`](#nb--nb-commands) below.
+
 ## Live codeblocks
 
 nb-web renders fenced code blocks with special language tags as live, interactive
