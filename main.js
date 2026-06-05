@@ -49,6 +49,8 @@ const NbMain = (() => {
         _bindPreviewMenu();
         _bindKeyboard();
         _bindDropImport();
+        const _vcfListBtn = document.getElementById('nb-vcf-btn');
+        if (_vcfListBtn) _vcfListBtn.addEventListener('click', _openVcfBrowser);
         initDragHandle();
         const deepLink = location.hash ? decodeURIComponent(location.hash.slice(1)) : null;
         if (deepLink) _noAutoSelect = true;
@@ -73,6 +75,8 @@ const NbMain = (() => {
         _listDisplayMode = 'title';
         const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
+        const _vcfB  = document.getElementById('nb-vcf-btn');
+        if (_vcfB) _vcfB.hidden = (nb !== 'contacts');
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb });
         if (folder)      params.set('folder', folder);
@@ -5566,6 +5570,169 @@ const NbMain = (() => {
         if (_lastNotes?.length) renderList(_getSortedNotes(_lastNotes), true);
     }
 
+    // ── VCF contact browser ───────────────────────────────────────────────────
+
+    let _vcfContacts = null;   // cached contact list
+    let _vcfSelected = null;   // currently selected contact dict
+
+    function _initVcfBrowser() {
+        if (document.getElementById('nb-vcf-backdrop')) return;
+        const el = document.createElement('div');
+        el.id        = 'nb-vcf-backdrop';
+        el.className = 'nb-vcf-backdrop';
+        el.style.display = 'none';
+        el.innerHTML =
+            `<div class="nb-vcf-dialog">` +
+              `<div class="nb-vcf-header">` +
+                `<span>📇 Browse Contacts</span>` +
+                `<input id="nb-vcf-search" type="text" placeholder="Search…" autocomplete="off">` +
+                `<button class="nb-vcf-done" id="nb-vcf-done">Done</button>` +
+                `<button class="nb-vcf-close" id="nb-vcf-close">×</button>` +
+              `</div>` +
+              `<div class="nb-vcf-body">` +
+                `<div class="nb-vcf-list" id="nb-vcf-list"></div>` +
+                `<div class="nb-vcf-detail" id="nb-vcf-detail">` +
+                  `<div class="nb-vcf-empty">Select a contact</div>` +
+                `</div>` +
+              `</div>` +
+            `</div>`;
+        document.body.appendChild(el);
+
+        el.addEventListener('click', e => { if (e.target === el) _closeVcfBrowser(); });
+        document.getElementById('nb-vcf-close').addEventListener('click', _closeVcfBrowser);
+        document.getElementById('nb-vcf-done').addEventListener('click', _closeVcfBrowser);
+        document.getElementById('nb-vcf-search').addEventListener('input', e => {
+            _vcfRenderList(e.target.value.trim().toLowerCase());
+        });
+    }
+
+    function _vcfRenderList(filter = '') {
+        const list = document.getElementById('nb-vcf-list');
+        if (!list || !_vcfContacts) return;
+        const shown = filter
+            ? _vcfContacts.filter(c => {
+                const hay = [c.fn, c.name, c.org, ...Object.values(c.email || {}),
+                             ...Object.values(c.phone || {})].join(' ').toLowerCase();
+                return hay.includes(filter);
+              })
+            : _vcfContacts;
+        list.innerHTML = '';
+        if (!shown.length) {
+            list.innerHTML = '<div class="nb-vcf-empty">No matches</div>';
+            return;
+        }
+        shown.forEach(c => {
+            const div = document.createElement('div');
+            div.className = 'nb-vcf-item' + (c === _vcfSelected ? ' active' : '');
+            div.textContent = c.name || c.fn || '(no name)';
+            div.addEventListener('click', () => _vcfShowDetail(c, div));
+            list.appendChild(div);
+        });
+    }
+
+    function _vcfShowDetail(c, itemEl) {
+        _vcfSelected = c;
+        document.querySelectorAll('.nb-vcf-item').forEach(el => el.classList.remove('active'));
+        if (itemEl) itemEl.classList.add('active');
+
+        const detail = document.getElementById('nb-vcf-detail');
+        if (!detail) return;
+
+        function field(label, val) {
+            if (!val) return '';
+            if (typeof val === 'object') {
+                return Object.entries(val).map(([k, v]) =>
+                    `<div class="nb-vcf-field"><span class="nb-vcf-label">${_esc(label)}</span>` +
+                    `<span class="nb-vcf-value">${_esc(v)} <em style="opacity:0.5">${_esc(k)}</em></span></div>`
+                ).join('');
+            }
+            return `<div class="nb-vcf-field"><span class="nb-vcf-label">${_esc(label)}</span>` +
+                   `<span class="nb-vcf-value">${_esc(String(val))}</span></div>`;
+        }
+
+        detail.innerHTML =
+            `<div class="nb-vcf-detail-name">${_esc(c.name || c.fn || '(no name)')}</div>` +
+            field('Email',   c.email) +
+            field('Phone',   c.phone) +
+            field('Org',     c.org) +
+            field('Title',   c.title) +
+            field('Address', c.address) +
+            field('Birthday',c.birthday) +
+            field('URL',     c.url) +
+            field('Note',    c.note) +
+            `<div class="nb-vcf-create">` +
+              `<button id="nb-vcf-create-btn">Create Contact Note</button>` +
+            `</div>`;
+
+        document.getElementById('nb-vcf-create-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('nb-vcf-create-btn');
+            btn.disabled = true;
+            btn.textContent = 'Creating…';
+            try {
+                const r = await fetch('/api/contacts/from-vcf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contact: _vcfSelected }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    btn.textContent = '✓ Created!';
+                    btn.style.background = 'var(--green, #2ecc71)';
+                    setTimeout(() => {
+                        btn.textContent = 'Create Contact Note';
+                        btn.style.background = '';
+                        btn.disabled = false;
+                    }, 1800);
+                } else {
+                    btn.textContent = 'Error: ' + (d.error || 'could not create note');
+                    btn.style.background = 'var(--red, #e74c3c)';
+                    setTimeout(() => {
+                        btn.textContent = 'Create Contact Note';
+                        btn.style.background = '';
+                        btn.disabled = false;
+                    }, 2500);
+                }
+            } catch(e) {
+                btn.textContent = 'Error — retry?';
+                btn.style.background = '';
+                btn.disabled = false;
+            }
+        });
+    }
+
+    async function _openVcfBrowser() {
+        _initVcfBrowser();
+        const el = document.getElementById('nb-vcf-backdrop');
+        if (!el) return;
+        el.style.display = 'flex';
+        document.getElementById('nb-vcf-search').value = '';
+        document.getElementById('nb-vcf-detail').innerHTML = '<div class="nb-vcf-empty">Select a contact</div>';
+        _vcfSelected = null;
+
+        const listEl = document.getElementById('nb-vcf-list');
+        listEl.innerHTML = '<div class="nb-vcf-empty">Loading…</div>';
+        document.getElementById('nb-vcf-search').focus();
+
+        try {
+            const r = await fetch('/api/contacts/vcf');
+            const d = await r.json();
+            if (!r.ok) {
+                listEl.innerHTML = `<div class="nb-vcf-empty">${_esc(d.error || 'Could not load VCF')}</div>`;
+                return;
+            }
+            _vcfContacts = d.contacts || [];
+            _vcfRenderList();
+        } catch(e) {
+            listEl.innerHTML = '<div class="nb-vcf-empty">Network error</div>';
+        }
+    }
+
+    function _closeVcfBrowser() {
+        const el = document.getElementById('nb-vcf-backdrop');
+        if (el) el.style.display = 'none';
+        loadNotes();
+    }
+
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, addEncryptedNote, encPassword: () => _encPassword,
              runCmd, runCal, runGrep, runTemplates, runNbNotebooks, loadTemplatesForAdd,
@@ -5577,6 +5744,7 @@ const NbMain = (() => {
              exportFormats: _exportFormats,
              doPrint: _doPrint,
              clearNote,
+             openVcfBrowser: _openVcfBrowser,
              activeSelector: () => _activeSelector,
              activeType:     () => _activeType,
              activeFilename: () => _activeFilename,

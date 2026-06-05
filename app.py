@@ -98,6 +98,8 @@ _SETTINGS_SCHEMA = {
                             'coerce': lambda v: str(v).strip()},
     'notebook_prefs':     {'type': dict, 'default': {},
                             'coerce': lambda v: v if isinstance(v, dict) else {}},
+    'vcf_source':         {'type': str, 'default': '~/Downloads/contacts.vcf',
+                            'coerce': lambda v: str(v).strip()},
 }
 
 def _load_settings():
@@ -3967,6 +3969,49 @@ def api_import():
         return jsonify({'success': False, 'error': str(e)})
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.route('/api/contacts/vcf')
+def api_contacts_vcf():
+    """Return parsed contacts from the configured VCF source file."""
+    settings = _load_settings()
+    vcf_path = Path(settings.get('vcf_source', '~/Downloads/contacts.vcf')).expanduser()
+    if not vcf_path.exists():
+        return jsonify({'error': f'VCF file not found: {vcf_path}', 'contacts': []}), 404
+    text     = vcf_path.read_text(errors='replace')
+    contacts = _parse_vcard(text)
+    contacts.sort(key=lambda c: (c.get('name') or c.get('fn', '')).lower())
+    return jsonify({'contacts': contacts, 'count': len(contacts)})
+
+
+@app.route('/api/contacts/from-vcf', methods=['POST'])
+def api_contact_from_vcf():
+    """Create a contact note in the contacts notebook from a parsed vCard dict."""
+    data    = request.get_json(silent=True) or {}
+    contact = data.get('contact')
+    if not contact or not isinstance(contact, dict):
+        return jsonify({'error': 'contact dict required'}), 400
+
+    md    = _contact_to_md(contact)
+    name  = contact.get('name') or contact.get('fn', 'contact')
+    slug  = _contact_slug(name)
+    fname = f'{slug}.md'
+
+    contacts_dir = NB_DIR / 'contacts'
+    contacts_dir.mkdir(parents=True, exist_ok=True)
+    dest = contacts_dir / fname
+    if dest.exists():
+        import uuid as _uuid
+        fname = f'{slug}_{_uuid.uuid4().hex[:4]}.md'
+        dest  = contacts_dir / fname
+
+    dest.write_text(md)
+    run_nb('index', 'reconcile', 'contacts:')
+
+    idx      = read_index('contacts')
+    note_id  = (idx.index(fname) + 1) if fname in idx else None
+    selector = f'contacts:{note_id}' if note_id else None
+    return jsonify({'success': True, 'selector': selector, 'filename': fname, 'name': name})
 
 
 @app.route('/api/link-file', methods=['POST'])

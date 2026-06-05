@@ -2251,3 +2251,72 @@ body.nb-fullscreen #nb-cmd-bar::after {
   margin-top: 4px;
   align-self: flex-start;
 }
+
+/* ── VCF contact browser ─────────────────────────────────────────── */
+.nb-vcf-backdrop {
+  position: fixed; inset: 0; z-index: 1200;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.nb-vcf-dialog {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 8px; width: min(720px, 96vw);
+  height: min(560px, 90vh);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.nb-vcf-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg3); border-bottom: 1px solid var(--border);
+  font-size: 0.9em; font-weight: 600; color: var(--text); flex-shrink: 0;
+}
+.nb-vcf-header input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 8px; color: var(--text); font-size: 0.95em;
+}
+.nb-vcf-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 1.3em; line-height: 1; padding: 0 2px;
+  margin-left: auto;
+}
+.nb-vcf-close:hover { color: var(--text); }
+.nb-vcf-body {
+  display: flex; flex: 1; min-height: 0;
+}
+.nb-vcf-list {
+  width: 240px; flex-shrink: 0; overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+.nb-vcf-item {
+  padding: 7px 12px; cursor: pointer; font-size: 0.88em;
+  border-bottom: 1px solid var(--border); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nb-vcf-item:hover  { background: var(--bg3); }
+.nb-vcf-item.active { background: var(--accent-dim, var(--bg3)); font-weight: 600; }
+.nb-vcf-detail {
+  flex: 1; padding: 16px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.nb-vcf-detail-name {
+  font-size: 1.1em; font-weight: 700; color: var(--text); margin-bottom: 4px;
+}
+.nb-vcf-field {
+  display: flex; gap: 8px; font-size: 0.87em;
+}
+.nb-vcf-label {
+  color: var(--text-dim); min-width: 60px; flex-shrink: 0;
+}
+.nb-vcf-value { color: var(--text); }
+.nb-vcf-create {
+  margin-top: auto; padding-top: 12px;
+}
+.nb-vcf-create button {
+  background: var(--accent, #3b82f6); color: #fff; border: none;
+  border-radius: 5px; padding: 7px 16px; cursor: pointer; font-size: 0.9em;
+}
+.nb-vcf-create button:hover { opacity: 0.88; }
+.nb-vcf-empty {
+  color: var(--text-dim); font-size: 0.88em; padding: 12px;
+}
