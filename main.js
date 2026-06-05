@@ -1170,6 +1170,17 @@ const NbMain = (() => {
               `<span class="nb-contact-label">with_tags</span>` +
               `<span class="nb-contact-value">${withTagsList.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join(' ')}</span>` +
               `</div></div>` : '';
+        const _handled = new Set(['title', 'caption', 'SEO', 'tags', 'with_tags', 'footnote']);
+        const extraRows = Object.entries(m)
+            .filter(([k]) => !_handled.has(k))
+            .map(([k, v]) => {
+                const raw = (v != null && typeof v === 'object') ? JSON.stringify(v) : String(v ?? '');
+                const display = raw.includes('\n')
+                    ? `<pre class="nb-wp-field-pre">${_esc(raw)}</pre>`
+                    : `<span class="nb-contact-value">${_esc(raw)}</span>`;
+                return `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(k)}</span>${display}</div>`;
+            }).join('');
+        const extraHtml = extraRows ? `<div class="nb-contact-fields">${extraRows}</div>` : '';
         const bodyHtml = (note.body || '').trim()
             ? `<div class="nb-wp-body">${_renderMarkdown(note.body)}</div>` : '';
         const footnote = m.footnote
@@ -1178,6 +1189,7 @@ const NbMain = (() => {
   <div class="nb-item-body">
     <div class="nb-wp-title">${title}</div>
     ${caption}
+    ${extraHtml}
     ${seoVal}
     ${tagHtml}
     ${withTagsHtml}
