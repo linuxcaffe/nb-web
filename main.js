@@ -5584,8 +5584,9 @@ const NbMain = (() => {
 
     // ── VCF contact browser ───────────────────────────────────────────────────
 
-    let _vcfContacts = null;   // cached contact list
-    let _vcfSelected = null;   // currently selected contact dict
+    let _vcfContacts  = null;   // cached contact list
+    let _vcfSelected  = null;   // currently selected contact dict
+    let _vcfShownList = [];     // currently visible (filtered) contacts
 
     function _initVcfBrowser() {
         if (document.getElementById('nb-vcf-backdrop')) return;
@@ -5616,6 +5617,25 @@ const NbMain = (() => {
         document.getElementById('nb-vcf-search').addEventListener('input', e => {
             _vcfRenderList(e.target.value.trim().toLowerCase());
         });
+        document.getElementById('nb-vcf-search').addEventListener('keydown', e => {
+            const nav = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10 };
+            if (!(e.key in nav)) return;
+            e.preventDefault();
+            const n = _vcfShownList.length;
+            if (!n) return;
+            const cur = _vcfSelected ? _vcfShownList.indexOf(_vcfSelected) : -1;
+            _vcfSelectByIndex(cur < 0 ? (nav[e.key] > 0 ? 0 : n - 1) : cur + nav[e.key]);
+        });
+    }
+
+    function _vcfSelectByIndex(i) {
+        const n = _vcfShownList.length;
+        if (!n) return;
+        i = Math.max(0, Math.min(i, n - 1));
+        const items = document.querySelectorAll('.nb-vcf-item');
+        if (!items[i]) return;
+        items[i].scrollIntoView({ block: 'nearest' });
+        _vcfShowDetail(_vcfShownList[i], items[i]);
     }
 
     function _vcfRenderList(filter = '') {
@@ -5628,15 +5648,17 @@ const NbMain = (() => {
                 return hay.includes(filter);
               })
             : _vcfContacts;
+        _vcfShownList = shown;
         list.innerHTML = '';
         if (!shown.length) {
             list.innerHTML = '<div class="nb-vcf-empty">No matches</div>';
             return;
         }
-        shown.forEach(c => {
+        shown.forEach((c, i) => {
             const div = document.createElement('div');
             div.className = 'nb-vcf-item' + (c === _vcfSelected ? ' active' : '');
-            div.textContent = c.name || c.fn || '(no name)';
+            div.textContent = c.name || c.fn || c.org || '(no name)';
+            div.dataset.idx = i;
             div.addEventListener('click', () => _vcfShowDetail(c, div));
             list.appendChild(div);
         });
@@ -5663,7 +5685,7 @@ const NbMain = (() => {
         }
 
         detail.innerHTML =
-            `<div class="nb-vcf-detail-name">${_esc(c.name || c.fn || '(no name)')}</div>` +
+            `<div class="nb-vcf-detail-name">${_esc(c.name || c.fn || c.org || '(no name)')}</div>` +
             field('Email',   c.email) +
             field('Phone',   c.phone) +
             field('Org',     c.org) +
