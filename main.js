@@ -445,7 +445,7 @@ const NbMain = (() => {
         } else if (note.selector && /:items\//.test(note.selector)) {
             html = _renderItem(note);
         } else if (note.meta && ('caption' in note.meta || 'footnote' in note.meta ||
-                   'SEO' in note.meta || 'tags' in note.meta)) {
+                   'SEO' in note.meta || 'tags' in note.meta || 'with_tags' in note.meta)) {
             html = _renderWebpage(note);
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
@@ -1148,6 +1148,14 @@ const NbMain = (() => {
         const wpTags = Array.isArray(m.tags) ? m.tags : (m.tags ? String(m.tags).split(',').map(t => t.trim()).filter(Boolean) : []);
         const tagHtml = wpTags.length
             ? `<div class="nb-contact-tags">${wpTags.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join('')}</div>` : '';
+        const withTagsRaw = m.with_tags;
+        const withTagsList = Array.isArray(withTagsRaw) ? withTagsRaw
+            : (withTagsRaw ? String(withTagsRaw).split(',').map(t => t.trim()).filter(Boolean) : []);
+        const withTagsHtml = withTagsList.length
+            ? `<div class="nb-contact-fields"><div class="nb-contact-row">` +
+              `<span class="nb-contact-label">with_tags</span>` +
+              `<span class="nb-contact-value">${withTagsList.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join(' ')}</span>` +
+              `</div></div>` : '';
         const bodyHtml = (note.body || '').trim()
             ? `<div class="nb-wp-body">${_renderMarkdown(note.body)}</div>` : '';
         const footnote = m.footnote
@@ -1158,6 +1166,7 @@ const NbMain = (() => {
     ${caption}
     ${seoVal}
     ${tagHtml}
+    ${withTagsHtml}
     ${bodyHtml}
     ${footnote}
   </div>
