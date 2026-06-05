@@ -560,8 +560,18 @@ const NbMain = (() => {
 
         container.querySelectorAll('.nb-wiki-link').forEach(el => {
             el.addEventListener('click', async () => {
-                const sel = el.dataset.selector || el.textContent.trim()
-                openNote(await _resolveWikilinkSelector(sel))
+                const sel  = el.dataset.selector || el.textContent.trim()
+                const frag = el.dataset.fragment || ''
+                await openNote(await _resolveWikilinkSelector(sel))
+                if (frag) {
+                    const pane   = document.getElementById('nb-preview-content')
+                    const fragLc = frag.toLowerCase().trim()
+                    const slug   = fragLc.replace(/\s+/g, '-').replace(/[^\w-]/g, '')
+                    const target = pane?.querySelector(`[id="${CSS.escape(slug)}"]`)
+                        ?? [...(pane?.querySelectorAll('h1,h2,h3,h4,h5,h6') ?? [])]
+                            .find(h => h.textContent.trim().toLowerCase() === fragLc)
+                    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
             });
         });
         _resolveWikilinks(container);
@@ -2545,8 +2555,13 @@ const NbMain = (() => {
         if (typeof marked === 'undefined') return `<pre>${_esc(body)}</pre>`;
         // Pre-process wiki-links and hashtags before marked
         let processed = body
-            .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) =>
-                `<span class="nb-wiki-link" data-selector="${_esc(target)}"${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`)
+            .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => {
+                const hashIdx  = target.indexOf('#')
+                const page     = hashIdx >= 0 ? target.slice(0, hashIdx) : target
+                const frag     = hashIdx >= 0 ? target.slice(hashIdx + 1) : ''
+                const fragAttr = frag ? ` data-fragment="${_esc(frag)}"` : ''
+                return `<span class="nb-wiki-link" data-selector="${_esc(page)}"${fragAttr}${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`
+            })
             .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
                 `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
         let html = marked.parse(processed);
