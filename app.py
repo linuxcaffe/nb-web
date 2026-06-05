@@ -43,11 +43,17 @@ _RE_FENCE    = re.compile(r'^```')            # fenced code block opening/closin
 def _first_excerpt_line(body: str, meta: dict) -> str:
     """Return the best single-line excerpt for a note body.
 
-    Priority: caption field → first non-heading, non-comment, non-fence body line.
+    Priority: caption → phone (contact notes) → email → first body line.
     Entire fenced blocks are skipped so ` ```csv ` doesn't show as an excerpt.
     """
     if meta.get('caption'):
         return str(meta['caption'])[:120]
+    for field in ('phone', 'email'):
+        val = meta.get(field)
+        if val:
+            first = next(iter(val.values()), None) if isinstance(val, dict) else str(val)
+            if first:
+                return str(first)[:120]
     in_fence = False
     for raw_line in body.splitlines():
         line = raw_line.strip()
