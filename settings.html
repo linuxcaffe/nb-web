@@ -286,6 +286,27 @@
 </section>
 
 <!-- ── Import ────────────────────────────────────────────────────── -->
+<section id="sec-contacts">
+  <h2>Contacts</h2>
+
+  <div class="field">
+    <label for="contact-vcf-source">VCF source file</label>
+    <input type="text" id="contact-vcf-source" placeholder="~/Downloads/contacts.vcf">
+    <p class="hint">Path to the .vcf file used by the 📇 VCF browser. Tilde expansion supported.</p>
+  </div>
+
+  <div class="field">
+    <label for="contact-tag">Default import tag</label>
+    <input type="text" id="contact-tag" placeholder="djp">
+    <p class="hint">Tag prepended to every contact note created via the VCF browser (without #). Leave blank to skip.</p>
+  </div>
+
+  <div class="row">
+    <button class="save-btn" id="save-contacts">Save</button>
+    <span class="status" id="status-contacts"></span>
+  </div>
+</section>
+
 <section id="sec-import">
   <h2>Import</h2>
 
@@ -389,6 +410,8 @@
       document.getElementById('import-max-mb').value    = d.import_max_mb    || 25;
       document.getElementById('import-max-files').value = d.import_max_files || 20;
       document.getElementById('default-git-remote').value = d.default_git_remote || '';
+      document.getElementById('contact-vcf-source').value  = d.vcf_source    || '';
+      document.getElementById('contact-tag').value         = d.contact_tag   || '';
     } catch(e) {
       console.error('Failed to load nb-web settings', e);
     }
@@ -407,6 +430,8 @@
       import_max_mb:    parseInt(document.getElementById('import-max-mb').value)    || 25,
       import_max_files: parseInt(document.getElementById('import-max-files').value) || 20,
       default_git_remote: document.getElementById('default-git-remote').value.trim(),
+      vcf_source:         document.getElementById('contact-vcf-source').value.trim(),
+      contact_tag:        document.getElementById('contact-tag').value.trim().replace(/^#/, ''),
     };
     const patch = {};
     keys.forEach(k => { patch[k] = all[k]; });
@@ -431,6 +456,8 @@
     saveNbWebSettings(['hledger_web_cmd', 'hledger_terminal', 'tw_web_cmd', 'tw_terminal'], 'status-integrations'));
   document.getElementById('save-terminal').addEventListener('click', () =>
     saveNbWebSettings(['pty_height', 'pty_cwd', 'pty_init'], 'status-terminal'));
+  document.getElementById('save-contacts').addEventListener('click', () =>
+    saveNbWebSettings(['vcf_source', 'contact_tag'], 'status-contacts'));
   document.getElementById('save-import').addEventListener('click', () =>
     saveNbWebSettings(['import_max_mb', 'import_max_files'], 'status-import'));
   document.getElementById('save-git').addEventListener('click', () =>

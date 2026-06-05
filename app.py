@@ -100,6 +100,8 @@ _SETTINGS_SCHEMA = {
                             'coerce': lambda v: v if isinstance(v, dict) else {}},
     'vcf_source':         {'type': str, 'default': '~/Downloads/contacts.vcf',
                             'coerce': lambda v: str(v).strip()},
+    'contact_tag':        {'type': str, 'default': 'djp',
+                            'coerce': lambda v: str(v).strip().lstrip('#')},
 }
 
 def _load_settings():
@@ -3992,6 +3994,16 @@ def api_contact_from_vcf():
     if not contact or not isinstance(contact, dict):
         return jsonify({'error': 'contact dict required'}), 400
 
+    settings    = _load_settings()
+    contact_tag = settings.get('contact_tag', 'djp').strip().lstrip('#')
+    if contact_tag:
+        existing = contact.get('tags') or []
+        if isinstance(existing, str):
+            existing = [t.strip() for t in existing.replace(',', ' ').split() if t.strip()]
+        if contact_tag not in existing:
+            existing = [contact_tag] + existing
+        contact = dict(contact, tags=existing)
+
     md    = _contact_to_md(contact)
     name  = contact.get('name') or contact.get('fn', 'contact')
     slug  = _contact_slug(name)
@@ -4305,19 +4317,8 @@ def _contact_to_md(c):
     else:
         yaml_block = '\n'.join(f"{k}: {v}" for k, v in fm.items())
 
-    body    = c.get('note', '')
-    heading = f"# {name}\n\n" if name else ''
-    # Append #hashtag line so nb full-text search finds contacts by tag
-    tag_line = ''
-    if c.get('tags'):
-        raw_tags = c['tags']
-        if isinstance(raw_tags, list):
-            tag_line = '\n\n' + ' '.join(f"#{t}" for t in raw_tags if t)
-        elif isinstance(raw_tags, str):
-            tag_line = '\n\n' + ' '.join(
-                f"#{t.strip()}" for t in raw_tags.replace(',', ' ').split() if t.strip()
-            )
-    return f"---\n{yaml_block}\n---\n\n{heading}{body}{tag_line}\n"
+    body = c.get('note', '')
+    return f"---\n{yaml_block}\n---\n\n{body}\n" if body else f"---\n{yaml_block}\n---\n"
 
 
 # ---------------------------------------------------------------------------
