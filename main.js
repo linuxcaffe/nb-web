@@ -564,7 +564,7 @@ const NbMain = (() => {
 
         container.querySelectorAll('.nb-wiki-link').forEach(el => {
             el.addEventListener('click', async () => {
-                const sel  = el.dataset.selector || el.textContent.trim()
+                const sel  = el.dataset.selector
                 const frag = el.dataset.fragment || ''
                 if (sel) await openNote(await _resolveWikilinkSelector(sel))
                 if (frag) {
