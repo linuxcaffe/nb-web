@@ -562,7 +562,7 @@ const NbMain = (() => {
             el.addEventListener('click', async () => {
                 const sel  = el.dataset.selector || el.textContent.trim()
                 const frag = el.dataset.fragment || ''
-                await openNote(await _resolveWikilinkSelector(sel))
+                if (sel) await openNote(await _resolveWikilinkSelector(sel))
                 if (frag) {
                     const pane   = document.getElementById('nb-preview-content')
                     const fragLc = frag.toLowerCase().trim()
