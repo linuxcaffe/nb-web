@@ -4671,6 +4671,31 @@ const NbMain = (() => {
                 <button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>
             </div>`;
 
+        // Fetch and render per-notebook summaries
+        if (p.activeNotebooks.length) {
+            const summarySection = document.createElement('div');
+            summarySection.className = 'nb-plugin-section';
+            summarySection.innerHTML = `<div class="nb-plugin-section-title">Site configuration</div>`;
+            content.appendChild(summarySection);
+
+            for (const nb of p.activeNotebooks) {
+                try {
+                    const s = await fetch(`/api/website/summary?notebook=${encodeURIComponent(nb)}`).then(r => r.json());
+                    if (s.ok && s.markdown) {
+                        const nbHeader = document.createElement('div');
+                        nbHeader.style.cssText = 'font-size:12px;font-weight:600;color:var(--text);margin:10px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border)';
+                        nbHeader.textContent = '📒 ' + nb;
+                        summarySection.appendChild(nbHeader);
+                        const mdEl = document.createElement('div');
+                        mdEl.className = 'nb-plugin-help';
+                        mdEl.style.cssText = 'padding:0;border:none';
+                        mdEl.innerHTML = marked.parse(s.markdown);
+                        summarySection.appendChild(mdEl);
+                    }
+                } catch(_) {}
+            }
+        }
+
         document.getElementById('nbplug-save').addEventListener('click', async () => {
             const sort = document.getElementById('nbplug-sort').value;
             const type = document.getElementById('nbplug-type').value;

@@ -3390,6 +3390,15 @@ def api_website_deploy():
         return jsonify({'ok': False, 'output': str(e)})
 
 
+@app.route('/api/website/summary')
+def api_website_summary():
+    notebook  = request.args.get('notebook', '')
+    summary_path = NB_DIR / notebook / '.nb-website-summary.md'
+    if not summary_path.exists():
+        return jsonify({'ok': False, 'markdown': ''})
+    return jsonify({'ok': True, 'markdown': summary_path.read_text()})
+
+
 @app.route('/api/website/publish', methods=['POST'])
 def api_website_publish():
     import re as _re
