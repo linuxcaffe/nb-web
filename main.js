@@ -71,18 +71,30 @@ const NbMain = (() => {
 
     // ── Notes list ─────────────────────────────────────────────────
 
+    function _makePluginBtn(btn, nb, cls) {
+        const el = document.createElement('button');
+        el.className = cls;
+        el.dataset.pluginBtn = btn.id;
+        el.title = btn.title ?? '';
+        el.textContent = btn.icon ?? btn.id;
+        el.addEventListener('click', () => btn.action(nb, el));
+        return el;
+    }
+
     function _renderPluginButtons(nb) {
-        const container = document.getElementById('nb-cmds-plugins');
-        if (!container) return;
-        container.querySelectorAll('[data-plugin-btn]').forEach(b => b.remove());
-        for (const btn of NbWeb.getToolbarButtons(nb)) {
-            const el = document.createElement('button');
-            el.className = 'nb-cmd nb-cmd-plugin';
-            el.dataset.pluginBtn = btn.id;
-            el.title = btn.title ?? '';
-            el.textContent = btn.icon ?? btn.id;
-            el.addEventListener('click', () => btn.action(nb, el));
-            container.appendChild(el);
+        // nav buttons — global, always re-render on notebook switch
+        const nav = document.getElementById('nb-cmds-plugins');
+        if (nav) {
+            nav.querySelectorAll('[data-plugin-btn]').forEach(b => b.remove());
+            for (const btn of NbWeb.getNavButtons())
+                nav.appendChild(_makePluginBtn(btn, nb, 'nb-cmd nb-cmd-plugin'));
+        }
+        // list buttons — notebook-specific
+        const list = document.getElementById('nb-list-plugin-btns');
+        if (list) {
+            list.innerHTML = '';
+            for (const btn of NbWeb.getListButtons(nb))
+                list.appendChild(_makePluginBtn(btn, nb, 'nb-icon-btn nb-list-plugin-btn'));
         }
     }
 

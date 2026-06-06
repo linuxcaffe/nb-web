@@ -4,12 +4,21 @@ NbWeb.registerModule('quartz', {
 
     detect: (notebooks) => notebooks.filter(nb => nb.website?.quartz_path),
 
-    toolbarButtons: [
+    listButtons: [
         {
             id:     'nbwq-publish',
             icon:   '🌐',
             title:  'Publish site',
             action: (notebook, btn) => NbWeb.publishWebsite(notebook, btn),
+        },
+        {
+            id:    'nbwq-open',
+            icon:  '↗',
+            title: 'Open site in new tab',
+            action: (notebook) => {
+                const url = NbWeb.notebooks().find(n => n.name === notebook)?.website?.url;
+                if (url) window.open(url, '_blank');
+            },
         },
     ],
 

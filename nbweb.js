@@ -44,11 +44,12 @@ const NbWeb = (() => {
 
     // ── Initialisation (called after plugins are loaded) ───────────────────────
 
+    let _notebooks = []; // full notebook objects from /api/nb/notebooks
+
     async function _init() {
-        let notebooks = [];
         try {
             const r = await fetch('/api/nb/notebooks');
-            notebooks = (await r.json()).notebooks || [];
+            _notebooks = (await r.json()).notebooks || [];
         } catch (e) {
             console.warn('NbWeb: could not load notebooks for plugin detection', e);
         }
@@ -56,8 +57,8 @@ const NbWeb = (() => {
             if (!mod.enabled) continue;
             try {
                 mod.activeNotebooks = mod.spec.detect
-                    ? ((await mod.spec.detect(notebooks)) ?? [])
-                    : notebooks;
+                    ? ((await mod.spec.detect(_notebooks)) ?? [])
+                    : _notebooks;
             } catch (e) {
                 console.error(`NbWeb: detect() failed for module "${name}":`, e);
                 mod.activeNotebooks = [];
@@ -65,6 +66,8 @@ const NbWeb = (() => {
             }
         }
     }
+
+    function notebooks() { return _notebooks; }
 
     // ── Extension point queries ────────────────────────────────────────────────
 
@@ -86,8 +89,18 @@ const NbWeb = (() => {
         return _activeFor(notebook).find(m => m.listExcerpt)?.listExcerpt ?? null;
     }
 
-    function getToolbarButtons(notebook) {
-        return _activeFor(notebook).flatMap(m => m.toolbarButtons ?? []);
+    // listButtons — notebook-specific, injected into the List panel toolbar
+    function getListButtons(notebook) {
+        return _activeFor(notebook).flatMap(m => m.listButtons ?? m.toolbarButtons ?? []);
+    }
+
+    // navButtons — global, injected into the main nav (#nb-cmds-plugins)
+    function getNavButtons() {
+        const seen = new Set();
+        return [..._modules.values()]
+            .filter(mod => mod.enabled)
+            .flatMap(mod => mod.spec.navButtons ?? [])
+            .filter(btn => seen.has(btn.id) ? false : seen.add(btn.id));
     }
 
     function getAddFormExtras(notebook) {
@@ -180,11 +193,14 @@ const NbWeb = (() => {
     return {
         registerModule,
         publishWebsite,
+        notebooks,
         _loadPlugins,
         _init,
         getPreviewRenderer,
         getListExcerpt,
-        getToolbarButtons,
+        getListButtons,
+        getNavButtons,
+        getToolbarButtons: getListButtons, // backward-compat alias
         getAddFormExtras,
         list,
         setEnabled,

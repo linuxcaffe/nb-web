@@ -620,6 +620,10 @@ body {
 #nb-count { font-weight: 600; flex: 1; }
 
 /* Sort button — pushed to right edge by flex: 1 on #nb-count */
+#nb-list-plugin-btns { display: flex; align-items: center; gap: 2px; }
+.nb-list-plugin-btn  { font-size: 14px; color: var(--text-dim); }
+.nb-list-plugin-btn:hover { color: var(--text-muted); }
+
 .nb-list-sort-btn {
   font-size: 14px;
   padding: 1px 5px;
