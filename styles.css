@@ -616,11 +616,19 @@ body {
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  position: relative;
 }
 #nb-count { font-weight: 600; flex: 1; }
 
 /* Sort button — pushed to right edge by flex: 1 on #nb-count */
-#nb-list-plugin-btns { display: flex; align-items: center; gap: 2px; }
+#nb-list-plugin-btns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
 .nb-list-plugin-btn  { font-size: 14px; color: var(--text-dim); }
 .nb-list-plugin-btn:hover { color: var(--text-muted); }
 

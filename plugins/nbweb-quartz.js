@@ -15,8 +15,8 @@ NbWeb.registerModule('quartz', {
             id:    'nbwq-open',
             icon:  '↗',
             title: 'Open site in new tab',
-            action: (notebook) => {
-                const url = NbWeb.notebooks().find(n => n.name === notebook)?.website?.url;
+            action: (_notebook, _btn, ctx) => {
+                const url = ctx?.website?.url;
                 if (url) window.open(url, '_blank');
             },
         },

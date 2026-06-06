@@ -71,13 +71,13 @@ const NbMain = (() => {
 
     // ── Notes list ─────────────────────────────────────────────────
 
-    function _makePluginBtn(btn, nb, cls) {
+    function _makePluginBtn(btn, nb, cls, ctx) {
         const el = document.createElement('button');
         el.className = cls;
         el.dataset.pluginBtn = btn.id;
         el.title = btn.title ?? '';
         el.textContent = btn.icon ?? btn.id;
-        el.addEventListener('click', () => btn.action(nb, el));
+        el.addEventListener('click', () => btn.action(nb, el, ctx));
         return el;
     }
 
@@ -89,12 +89,13 @@ const NbMain = (() => {
             for (const btn of NbWeb.getNavButtons())
                 nav.appendChild(_makePluginBtn(btn, nb, 'nb-cmd nb-cmd-plugin'));
         }
-        // list buttons — notebook-specific
-        const list = document.getElementById('nb-list-plugin-btns');
-        if (list) {
-            list.innerHTML = '';
+        // list buttons — notebook-specific; pass full notebook object as context
+        const listEl = document.getElementById('nb-list-plugin-btns');
+        if (listEl) {
+            listEl.innerHTML = '';
+            const nbObj = NbWeb.notebooks().find(n => n.name === nb);
             for (const btn of NbWeb.getListButtons(nb))
-                list.appendChild(_makePluginBtn(btn, nb, 'nb-icon-btn nb-list-plugin-btn'));
+                listEl.appendChild(_makePluginBtn(btn, nb, 'nb-icon-btn nb-list-plugin-btn', nbObj));
         }
     }
 
