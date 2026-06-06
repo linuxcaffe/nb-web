@@ -94,6 +94,70 @@ const NbWeb = (() => {
         return _activeFor(notebook).find(m => m.addFormExtras)?.addFormExtras ?? null;
     }
 
+    // ── Shared publish helper (used by toolbar buttons + settings panel) ──────────
+
+    async function publishWebsite(notebook, btn) {
+        const origText   = btn.textContent;
+        const origTitle  = btn.title;
+        btn.disabled     = true;
+        btn.textContent  = '⏳';
+        btn.title        = 'Publishing…';
+
+        const chip = document.createElement('span');
+        chip.className   = 'nbweb-publish-chip';
+        chip.textContent = 'pushing…';
+        btn.insertAdjacentElement('afterend', chip);
+
+        const finish = (text, ms = 5000) => {
+            chip.textContent = text;
+            setTimeout(() => {
+                chip.remove();
+                btn.textContent = origText;
+                btn.title       = origTitle;
+                btn.disabled    = false;
+            }, ms);
+        };
+
+        try {
+            const r = await fetch('/api/website/publish', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ notebook }),
+            }).then(x => x.json());
+
+            if (!r.ok) { finish(`✗ ${r.output?.split('\n')[0] ?? 'failed'}`, 8000); return; }
+            if (!r.run_id) { finish('✓ triggered'); return; }
+
+            chip.textContent = '⏳ building…';
+            btn.title        = 'Building…';
+            const start = Date.now();
+            const repo  = encodeURIComponent(r.github_repo);
+            const timer = setInterval(async () => {
+                const elapsed = Math.round((Date.now() - start) / 1000);
+                if (elapsed > 300) {
+                    clearInterval(timer);
+                    finish('⚠ timed out', 8000);
+                    return;
+                }
+                try {
+                    const s = await fetch(
+                        `/api/website/build-status?run_id=${r.run_id}&repo=${repo}`
+                    ).then(x => x.json());
+                    if (s.status !== 'completed') {
+                        chip.textContent = `⏳ ${elapsed}s`;
+                        return;
+                    }
+                    clearInterval(timer);
+                    finish(s.conclusion === 'success'
+                        ? `✓ built in ${elapsed}s`
+                        : `✗ build failed`, s.conclusion === 'success' ? 5000 : 10000);
+                } catch (_) { /* transient, keep polling */ }
+            }, 6000);
+        } catch (e) {
+            finish('✗ ' + e.message, 8000);
+        }
+    }
+
     // ── Plugin manager API (for the Plugins page UI) ───────────────────────────
 
     function list() {
@@ -115,6 +179,7 @@ const NbWeb = (() => {
 
     return {
         registerModule,
+        publishWebsite,
         _loadPlugins,
         _init,
         getPreviewRenderer,

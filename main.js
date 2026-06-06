@@ -81,7 +81,7 @@ const NbMain = (() => {
             el.dataset.pluginBtn = btn.id;
             el.title = btn.title ?? '';
             el.textContent = btn.icon ?? btn.id;
-            el.addEventListener('click', () => btn.action(nb));
+            el.addEventListener('click', () => btn.action(nb, el));
             container.appendChild(el);
         }
     }

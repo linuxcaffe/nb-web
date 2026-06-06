@@ -6,13 +6,10 @@ NbWeb.registerModule('quartz', {
 
     toolbarButtons: [
         {
-            id:    'nbwq-publish',
-            icon:  '🌐',
-            title: 'Publish site',
-            action: (notebook) => {
-                // TODO: trigger /api/website/publish for this notebook
-                console.log('NbWeb-quartz: publish', notebook);
-            },
+            id:     'nbwq-publish',
+            icon:   '🌐',
+            title:  'Publish site',
+            action: (notebook, btn) => NbWeb.publishWebsite(notebook, btn),
         },
     ],
 

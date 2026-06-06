@@ -87,6 +87,14 @@ body {
 .nb-cmd-plugin:hover { color: var(--text-muted); }
 .nb-cmd-plugin.active { color: var(--accent); }
 
+/* Inline status chip shown next to plugin toolbar buttons during async actions */
+.nbweb-publish-chip {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  align-self: center;
+}
+
 /* Meta buttons (kept for potential future use) */
 #nb-cmd-meta { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 
