@@ -4502,6 +4502,249 @@ const NbMain = (() => {
         }
     }
 
+    // ── Plugins page ───────────────────────────────────────────────────────────
+
+    async function runPlugins() {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div id="nb-welcome"><h2>Plugins</h2><p>Loading…</p></div>';
+        document.getElementById('nb-list-empty').hidden = true;
+        document.getElementById('nb-count').textContent = '…';
+        document.getElementById('nb-type-breakdown').textContent = '';
+
+        const nbwebPlugins = NbWeb.list();
+
+        let nbPlugins = [];
+        try {
+            const r = await fetch('/api/run?cmd=plugins');
+            const txt = ((await r.json()).output || '').trim();
+            nbPlugins = txt.split('\n')
+                .map(l => l.trim()).filter(l => l && !l.startsWith('[nb]') && !l.startsWith('Plugins'))
+                .map(name => ({ name }));
+        } catch(_) {}
+
+        const total = nbwebPlugins.length + nbPlugins.length;
+        document.getElementById('nb-count').textContent =
+            `${total} plugin${total !== 1 ? 's' : ''}`;
+
+        _renderPluginPageList(nbwebPlugins, nbPlugins);
+
+        // Auto-select first NbWeb plugin
+        const first = document.querySelector('#nb-list .nb-list-item');
+        if (first) first.click();
+    }
+
+    function _renderPluginPageList(nbwebPlugins, nbPlugins) {
+        const list = document.getElementById('nb-list');
+        list.innerHTML = '';
+
+        const _addItem = (label, excerpt, icon, cls, onClick) => {
+            const li = document.createElement('li');
+            li.className = 'nb-list-item ' + cls;
+            li.setAttribute('role', 'option');
+
+            const iconEl = document.createElement('span');
+            iconEl.className = 'nb-list-icon';
+            iconEl.textContent = icon;
+
+            const body = document.createElement('div');
+            body.className = 'nb-list-body';
+
+            const titleRow = document.createElement('div');
+            titleRow.className = 'nb-list-title-row';
+            const titleEl = document.createElement('span');
+            titleEl.className = 'nb-list-title';
+            titleEl.textContent = label;
+            titleRow.appendChild(titleEl);
+            body.appendChild(titleRow);
+
+            if (excerpt) {
+                const exc = document.createElement('div');
+                exc.className = 'nb-list-excerpt';
+                exc.textContent = excerpt;
+                body.appendChild(exc);
+            }
+
+            li.append(iconEl, body);
+            li.addEventListener('click', () => {
+                list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                li.classList.add('active');
+                onClick();
+            });
+            list.appendChild(li);
+            return li;
+        };
+
+        if (nbwebPlugins.length) {
+            const hdr = document.createElement('li');
+            hdr.className = 'nb-list-section-header';
+            hdr.textContent = 'NbWeb Plugins';
+            list.appendChild(hdr);
+
+            nbwebPlugins.forEach(p => {
+                const activeFor = p.activeNotebooks.length
+                    ? p.activeNotebooks.join(', ')
+                    : p.enabled ? 'none detected' : 'disabled';
+                const status = !p.enabled ? '◌ disabled' : p.error ? '✗ error' : '● active';
+                _addItem(
+                    p.name,
+                    `${status} · ${activeFor}`,
+                    '🔌',
+                    'nb-plugin-nbweb' + (p.enabled ? '' : ' nb-plugin-disabled'),
+                    () => _openNbwebPlugin(p)
+                );
+            });
+        }
+
+        if (nbPlugins.length) {
+            const hdr = document.createElement('li');
+            hdr.className = 'nb-list-section-header';
+            hdr.textContent = 'nb CLI Plugins';
+            list.appendChild(hdr);
+
+            nbPlugins.forEach(p => {
+                _addItem(p.name, 'nb CLI plugin', '📦', 'nb-plugin-nb',
+                    () => _openNbPlugin(p));
+            });
+        }
+    }
+
+    async function _openNbwebPlugin(p) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+
+        // Load settings for persisted plugin_prefs
+        let pluginPrefs = {};
+        try {
+            const s = await fetch('/api/nb-settings').then(r => r.json());
+            pluginPrefs = (s.plugin_prefs || {})[p.name] || {};
+        } catch(_) {}
+
+        // Fetch help markdown if available
+        let helpHtml = '';
+        if (p.spec?.helpUrl) {
+            try {
+                const md = await fetch(p.spec.helpUrl).then(r => r.text());
+                helpHtml = `<div class="nb-plugin-help nb-markdown">${marked.parse(md)}</div>`;
+            } catch(_) {
+                helpHtml = `<div class="nb-plugin-help" style="color:var(--text-dim);padding:12px 28px;font-size:12px">Help file not found.</div>`;
+            }
+        }
+
+        const activeFor = p.activeNotebooks.length
+            ? p.activeNotebooks.join(', ') : 'none detected';
+        const statusColor = p.error ? 'var(--red)' : p.enabled ? 'var(--green,#2ecc71)' : 'var(--text-dim)';
+        const statusText  = p.error ? '✗ error' : p.enabled ? '● active' : '◌ disabled';
+
+        const ld = p.spec?.listDefaults || {};
+        const curSort = pluginPrefs.sortOrder ?? ld.sortOrder ?? 'default';
+        const curType = pluginPrefs.listType  ?? ld.listType  ?? 'all';
+        const sortOpts = ['default','az','za','newest','oldest']
+            .map(v => `<option value="${v}"${curSort === v ? ' selected' : ''}>${v}</option>`).join('');
+        const typeOpts = ['all','note','bookmark','todo','contact','folder','image']
+            .map(v => `<option value="${v}"${curType === v ? ' selected' : ''}>${v}</option>`).join('');
+
+        content.innerHTML = `
+            <div class="nb-plugin-header">
+                <span style="font-size:18px">🔌</span>
+                <strong style="font-size:14px;color:var(--text)">${_esc(p.spec?.label || p.name)}</strong>
+                <span style="color:${statusColor};font-size:12px">${statusText}</span>
+                ${p.activeNotebooks.length ? `<span class="nb-plugin-active-for">active for: ${_esc(activeFor)}</span>` : ''}
+            </div>
+            ${p.spec?.description ? `<div class="nb-plugin-desc">${_esc(p.spec.description)}</div>` : ''}
+            ${helpHtml}
+            <div class="nb-plugin-section">
+                <div class="nb-plugin-section-title">List defaults</div>
+                <div style="display:grid;gap:8px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px">
+                    <label style="color:var(--text-dim)">Sort</label>
+                    <select id="nbplug-sort" class="nb-scope-select">${sortOpts}</select>
+                    <label style="color:var(--text-dim)">Type</label>
+                    <select id="nbplug-type" class="nb-scope-select">${typeOpts}</select>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+                    <button id="nbplug-save" class="nb-tool-btn nb-btn-primary">Save defaults</button>
+                    <span id="nbplug-save-status" style="font-size:11px;color:var(--text-dim)"></span>
+                </div>
+            </div>
+            <div class="nb-plugin-section" style="display:flex;gap:8px;flex-wrap:wrap">
+                <button id="nbplug-toggle" class="nb-tool-btn">${p.enabled ? 'Disable' : 'Enable'}</button>
+                <button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>
+            </div>`;
+
+        document.getElementById('nbplug-save').addEventListener('click', async () => {
+            const sort = document.getElementById('nbplug-sort').value;
+            const type = document.getElementById('nbplug-type').value;
+            const statusEl = document.getElementById('nbplug-save-status');
+            try {
+                const s = await fetch('/api/nb-settings').then(r => r.json());
+                const prefs = s.plugin_prefs || {};
+                prefs[p.name] = { sortOrder: sort, listType: type };
+                await fetch('/api/nb-settings', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ plugin_prefs: prefs }),
+                });
+                statusEl.textContent = '✓ saved';
+                setTimeout(() => statusEl.textContent = '', 2000);
+            } catch(e) {
+                statusEl.textContent = '✗ ' + e.message;
+            }
+        });
+
+        document.getElementById('nbplug-toggle').addEventListener('click', async () => {
+            NbWeb.setEnabled(p.name, !p.enabled);
+            const s = await fetch('/api/nb-settings').then(r => r.json());
+            const plugins = (s.plugins || []).map(pl =>
+                pl.url?.includes(p.name) ? { ...pl, enabled: !p.enabled } : pl);
+            await fetch('/api/nb-settings', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plugins }),
+            });
+            runPlugins();
+        });
+
+        document.getElementById('nbplug-remove').addEventListener('click', async () => {
+            if (!confirm(`Remove plugin "${p.name}"?`)) return;
+            NbWeb.unregister(p.name);
+            const s = await fetch('/api/nb-settings').then(r => r.json());
+            const plugins = (s.plugins || []).filter(pl => !pl.url?.includes(p.name));
+            await fetch('/api/nb-settings', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plugins }),
+            });
+            runPlugins();
+        });
+    }
+
+    async function _openNbPlugin(p) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = `
+            <div class="nb-plugin-header">
+                <span style="font-size:18px">📦</span>
+                <strong style="font-size:14px;color:var(--text)">${_esc(p.name)}</strong>
+                <span class="nb-plugin-nb-badge">nb CLI</span>
+            </div>
+            <div class="nb-plugin-section" style="font-size:12px;color:var(--text-dim);line-height:1.6">
+                This is an nb CLI plugin, installed via <code>nb plugins install</code>.<br>
+                It extends the nb command-line tool directly.
+            </div>
+            <div class="nb-plugin-section" style="display:flex;gap:8px">
+                <button id="nbplug-nb-uninstall" class="nb-tool-btn" style="color:var(--red)">Uninstall</button>
+            </div>`;
+
+        document.getElementById('nbplug-nb-uninstall').addEventListener('click', async () => {
+            if (!confirm(`Uninstall nb plugin "${p.name}"?`)) return;
+            const r = await fetch('/api/run?cmd=plugins');
+            // nb plugins uninstall not yet wired — show message
+            document.getElementById('nb-preview-content').innerHTML +=
+                `<div style="padding:8px 28px;font-size:12px;color:var(--text-dim)">
+                    Run in terminal: <code>nb plugins uninstall ${_esc(p.name)}</code>
+                </div>`;
+        });
+    }
+
     function _renderNbList(notebooks) {
         const list   = document.getElementById('nb-list');
         const sorted = _sortNbList(notebooks);
@@ -5804,7 +6047,7 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, addEncryptedNote, encPassword: () => _encPassword,
-             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, loadTemplatesForAdd,
+             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
              setFoldersFirst,

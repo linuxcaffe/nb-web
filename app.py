@@ -108,6 +108,8 @@ _SETTINGS_SCHEMA = {
                             'coerce': lambda v: str(v).strip()},
     'contact_tag':        {'type': str, 'default': 'djp',
                             'coerce': lambda v: str(v).strip().lstrip('#')},
+    'plugin_prefs':       {'type': dict, 'default': {},
+                            'coerce': lambda v: v if isinstance(v, dict) else {}},
     'plugins':            {'type': list, 'default': [],
                             'coerce': lambda v: [
                                 {'url': str(p.get('url', '')), 'enabled': bool(p.get('enabled', True))}

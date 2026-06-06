@@ -2,6 +2,11 @@
 // Activates for any notebook that has a .nb-website.json with a quartz_path.
 NbWeb.registerModule('quartz', {
 
+    label:        'NbWeb-quartz',
+    description:  'Publish nb notebooks as Quartz static sites',
+    helpUrl:      '/plugins/nbweb-quartz.md',
+    listDefaults: { listType: 'note', sortOrder: 'default' },
+
     detect: (notebooks) => notebooks.filter(nb => nb.website?.quartz_path),
 
     listButtons: [
