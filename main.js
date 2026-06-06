@@ -71,12 +71,28 @@ const NbMain = (() => {
 
     // ── Notes list ─────────────────────────────────────────────────
 
+    function _renderPluginButtons(nb) {
+        const container = document.getElementById('nb-cmds-plugins');
+        if (!container) return;
+        container.querySelectorAll('[data-plugin-btn]').forEach(b => b.remove());
+        for (const btn of NbWeb.getToolbarButtons(nb)) {
+            const el = document.createElement('button');
+            el.className = 'nb-cmd nb-cmd-plugin';
+            el.dataset.pluginBtn = btn.id;
+            el.title = btn.title ?? '';
+            el.textContent = btn.icon ?? btn.id;
+            el.addEventListener('click', () => btn.action(nb));
+            container.appendChild(el);
+        }
+    }
+
     async function loadNotes(typeFilter, statusFilter, tagsFilter) {
         _listDisplayMode = 'title';
         const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const _vcfB  = document.getElementById('nb-vcf-btn');
         if (_vcfB) _vcfB.hidden = (nb !== 'contacts');
+        _renderPluginButtons(nb);
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb });
         if (folder)      params.set('folder', folder);
@@ -6830,4 +6846,9 @@ const NbDialog = (() => {
     return { open, openFolder, close, isOpen, refresh, init };
 })();
 
-document.addEventListener('DOMContentLoaded', () => { NbMain.init(); NbDialog.init(); });
+document.addEventListener('DOMContentLoaded', async () => {
+    await NbWeb._loadPlugins();
+    await NbWeb._init();
+    NbMain.init();
+    NbDialog.init();
+});
