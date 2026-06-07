@@ -71,12 +71,41 @@ const NbMain = (() => {
 
     // ── Notes list ─────────────────────────────────────────────────
 
+    function _makePluginBtn(btn, nb, cls, ctx) {
+        const el = document.createElement('button');
+        el.className = cls;
+        el.dataset.pluginBtn = btn.id;
+        el.title = btn.title ?? '';
+        el.textContent = btn.icon ?? btn.id;
+        el.addEventListener('click', () => btn.action(nb, el, ctx));
+        return el;
+    }
+
+    function _renderPluginButtons(nb) {
+        // nav buttons — global, always re-render on notebook switch
+        const nav = document.getElementById('nb-cmds-plugins');
+        if (nav) {
+            nav.querySelectorAll('[data-plugin-btn]').forEach(b => b.remove());
+            for (const btn of NbWeb.getNavButtons())
+                nav.appendChild(_makePluginBtn(btn, nb, 'nb-cmd nb-cmd-plugin'));
+        }
+        // list buttons — notebook-specific; pass full notebook object as context
+        const listEl = document.getElementById('nb-list-plugin-btns');
+        if (listEl) {
+            listEl.innerHTML = '';
+            const nbObj = NbWeb.notebooks().find(n => n.name === nb);
+            for (const btn of NbWeb.getListButtons(nb))
+                listEl.appendChild(_makePluginBtn(btn, nb, 'nb-icon-btn nb-list-plugin-btn', nbObj));
+        }
+    }
+
     async function loadNotes(typeFilter, statusFilter, tagsFilter) {
         _listDisplayMode = 'title';
         const seq    = ++_listSeq;
         const nb     = NbNav.notebook;
         const _vcfB  = document.getElementById('nb-vcf-btn');
         if (_vcfB) _vcfB.hidden = (nb !== 'contacts');
+        _renderPluginButtons(nb);
         const folder = NbNav.folder;
         const params = new URLSearchParams({ notebook: nb });
         if (folder)      params.set('folder', folder);
@@ -4191,14 +4220,15 @@ const NbMain = (() => {
 
     // ── Add note (called from opts bar form) ───────────────────────
 
-    async function addNote({ notebook, folder, type, title, url, template_path }) {
+    async function addNote({ notebook, folder, type, title, url, template_path, template_content }) {
         try {
             const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({ notebook, folder: folder || '', type, title, url,
                                        tags: [], content: '', comment: '',
-                                       template_path: template_path || '' }),
+                                       template_path:    template_path    || '',
+                                       template_content: template_content || '' }),
             });
             const d = await r.json();
             if (d.success) { return d; }
@@ -4250,6 +4280,20 @@ const NbMain = (() => {
         } catch(e) {
             content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
         }
+    }
+
+    function _previewVirtualTemplate(content, name, moduleLabel) {
+        const el = document.getElementById('nb-preview-content');
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        const html = _renderMarkdown(content);
+        el.innerHTML = `
+            <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                        font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                        display:flex;align-items:center;gap:12px">
+                <span>🔌 <strong>${_esc(name)}</strong></span>
+                <span style="opacity:0.6">${_esc(moduleLabel || 'plugin template')}</span>
+            </div>
+            <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${html}</div>`;
     }
 
     // Populate list pane with available templates when in Add mode
@@ -4329,6 +4373,66 @@ const NbMain = (() => {
             if (curTemplate) {
                 const found = templates.find(t => t.path === curTemplate);
                 if (found) _previewTemplate(found.path, found.name, found.scope);
+            }
+
+            // Plugin templates — grouped by module; all enabled plugins always shown
+            const nbObj = NbWeb.notebooks().find(n => n.name === nb) || { name: nb };
+            const pluginTemplates = NbWeb.getTemplatesForNotebook(nb);
+            if (pluginTemplates.length) {
+                // Group by module
+                const byModule = new Map();
+                pluginTemplates.forEach(t => {
+                    if (!byModule.has(t.moduleName)) byModule.set(t.moduleName, []);
+                    byModule.get(t.moduleName).push(t);
+                });
+
+                for (const [, tmplGroup] of byModule) {
+                    const moduleLabel = tmplGroup[0].moduleLabel;
+
+                    const hdr = document.createElement('li');
+                    hdr.className = 'nb-list-section-header';
+                    hdr.textContent = moduleLabel;
+                    list.appendChild(hdr);
+
+                    for (const t of tmplGroup) {
+                        const content = typeof t.content === 'function' ? t.content(nbObj) : t.content;
+
+                        if (t.singleton) {
+                            // Render placeholder, fill async
+                            const li = makeTmplItem('🔌', t.name, '…', false, () => {});
+                            li.style.opacity = '0.5';
+                            li.style.pointerEvents = 'none';
+                            list.appendChild(li);
+                            const excEl = li.querySelector('.nb-list-excerpt');
+
+                            NbWeb.templateSeeded(nb, t).then(exists => {
+                                if (exists) {
+                                    li.style.opacity = '0.45';
+                                    if (excEl) excEl.textContent = '✓ exists — edit in Notebooks';
+                                } else {
+                                    li.style.opacity = '';
+                                    li.style.pointerEvents = '';
+                                    if (excEl) excEl.textContent = t.description || 'create once';
+                                    li.addEventListener('click', async () => {
+                                        list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                                        li.classList.add('active');
+                                        NbNav.setVirtualTemplate(content, t.name);
+                                        _previewVirtualTemplate(content, t.name, moduleLabel);
+                                    });
+                                }
+                            });
+                        } else {
+                            const item = makeTmplItem('🔌', t.name, t.description || '', false, () => {
+                                NbNav.setVirtualTemplate(content, t.name);
+                                _previewVirtualTemplate(content, t.name, moduleLabel);
+                            });
+                            list.appendChild(item);
+                        }
+                    }
+                }
+
+                const pluginCount = pluginTemplates.length;
+                countEl.textContent = `${templates.length + pluginCount} template${templates.length + pluginCount !== 1 ? 's' : ''}`;
             }
         } catch(e) {
             countEl.textContent = 'error';
@@ -4473,6 +4577,266 @@ const NbMain = (() => {
         }
     }
 
+    // ── Plugins page ───────────────────────────────────────────────────────────
+
+    async function runPlugins() {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div id="nb-welcome"><h2>Plugins</h2><p>Loading…</p></div>';
+        document.getElementById('nb-list-empty').hidden = true;
+        document.getElementById('nb-count').textContent = '…';
+        document.getElementById('nb-type-breakdown').textContent = '';
+
+        const nbwebPlugins = NbWeb.list();
+
+        let nbPlugins = [];
+        try {
+            const r = await fetch('/api/run?cmd=plugins');
+            const txt = ((await r.json()).output || '').trim();
+            const names = txt.split('\n')
+                .map(l => l.trim()).filter(l => l && !l.startsWith('[nb]') && !l.startsWith('Plugins'));
+            nbPlugins = await Promise.all(names.map(async name => {
+                let helpText = '';
+                try {
+                    const hr = await fetch(`/api/nb/plugin-help?name=${encodeURIComponent(name)}`);
+                    if (hr.ok) helpText = (await hr.json()).text || '';
+                } catch(_) {}
+                const firstDesc = helpText.split('\n').find(l => {
+                    const t = l.trim();
+                    return t && !t.endsWith('.nb-plugin') && !t.startsWith('#!') &&
+                        !/^#*\s*$/.test(t) && !t.toLowerCase().startsWith('install') &&
+                        !t.toLowerCase().startsWith('version') && !t.match(/^\s*https?:\/\//) &&
+                        !t.match(/^[A-Z][a-z]+:\/\/\//);
+                }) || '';
+                return { name, helpText, description: firstDesc.trim() };
+            }));
+        } catch(_) {}
+
+        const total = nbwebPlugins.length + nbPlugins.length;
+        document.getElementById('nb-count').textContent =
+            `${total} plugin${total !== 1 ? 's' : ''}`;
+
+        _renderPluginPageList(nbwebPlugins, nbPlugins);
+
+        // Auto-select first NbWeb plugin
+        const first = document.querySelector('#nb-list .nb-list-item');
+        if (first) first.click();
+    }
+
+    function _renderPluginPageList(nbwebPlugins, nbPlugins) {
+        const list = document.getElementById('nb-list');
+        list.innerHTML = '';
+
+        const _addItem = (label, excerpt, icon, cls, onClick) => {
+            const li = document.createElement('li');
+            li.className = 'nb-list-item ' + cls;
+            li.setAttribute('role', 'option');
+
+            const iconEl = document.createElement('span');
+            iconEl.className = 'nb-list-icon';
+            iconEl.textContent = icon;
+
+            const body = document.createElement('div');
+            body.className = 'nb-list-body';
+
+            const titleRow = document.createElement('div');
+            titleRow.className = 'nb-list-title-row';
+            const titleEl = document.createElement('span');
+            titleEl.className = 'nb-list-title';
+            titleEl.textContent = label;
+            titleRow.appendChild(titleEl);
+            body.appendChild(titleRow);
+
+            if (excerpt) {
+                const exc = document.createElement('div');
+                exc.className = 'nb-list-excerpt';
+                exc.textContent = excerpt;
+                body.appendChild(exc);
+            }
+
+            li.append(iconEl, body);
+            li.addEventListener('click', () => {
+                list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                li.classList.add('active');
+                onClick();
+            });
+            list.appendChild(li);
+            return li;
+        };
+
+        if (nbwebPlugins.length) {
+            const hdr = document.createElement('li');
+            hdr.className = 'nb-list-section-header';
+            hdr.textContent = 'NbWeb Plugins';
+            list.appendChild(hdr);
+
+            nbwebPlugins.forEach(p => {
+                const activeFor = p.activeNotebooks.length
+                    ? p.activeNotebooks.join(', ')
+                    : p.enabled ? 'none detected' : 'disabled';
+                const status = !p.enabled ? '◌ disabled' : p.error ? '✗ error' : '● active';
+                _addItem(
+                    p.name,
+                    `${status} · ${activeFor}`,
+                    '🔌',
+                    'nb-plugin-nbweb' + (p.enabled ? '' : ' nb-plugin-disabled'),
+                    () => _openNbwebPlugin(p)
+                );
+            });
+        }
+
+        if (nbPlugins.length) {
+            const hdr = document.createElement('li');
+            hdr.className = 'nb-list-section-header';
+            hdr.textContent = 'nb CLI Plugins';
+            list.appendChild(hdr);
+
+            nbPlugins.forEach(p => {
+                _addItem(p.name, p.description || 'nb CLI plugin', '📦', 'nb-plugin-nb',
+                    () => _openNbPlugin(p));
+            });
+        }
+    }
+
+    async function _openNbwebPlugin(p) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+
+        // Load settings for persisted plugin_prefs
+        let pluginPrefs = {};
+        try {
+            const s = await fetch('/api/nb-settings').then(r => r.json());
+            pluginPrefs = (s.plugin_prefs || {})[p.name] || {};
+        } catch(_) {}
+
+        // Fetch help markdown if available
+        let helpHtml = '';
+        if (p.spec?.helpUrl) {
+            try {
+                const md = await fetch(p.spec.helpUrl).then(r => r.text());
+                helpHtml = `<div class="nb-plugin-help nb-markdown">${marked.parse(md)}</div>`;
+            } catch(_) {
+                helpHtml = `<div class="nb-plugin-help" style="color:var(--text-dim);padding:12px 28px;font-size:12px">Help file not found.</div>`;
+            }
+        }
+
+        const activeFor = p.activeNotebooks.length
+            ? p.activeNotebooks.join(', ') : 'none detected';
+        const statusColor = p.error ? 'var(--red)' : p.enabled ? 'var(--green,#2ecc71)' : 'var(--text-dim)';
+        const statusText  = p.error ? '✗ error' : p.enabled ? '● active' : '◌ disabled';
+
+        const ld = p.spec?.listDefaults || {};
+        const curSort = pluginPrefs.sortOrder ?? ld.sortOrder ?? 'default';
+        const curType = pluginPrefs.listType  ?? ld.listType  ?? 'all';
+        const sortOpts = ['default','az','za','newest','oldest']
+            .map(v => `<option value="${v}"${curSort === v ? ' selected' : ''}>${v}</option>`).join('');
+        const typeOpts = ['all','note','bookmark','todo','contact','folder','image']
+            .map(v => `<option value="${v}"${curType === v ? ' selected' : ''}>${v}</option>`).join('');
+
+        content.innerHTML = `
+            <div class="nb-plugin-header">
+                <span style="font-size:18px">🔌</span>
+                <strong style="font-size:14px;color:var(--text)">${_esc(p.spec?.label || p.name)}</strong>
+                <span style="color:${statusColor};font-size:12px">${statusText}</span>
+                ${p.activeNotebooks.length ? `<span class="nb-plugin-active-for">active for: ${_esc(activeFor)}</span>` : ''}
+            </div>
+            ${p.spec?.description ? `<div class="nb-plugin-desc">${_esc(p.spec.description)}</div>` : ''}
+            ${helpHtml}
+            <div class="nb-plugin-section">
+                <div class="nb-plugin-section-title">List defaults</div>
+                <div style="display:grid;gap:8px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px">
+                    <label style="color:var(--text-dim)">Sort</label>
+                    <select id="nbplug-sort" class="nb-scope-select">${sortOpts}</select>
+                    <label style="color:var(--text-dim)">Type</label>
+                    <select id="nbplug-type" class="nb-scope-select">${typeOpts}</select>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+                    <button id="nbplug-save" class="nb-tool-btn nb-btn-primary">Save defaults</button>
+                    <span id="nbplug-save-status" style="font-size:11px;color:var(--text-dim)"></span>
+                </div>
+            </div>
+            <div class="nb-plugin-section" style="display:flex;gap:8px;flex-wrap:wrap">
+                <button id="nbplug-toggle" class="nb-tool-btn">${p.enabled ? 'Disable' : 'Enable'}</button>
+                <button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>
+            </div>`;
+
+        document.getElementById('nbplug-save').addEventListener('click', async () => {
+            const sort = document.getElementById('nbplug-sort').value;
+            const type = document.getElementById('nbplug-type').value;
+            const statusEl = document.getElementById('nbplug-save-status');
+            try {
+                const s = await fetch('/api/nb-settings').then(r => r.json());
+                const prefs = s.plugin_prefs || {};
+                prefs[p.name] = { sortOrder: sort, listType: type };
+                await fetch('/api/nb-settings', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ plugin_prefs: prefs }),
+                });
+                statusEl.textContent = '✓ saved';
+                setTimeout(() => statusEl.textContent = '', 2000);
+            } catch(e) {
+                statusEl.textContent = '✗ ' + e.message;
+            }
+        });
+
+        document.getElementById('nbplug-toggle').addEventListener('click', async () => {
+            NbWeb.setEnabled(p.name, !p.enabled);
+            const s = await fetch('/api/nb-settings').then(r => r.json());
+            const plugins = (s.plugins || []).map(pl =>
+                pl.url?.includes(p.name) ? { ...pl, enabled: !p.enabled } : pl);
+            await fetch('/api/nb-settings', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plugins }),
+            });
+            runPlugins();
+        });
+
+        document.getElementById('nbplug-remove').addEventListener('click', async () => {
+            if (!confirm(`Remove plugin "${p.name}"?`)) return;
+            NbWeb.unregister(p.name);
+            const s = await fetch('/api/nb-settings').then(r => r.json());
+            const plugins = (s.plugins || []).filter(pl => !pl.url?.includes(p.name));
+            await fetch('/api/nb-settings', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plugins }),
+            });
+            runPlugins();
+        });
+    }
+
+    async function _openNbPlugin(p) {
+        const content = document.getElementById('nb-preview-content');
+
+        const helpHtml = p.helpText
+            ? `<pre class="nb-plugin-help-pre">${_esc(p.helpText)}</pre>`
+            : `<div style="color:var(--text-dim);font-size:12px">No help text found in plugin file.</div>`;
+
+        content.innerHTML = `
+            <div class="nb-plugin-header">
+                <span style="font-size:18px">📦</span>
+                <strong style="font-size:14px;color:var(--text)">${_esc(p.name)}</strong>
+                <span class="nb-plugin-nb-badge">nb CLI</span>
+            </div>
+            <div class="nb-plugin-section nb-plugin-help">
+                ${helpHtml}
+            </div>
+            <div class="nb-plugin-section" style="display:flex;gap:8px;align-items:center">
+                <button id="nbplug-nb-uninstall" class="nb-tool-btn" style="color:var(--red)">Uninstall</button>
+                <span style="font-size:11px;color:var(--text-dim)">or: <code>nb plugins uninstall ${_esc(p.name)}</code></span>
+            </div>`;
+
+        document.getElementById('nbplug-nb-uninstall').addEventListener('click', async () => {
+            if (!confirm(`Uninstall nb plugin "${p.name}"?`)) return;
+            document.getElementById('nb-preview-content').innerHTML +=
+                `<div style="padding:8px 28px;font-size:12px;color:var(--text-dim)">
+                    Run in terminal: <code>nb plugins uninstall ${_esc(p.name)}</code>
+                </div>`;
+        });
+    }
+
     function _renderNbList(notebooks) {
         const list   = document.getElementById('nb-list');
         const sorted = _sortNbList(notebooks);
@@ -4561,6 +4925,124 @@ const NbMain = (() => {
         });
     }
 
+    function _renderNotebookSection(section, nbObj) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px';
+
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase';
+        lbl.textContent = section.label;
+        wrap.appendChild(lbl);
+
+        if (section.rows?.length) {
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:grid;gap:4px 12px;grid-template-columns:max-content 1fr;align-items:baseline;font-size:12px;margin-bottom:10px';
+            section.rows.forEach(row => {
+                const k = document.createElement('span');
+                k.style.color = 'var(--text-dim)';
+                k.textContent = row.key;
+                grid.appendChild(k);
+
+                const v = document.createElement('span');
+                v.style.cssText = 'color:var(--text);font-family:var(--font-mono);font-size:11px;word-break:break-all';
+                if (row.link) {
+                    const a = document.createElement('a');
+                    a.href = row.link;
+                    a.target = '_blank';
+                    a.rel = 'noopener';
+                    a.style.cssText = 'color:var(--accent,var(--text));text-decoration:none';
+                    a.textContent = row.value || row.link;
+                    v.appendChild(a);
+                } else {
+                    v.textContent = row.value || '—';
+                }
+                if (row.action) {
+                    const ab = document.createElement('button');
+                    ab.className = 'nb-tool-btn';
+                    ab.style.marginLeft = '8px';
+                    ab.textContent = row.action.label;
+                    ab.addEventListener('click', () => row.action.fn(nbObj, ab));
+                    v.appendChild(ab);
+                }
+                grid.appendChild(v);
+            });
+            wrap.appendChild(grid);
+        }
+
+        // Singleton + folder-scoped template rows — async ✓/seed status
+        const seedable = NbWeb.getTemplatesForNotebook(nbObj.name)
+            .filter(t => t.moduleName === section.moduleName &&
+                         ((t.singleton && t.filename) || t.scope?.startsWith('folder:')));
+
+        if (seedable.length) {
+            const tmplGrid = document.createElement('div');
+            tmplGrid.style.cssText = 'display:grid;gap:5px 12px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px;margin-bottom:10px';
+
+            seedable.forEach(t => {
+                const relpath   = NbWeb.templateRelPath(t);
+                const isSeed    = !!t.scope;
+                const btnLabel  = isSeed ? '+ Seed' : '+ Create';
+
+                const k = document.createElement('span');
+                k.style.cssText = 'color:var(--text-dim);font-family:var(--font-mono);font-size:11px';
+                k.textContent = relpath;
+                tmplGrid.appendChild(k);
+
+                const v = document.createElement('span');
+                v.style.cssText = 'font-size:11px;color:var(--text-dim)';
+                v.textContent = '…';
+                tmplGrid.appendChild(v);
+
+                NbWeb.templateSeeded(nbObj.name, t).then(exists => {
+                    if (exists) {
+                        v.style.color = 'var(--green,#2ecc71)';
+                        v.textContent = '✓';
+                    } else {
+                        v.textContent = '';
+                        const btn = document.createElement('button');
+                        btn.className = 'nb-tool-btn';
+                        btn.style.cssText = 'font-size:11px;padding:1px 7px';
+                        btn.textContent = btnLabel;
+                        btn.addEventListener('click', async () => {
+                            btn.disabled = true;
+                            btn.textContent = '…';
+                            const result = await NbWeb.createFromTemplate(t, nbObj);
+                            if (result.ok) {
+                                btn.remove();
+                                v.style.color = 'var(--green,#2ecc71)';
+                                v.textContent = '✓';
+                            } else {
+                                btn.disabled = false;
+                                btn.textContent = btnLabel;
+                                btn.title = result.error || 'failed';
+                            }
+                        });
+                        v.appendChild(btn);
+                    }
+                });
+            });
+
+            wrap.appendChild(tmplGrid);
+        }
+
+        if (section.actions?.length) {
+            const actRow = document.createElement('div');
+            actRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+            section.actions.forEach(act => {
+                const btn = document.createElement('button');
+                btn.id = act.id;
+                btn.className = 'nb-tool-btn' + (act.primary ? ' nb-btn-primary' : '');
+                btn.title = act.title || act.label || '';
+                btn.textContent = (act.icon ? act.icon + ' ' : '') + (act.label || '');
+                btn.addEventListener('click', () => act.fn(nbObj, btn));
+                actRow.appendChild(btn);
+            });
+            wrap.appendChild(actRow);
+        }
+
+        return wrap;
+    }
+
     async function _openNbNotebook(name) {
         const content = document.getElementById('nb-preview-content');
         content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
@@ -4644,6 +5126,7 @@ const NbMain = (() => {
                     </details>
                     <pre id="nb-nb-wire-out" style="margin-top:8px;font-size:11px;white-space:pre-wrap;display:none"></pre>
                 </div>
+                <div id="nb-nb-plugin-sections"></div>
                 <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
                     <button id="nb-nb-use" class="nb-tool-btn">Use this notebook</button>
                     <span style="font-size:11px;color:var(--text-dim)">Set as the active scope for List, Add, and other commands.</span>
@@ -4663,12 +5146,38 @@ const NbMain = (() => {
                             <button id="nb-nb-tmpl-clear" class="nb-tool-btn" style="font-size:10px;padding:1px 6px"
                                     ${!prefs.default_template ? 'hidden' : ''}>Clear</button>
                         </div>
+                        <div id="nb-nb-plugin-defaults" style="display:contents"></div>
                     </div>
                     <div style="margin-top:12px;display:flex;gap:8px">
                         <button id="nb-nb-save-prefs" class="nb-tool-btn nb-btn-primary">Save defaults</button>
                         <span id="nb-nb-prefs-status" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
                     </div>
                 </div>`;
+
+            // Plugin sections — one per active NbWeb module for this notebook
+            const nbObj = NbWeb.notebooks().find(nb => nb.name === name);
+            const pluginSectionsEl = content.querySelector('#nb-nb-plugin-sections');
+            if (nbObj && pluginSectionsEl) {
+                NbWeb.getNotebookSections(nbObj).forEach(section => {
+                    pluginSectionsEl.appendChild(_renderNotebookSection(section, nbObj));
+                });
+            }
+
+            // Plugin scoped templates — injected into the DEFAULTS grid
+            const pluginDefaultsEl = content.querySelector('#nb-nb-plugin-defaults');
+            if (pluginDefaultsEl) {
+                const scopedTmpls = NbWeb.getScopedTemplatesForNotebook(name);
+                scopedTmpls.forEach(t => {
+                    const k = document.createElement('span');
+                    k.style.cssText = 'color:var(--text-dim)';
+                    k.textContent = t.name;
+                    const v = document.createElement('span');
+                    v.style.cssText = 'font-size:11px;color:var(--text-dim)';
+                    v.textContent = `${t.description || ''}${t.description ? ' · ' : ''}${t.moduleLabel}`;
+                    pluginDefaultsEl.appendChild(k);
+                    pluginDefaultsEl.appendChild(v);
+                });
+            }
 
             // Folders — async-fetched and injected into the info grid
             fetch(`/api/folders?notebook=${encodeURIComponent(name)}`).then(r => r.json()).then(fd => {
@@ -4830,19 +5339,6 @@ const NbMain = (() => {
                     document.getElementById('nb-nb-tmpl-name').textContent = '(none)';
                     tmplClear.hidden = true;
                 });
-            }
-
-            // Website panel (if notebook has .nb-website.json)
-            const _nbEntry = _lastNbList.find(n => n.name === name);
-            if (_nbEntry && _nbEntry.website) {
-                const wsWrapper = document.createElement('div');
-                wsWrapper.style.cssText = 'padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px';
-                const wsHeading = document.createElement('div');
-                wsHeading.style.cssText = 'font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase';
-                wsHeading.textContent = 'Website';
-                wsWrapper.appendChild(wsHeading);
-                wsWrapper.appendChild(_buildWebsitePanel(name, _nbEntry.website));
-                content.appendChild(wsWrapper);
             }
 
             // Danger zone
@@ -5775,7 +6271,7 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, addEncryptedNote, encPassword: () => _encPassword,
-             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, loadTemplatesForAdd,
+             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
              isEditing: () => _editing,
              setFoldersFirst,
@@ -6830,4 +7326,9 @@ const NbDialog = (() => {
     return { open, openFolder, close, isOpen, refresh, init };
 })();
 
-document.addEventListener('DOMContentLoaded', () => { NbMain.init(); NbDialog.init(); });
+document.addEventListener('DOMContentLoaded', async () => {
+    await NbWeb._loadPlugins();
+    await NbWeb._init();
+    NbMain.init();
+    NbDialog.init();
+});

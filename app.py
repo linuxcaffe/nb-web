@@ -108,6 +108,13 @@ _SETTINGS_SCHEMA = {
                             'coerce': lambda v: str(v).strip()},
     'contact_tag':        {'type': str, 'default': 'djp',
                             'coerce': lambda v: str(v).strip().lstrip('#')},
+    'plugin_prefs':       {'type': dict, 'default': {},
+                            'coerce': lambda v: v if isinstance(v, dict) else {}},
+    'plugins':            {'type': list, 'default': [],
+                            'coerce': lambda v: [
+                                {'url': str(p.get('url', '')), 'enabled': bool(p.get('enabled', True))}
+                                for p in v if isinstance(p, dict) and p.get('url')
+                            ] if isinstance(v, list) else []},
 }
 
 def _load_settings():
@@ -2327,6 +2334,7 @@ def api_create_note():
     else:
         # Resolve template vars in Python so {{date}}, {{weather}} etc. work
         # for any template, not just daily-template.
+        template_content = data.get('template_content', '').strip()
         note_content = content or '\n'
         if template_path:
             tp = Path(template_path)
@@ -2341,11 +2349,19 @@ def api_create_note():
                     )
             except (ValueError, OSError):
                 pass
+        elif template_content:
+            note_content = _resolve_template_vars(
+                template_content,
+                title=title,
+                tags=' '.join(f'#{t}' for t in tags) if tags else '',
+                content=content or '',
+            )
 
+        using_template = bool(template_path or template_content)
         args = ['add', target]
         # Skip --title when a template is used: {{title}} is already substituted
         # into the content, and nb prepending "# Title\n\n" breaks YAML frontmatter.
-        if title and not template_path:
+        if title and not using_template:
             args += ['--title', title]
         args += ['--content', note_content]
         if tags:    args += ['--tags', ','.join(tags)]
@@ -2353,7 +2369,7 @@ def api_create_note():
         # Clean slug when: subfolder note (items/ etc.) OR template-driven note.
         # Template = intentional structured content that needs a predictable URL.
         # Timestamp prefix reserved for casual root-level notes (no template).
-        if folder or template_path:
+        if folder or using_template:
             note_filename = f"{slug}.md"
         else:
             note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
@@ -3381,6 +3397,137 @@ def api_website_deploy():
         return jsonify({'ok': False, 'output': 'Deploy timed out after 3 minutes.'})
     except Exception as e:
         return jsonify({'ok': False, 'output': str(e)})
+
+
+@app.route('/api/website/summary')
+def api_website_summary():
+    notebook  = request.args.get('notebook', '')
+    summary_path = NB_DIR / notebook / '.nb-website-summary.md'
+    if not summary_path.exists():
+        return jsonify({'ok': False, 'markdown': ''})
+    return jsonify({'ok': True, 'markdown': summary_path.read_text()})
+
+
+@app.route('/api/nb/plugin-help')
+def api_nb_plugin_help():
+    """Extract comment-header help text from an installed nb CLI plugin."""
+    import re as _re
+    name = request.args.get('name', '')
+    if not name or '/' in name or '..' in name:
+        return jsonify({'ok': False, 'text': ''}), 400
+    plugin_path = NB_DIR / '.plugins' / name
+    if not plugin_path.exists():
+        return jsonify({'ok': False, 'text': ''}), 404
+
+    lines = plugin_path.read_text(errors='replace').splitlines()
+    comment_lines = []
+    started = False
+    for line in lines:
+        if line.startswith('#!'):
+            continue
+        if line.startswith('#'):
+            started = True
+            comment_lines.append(line)
+        elif line.strip() == '' and started:
+            comment_lines.append('')
+        else:
+            if started:
+                break
+
+    while comment_lines and comment_lines[-1] == '':
+        comment_lines.pop()
+
+    cleaned = []
+    for line in comment_lines:
+        if _re.match(r'^#{3,}\s*$', line):
+            continue
+        if line.startswith('# '):
+            cleaned.append(line[2:])
+        elif line == '#':
+            cleaned.append('')
+        else:
+            cleaned.append(line.lstrip('#').lstrip())
+
+    text = '\n'.join(cleaned).strip()
+    return jsonify({'ok': True, 'text': text})
+
+
+@app.route('/api/nb/file-exists')
+def api_nb_file_exists():
+    notebook = request.args.get('notebook', '')
+    filename = request.args.get('filename', '')
+    relpath  = request.args.get('relpath', '')   # full relative path from notebook root (may contain /)
+    if not notebook:
+        return jsonify({'exists': False}), 400
+    nb_path = NB_DIR / notebook
+    if relpath:
+        path = nb_path / relpath
+    elif filename:
+        if '/' in filename or '..' in filename:
+            return jsonify({'exists': False}), 400
+        path = nb_path / filename
+    else:
+        return jsonify({'exists': False}), 400
+    try:
+        path.relative_to(nb_path)
+    except ValueError:
+        return jsonify({'exists': False}), 400
+    return jsonify({'exists': path.exists()})
+
+
+@app.route('/api/nb/create-from-template', methods=['POST'])
+def api_nb_create_from_template():
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '')
+    filename = data.get('filename', '')
+    content  = data.get('content', '')
+    scope    = data.get('scope', '')  # '' (singleton) | 'notebook' | 'folder:X'
+
+    if not notebook or not filename or '/' in filename or '..' in filename:
+        return jsonify({'ok': False, 'error': 'invalid parameters'}), 400
+
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'ok': False, 'error': f'notebook not found: {notebook}'}), 404
+
+    # Compute target directory and git-relative path from scope
+    if scope.startswith('folder:'):
+        folder = scope.split(':', 1)[1].strip('/')
+        if not folder or '..' in folder:
+            return jsonify({'ok': False, 'error': 'invalid folder in scope'}), 400
+        dest_dir  = nb_path / folder / '.templates'
+        git_relp  = f'{folder}/.templates/{filename}'
+        is_seed   = True
+    elif scope == 'notebook':
+        dest_dir  = nb_path / '.templates'
+        git_relp  = f'.templates/{filename}'
+        is_seed   = True
+    else:
+        dest_dir  = nb_path
+        git_relp  = filename
+        is_seed   = False
+
+    dest = dest_dir / filename
+    try:
+        dest.relative_to(nb_path)
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'path traversal rejected'}), 400
+
+    if dest.exists():
+        return jsonify({'ok': False, 'error': f'{filename} already exists'}), 409
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest.write_text(content, encoding='utf-8')
+
+    if not is_seed:
+        # Singleton notes live in the notebook root — register with nb's index
+        run_nb('index', 'add', filename, '--notebook', notebook)
+
+    commit_msg = f'[nb] Seed template: {filename}' if is_seed else f'[nb] Add: {filename}'
+    subprocess.run(['git', '-C', str(nb_path), 'add', git_relp], capture_output=True)
+    subprocess.run(['git', '-C', str(nb_path), 'commit', '-m', commit_msg], capture_output=True)
+
+    return jsonify({'ok': True, 'path': str(dest)})
 
 
 @app.route('/api/website/publish', methods=['POST'])
