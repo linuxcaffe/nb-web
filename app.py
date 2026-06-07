@@ -19,9 +19,11 @@ try:
 except ImportError:
     _YAML_OK = False
 
+import io
 import shlex
 import shutil
 import socket
+import zipfile
 
 from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 from flask_sock import Sock
@@ -40,7 +42,7 @@ GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
 CMDS_FILE            = Path(__file__).parent / 'cmds.txt'
 
 _RE_HEADING       = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
-_RE_NOTEBOOK_NAME = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$')
+_RE_NOTEBOOK_NAME = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9 ._-]*$')
 
 def _check_notebook(name: str) -> str:
     """Return name unchanged if safe; raise ValueError if it could escape NB_DIR."""
@@ -3181,6 +3183,90 @@ def api_nb_delete_notebook():
         return jsonify({'success': r.returncode == 0, 'output': msg})
     except subprocess.TimeoutExpired:
         return jsonify({'success': False, 'output': 'Timed out after 15s'})
+
+
+# ---------------------------------------------------------------------------
+# API: Notebook archive (.nbz)
+
+_SKIP_NAMES = frozenset({'.DS_Store', 'Thumbs.db', 'desktop.ini'})
+_SKIP_DIRS  = frozenset({'__pycache__', '.mypy_cache', '.ruff_cache'})
+
+@app.route('/api/nb/archive', methods=['POST'])
+def api_nb_archive():
+    """Create a .nbz notebook archive and stream it as a download."""
+    data         = request.get_json() or {}
+    notebook     = data.get('notebook', '').strip()
+    includes_git = bool(data.get('includes_git', False))
+    description  = str(data.get('description', '')).strip()
+
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'ok': False, 'error': f'Notebook "{notebook}" not found.'}), 404
+
+    max_bytes = int(_settings.get('archive_max_file_mb', 50)) * 1024 * 1024
+
+    # nb version
+    try:
+        vr = subprocess.run([NB_BIN, '--version'], capture_output=True, text=True, timeout=5)
+        parts = vr.stdout.strip().split()
+        nb_version = parts[-1] if vr.returncode == 0 and parts else ''
+    except Exception:
+        nb_version = ''
+
+    note_count = sum(
+        1 for p in nb_path.rglob('*.md')
+        if p.is_file() and '.git' not in p.relative_to(nb_path).parts
+    )
+
+    meta = {
+        'format':       1,
+        'name':         notebook,
+        'archived_at':  datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'nb_version':   nb_version,
+        'note_count':   note_count,
+        'includes_git': includes_git,
+        'encrypted':    False,
+        'description':  description,
+    }
+
+    date_str = datetime.now().strftime('%Y%m%d')
+    filename  = f'{notebook.replace(" ", "-")}-{date_str}.nbz'
+    skipped   = []
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        zf.writestr(f'{notebook}/.nb_archive', json.dumps(meta, indent=2))
+        for path in sorted(nb_path.rglob('*')):
+            if not path.is_file():
+                continue
+            try:
+                rel   = path.relative_to(nb_path)
+                parts = rel.parts
+            except ValueError:
+                continue
+            if not includes_git and parts[0] == '.git':
+                continue
+            if parts[-1] in _SKIP_NAMES or any(p in _SKIP_DIRS for p in parts):
+                continue
+            try:
+                if path.stat().st_size > max_bytes:
+                    skipped.append(str(rel))
+                    continue
+                zf.write(str(path), f'{notebook}/{rel}')
+            except Exception:
+                skipped.append(str(rel))
+
+    buf.seek(0)
+    resp = send_file(buf, mimetype='application/zip',
+                     as_attachment=True, download_name=filename)
+    if skipped:
+        resp.headers['X-Nb-Skipped'] = ','.join(skipped[:20])
+    return resp
 
 
 # ---------------------------------------------------------------------------
