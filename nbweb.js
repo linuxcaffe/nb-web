@@ -136,10 +136,27 @@ const NbWeb = (() => {
         });
     }
 
-    // Write a singleton template to disk; 409 = already exists (safe — never overwrites)
+    // Compute the path relative to the notebook root where a template is written.
+    // Singletons land in the root; scoped templates land in .templates/ subdirectories.
+    function templateRelPath(template) {
+        const fname = template.filename
+            || (template.name.toLowerCase().replace(/\s+/g, '_') + '.md');
+        const scope = template.scope || '';
+        if (scope.startsWith('folder:')) return `${scope.slice(7)}/.templates/${fname}`;
+        if (scope === 'notebook')        return `.templates/${fname}`;
+        return fname;
+    }
+
+    // Write a template to disk. Scope determines the target directory:
+    //   ''          → notebook root (singleton note, indexed by nb)
+    //   'notebook'  → notebook/.templates/
+    //   'folder:X'  → notebook/X/.templates/
+    // 409 = already exists — safe, never overwrites.
     async function createFromTemplate(template, notebookObj) {
-        if (!template.filename) {
-            console.error('NbWeb.createFromTemplate: template has no filename');
+        const filename = template.filename
+            || (template.name.toLowerCase().replace(/\s+/g, '_') + '.md');
+        if (!filename) {
+            console.error('NbWeb.createFromTemplate: could not derive filename');
             return { ok: false, error: 'no filename' };
         }
         const content = typeof template.content === 'function'
@@ -151,22 +168,35 @@ const NbWeb = (() => {
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({
                     notebook: notebookObj.name,
-                    filename: template.filename,
+                    filename,
                     content,
+                    scope: template.scope || '',
                 }),
             });
-            const d = await r.json();
-            return d; // { ok, error? }
+            return await r.json(); // { ok, error? }
         } catch (e) {
             return { ok: false, error: e.message };
         }
     }
 
-    // Check whether a singleton file exists in a notebook (cached per call — no memoisation)
+    // Check whether a singleton file exists in a notebook root.
     async function singletonExists(notebookName, filename) {
         try {
             const r = await fetch(
                 `/api/nb/file-exists?notebook=${encodeURIComponent(notebookName)}&filename=${encodeURIComponent(filename)}`
+            );
+            return (await r.json()).exists === true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // Check whether any template (singleton or scoped) has been written for a notebook.
+    async function templateSeeded(notebookName, template) {
+        const relpath = templateRelPath(template);
+        try {
+            const r = await fetch(
+                `/api/nb/file-exists?notebook=${encodeURIComponent(notebookName)}&relpath=${encodeURIComponent(relpath)}`
             );
             return (await r.json()).exists === true;
         } catch (_) {
@@ -285,8 +315,10 @@ const NbWeb = (() => {
         getAddFormExtras,
         getTemplatesForNotebook,
         getScopedTemplatesForNotebook,
+        templateRelPath,
         createFromTemplate,
         singletonExists,
+        templateSeeded,
         getNotebookSections,
         list,
         setEnabled,

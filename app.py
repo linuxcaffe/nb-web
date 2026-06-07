@@ -3456,11 +3456,20 @@ def api_nb_plugin_help():
 def api_nb_file_exists():
     notebook = request.args.get('notebook', '')
     filename = request.args.get('filename', '')
-    if not notebook or not filename or '/' in filename or '..' in filename:
+    relpath  = request.args.get('relpath', '')   # full relative path from notebook root (may contain /)
+    if not notebook:
         return jsonify({'exists': False}), 400
-    path = NB_DIR / notebook / filename
+    nb_path = NB_DIR / notebook
+    if relpath:
+        path = nb_path / relpath
+    elif filename:
+        if '/' in filename or '..' in filename:
+            return jsonify({'exists': False}), 400
+        path = nb_path / filename
+    else:
+        return jsonify({'exists': False}), 400
     try:
-        path.relative_to(NB_DIR)
+        path.relative_to(nb_path)
     except ValueError:
         return jsonify({'exists': False}), 400
     return jsonify({'exists': path.exists()})
@@ -3472,6 +3481,7 @@ def api_nb_create_from_template():
     notebook = data.get('notebook', '')
     filename = data.get('filename', '')
     content  = data.get('content', '')
+    scope    = data.get('scope', '')  # '' (singleton) | 'notebook' | 'folder:X'
 
     if not notebook or not filename or '/' in filename or '..' in filename:
         return jsonify({'ok': False, 'error': 'invalid parameters'}), 400
@@ -3480,27 +3490,42 @@ def api_nb_create_from_template():
     if not nb_path.is_dir():
         return jsonify({'ok': False, 'error': f'notebook not found: {notebook}'}), 404
 
-    dest = nb_path / filename
+    # Compute target directory and git-relative path from scope
+    if scope.startswith('folder:'):
+        folder = scope.split(':', 1)[1].strip('/')
+        if not folder or '..' in folder:
+            return jsonify({'ok': False, 'error': 'invalid folder in scope'}), 400
+        dest_dir  = nb_path / folder / '.templates'
+        git_relp  = f'{folder}/.templates/{filename}'
+        is_seed   = True
+    elif scope == 'notebook':
+        dest_dir  = nb_path / '.templates'
+        git_relp  = f'.templates/{filename}'
+        is_seed   = True
+    else:
+        dest_dir  = nb_path
+        git_relp  = filename
+        is_seed   = False
+
+    dest = dest_dir / filename
     try:
-        dest.relative_to(NB_DIR)
+        dest.relative_to(nb_path)
     except ValueError:
         return jsonify({'ok': False, 'error': 'path traversal rejected'}), 400
 
     if dest.exists():
-        return jsonify({'ok': False, 'error': f'{filename} already exists in {notebook}'}), 409
+        return jsonify({'ok': False, 'error': f'{filename} already exists'}), 409
 
+    dest_dir.mkdir(parents=True, exist_ok=True)
     dest.write_text(content, encoding='utf-8')
 
-    # Register with nb's index, then commit via git directly
-    run_nb('index', 'add', filename, '--notebook', notebook)
-    subprocess.run(
-        ['git', '-C', str(nb_path), 'add', filename],
-        capture_output=True,
-    )
-    subprocess.run(
-        ['git', '-C', str(nb_path), 'commit', '-m', f'[nb] Add: {filename}'],
-        capture_output=True,
-    )
+    if not is_seed:
+        # Singleton notes live in the notebook root — register with nb's index
+        run_nb('index', 'add', filename, '--notebook', notebook)
+
+    commit_msg = f'[nb] Seed template: {filename}' if is_seed else f'[nb] Add: {filename}'
+    subprocess.run(['git', '-C', str(nb_path), 'add', git_relp], capture_output=True)
+    subprocess.run(['git', '-C', str(nb_path), 'commit', '-m', commit_msg], capture_output=True)
 
     return jsonify({'ok': True, 'path': str(dest)})
 

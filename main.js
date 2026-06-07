@@ -4405,7 +4405,7 @@ const NbMain = (() => {
                             list.appendChild(li);
                             const excEl = li.querySelector('.nb-list-excerpt');
 
-                            NbWeb.singletonExists(nb, t.filename).then(exists => {
+                            NbWeb.templateSeeded(nb, t).then(exists => {
                                 if (exists) {
                                     li.style.opacity = '0.45';
                                     if (excEl) excEl.textContent = '✓ exists — edit in Notebooks';
@@ -4969,18 +4969,23 @@ const NbMain = (() => {
             wrap.appendChild(grid);
         }
 
-        // Singleton template status rows — async-filled, shown between info rows and actions
-        const singletons = NbWeb.getTemplatesForNotebook(nbObj.name)
-            .filter(t => t.moduleName === section.moduleName && t.singleton && t.filename);
+        // Singleton + folder-scoped template rows — async ✓/seed status
+        const seedable = NbWeb.getTemplatesForNotebook(nbObj.name)
+            .filter(t => t.moduleName === section.moduleName &&
+                         ((t.singleton && t.filename) || t.scope?.startsWith('folder:')));
 
-        if (singletons.length) {
+        if (seedable.length) {
             const tmplGrid = document.createElement('div');
             tmplGrid.style.cssText = 'display:grid;gap:5px 12px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px;margin-bottom:10px';
 
-            singletons.forEach(t => {
+            seedable.forEach(t => {
+                const relpath   = NbWeb.templateRelPath(t);
+                const isSeed    = !!t.scope;
+                const btnLabel  = isSeed ? '+ Seed' : '+ Create';
+
                 const k = document.createElement('span');
                 k.style.cssText = 'color:var(--text-dim);font-family:var(--font-mono);font-size:11px';
-                k.textContent = t.filename;
+                k.textContent = relpath;
                 tmplGrid.appendChild(k);
 
                 const v = document.createElement('span');
@@ -4988,7 +4993,7 @@ const NbMain = (() => {
                 v.textContent = '…';
                 tmplGrid.appendChild(v);
 
-                NbWeb.singletonExists(nbObj.name, t.filename).then(exists => {
+                NbWeb.templateSeeded(nbObj.name, t).then(exists => {
                     if (exists) {
                         v.style.color = 'var(--green,#2ecc71)';
                         v.textContent = '✓';
@@ -4997,7 +5002,7 @@ const NbMain = (() => {
                         const btn = document.createElement('button');
                         btn.className = 'nb-tool-btn';
                         btn.style.cssText = 'font-size:11px;padding:1px 7px';
-                        btn.textContent = '+ Create';
+                        btn.textContent = btnLabel;
                         btn.addEventListener('click', async () => {
                             btn.disabled = true;
                             btn.textContent = '…';
@@ -5008,7 +5013,7 @@ const NbMain = (() => {
                                 v.textContent = '✓';
                             } else {
                                 btn.disabled = false;
-                                btn.textContent = '+ Create';
+                                btn.textContent = btnLabel;
                                 btn.title = result.error || 'failed';
                             }
                         });
