@@ -5193,19 +5193,6 @@ const NbMain = (() => {
                 });
             }
 
-            // Website panel (if notebook has .nb-website.json)
-            const _nbEntry = _lastNbList.find(n => n.name === name);
-            if (_nbEntry && _nbEntry.website) {
-                const wsWrapper = document.createElement('div');
-                wsWrapper.style.cssText = 'padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px';
-                const wsHeading = document.createElement('div');
-                wsHeading.style.cssText = 'font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase';
-                wsHeading.textContent = 'Website';
-                wsWrapper.appendChild(wsHeading);
-                wsWrapper.appendChild(_buildWebsitePanel(name, _nbEntry.website));
-                content.appendChild(wsWrapper);
-            }
-
             // Danger zone
             const dangerSection = document.createElement('details');
             dangerSection.style.cssText = 'margin-top:4px;border-top:1px solid var(--border)';
