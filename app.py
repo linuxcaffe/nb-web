@@ -3443,6 +3443,59 @@ def api_nb_plugin_help():
     return jsonify({'ok': True, 'text': text})
 
 
+@app.route('/api/nb/file-exists')
+def api_nb_file_exists():
+    notebook = request.args.get('notebook', '')
+    filename = request.args.get('filename', '')
+    if not notebook or not filename or '/' in filename or '..' in filename:
+        return jsonify({'exists': False}), 400
+    path = NB_DIR / notebook / filename
+    try:
+        path.relative_to(NB_DIR)
+    except ValueError:
+        return jsonify({'exists': False}), 400
+    return jsonify({'exists': path.exists()})
+
+
+@app.route('/api/nb/create-from-template', methods=['POST'])
+def api_nb_create_from_template():
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '')
+    filename = data.get('filename', '')
+    content  = data.get('content', '')
+
+    if not notebook or not filename or '/' in filename or '..' in filename:
+        return jsonify({'ok': False, 'error': 'invalid parameters'}), 400
+
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'ok': False, 'error': f'notebook not found: {notebook}'}), 404
+
+    dest = nb_path / filename
+    try:
+        dest.relative_to(NB_DIR)
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'path traversal rejected'}), 400
+
+    if dest.exists():
+        return jsonify({'ok': False, 'error': f'{filename} already exists in {notebook}'}), 409
+
+    dest.write_text(content, encoding='utf-8')
+
+    # Register with nb's index, then commit via git directly
+    run_nb('index', 'add', filename, '--notebook', notebook)
+    subprocess.run(
+        ['git', '-C', str(nb_path), 'add', filename],
+        capture_output=True,
+    )
+    subprocess.run(
+        ['git', '-C', str(nb_path), 'commit', '-m', f'[nb] Add: {filename}'],
+        capture_output=True,
+    )
+
+    return jsonify({'ok': True, 'path': str(dest)})
+
+
 @app.route('/api/website/publish', methods=['POST'])
 def api_website_publish():
     import re as _re
