@@ -90,11 +90,13 @@ Fields left empty ("") are not shown on the site.
         {
             name:        'Page',
             description: 'Content page with Quartz frontmatter',
+            scope:       'notebook',
             content:     '---\ntitle: \ncaption: \ntags: []\n---\n\n',
         },
         {
             name:        'Post',
             description: 'Dated blog post',
+            scope:       'notebook',
             content: () => {
                 const date = new Date().toISOString().slice(0, 10);
                 return `---\ntitle: \ndate: ${date}\ntags: []\n---\n\n`;

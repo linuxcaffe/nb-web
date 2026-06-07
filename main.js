@@ -4375,10 +4375,10 @@ const NbMain = (() => {
                 if (found) _previewTemplate(found.path, found.name, found.scope);
             }
 
-            // Plugin templates — grouped by module
-            const nbObj = NbWeb.notebooks().find(n => n.name === nb);
+            // Plugin templates — grouped by module; all enabled plugins always shown
+            const nbObj = NbWeb.notebooks().find(n => n.name === nb) || { name: nb };
             const pluginTemplates = NbWeb.getTemplatesForNotebook(nb);
-            if (pluginTemplates.length && nbObj) {
+            if (pluginTemplates.length) {
                 // Group by module
                 const byModule = new Map();
                 pluginTemplates.forEach(t => {
@@ -5141,6 +5141,7 @@ const NbMain = (() => {
                             <button id="nb-nb-tmpl-clear" class="nb-tool-btn" style="font-size:10px;padding:1px 6px"
                                     ${!prefs.default_template ? 'hidden' : ''}>Clear</button>
                         </div>
+                        <div id="nb-nb-plugin-defaults" style="display:contents"></div>
                     </div>
                     <div style="margin-top:12px;display:flex;gap:8px">
                         <button id="nb-nb-save-prefs" class="nb-tool-btn nb-btn-primary">Save defaults</button>
@@ -5154,6 +5155,22 @@ const NbMain = (() => {
             if (nbObj && pluginSectionsEl) {
                 NbWeb.getNotebookSections(nbObj).forEach(section => {
                     pluginSectionsEl.appendChild(_renderNotebookSection(section, nbObj));
+                });
+            }
+
+            // Plugin scoped templates — injected into the DEFAULTS grid
+            const pluginDefaultsEl = content.querySelector('#nb-nb-plugin-defaults');
+            if (pluginDefaultsEl) {
+                const scopedTmpls = NbWeb.getScopedTemplatesForNotebook(name);
+                scopedTmpls.forEach(t => {
+                    const k = document.createElement('span');
+                    k.style.cssText = 'color:var(--text-dim)';
+                    k.textContent = t.name;
+                    const v = document.createElement('span');
+                    v.style.cssText = 'font-size:11px;color:var(--text-dim)';
+                    v.textContent = `${t.description || ''}${t.description ? ' · ' : ''}${t.moduleLabel}`;
+                    pluginDefaultsEl.appendChild(k);
+                    pluginDefaultsEl.appendChild(v);
                 });
             }
 

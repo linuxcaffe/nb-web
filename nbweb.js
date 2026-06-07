@@ -109,11 +109,30 @@ const NbWeb = (() => {
 
     // ── Template API ──────────────────────────────────────────────────────────────
 
-    // Returns all plugin templates active for a notebook, each decorated with moduleName
+    // Returns ALL plugin templates from every enabled module, always.
+    // scope is context (default placement), not a visibility gate.
+    // activeForNotebook:true when the module's detect() matched this notebook.
     function getTemplatesForNotebook(notebookName) {
+        const out = [];
+        for (const [name, mod] of _modules) {
+            if (!mod.enabled || !mod.spec.templates?.length) continue;
+            const isActive    = mod.activeNotebooks.some(nb => nb.name === notebookName);
+            const moduleLabel = mod.spec.label ?? name;
+            mod.spec.templates.forEach(t => {
+                out.push({ moduleName: name, moduleLabel, activeForNotebook: isActive, ...t });
+            });
+        }
+        return out;
+    }
+
+    // Returns non-singleton templates with scope:'notebook' from modules active for this notebook.
+    // Used to populate the DEFAULTS section in the Notebooks panel.
+    function getScopedTemplatesForNotebook(notebookName) {
         return _activeFor(notebookName).flatMap(m => {
             if (!m.templates?.length) return [];
-            return m.templates.map(t => ({ moduleName: m.name, moduleLabel: m.label ?? m.name, ...t }));
+            return m.templates
+                .filter(t => t.scope === 'notebook' && !t.singleton)
+                .map(t => ({ moduleName: m.name, moduleLabel: m.label ?? m.name, ...t }));
         });
     }
 
@@ -265,6 +284,7 @@ const NbWeb = (() => {
         getToolbarButtons: getListButtons, // backward-compat alias
         getAddFormExtras,
         getTemplatesForNotebook,
+        getScopedTemplatesForNotebook,
         createFromTemplate,
         singletonExists,
         getNotebookSections,
