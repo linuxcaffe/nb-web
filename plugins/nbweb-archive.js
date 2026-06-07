@@ -269,7 +269,6 @@
         pluginContent: _renderImportContent,
 
         notebookSection: (nb) => {
-            const unpushed = nb.git?.unpushed ?? 0;
             return {
                 label:   'Archive',
                 rows:    [],
@@ -279,12 +278,6 @@
                         icon:  '↓',
                         label: 'Archive notebook',
                         fn:    (nbObj, btn) => _showArchiveForm(nbObj, btn.parentElement.parentElement, btn),
-                    },
-                    {
-                        id:    'nbarch-remove-btn',
-                        icon:  '🗑',
-                        label: 'Remove notebook',
-                        fn:    (nbObj, btn) => _showRemoveForm(nbObj, btn.parentElement.parentElement, btn, unpushed),
                     },
                 ],
             };
