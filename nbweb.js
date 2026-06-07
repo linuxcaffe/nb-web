@@ -107,6 +107,20 @@ const NbWeb = (() => {
         return _activeFor(notebook).find(m => m.addFormExtras)?.addFormExtras ?? null;
     }
 
+    // notebookSection — appended to the Notebooks detail panel for each active plugin
+    function getNotebookSections(notebookObj) {
+        return _activeFor(notebookObj.name).flatMap(m => {
+            if (!m.notebookSection) return [];
+            try {
+                const s = m.notebookSection(notebookObj);
+                return s ? [{ moduleName: m.name, ...s }] : [];
+            } catch (e) {
+                console.error(`NbWeb: notebookSection() failed for module "${m.name}":`, e);
+                return [];
+            }
+        });
+    }
+
     // ── Shared publish helper (used by toolbar buttons + settings panel) ──────────
 
     async function publishWebsite(notebook, btn) {
@@ -202,6 +216,7 @@ const NbWeb = (() => {
         getNavButtons,
         getToolbarButtons: getListButtons, // backward-compat alias
         getAddFormExtras,
+        getNotebookSections,
         list,
         setEnabled,
         unregister,

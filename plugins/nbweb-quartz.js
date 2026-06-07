@@ -27,6 +27,33 @@ NbWeb.registerModule('quartz', {
         },
     ],
 
+    notebookSection: (notebook) => {
+        const w = notebook.website;
+        if (!w) return null;
+        return {
+            label: 'NbWeb-quartz',
+            rows: [
+                { key: 'Site',   value: w.url,         link: w.url },
+                { key: 'Quartz', value: w.quartz_path  },
+            ],
+            actions: [
+                {
+                    id:      'nbwq-nb-publish',
+                    icon:    '🌐',
+                    label:   'Publish',
+                    primary: true,
+                    fn:      (nb, btn) => NbWeb.publishWebsite(nb.name, btn),
+                },
+                {
+                    id:    'nbwq-nb-open',
+                    icon:  '↗',
+                    label: 'Open site',
+                    fn:    (nb) => { if (nb.website?.url) window.open(nb.website.url, '_blank'); },
+                },
+            ],
+        };
+    },
+
     // TODO: previewRenderer — shop item preview (image + meta fields)
     // TODO: listExcerpt    — item-specific excerpt (status, price)
     // TODO: addFormExtras  — category, status, price, image fields

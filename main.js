@@ -4875,6 +4875,68 @@ const NbMain = (() => {
         });
     }
 
+    function _renderNotebookSection(section, nbObj) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px';
+
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase';
+        lbl.textContent = section.label;
+        wrap.appendChild(lbl);
+
+        if (section.rows?.length) {
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:grid;gap:4px 12px;grid-template-columns:max-content 1fr;align-items:baseline;font-size:12px;margin-bottom:10px';
+            section.rows.forEach(row => {
+                const k = document.createElement('span');
+                k.style.color = 'var(--text-dim)';
+                k.textContent = row.key;
+                grid.appendChild(k);
+
+                const v = document.createElement('span');
+                v.style.cssText = 'color:var(--text);font-family:var(--font-mono);font-size:11px;word-break:break-all';
+                if (row.link) {
+                    const a = document.createElement('a');
+                    a.href = row.link;
+                    a.target = '_blank';
+                    a.rel = 'noopener';
+                    a.style.cssText = 'color:var(--accent,var(--text));text-decoration:none';
+                    a.textContent = row.value || row.link;
+                    v.appendChild(a);
+                } else {
+                    v.textContent = row.value || '—';
+                }
+                if (row.action) {
+                    const ab = document.createElement('button');
+                    ab.className = 'nb-tool-btn';
+                    ab.style.marginLeft = '8px';
+                    ab.textContent = row.action.label;
+                    ab.addEventListener('click', () => row.action.fn(nbObj, ab));
+                    v.appendChild(ab);
+                }
+                grid.appendChild(v);
+            });
+            wrap.appendChild(grid);
+        }
+
+        if (section.actions?.length) {
+            const actRow = document.createElement('div');
+            actRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+            section.actions.forEach(act => {
+                const btn = document.createElement('button');
+                btn.id = act.id;
+                btn.className = 'nb-tool-btn' + (act.primary ? ' nb-btn-primary' : '');
+                btn.title = act.title || act.label || '';
+                btn.textContent = (act.icon ? act.icon + ' ' : '') + (act.label || '');
+                btn.addEventListener('click', () => act.fn(nbObj, btn));
+                actRow.appendChild(btn);
+            });
+            wrap.appendChild(actRow);
+        }
+
+        return wrap;
+    }
+
     async function _openNbNotebook(name) {
         const content = document.getElementById('nb-preview-content');
         content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
@@ -4958,6 +5020,7 @@ const NbMain = (() => {
                     </details>
                     <pre id="nb-nb-wire-out" style="margin-top:8px;font-size:11px;white-space:pre-wrap;display:none"></pre>
                 </div>
+                <div id="nb-nb-plugin-sections"></div>
                 <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
                     <button id="nb-nb-use" class="nb-tool-btn">Use this notebook</button>
                     <span style="font-size:11px;color:var(--text-dim)">Set as the active scope for List, Add, and other commands.</span>
@@ -4983,6 +5046,15 @@ const NbMain = (() => {
                         <span id="nb-nb-prefs-status" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
                     </div>
                 </div>`;
+
+            // Plugin sections — one per active NbWeb module for this notebook
+            const nbObj = NbWeb.notebooks().find(nb => nb.name === name);
+            const pluginSectionsEl = content.querySelector('#nb-nb-plugin-sections');
+            if (nbObj && pluginSectionsEl) {
+                NbWeb.getNotebookSections(nbObj).forEach(section => {
+                    pluginSectionsEl.appendChild(_renderNotebookSection(section, nbObj));
+                });
+            }
 
             // Folders — async-fetched and injected into the info grid
             fetch(`/api/folders?notebook=${encodeURIComponent(name)}`).then(r => r.json()).then(fd => {
