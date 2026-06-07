@@ -146,6 +146,118 @@
         input.focus();
     }
 
+    // ── Import (rendered inline on the plugin page via pluginContent) ─────────
+
+    function _renderImportContent(container) {
+        container.style.cssText = 'padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px';
+        container.innerHTML =
+            `<div style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;` +
+            `letter-spacing:.05em;text-transform:uppercase">Import archive</div>` +
+            `<label id="nbarch-imp-drop" style="display:flex;align-items:center;justify-content:center;` +
+            `height:64px;border:2px dashed var(--border);border-radius:6px;cursor:pointer;` +
+            `font-size:12px;color:var(--text-dim);transition:border-color .15s;margin-bottom:10px">` +
+              `<span id="nbarch-imp-drop-label">Drop .nbz here or click to pick</span>` +
+              `<input id="nbarch-imp-file" type="file" accept=".nbz,.zip" style="display:none">` +
+            `</label>` +
+            `<div id="nbarch-imp-preview" style="display:none;font-size:12px;margin-bottom:8px;` +
+            `background:var(--bg-secondary,color-mix(in srgb,var(--border) 50%,var(--bg)));` +
+            `border-radius:6px;padding:8px 10px"></div>` +
+            `<div id="nbarch-imp-name-row" style="display:none;flex-direction:column;gap:6px;margin-bottom:8px">` +
+              `<label style="font-size:11px;color:var(--text-dim)">Import as</label>` +
+              `<input id="nbarch-imp-name" class="nb-opt-input">` +
+              `<div id="nbarch-imp-conflict" style="font-size:11px;color:var(--yellow,#f39c12);display:none">` +
+                `⚠ Name already in use — choose another.` +
+              `</div>` +
+            `</div>` +
+            `<div style="display:flex;gap:6px;align-items:center">` +
+              `<button id="nbarch-imp-go" class="nb-tool-btn nb-btn-primary" disabled>Import</button>` +
+              `<span id="nbarch-imp-status" style="font-size:12px"></span>` +
+            `</div>`;
+
+        let _currentFile = null;
+        const drop     = container.querySelector('#nbarch-imp-drop');
+        const fileIn   = container.querySelector('#nbarch-imp-file');
+        const preview  = container.querySelector('#nbarch-imp-preview');
+        const nameRow  = container.querySelector('#nbarch-imp-name-row');
+        const nameIn   = container.querySelector('#nbarch-imp-name');
+        const conflict = container.querySelector('#nbarch-imp-conflict');
+        const goBtn    = container.querySelector('#nbarch-imp-go');
+        const status   = container.querySelector('#nbarch-imp-status');
+        const dropLbl  = container.querySelector('#nbarch-imp-drop-label');
+
+        drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = 'var(--accent,var(--text))'; });
+        drop.addEventListener('dragleave', () => { drop.style.borderColor = ''; });
+        drop.addEventListener('drop', e => { e.preventDefault(); drop.style.borderColor = ''; const f = e.dataTransfer.files[0]; if (f) _onFile(f); });
+        fileIn.addEventListener('change', () => { if (fileIn.files[0]) _onFile(fileIn.files[0]); });
+        nameIn.addEventListener('input', () => { conflict.style.display = 'none'; });
+
+        async function _onFile(file) {
+            _currentFile = file;
+            dropLbl.textContent   = file.name;
+            preview.style.display = 'none';
+            nameRow.style.display = 'none';
+            goBtn.disabled        = true;
+            status.style.color    = 'var(--text-dim)';
+            status.textContent    = 'Reading…';
+            const fd = new FormData();
+            fd.append('archive', file);
+            try {
+                const r = await fetch('/api/nb/import-preview', { method: 'POST', body: fd });
+                const d = await r.json();
+                if (!d.ok) { status.style.color = 'var(--text-danger,#e74c3c)'; status.textContent = '✗ ' + d.error; return; }
+                status.textContent = '';
+                const m = d.meta, date = (m.archived_at || '').slice(0, 10);
+                preview.style.display = 'block';
+                preview.innerHTML =
+                    `<div style="font-weight:600;margin-bottom:2px">${_esc(m.name)}</div>` +
+                    `<div style="color:var(--text-dim)">` +
+                        (m.note_count != null ? `${m.note_count} notes` : '') +
+                        (date ? ` · ${_esc(date)}` : '') +
+                        (m.includes_git ? ' · git history' : '') +
+                    `</div>` +
+                    (m.description ? `<div style="margin-top:4px;font-style:italic">${_esc(m.description)}</div>` : '');
+                nameRow.style.display  = 'flex';
+                nameIn.value           = d.suggested;
+                conflict.style.display = d.conflict ? 'block' : 'none';
+                goBtn.disabled         = false;
+            } catch(e) {
+                status.style.color = 'var(--text-danger,#e74c3c)';
+                status.textContent = '✗ ' + e.message;
+            }
+        }
+
+        goBtn.onclick = async () => {
+            if (!_currentFile) return;
+            const name = nameIn.value.trim();
+            if (!name) { nameIn.focus(); return; }
+            goBtn.disabled = true; goBtn.textContent = 'Importing…'; status.textContent = '';
+            const fd = new FormData();
+            fd.append('archive', _currentFile);
+            fd.append('name', name);
+            try {
+                const r = await fetch('/api/nb/import', { method: 'POST', body: fd });
+                const d = await r.json();
+                if (d.ok) {
+                    status.style.color = 'var(--green,#2ecc71)';
+                    status.textContent = `✓ Imported "${_esc(d.notebook)}" (${d.note_count} notes)`;
+                    goBtn.textContent  = 'Import';
+                    setTimeout(() => NbMain.runNbNotebooks(), 1200);
+                } else if (d.conflict) {
+                    conflict.style.display = 'block';
+                    goBtn.disabled = false; goBtn.textContent = 'Import';
+                } else {
+                    status.style.color = 'var(--text-danger,#e74c3c)';
+                    status.textContent = '✗ ' + (d.error || 'Import failed.');
+                    goBtn.disabled = false; goBtn.textContent = 'Import';
+                }
+            } catch(e) {
+                status.style.color = 'var(--text-danger,#e74c3c)';
+                status.textContent = '✗ ' + e.message;
+                goBtn.disabled = false; goBtn.textContent = 'Import';
+            }
+        };
+    }
+
     // ── Plugin registration ───────────────────────────────────────────────────
 
     NbWeb.registerModule('archive', {
@@ -153,6 +265,8 @@
         label:       'NbWeb-archive',
         description: 'Archive notebooks to .nbz for backup or transfer, and remove them safely',
         helpUrl:     '/plugins/nbweb-archive.md',
+
+        pluginContent: _renderImportContent,
 
         notebookSection: (nb) => {
             const unpushed = nb.git?.unpushed ?? 0;

@@ -3261,10 +3261,16 @@ const NbMain = (() => {
             ${p.spec?.description ? `<div class="nb-plugin-desc">${_esc(p.spec.description)}</div>` : ''}
             ${helpHtml}
             ${listDefaultsHtml}
+            <div id="nbplug-custom-content"></div>
             <div class="nb-plugin-section" style="display:flex;gap:8px;flex-wrap:wrap">
                 <button id="nbplug-toggle" class="nb-tool-btn">${p.enabled ? 'Disable' : 'Enable'}</button>
                 <button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>
             </div>`;
+
+        if (p.spec?.pluginContent) {
+            const el = document.getElementById('nbplug-custom-content');
+            if (el) p.spec.pluginContent(el);
+        }
 
         document.getElementById('nbplug-save')?.addEventListener('click', async () => {
             const sort = document.getElementById('nbplug-sort').value;

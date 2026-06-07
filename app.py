@@ -3241,25 +3241,28 @@ def api_nb_archive():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         zf.writestr(f'{notebook}/.nb_archive', json.dumps(meta, indent=2))
-        for path in sorted(nb_path.rglob('*')):
-            if not path.is_file():
+        for dirpath, dirnames, filenames in os.walk(str(nb_path)):
+            dp   = Path(dirpath)
+            rel_dir = dp.relative_to(nb_path)
+            parts_d = rel_dir.parts
+            # Prune .git traversal when not requested (modifying dirnames in-place stops descent)
+            if not includes_git and parts_d and parts_d[0] == '.git':
+                dirnames.clear()
                 continue
-            try:
-                rel   = path.relative_to(nb_path)
-                parts = rel.parts
-            except ValueError:
-                continue
-            if not includes_git and parts[0] == '.git':
-                continue
-            if parts[-1] in _SKIP_NAMES or any(p in _SKIP_DIRS for p in parts):
-                continue
-            try:
-                if path.stat().st_size > max_bytes:
-                    skipped.append(str(rel))
+            # Prune junk dirs
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for fname in filenames:
+                if fname in _SKIP_NAMES:
                     continue
-                zf.write(str(path), f'{notebook}/{rel}')
-            except Exception:
-                skipped.append(str(rel))
+                fpath = dp / fname
+                rel   = rel_dir / fname
+                try:
+                    if fpath.stat().st_size > max_bytes:
+                        skipped.append(str(rel))
+                        continue
+                    zf.write(str(fpath), f'{notebook}/{rel}')
+                except Exception:
+                    skipped.append(str(rel))
 
     buf.seek(0)
     resp = send_file(buf, mimetype='application/zip',
@@ -3267,6 +3270,117 @@ def api_nb_archive():
     if skipped:
         resp.headers['X-Nb-Skipped'] = ','.join(skipped[:20])
     return resp
+
+
+# ---------------------------------------------------------------------------
+# API: Notebook import (.nbz)
+
+@app.route('/api/nb/import-preview', methods=['POST'])
+def api_nb_import_preview():
+    """Read .nb_archive metadata from a .nbz upload without extracting."""
+    f = request.files.get('archive')
+    if not f:
+        return jsonify({'ok': False, 'error': 'No file provided.'}), 400
+    try:
+        buf = io.BytesIO(f.read())
+        with zipfile.ZipFile(buf, 'r') as zf:
+            meta_name = next(
+                (n for n in zf.namelist() if n.endswith('/.nb_archive') or n == '.nb_archive'),
+                None,
+            )
+            if not meta_name:
+                return jsonify({'ok': False, 'error': 'Not a valid .nbz archive (missing .nb_archive).'}), 400
+            meta     = json.loads(zf.read(meta_name))
+            notebook = meta.get('name') or meta_name.split('/')[0]
+            conflict = (NB_DIR / notebook).is_dir()
+            return jsonify({
+                'ok':       True,
+                'meta':     meta,
+                'notebook': notebook,
+                'conflict': conflict,
+                'suggested': (notebook + '-import') if conflict else notebook,
+            })
+    except zipfile.BadZipFile:
+        return jsonify({'ok': False, 'error': 'Not a valid zip file.'}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/nb/import', methods=['POST'])
+def api_nb_import():
+    """Extract a .nbz archive into ~/.nb/ as a notebook."""
+    f             = request.files.get('archive')
+    name_override = request.form.get('name', '').strip()
+    if not f:
+        return jsonify({'ok': False, 'error': 'No file provided.'}), 400
+
+    dest = None
+    try:
+        buf = io.BytesIO(f.read())
+        with zipfile.ZipFile(buf, 'r') as zf:
+            meta_name = next(
+                (n for n in zf.namelist() if n.endswith('/.nb_archive') or n == '.nb_archive'),
+                None,
+            )
+            if not meta_name:
+                return jsonify({'ok': False, 'error': 'Not a valid .nbz archive.'}), 400
+
+            meta     = json.loads(zf.read(meta_name))
+            src_name = meta.get('name') or meta_name.split('/')[0]
+            notebook = name_override or src_name
+
+            try:
+                _check_notebook(notebook)
+            except ValueError as e:
+                return jsonify({'ok': False, 'error': str(e)}), 400
+
+            dest = NB_DIR / notebook
+            if dest.exists():
+                return jsonify({'ok': False, 'error': f'Notebook "{notebook}" already exists.', 'conflict': True}), 409
+
+            dest.mkdir(parents=True)
+            prefix = src_name + '/'
+            for item in zf.infolist():
+                if item.is_dir() or item.filename == meta_name:
+                    continue
+                rel = (item.filename[len(prefix):]
+                       if item.filename.startswith(prefix)
+                       else item.filename)
+                if not rel or rel.startswith('/'):
+                    continue
+                target = dest / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(zf.read(item.filename))
+
+    except zipfile.BadZipFile:
+        if dest and dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        return jsonify({'ok': False, 'error': 'Not a valid zip file.'}), 400
+    except Exception as e:
+        if dest and dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    # Write import-stamped metadata
+    import_meta = {**meta, 'name': notebook,
+                   'imported_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}
+    (dest / '.nb_archive').write_text(json.dumps(import_meta, indent=2))
+
+    # Reconcile nb index so notes are visible
+    run_nb('index', 'reconcile', f'{notebook}:')
+
+    # Init git if the archive was notes-only
+    if not (dest / '.git').exists():
+        git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true'}
+        subprocess.run(['git', 'init'],   cwd=str(dest), capture_output=True, env=git_env)
+        subprocess.run(['git', 'add', '-A'], cwd=str(dest), capture_output=True, env=git_env)
+        subprocess.run(
+            ['git', 'commit', '-m', f'[nb] Import: {notebook}'],
+            cwd=str(dest), capture_output=True, env=git_env,
+        )
+
+    return jsonify({'ok': True, 'notebook': notebook,
+                    'note_count': meta.get('note_count', '?')})
 
 
 # ---------------------------------------------------------------------------
