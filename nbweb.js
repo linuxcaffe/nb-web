@@ -107,6 +107,54 @@ const NbWeb = (() => {
         return _activeFor(notebook).find(m => m.addFormExtras)?.addFormExtras ?? null;
     }
 
+    // ── Template API ──────────────────────────────────────────────────────────────
+
+    // Returns all plugin templates active for a notebook, each decorated with moduleName
+    function getTemplatesForNotebook(notebookName) {
+        return _activeFor(notebookName).flatMap(m => {
+            if (!m.templates?.length) return [];
+            return m.templates.map(t => ({ moduleName: m.name, moduleLabel: m.label ?? m.name, ...t }));
+        });
+    }
+
+    // Write a singleton template to disk; 409 = already exists (safe — never overwrites)
+    async function createFromTemplate(template, notebookObj) {
+        if (!template.filename) {
+            console.error('NbWeb.createFromTemplate: template has no filename');
+            return { ok: false, error: 'no filename' };
+        }
+        const content = typeof template.content === 'function'
+            ? template.content(notebookObj)
+            : template.content;
+        try {
+            const r = await fetch('/api/nb/create-from-template', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({
+                    notebook: notebookObj.name,
+                    filename: template.filename,
+                    content,
+                }),
+            });
+            const d = await r.json();
+            return d; // { ok, error? }
+        } catch (e) {
+            return { ok: false, error: e.message };
+        }
+    }
+
+    // Check whether a singleton file exists in a notebook (cached per call — no memoisation)
+    async function singletonExists(notebookName, filename) {
+        try {
+            const r = await fetch(
+                `/api/nb/file-exists?notebook=${encodeURIComponent(notebookName)}&filename=${encodeURIComponent(filename)}`
+            );
+            return (await r.json()).exists === true;
+        } catch (_) {
+            return false;
+        }
+    }
+
     // notebookSection — appended to the Notebooks detail panel for each active plugin
     function getNotebookSections(notebookObj) {
         return _activeFor(notebookObj.name).flatMap(m => {
@@ -216,6 +264,9 @@ const NbWeb = (() => {
         getNavButtons,
         getToolbarButtons: getListButtons, // backward-compat alias
         getAddFormExtras,
+        getTemplatesForNotebook,
+        createFromTemplate,
+        singletonExists,
         getNotebookSections,
         list,
         setEnabled,
