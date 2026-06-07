@@ -121,9 +121,9 @@ Append `#Heading Text` to jump directly to a section within a note:
 | `[[Page#Heading\|label]]` | Same, with custom display text |
 | `[[#Heading]]` | Scroll to a heading in the **current** note (no page reload) |
 
-The heading match is case-insensitive and matched by text content, so the
-heading text in the wikilink must match the heading as written in the note
-(punctuation is stripped when comparing).
+Heading matching is case-insensitive and compares against the heading text
+directly — use the heading words with spaces, not a slug. `[[#Contact Import]]`
+and `[[#contact import]]` both work; `[[#contact-import]]` does not.
 
 ### Backlinks
 
