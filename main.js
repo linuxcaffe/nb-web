@@ -3353,12 +3353,12 @@ const NbMain = (() => {
             list.appendChild(hdr);
 
             nbwebPlugins.forEach(p => {
-                const activeFor = p.activeNotebooks.length
-                    ? p.activeNotebooks.join(', ')
+                const activeFor = p.global ? 'all notebooks'
+                    : p.activeNotebooks.length ? p.activeNotebooks.join(', ')
                     : p.enabled ? 'none detected' : 'disabled';
                 const status = !p.enabled ? '◌ disabled' : p.error ? '✗ error' : '● active';
                 _addItem(
-                    p.name,
+                    p.spec?.label || p.name,
                     `${status} · ${activeFor}`,
                     '🔌',
                     'nb-plugin-nbweb' + (p.enabled ? '' : ' nb-plugin-disabled'),
@@ -3395,35 +3395,33 @@ const NbMain = (() => {
         let helpHtml = '';
         if (p.spec?.helpUrl) {
             try {
-                const md = await fetch(p.spec.helpUrl).then(r => r.text());
-                helpHtml = `<div class="nb-plugin-help nb-markdown">${marked.parse(md)}</div>`;
-            } catch(_) {
-                helpHtml = `<div class="nb-plugin-help" style="color:var(--text-dim);padding:12px 28px;font-size:12px">Help file not found.</div>`;
-            }
+                const r = await fetch(p.spec.helpUrl);
+                const ct = r.headers.get('content-type') || '';
+                if (r.ok && ct.includes('text/markdown') || ct.includes('text/plain') || p.spec.helpUrl.endsWith('.md')) {
+                    const md = await r.text();
+                    // Bail if Flask served the SPA fallback instead of a real file
+                    if (!md.includes('nb-preview-content')) {
+                        helpHtml = `<div class="nb-plugin-help nb-markdown">${marked.parse(md)}</div>`;
+                    }
+                }
+            } catch(_) {}
         }
 
-        const activeFor = p.activeNotebooks.length
-            ? p.activeNotebooks.join(', ') : 'none detected';
+        const activeFor = p.global ? 'all notebooks'
+            : p.activeNotebooks.length ? p.activeNotebooks.join(', ') : 'none detected';
         const statusColor = p.error ? 'var(--red)' : p.enabled ? 'var(--green,#2ecc71)' : 'var(--text-dim)';
         const statusText  = p.error ? '✗ error' : p.enabled ? '● active' : '◌ disabled';
 
-        const ld = p.spec?.listDefaults || {};
-        const curSort = pluginPrefs.sortOrder ?? ld.sortOrder ?? 'default';
-        const curType = pluginPrefs.listType  ?? ld.listType  ?? 'all';
-        const sortOpts = ['default','az','za','newest','oldest']
-            .map(v => `<option value="${v}"${curSort === v ? ' selected' : ''}>${v}</option>`).join('');
-        const typeOpts = ['all','note','bookmark','todo','contact','folder','image']
-            .map(v => `<option value="${v}"${curType === v ? ' selected' : ''}>${v}</option>`).join('');
-
-        content.innerHTML = `
-            <div class="nb-plugin-header">
-                <span style="font-size:18px">🔌</span>
-                <strong style="font-size:14px;color:var(--text)">${_esc(p.spec?.label || p.name)}</strong>
-                <span style="color:${statusColor};font-size:12px">${statusText}</span>
-                ${p.activeNotebooks.length ? `<span class="nb-plugin-active-for">active for: ${_esc(activeFor)}</span>` : ''}
-            </div>
-            ${p.spec?.description ? `<div class="nb-plugin-desc">${_esc(p.spec.description)}</div>` : ''}
-            ${helpHtml}
+        const ld = p.spec?.listDefaults;
+        let listDefaultsHtml = '';
+        if (ld) {
+            const curSort = pluginPrefs.sortOrder ?? ld.sortOrder ?? 'default';
+            const curType = pluginPrefs.listType  ?? ld.listType  ?? 'all';
+            const sortOpts = ['default','az','za','newest','oldest']
+                .map(v => `<option value="${v}"${curSort === v ? ' selected' : ''}>${v}</option>`).join('');
+            const typeOpts = ['all','note','bookmark','todo','contact','folder','image']
+                .map(v => `<option value="${v}"${curType === v ? ' selected' : ''}>${v}</option>`).join('');
+            listDefaultsHtml = `
             <div class="nb-plugin-section">
                 <div class="nb-plugin-section-title">List defaults</div>
                 <div style="display:grid;gap:8px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px">
@@ -3436,13 +3434,25 @@ const NbMain = (() => {
                     <button id="nbplug-save" class="nb-tool-btn nb-btn-primary">Save defaults</button>
                     <span id="nbplug-save-status" style="font-size:11px;color:var(--text-dim)"></span>
                 </div>
+            </div>`;
+        }
+
+        content.innerHTML = `
+            <div class="nb-plugin-header">
+                <span style="font-size:18px">🔌</span>
+                <strong style="font-size:14px;color:var(--text)">${_esc(p.spec?.label || p.name)}</strong>
+                <span style="color:${statusColor};font-size:12px">${statusText}</span>
+                <span class="nb-plugin-active-for">${_esc(activeFor)}</span>
             </div>
+            ${p.spec?.description ? `<div class="nb-plugin-desc">${_esc(p.spec.description)}</div>` : ''}
+            ${helpHtml}
+            ${listDefaultsHtml}
             <div class="nb-plugin-section" style="display:flex;gap:8px;flex-wrap:wrap">
                 <button id="nbplug-toggle" class="nb-tool-btn">${p.enabled ? 'Disable' : 'Enable'}</button>
                 <button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>
             </div>`;
 
-        document.getElementById('nbplug-save').addEventListener('click', async () => {
+        document.getElementById('nbplug-save')?.addEventListener('click', async () => {
             const sort = document.getElementById('nbplug-sort').value;
             const type = document.getElementById('nbplug-type').value;
             const statusEl = document.getElementById('nbplug-save-status');

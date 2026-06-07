@@ -309,9 +309,11 @@ const NbWeb = (() => {
     function list() {
         return [..._modules.entries()].map(([name, mod]) => ({
             name,
-            enabled: mod.enabled,
+            enabled:        mod.enabled,
+            global:         !mod.spec.detect,
             activeNotebooks: mod.activeNotebooks.map(nb => nb.name),
-            error: mod.error,
+            error:          mod.error,
+            spec:           mod.spec,
         }));
     }
 
