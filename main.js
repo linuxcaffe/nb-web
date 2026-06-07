@@ -450,6 +450,7 @@ const NbMain = (() => {
 
         const fileUrl = `/api/file?selector=${encodeURIComponent(note.selector)}`;
         let html = '';
+        const _pluginHtml = NbWeb.getPreviewRenderer(note.notebook)?.(note) ?? null;
 
         if (note.type === 'image') {
             html = `<div style="text-align:center"><img src="${fileUrl}" class="nb-img-preview" alt="${_esc(note.title)}"></div>`;
@@ -475,8 +476,8 @@ const NbMain = (() => {
             return;
         } else if (note.type === 'contact') {
             html = _renderContact(note);
-        } else if (note.selector && /:items\//.test(note.selector)) {
-            html = _renderItem(note);
+        } else if (_pluginHtml !== null) {
+            html = _pluginHtml;
         } else if (note.meta && ('caption' in note.meta || 'footnote' in note.meta ||
                    'SEO' in note.meta || 'tags' in note.meta || 'with_tags' in note.meta)) {
             html = _renderWebpage(note);
@@ -1098,79 +1099,6 @@ const NbMain = (() => {
   ${rows ? `<div class="nb-contact-fields">${rows}</div>` : ''}
   ${tagHtml}
   ${bodyHtml}
-</div>`;
-    }
-
-    function _renderItem(note) {
-        const m      = note.meta || {};
-        const nb     = note.notebook || (note.selector || '').split(':')[0];
-        const title  = String(m.title || note.title || '');
-        const status = String(m.status || 'available');
-        const statusLabel = status === 'available' ? 'Available' : status === 'sold' ? 'Sold' : status;
-        const statusClass = status === 'available' ? 'nb-item-status--available' : 'nb-item-status--sold';
-
-        // Resolve all images from comma-separated list, normalise paths
-        const imgSels = (m.image || '').split(',').map(s => s.trim()).filter(Boolean).map(p => {
-            if (p.startsWith('../images/')) p = p.slice(3);
-            else if (p.startsWith('./')) p = 'items/' + p.slice(2);
-            else if (!p.startsWith('images/')) p = `images/${p}`;
-            return `${nb}:${p}`;
-        });
-        const imgsHtml = imgSels.length
-            ? `<div class="nb-item-imgs">${imgSels.map(sel =>
-                `<img class="nb-item-img" src="/api/file?selector=${encodeURIComponent(sel)}" alt="${_esc(title)}">`
-              ).join('')}</div>`
-            : '';
-
-        const row = (label, val) => val
-            ? `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(label)}</span><span class="nb-contact-value">${_esc(String(val))}</span></div>`
-            : '';
-        const linkRow = (label, href, text) => href
-            ? `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(label)}</span><a class="nb-contact-value" href="${_esc(href)}" target="_blank" rel="noopener">${_esc(text)}</a></div>`
-            : '';
-
-        const fields = [
-            row('category',  m.category),
-            m.qtty && String(m.qtty) !== '1' ? row('qty', m.qtty) : '',
-            row('price',     m.price),
-            row('date',      m.date instanceof Date
-                ? m.date.toLocaleDateString('en-CA', {year:'numeric',month:'short',day:'numeric'})
-                : m.date),
-            row('size',      m.size),
-            row('condition', m.condition),
-            row('shipping',  m.shipping),
-            linkRow('listing', m.listing, `View on ${m.platform || m.listing}`),
-            !m.listing && m.platform ? row('platform', m.platform) : '',
-        ].join('');
-
-        const tags = Array.isArray(m.tags) ? m.tags : (m.tags ? String(m.tags).split(',').map(t => t.trim()) : []);
-        const tagHtml = tags.length
-            ? `<div class="nb-contact-tags">${tags.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join('')}</div>`
-            : '';
-
-        // Body: strip the leading image line and comment placeholder
-        const cleanBody = (note.body || '')
-            .replace(/^!\[.*?\]\(.*?\)\s*\n?/m, '')
-            .replace(/<!--.*?-->/gs, '')
-            .trim();
-        const bodyHtml = cleanBody
-            ? `<div class="nb-contact-notes">${_renderMarkdown(cleanBody)}</div>` : '';
-
-        const caption = m.caption ? `<div class="nb-item-caption">${_esc(String(m.caption))}</div>` : '';
-        const desc    = m.description ? `<div class="nb-item-description">${_esc(String(m.description))}</div>` : '';
-
-        return `<div class="nb-item-card">
-  <div class="nb-item-body">
-    <div class="nb-item-header">
-      <div class="nb-item-name">${_esc(title)}</div>
-      <span class="nb-item-status ${statusClass}">${_esc(statusLabel)}</span>
-    </div>
-    ${caption}${desc}
-    ${fields ? `<div class="nb-contact-fields">${fields}</div>` : ''}
-    ${tagHtml}
-    ${imgsHtml}
-    ${bodyHtml}
-  </div>
 </div>`;
     }
 
