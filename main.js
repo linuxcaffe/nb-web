@@ -1907,7 +1907,9 @@ const NbMain = (() => {
                 case 'l': e.preventDefault(); NbNav.activateCmd('list');      break;
                 case 'c': e.preventDefault(); document.getElementById('nb-cal-icon')?.click(); break;
                 case 'C': e.preventDefault(); NbNav.activateCmd('contacts');  break;
-                case 's': e.preventDefault(); document.getElementById('nb-search')?.focus();   break;
+                case 's':
+                case '/': e.preventDefault(); document.getElementById('nb-search')?.focus();   break;
+                case '#': e.preventDefault(); document.getElementById('nb-tags')?.focus();      break;
                 case 'n': e.preventDefault(); document.querySelector('.nb-scope-select')?.focus(); break;
                 case 'p': e.preventDefault(); _setKbPane('preview');          break;
                 case 'e': if (_activeSelector) { e.preventDefault(); _openEditor(); } break;
