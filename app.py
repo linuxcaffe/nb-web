@@ -2334,6 +2334,7 @@ def api_create_note():
     else:
         # Resolve template vars in Python so {{date}}, {{weather}} etc. work
         # for any template, not just daily-template.
+        template_content = data.get('template_content', '').strip()
         note_content = content or '\n'
         if template_path:
             tp = Path(template_path)
@@ -2348,11 +2349,19 @@ def api_create_note():
                     )
             except (ValueError, OSError):
                 pass
+        elif template_content:
+            note_content = _resolve_template_vars(
+                template_content,
+                title=title,
+                tags=' '.join(f'#{t}' for t in tags) if tags else '',
+                content=content or '',
+            )
 
+        using_template = bool(template_path or template_content)
         args = ['add', target]
         # Skip --title when a template is used: {{title}} is already substituted
         # into the content, and nb prepending "# Title\n\n" breaks YAML frontmatter.
-        if title and not template_path:
+        if title and not using_template:
             args += ['--title', title]
         args += ['--content', note_content]
         if tags:    args += ['--tags', ','.join(tags)]
@@ -2360,7 +2369,7 @@ def api_create_note():
         # Clean slug when: subfolder note (items/ etc.) OR template-driven note.
         # Template = intentional structured content that needs a predictable URL.
         # Timestamp prefix reserved for casual root-level notes (no template).
-        if folder or template_path:
+        if folder or using_template:
             note_filename = f"{slug}.md"
         else:
             note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"

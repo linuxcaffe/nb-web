@@ -450,12 +450,13 @@ const NbNav = (() => {
 
         function _noteArgs() {
             return {
-                notebook:      _scope === '_all' ? 'home' : _scope,
-                folder:        st.templateFolder || _folder['list'] || '',
-                type:          st.type,
-                title:         st.title,
-                url:           st.url,
-                template_path: st.template || '',
+                notebook:         _scope === '_all' ? 'home' : _scope,
+                folder:           st.templateFolder || _folder['list'] || '',
+                type:             st.type,
+                title:            st.title,
+                url:              st.url,
+                template_path:    st.template || '',
+                template_content: st.templateContent || '',
             };
         }
 
@@ -1095,9 +1096,18 @@ const NbNav = (() => {
     }
 
     function setAddTemplate(path, name = '', subfolder = '') {
-        _state.add.template       = path;
-        _state.add.templateName   = name || (path ? path.split('/').pop().replace(/\.[^.]*$/, '') : '');
-        _state.add.templateFolder = subfolder;
+        _state.add.template        = path;
+        _state.add.templateContent = '';
+        _state.add.templateName    = name || (path ? path.split('/').pop().replace(/\.[^.]*$/, '') : '');
+        _state.add.templateFolder  = subfolder;
+        _updateOutputBar();
+    }
+
+    function setVirtualTemplate(content, name = '') {
+        _state.add.template        = '';
+        _state.add.templateContent = content;
+        _state.add.templateName    = name;
+        _state.add.templateFolder  = '';
         _updateOutputBar();
     }
 
@@ -1626,6 +1636,7 @@ const NbNav = (() => {
         reexecute: () => _executeCmd(),
         get addTemplate() { return _state.add.template; },
         setAddTemplate,
+        setVirtualTemplate,
         activateCmd,
         drillFolder,
         drillFolderInNotebook,

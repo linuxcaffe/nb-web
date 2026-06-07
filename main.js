@@ -4220,14 +4220,15 @@ const NbMain = (() => {
 
     // ── Add note (called from opts bar form) ───────────────────────
 
-    async function addNote({ notebook, folder, type, title, url, template_path }) {
+    async function addNote({ notebook, folder, type, title, url, template_path, template_content }) {
         try {
             const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
                 body: JSON.stringify({ notebook, folder: folder || '', type, title, url,
                                        tags: [], content: '', comment: '',
-                                       template_path: template_path || '' }),
+                                       template_path:    template_path    || '',
+                                       template_content: template_content || '' }),
             });
             const d = await r.json();
             if (d.success) { return d; }
@@ -4279,6 +4280,20 @@ const NbMain = (() => {
         } catch(e) {
             content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
         }
+    }
+
+    function _previewVirtualTemplate(content, name, moduleLabel) {
+        const el = document.getElementById('nb-preview-content');
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        const html = _renderMarkdown(content);
+        el.innerHTML = `
+            <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                        font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                        display:flex;align-items:center;gap:12px">
+                <span>🔌 <strong>${_esc(name)}</strong></span>
+                <span style="opacity:0.6">${_esc(moduleLabel || 'plugin template')}</span>
+            </div>
+            <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${html}</div>`;
     }
 
     // Populate list pane with available templates when in Add mode
@@ -4358,6 +4373,66 @@ const NbMain = (() => {
             if (curTemplate) {
                 const found = templates.find(t => t.path === curTemplate);
                 if (found) _previewTemplate(found.path, found.name, found.scope);
+            }
+
+            // Plugin templates — grouped by module
+            const nbObj = NbWeb.notebooks().find(n => n.name === nb);
+            const pluginTemplates = NbWeb.getTemplatesForNotebook(nb);
+            if (pluginTemplates.length && nbObj) {
+                // Group by module
+                const byModule = new Map();
+                pluginTemplates.forEach(t => {
+                    if (!byModule.has(t.moduleName)) byModule.set(t.moduleName, []);
+                    byModule.get(t.moduleName).push(t);
+                });
+
+                for (const [, tmplGroup] of byModule) {
+                    const moduleLabel = tmplGroup[0].moduleLabel;
+
+                    const hdr = document.createElement('li');
+                    hdr.className = 'nb-list-section-header';
+                    hdr.textContent = moduleLabel;
+                    list.appendChild(hdr);
+
+                    for (const t of tmplGroup) {
+                        const content = typeof t.content === 'function' ? t.content(nbObj) : t.content;
+
+                        if (t.singleton) {
+                            // Render placeholder, fill async
+                            const li = makeTmplItem('🔌', t.name, '…', false, () => {});
+                            li.style.opacity = '0.5';
+                            li.style.pointerEvents = 'none';
+                            list.appendChild(li);
+                            const excEl = li.querySelector('.nb-list-excerpt');
+
+                            NbWeb.singletonExists(nb, t.filename).then(exists => {
+                                if (exists) {
+                                    li.style.opacity = '0.45';
+                                    if (excEl) excEl.textContent = '✓ exists — edit in Notebooks';
+                                } else {
+                                    li.style.opacity = '';
+                                    li.style.pointerEvents = '';
+                                    if (excEl) excEl.textContent = t.description || 'create once';
+                                    li.addEventListener('click', async () => {
+                                        list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                                        li.classList.add('active');
+                                        NbNav.setVirtualTemplate(content, t.name);
+                                        _previewVirtualTemplate(content, t.name, moduleLabel);
+                                    });
+                                }
+                            });
+                        } else {
+                            const item = makeTmplItem('🔌', t.name, t.description || '', false, () => {
+                                NbNav.setVirtualTemplate(content, t.name);
+                                _previewVirtualTemplate(content, t.name, moduleLabel);
+                            });
+                            list.appendChild(item);
+                        }
+                    }
+                }
+
+                const pluginCount = pluginTemplates.length;
+                countEl.textContent = `${templates.length + pluginCount} template${templates.length + pluginCount !== 1 ? 's' : ''}`;
             }
         } catch(e) {
             countEl.textContent = 'error';
