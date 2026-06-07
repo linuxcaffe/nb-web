@@ -1081,17 +1081,22 @@ const NbMain = (() => {
     // ── codeblock infra + renderers → plugins/nbweb-codeblocks.js ────────────
     function _renderMarkdown(body, noteSelector = null) {
         if (typeof marked === 'undefined') return `<pre>${_esc(body)}</pre>`;
-        // Pre-process wiki-links and hashtags before marked
-        let processed = body
-            .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => {
-                const hashIdx  = target.indexOf('#')
-                const page     = hashIdx >= 0 ? target.slice(0, hashIdx) : target
-                const frag     = hashIdx >= 0 ? target.slice(hashIdx + 1) : ''
-                const fragAttr = frag ? ` data-fragment="${_esc(frag)}"` : ''
-                return `<span class="nb-wiki-link" data-selector="${_esc(page)}"${fragAttr}${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`
-            })
-            .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
-                `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
+        // Pre-process wiki-links and hashtags before marked.
+        // Split on fenced code blocks and inline code first so [[links]] and
+        // #tags inside backticks are never converted.
+        const _processInline = chunk =>
+            chunk
+                .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => {
+                    const hashIdx  = target.indexOf('#')
+                    const page     = hashIdx >= 0 ? target.slice(0, hashIdx) : target
+                    const frag     = hashIdx >= 0 ? target.slice(hashIdx + 1) : ''
+                    const fragAttr = frag ? ` data-fragment="${_esc(frag)}"` : ''
+                    return `<span class="nb-wiki-link" data-selector="${_esc(page)}"${fragAttr}${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`
+                })
+                .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
+                    `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
+        const _codeParts = body.split(/(````[\s\S]*?````|```[\s\S]*?```|`[^`\n]+`)/g);
+        let processed = _codeParts.map((part, i) => i % 2 === 0 ? _processInline(part) : part).join('');
         let html = marked.parse(processed);
         if (noteSelector) {
             // Rewrite relative img srcs to /api/file?selector=... so images resolve
