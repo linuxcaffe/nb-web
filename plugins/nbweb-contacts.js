@@ -275,10 +275,27 @@
     NbWeb.registerModule('contacts', {
 
         label:       'NbWeb-contacts',
-        description: 'Contact card renderer and VCF importer for the contacts notebook',
+        description: 'Contact card renderer, last-name sort, and VCF importer for the contacts notebook',
         helpUrl:     '/plugins/nbweb-contacts.md',
 
         detect: (notebooks) => notebooks.filter(nb => nb.name === 'contacts'),
+
+        listDefaults: { listType: 'note', sortOrder: 'lastname' },
+
+        sortOptions: [
+            {
+                id:    'lastname',
+                label: 'Last name',
+                sort:  (notes) => [...notes].sort((a, b) => {
+                    const ln = n => {
+                        const name = n.meta?.name || n.meta?.fn || n.title || '';
+                        const parts = name.trim().split(/\s+/);
+                        return (parts.length > 1 ? parts[parts.length - 1] : parts[0]).toLowerCase();
+                    };
+                    return ln(a).localeCompare(ln(b));
+                }),
+            },
+        ],
 
         previewRenderer: (note) => {
             if (note.type !== 'contact') return null;

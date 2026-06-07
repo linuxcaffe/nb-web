@@ -85,6 +85,12 @@ const NbWeb = (() => {
         return _activeFor(notebook).find(m => m.previewRenderer)?.previewRenderer ?? null;
     }
 
+    // Returns all custom sort options from plugins active for this notebook.
+    // Each entry: { id, label, sort(notes) → notes[] }
+    function getSortOptions(notebookName) {
+        return _activeFor(notebookName).flatMap(m => m.sortOptions ?? []);
+    }
+
     function getListExcerpt(notebook) {
         return _activeFor(notebook).find(m => m.listExcerpt)?.listExcerpt ?? null;
     }
@@ -332,6 +338,7 @@ const NbWeb = (() => {
         _loadPlugins,
         _init,
         getPreviewRenderer,
+        getSortOptions,
         getListExcerpt,
         getListButtons,
         getNavButtons,

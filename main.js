@@ -11,6 +11,7 @@ const NbMain = (() => {
     let _todayInfo      = null;
     let _lastNotes      = [];       // original load order, for client-side sort
     let _sortMode       = 'default';
+    let _defaultSortMode = 'default'; // effective default for the current notebook (set by resetSort)
     let _nbSortMode     = 'active-first';  // sort for Notebooks settings view
     let _lastNbList     = [];              // last fetched notebooks array
     let _lastNbCurrent  = 'home';          // nb's actual current notebook (from ~/.nb/.current)
@@ -158,6 +159,11 @@ const NbMain = (() => {
         const byAge = (a, b) => (a.id && b.id) ? b.id - a.id : (b.mtime || 0) - (a.mtime || 0);
         if (_sortMode === 'newest') result.sort((a, b) =>  byAge(a, b));
         if (_sortMode === 'oldest') result.sort((a, b) => -byAge(a, b));
+        // Plugin sort options — checked after built-ins
+        if (!['default','az','za','newest','oldest'].includes(_sortMode)) {
+            const pluginSort = NbWeb.getSortOptions(NbNav.notebook).find(s => s.id === _sortMode);
+            if (pluginSort) result = pluginSort.sort(result);
+        }
         // Group: folders → pinned → rest (stable within each group via prior sort)
         const folders = result.filter(n => n.type === 'folder');
         const pinned  = result.filter(n => n.type !== 'folder' && _pinnedSelectors.has(n.selector));
@@ -168,11 +174,11 @@ const NbMain = (() => {
 
     function _updateSortBtn() {
         const btn = document.getElementById('nb-sort-btn');
-        if (btn) btn.classList.toggle('nb-sort-active', _sortMode !== 'default');
+        if (btn) btn.classList.toggle('nb-sort-active', _sortMode !== _defaultSortMode);
     }
 
     function resetSort(mode = 'default') {
-        _sortMode = mode;
+        _sortMode = _defaultSortMode = mode;
         _updateSortBtn();
     }
 
@@ -1249,6 +1255,9 @@ const NbMain = (() => {
                 ]);
                 return;
             }
+            const _pluginSorts = NbWeb.getSortOptions(NbNav.notebook).map(s => ({
+                label: s.label, active: _sortMode === s.id, action: () => _applySort(s.id),
+            }));
             _showDropdown(btn, [
                 { label: 'Default',      active: _sortMode === 'default', action: () => _applySort('default') },
                 { label: 'A → Z',        active: _sortMode === 'az',      action: () => _applySort('az') },
@@ -1256,6 +1265,7 @@ const NbMain = (() => {
                 'sep',
                 { label: 'Newest first', active: _sortMode === 'newest',  action: () => _applySort('newest') },
                 { label: 'Oldest first', active: _sortMode === 'oldest',  action: () => _applySort('oldest') },
+                ...(_pluginSorts.length ? ['sep', ..._pluginSorts] : []),
             ]);
         });
     }
@@ -3212,8 +3222,17 @@ const NbMain = (() => {
         if (ld) {
             const curSort = pluginPrefs.sortOrder ?? ld.sortOrder ?? 'default';
             const curType = pluginPrefs.listType  ?? ld.listType  ?? 'all';
-            const sortOpts = ['default','az','za','newest','oldest']
-                .map(v => `<option value="${v}"${curSort === v ? ' selected' : ''}>${v}</option>`).join('');
+            const _builtinSorts = ['default','az','za','newest','oldest'];
+            const _pluginSortSpecs = p.spec.sortOptions || [];
+            const sortOpts = [
+                ..._builtinSorts,
+                ...(_pluginSortSpecs.length ? ['---'] : []),
+                ..._pluginSortSpecs.map(s => s.id),
+            ].map(v => {
+                if (v === '---') return `<option disabled>──────────</option>`;
+                const label = _pluginSortSpecs.find(s => s.id === v)?.label ?? v;
+                return `<option value="${v}"${curSort === v ? ' selected' : ''}>${_esc(label)}</option>`;
+            }).join('');
             const typeOpts = ['all','note','bookmark','todo','contact','folder','image']
                 .map(v => `<option value="${v}"${curType === v ? ' selected' : ''}>${v}</option>`).join('');
             listDefaultsHtml = `
