@@ -204,6 +204,28 @@ const NbWeb = (() => {
         }
     }
 
+    // ── Codeblock renderer API ────────────────────────────────────────────────────
+
+    // Returns the renderer spec { html(text), render(container) } for a fence language, or null.
+    function getCodeblockRenderer(lang) {
+        for (const [, mod] of _modules) {
+            if (!mod.enabled) continue;
+            const r = mod.spec.codeblockRenderers?.find(r => r.lang === lang);
+            if (r) return r;
+        }
+        return null;
+    }
+
+    // Runs all registered render(container) functions for all enabled codeblock plugins.
+    async function renderCodeblocks(container) {
+        for (const [, mod] of _modules) {
+            if (!mod.enabled || !mod.spec.codeblockRenderers?.length) continue;
+            for (const r of mod.spec.codeblockRenderers) {
+                if (r.render) await r.render(container);
+            }
+        }
+    }
+
     // notebookSection — appended to the Notebooks detail panel for each active plugin
     function getNotebookSections(notebookObj) {
         return _activeFor(notebookObj.name).flatMap(m => {
@@ -319,6 +341,8 @@ const NbWeb = (() => {
         createFromTemplate,
         singletonExists,
         templateSeeded,
+        getCodeblockRenderer,
+        renderCodeblocks,
         getNotebookSections,
         list,
         setEnabled,
