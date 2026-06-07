@@ -478,9 +478,6 @@ const NbMain = (() => {
             html = _renderContact(note);
         } else if (_pluginHtml !== null) {
             html = _pluginHtml;
-        } else if (note.meta && ('caption' in note.meta || 'footnote' in note.meta ||
-                   'SEO' in note.meta || 'tags' in note.meta || 'with_tags' in note.meta)) {
-            html = _renderWebpage(note);
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
@@ -1099,56 +1096,6 @@ const NbMain = (() => {
   ${rows ? `<div class="nb-contact-fields">${rows}</div>` : ''}
   ${tagHtml}
   ${bodyHtml}
-</div>`;
-    }
-
-    function _renderWebpage(note) {
-        const m       = note.meta || {};
-        const title   = _esc(String(m.title || note.title || ''));
-        const caption = m.caption
-            ? `<div class="nb-wp-caption">${_esc(String(m.caption))}</div>` : '';
-        const seoVal  = m.SEO != null && String(m.SEO).trim()
-            ? `<div class="nb-contact-fields"><div class="nb-contact-row">` +
-              `<span class="nb-contact-label">SEO</span>` +
-              `<span class="nb-contact-value">${_esc(String(m.SEO))}</span>` +
-              `</div></div>` : '';
-        const wpTags = Array.isArray(m.tags) ? m.tags : (m.tags ? String(m.tags).split(',').map(t => t.trim()).filter(Boolean) : []);
-        const tagHtml = wpTags.length
-            ? `<div class="nb-contact-tags">${wpTags.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join('')}</div>` : '';
-        const withTagsRaw = m.with_tags;
-        const withTagsList = Array.isArray(withTagsRaw) ? withTagsRaw
-            : (withTagsRaw ? String(withTagsRaw).split(',').map(t => t.trim()).filter(Boolean) : []);
-        const withTagsHtml = withTagsList.length
-            ? `<div class="nb-contact-fields"><div class="nb-contact-row">` +
-              `<span class="nb-contact-label">with_tags</span>` +
-              `<span class="nb-contact-value">${withTagsList.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join(' ')}</span>` +
-              `</div></div>` : '';
-        const _handled = new Set(['title', 'caption', 'SEO', 'tags', 'with_tags', 'footnote']);
-        const extraRows = Object.entries(m)
-            .filter(([k]) => !_handled.has(k))
-            .map(([k, v]) => {
-                const raw = (v != null && typeof v === 'object') ? JSON.stringify(v) : String(v ?? '');
-                const display = raw.includes('\n')
-                    ? `<pre class="nb-wp-field-pre">${_esc(raw)}</pre>`
-                    : `<span class="nb-contact-value">${_esc(raw)}</span>`;
-                return `<div class="nb-contact-row"><span class="nb-contact-label">${_esc(k)}</span>${display}</div>`;
-            }).join('');
-        const extraHtml = extraRows ? `<div class="nb-contact-fields">${extraRows}</div>` : '';
-        const bodyHtml = (note.body || '').trim()
-            ? `<div class="nb-wp-body">${_renderMarkdown(note.body)}</div>` : '';
-        const footnote = m.footnote
-            ? `<div class="nb-wp-footnote">${_renderMarkdown(String(m.footnote))}</div>` : '';
-        return `<div class="nb-wp-card">
-  <div class="nb-item-body">
-    <div class="nb-wp-title">${title}</div>
-    ${caption}
-    ${extraHtml}
-    ${seoVal}
-    ${tagHtml}
-    ${withTagsHtml}
-    ${bodyHtml}
-    ${footnote}
-  </div>
 </div>`;
     }
 
@@ -4903,7 +4850,8 @@ const NbMain = (() => {
              selectedSelectors: () => _selectedSelectors,
              clearSelection: _clearSelection,
              deselect: sel => { _selectedSelectors.delete(sel); _updateSelectionUI(); },
-             renderNoteHtml: _renderNoteHtml };
+             renderNoteHtml: _renderNoteHtml,
+             renderMarkdown: (body, sel) => _renderMarkdown(body, sel) };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────
