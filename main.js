@@ -4894,6 +4894,57 @@ const NbMain = (() => {
             wrap.appendChild(grid);
         }
 
+        // Singleton template status rows — async-filled, shown between info rows and actions
+        const singletons = NbWeb.getTemplatesForNotebook(nbObj.name)
+            .filter(t => t.moduleName === section.moduleName && t.singleton && t.filename);
+
+        if (singletons.length) {
+            const tmplGrid = document.createElement('div');
+            tmplGrid.style.cssText = 'display:grid;gap:5px 12px;grid-template-columns:max-content 1fr;align-items:center;font-size:12px;margin-bottom:10px';
+
+            singletons.forEach(t => {
+                const k = document.createElement('span');
+                k.style.cssText = 'color:var(--text-dim);font-family:var(--font-mono);font-size:11px';
+                k.textContent = t.filename;
+                tmplGrid.appendChild(k);
+
+                const v = document.createElement('span');
+                v.style.cssText = 'font-size:11px;color:var(--text-dim)';
+                v.textContent = '…';
+                tmplGrid.appendChild(v);
+
+                NbWeb.singletonExists(nbObj.name, t.filename).then(exists => {
+                    if (exists) {
+                        v.style.color = 'var(--green,#2ecc71)';
+                        v.textContent = '✓';
+                    } else {
+                        v.textContent = '';
+                        const btn = document.createElement('button');
+                        btn.className = 'nb-tool-btn';
+                        btn.style.cssText = 'font-size:11px;padding:1px 7px';
+                        btn.textContent = '+ Create';
+                        btn.addEventListener('click', async () => {
+                            btn.disabled = true;
+                            btn.textContent = '…';
+                            const result = await NbWeb.createFromTemplate(t, nbObj);
+                            if (result.ok) {
+                                btn.remove();
+                                v.style.color = 'var(--green,#2ecc71)';
+                                v.textContent = '✓';
+                            } else {
+                                btn.disabled = false;
+                                btn.textContent = '+ Create';
+                                btn.title = result.error || 'failed';
+                            }
+                        });
+                        v.appendChild(btn);
+                    }
+                });
+            });
+
+            wrap.appendChild(tmplGrid);
+        }
+
         if (section.actions?.length) {
             const actRow = document.createElement('div');
             actRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
