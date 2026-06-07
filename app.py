@@ -27,17 +27,26 @@ from flask import Flask, Response, jsonify, request, send_file, send_from_direct
 from flask_sock import Sock
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
 sock = Sock(app)
 
 NB_BIN  = os.environ.get('NB_BIN', 'nb')
 NB_DIR  = Path(os.environ.get('NB_DIR', Path.home() / '.nb'))
 HOST    = os.environ.get('NB_WEB_HOST', '127.0.0.1')
 PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
+DEBUG   = os.environ.get('NB_WEB_DEBUG', '').lower() in ('1', 'true', 'yes')
 
 GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
 CMDS_FILE            = Path(__file__).parent / 'cmds.txt'
 
-_RE_HEADING  = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
+_RE_HEADING       = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
+_RE_NOTEBOOK_NAME = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$')
+
+def _check_notebook(name: str) -> str:
+    """Return name unchanged if safe; raise ValueError if it could escape NB_DIR."""
+    if not name or not _RE_NOTEBOOK_NAME.match(name):
+        raise ValueError(f'Invalid notebook name: {name!r}')
+    return name
 _RE_FENCE    = re.compile(r'^```')            # fenced code block opening/closing line
 
 def _first_excerpt_line(body: str, meta: dict) -> str:
@@ -2715,6 +2724,10 @@ def api_sync():
 
     if not notebook or notebook == '_all':
         return jsonify({'success': False, 'output': 'Specify a single notebook to sync.'})
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'success': False, 'output': str(e)}), 400
 
     nb_path = NB_DIR / notebook
     if not nb_path.is_dir() or not (nb_path / '.git').exists():
@@ -2985,6 +2998,10 @@ def api_nb_wire_notebook():
 
     if not notebook:
         return jsonify({'success': False, 'output': 'Notebook name required.'})
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'success': False, 'output': str(e)}), 400
 
     nb_path = NB_DIR / notebook
     if not nb_path.is_dir() or not (nb_path / '.git').exists():
@@ -3050,6 +3067,10 @@ def api_nb_github_create():
 
     if not notebook:
         return jsonify({'success': False, 'output': 'Notebook name required.'})
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'success': False, 'output': str(e)}), 400
     nb_path = NB_DIR / notebook
     if not nb_path.is_dir() or not (nb_path / '.git').exists():
         return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found or has no git repo.'})
@@ -3123,6 +3144,10 @@ def api_nb_delete_notebook():
 
     if not notebook or scope not in ('local', 'remote'):
         return jsonify({'success': False, 'output': 'notebook and scope (local|remote) required.'})
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'success': False, 'output': str(e)}), 400
 
     nb_path = NB_DIR / notebook
     git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
@@ -3348,6 +3373,10 @@ def api_nb_notebooks():
 @app.route('/api/website/config', methods=['GET', 'POST'])
 def api_website_config():
     notebook = request.args.get('notebook') or (request.get_json() or {}).get('notebook', '')
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     nb_path = NB_DIR / notebook
     cfg_path = nb_path / '.nb-website.json'
     if request.method == 'GET':
@@ -3368,6 +3397,10 @@ def api_website_config():
 def api_website_deploy():
     data = request.get_json() or {}
     notebook = data.get('notebook', '')
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'ok': False, 'output': str(e)}), 400
     cfg_path = NB_DIR / notebook / '.nb-website.json'
     if not cfg_path.exists():
         return jsonify({'ok': False, 'output': 'No .nb-website.json found for this notebook.'})
@@ -3485,6 +3518,10 @@ def api_nb_create_from_template():
 
     if not notebook or not filename or '/' in filename or '..' in filename:
         return jsonify({'ok': False, 'error': 'invalid parameters'}), 400
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
 
     nb_path = NB_DIR / notebook
     if not nb_path.is_dir():
@@ -4995,4 +5032,4 @@ if __name__ == '__main__':
     _install_prepush_hooks()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
-    app.run(host=HOST, port=PORT, debug=True, use_reloader=False)
+    app.run(host=HOST, port=PORT, debug=DEBUG, use_reloader=False)
