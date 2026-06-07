@@ -4518,9 +4518,23 @@ const NbMain = (() => {
         try {
             const r = await fetch('/api/run?cmd=plugins');
             const txt = ((await r.json()).output || '').trim();
-            nbPlugins = txt.split('\n')
-                .map(l => l.trim()).filter(l => l && !l.startsWith('[nb]') && !l.startsWith('Plugins'))
-                .map(name => ({ name }));
+            const names = txt.split('\n')
+                .map(l => l.trim()).filter(l => l && !l.startsWith('[nb]') && !l.startsWith('Plugins'));
+            nbPlugins = await Promise.all(names.map(async name => {
+                let helpText = '';
+                try {
+                    const hr = await fetch(`/api/nb/plugin-help?name=${encodeURIComponent(name)}`);
+                    if (hr.ok) helpText = (await hr.json()).text || '';
+                } catch(_) {}
+                const firstDesc = helpText.split('\n').find(l => {
+                    const t = l.trim();
+                    return t && !t.endsWith('.nb-plugin') && !t.startsWith('#!') &&
+                        !/^#*\s*$/.test(t) && !t.toLowerCase().startsWith('install') &&
+                        !t.toLowerCase().startsWith('version') && !t.match(/^\s*https?:\/\//) &&
+                        !t.match(/^[A-Z][a-z]+:\/\/\//);
+                }) || '';
+                return { name, helpText, description: firstDesc.trim() };
+            }));
         } catch(_) {}
 
         const total = nbwebPlugins.length + nbPlugins.length;
@@ -4603,7 +4617,7 @@ const NbMain = (() => {
             list.appendChild(hdr);
 
             nbPlugins.forEach(p => {
-                _addItem(p.name, 'nb CLI plugin', '📦', 'nb-plugin-nb',
+                _addItem(p.name, p.description || 'nb CLI plugin', '📦', 'nb-plugin-nb',
                     () => _openNbPlugin(p));
             });
         }
@@ -4745,24 +4759,27 @@ const NbMain = (() => {
 
     async function _openNbPlugin(p) {
         const content = document.getElementById('nb-preview-content');
+
+        const helpHtml = p.helpText
+            ? `<pre class="nb-plugin-help-pre">${_esc(p.helpText)}</pre>`
+            : `<div style="color:var(--text-dim);font-size:12px">No help text found in plugin file.</div>`;
+
         content.innerHTML = `
             <div class="nb-plugin-header">
                 <span style="font-size:18px">📦</span>
                 <strong style="font-size:14px;color:var(--text)">${_esc(p.name)}</strong>
                 <span class="nb-plugin-nb-badge">nb CLI</span>
             </div>
-            <div class="nb-plugin-section" style="font-size:12px;color:var(--text-dim);line-height:1.6">
-                This is an nb CLI plugin, installed via <code>nb plugins install</code>.<br>
-                It extends the nb command-line tool directly.
+            <div class="nb-plugin-section nb-plugin-help">
+                ${helpHtml}
             </div>
-            <div class="nb-plugin-section" style="display:flex;gap:8px">
+            <div class="nb-plugin-section" style="display:flex;gap:8px;align-items:center">
                 <button id="nbplug-nb-uninstall" class="nb-tool-btn" style="color:var(--red)">Uninstall</button>
+                <span style="font-size:11px;color:var(--text-dim)">or: <code>nb plugins uninstall ${_esc(p.name)}</code></span>
             </div>`;
 
         document.getElementById('nbplug-nb-uninstall').addEventListener('click', async () => {
             if (!confirm(`Uninstall nb plugin "${p.name}"?`)) return;
-            const r = await fetch('/api/run?cmd=plugins');
-            // nb plugins uninstall not yet wired — show message
             document.getElementById('nb-preview-content').innerHTML +=
                 `<div style="padding:8px 28px;font-size:12px;color:var(--text-dim)">
                     Run in terminal: <code>nb plugins uninstall ${_esc(p.name)}</code>

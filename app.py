@@ -3399,6 +3399,50 @@ def api_website_summary():
     return jsonify({'ok': True, 'markdown': summary_path.read_text()})
 
 
+@app.route('/api/nb/plugin-help')
+def api_nb_plugin_help():
+    """Extract comment-header help text from an installed nb CLI plugin."""
+    import re as _re
+    name = request.args.get('name', '')
+    if not name or '/' in name or '..' in name:
+        return jsonify({'ok': False, 'text': ''}), 400
+    plugin_path = NB_DIR / '.plugins' / name
+    if not plugin_path.exists():
+        return jsonify({'ok': False, 'text': ''}), 404
+
+    lines = plugin_path.read_text(errors='replace').splitlines()
+    comment_lines = []
+    started = False
+    for line in lines:
+        if line.startswith('#!'):
+            continue
+        if line.startswith('#'):
+            started = True
+            comment_lines.append(line)
+        elif line.strip() == '' and started:
+            comment_lines.append('')
+        else:
+            if started:
+                break
+
+    while comment_lines and comment_lines[-1] == '':
+        comment_lines.pop()
+
+    cleaned = []
+    for line in comment_lines:
+        if _re.match(r'^#{3,}\s*$', line):
+            continue
+        if line.startswith('# '):
+            cleaned.append(line[2:])
+        elif line == '#':
+            cleaned.append('')
+        else:
+            cleaned.append(line.lstrip('#').lstrip())
+
+    text = '\n'.join(cleaned).strip()
+    return jsonify({'ok': True, 'text': text})
+
+
 @app.route('/api/website/publish', methods=['POST'])
 def api_website_publish():
     import re as _re
