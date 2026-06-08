@@ -196,7 +196,7 @@
                         fn:    (nb) => {
                             const qp = nb.website?.quartz_path;
                             if (!qp) return;
-                            NbTerminal.run(`cd ${qp} && npx quartz build --serve`);
+                            NbWeb.runInTerminal(`cd ${qp} && npx quartz build --serve`);
                         },
                     },
                     {

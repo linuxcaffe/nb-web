@@ -362,6 +362,21 @@ const NbWeb = (() => {
         _modules.delete(name);
     }
 
+    // ── Terminal API ──────────────────────────────────────────────────────────────
+    // Delegates to NbTerminal (defined in main.js). Plugins should always call
+    // NbWeb.runInTerminal() rather than NbTerminal directly — this indirection
+    // keeps NbTerminal an implementation detail and gives a stable plugin API.
+
+    function runInTerminal(cmd) {
+        if (typeof NbTerminal !== 'undefined') return NbTerminal.run(cmd);
+        console.warn('NbWeb.runInTerminal: NbTerminal not available');
+    }
+
+    function openTerminal() {
+        if (typeof NbTerminal !== 'undefined') return NbTerminal.open();
+        console.warn('NbWeb.openTerminal: NbTerminal not available');
+    }
+
     return {
         registerModule,
         publishWebsite,
@@ -383,6 +398,8 @@ const NbWeb = (() => {
         templateSeeded,
         checkWhich,
         renderRequirementsCard,
+        runInTerminal,
+        openTerminal,
         getCodeblockRenderer,
         renderCodeblocks,
         getNotebookSections,
