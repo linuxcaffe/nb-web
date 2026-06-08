@@ -1081,12 +1081,28 @@
             {
                 lang:   'tw',
                 html:   text => `<div class="nb-tw-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-tw-block')) await _loadTwBlock(el); },
+                render: async container => {
+                    const blocks = container.querySelectorAll('.nb-tw-block');
+                    if (!blocks.length) return;
+                    const w = await NbWeb.checkWhich('task');
+                    for (const el of blocks) {
+                        if (!w.found) { await NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md'); continue; }
+                        await _loadTwBlock(el);
+                    }
+                },
             },
             {
                 lang:   'hledger',
                 html:   text => `<div class="nb-hl-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-hl-block')) await _loadHledgerBlock(el); },
+                render: async container => {
+                    const blocks = container.querySelectorAll('.nb-hl-block');
+                    if (!blocks.length) return;
+                    const w = await NbWeb.checkWhich('hledger');
+                    for (const el of blocks) {
+                        if (!w.found) { await NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md'); continue; }
+                        await _loadHledgerBlock(el);
+                    }
+                },
             },
             {
                 lang:   't',

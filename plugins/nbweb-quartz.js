@@ -137,6 +137,12 @@
 
         detect: (notebooks) => notebooks.filter(nb => nb.website?.quartz_path),
 
+        requirementCheck: async () => {
+            const hasQuartz = NbWeb.notebooks().some(nb => nb.website?.quartz_path);
+            if (hasQuartz) return { ok: true };
+            return { ok: false, markdownFile: '/plugins/requirements/quartz-requirements.md' };
+        },
+
         // Handles both shop items (by path) and quartz content pages (by frontmatter).
         previewRenderer: (note) => {
             const m      = note.meta || {};

@@ -210,6 +210,37 @@ const NbWeb = (() => {
         }
     }
 
+    // ── Requirements checking ─────────────────────────────────────────────────────
+
+    const _whichCache = new Map();
+
+    async function checkWhich(cmd) {
+        if (_whichCache.has(cmd)) return _whichCache.get(cmd);
+        try {
+            const r = await fetch(`/api/which?cmd=${encodeURIComponent(cmd)}`).then(x => x.json());
+            _whichCache.set(cmd, r);
+            return r;
+        } catch (_) {
+            const result = { found: false, path: null };
+            _whichCache.set(cmd, result);
+            return result;
+        }
+    }
+
+    async function renderRequirementsCard(container, mdOrPath) {
+        let md = mdOrPath;
+        if (typeof mdOrPath === 'string' && (mdOrPath.startsWith('/') || mdOrPath.endsWith('.md'))) {
+            try {
+                const r = await fetch(mdOrPath);
+                md = r.ok ? await r.text() : `# Requirements not met\n\nCould not load: \`${mdOrPath}\``;
+            } catch (_) {
+                md = `# Requirements not met\n\nCould not load: \`${mdOrPath}\``;
+            }
+        }
+        const html = typeof marked !== 'undefined' ? marked.parse(md) : `<pre>${md.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`;
+        container.innerHTML = `<div class="nb-requirements-card">${html}</div>`;
+    }
+
     // ── Codeblock renderer API ────────────────────────────────────────────────────
 
     // Returns the renderer spec { html(text), render(container) } for a fence language, or null.
@@ -350,6 +381,8 @@ const NbWeb = (() => {
         createFromTemplate,
         singletonExists,
         templateSeeded,
+        checkWhich,
+        renderRequirementsCard,
         getCodeblockRenderer,
         renderCodeblocks,
         getNotebookSections,

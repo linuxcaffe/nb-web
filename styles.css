@@ -1701,6 +1701,16 @@ body.nb-fullscreen #nb-cmd-bar::after {
   background: var(--bg3); color: var(--text-dim);
   font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
 }
+.nb-requirements-card {
+  margin: 16px; padding: 16px 20px;
+  background: var(--bg2); border-radius: 6px;
+  border: 1px solid var(--border); border-left: 4px solid var(--yellow, #d97706);
+  color: var(--text); line-height: 1.6; font-size: 13px;
+}
+.nb-requirements-card h1, .nb-requirements-card h2 { margin-top: 0; font-size: 15px; }
+.nb-requirements-card code { background: var(--bg3); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+.nb-requirements-card pre { background: var(--bg3); padding: 10px 14px; border-radius: 4px; overflow-x: auto; }
+.nb-requirements-card a { color: var(--accent); }
 .nb-plugin-help-pre {
   font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
   white-space: pre-wrap; word-break: break-word;

@@ -4715,6 +4715,16 @@ def _contact_to_md(c):
 # API: Run read-only nb command (daily, info, weather, notebooks)
 # ---------------------------------------------------------------------------
 
+@app.route('/api/which')
+def api_which():
+    """Check whether a command is available on PATH."""
+    cmd = request.args.get('cmd', '').strip()
+    if not cmd or re.search(r'[/\s]', cmd):
+        return jsonify({'found': False, 'path': None}), 400
+    path = shutil.which(cmd)
+    return jsonify({'found': path is not None, 'path': path})
+
+
 @app.route('/api/cmds')
 def api_cmds():
     items = []

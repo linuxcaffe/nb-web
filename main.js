@@ -3276,7 +3276,18 @@ const NbMain = (() => {
 
         if (p.spec?.pluginContent) {
             const el = document.getElementById('nbplug-custom-content');
-            if (el) p.spec.pluginContent(el);
+            if (el) {
+                if (p.spec.requirementCheck) {
+                    const req = await p.spec.requirementCheck();
+                    if (req && !req.ok) {
+                        await NbWeb.renderRequirementsCard(el, req.markdownFile || req.markdown || '# Requirements not met');
+                    } else {
+                        p.spec.pluginContent(el);
+                    }
+                } else {
+                    p.spec.pluginContent(el);
+                }
+            }
         }
 
         document.getElementById('nbplug-save')?.addEventListener('click', async () => {
