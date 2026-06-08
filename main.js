@@ -3153,7 +3153,7 @@ const NbMain = (() => {
                     if (t.template_type === 'export_html') {
                         _openExportTemplate(t.path, t.name, t.scope);
                     } else {
-                        _openTemplate(t.path, t.name, t.scope, t.subfolder || '');
+                        _openTemplate(t.path, t.name, t.scope, t.subfolder || '', t.template_type || 'regular', t.notebook || '');
                     }
                 });
                 list.appendChild(li);
@@ -4120,7 +4120,7 @@ const NbMain = (() => {
         return rows.length ? `<div class="nb-contact-fields">${rows.join('')}</div>` : ''
     }
 
-    async function _openTemplate(path, name, scope, subfolder = '') {
+    async function _openTemplate(path, name, scope, subfolder = '', templateType = 'regular', notebook = '') {
         const content = document.getElementById('nb-preview-content');
         content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
         document.getElementById('nb-preview-toolbar').hidden = true;
@@ -4129,165 +4129,125 @@ const NbMain = (() => {
             const r = await fetch('/api/template?path=' + encodeURIComponent(path));
             const d = await r.json();
             const raw = d.content || '';
-            const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
-            let latestRaw = raw;  // local — reset per _openTemplate call, no stale cross-template state
+            const isAnnotation = templateType === 'annotation';
+            const scopeLabel = isAnnotation
+                ? (subfolder ? `${notebook}/${subfolder}` : notebook) + ': annotation'
+                : scope === 'local' ? `📒 ${notebook || 'notebook'}` : '🌐 global';
+            const headerIcon = isAnnotation ? '📌' : '📋';
+            const headerName = isAnnotation ? 'Annotation template' : name;
+            const HDR = `<div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                display:flex;align-items:center;gap:12px">
+                <span>${headerIcon} <strong>${_esc(headerName)}</strong></span>
+                <span style="opacity:0.6">${_esc(scopeLabel)}</span></div>`;
+            let latestRaw = raw;
 
             const showPreview = () => {
-                const fmHtml  = _renderFrontmatterFields(latestRaw)
-                const bodyRaw = latestRaw.replace(/^---[\s\S]*?---\r?\n?/, '')
+                const fmHtml  = isAnnotation ? '' : _renderFrontmatterFields(latestRaw);
+                const bodyRaw = latestRaw.replace(/^---[\s\S]*?---\r?\n?/, '');
                 const bodyHtml = bodyRaw.trim()
-                    ? `<div class="nb-rendered" style="margin-top:12px;opacity:0.85">${_renderMarkdown(bodyRaw)}</div>` : ''
-                content.innerHTML = `
-                    <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
-                                font-family:var(--font-mono);border-bottom:1px solid var(--border);
-                                display:flex;align-items:center;gap:12px">
-                        <span>📋 <strong>${_esc(name)}</strong></span>
-                        <span style="opacity:0.6">${scopeLabel}</span>
-                    </div>
-                    <div style="padding:16px 32px 8px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
+                    ? `<div class="nb-rendered" style="margin-top:12px;opacity:0.85">${_renderMarkdown(bodyRaw)}</div>` : '';
+                content.innerHTML = `${HDR}<div style="padding:16px 32px 8px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
 
-                // Render CSV blocks; then reclaim the note-save button (we use our own footer btn)
                 const _renderedEl = content.querySelector('.nb-rendered');
                 if (_renderedEl) _renderCsvBlocks(_renderedEl);
                 const ssb = document.getElementById('nb-sheet-save-btn');
                 if (ssb) { ssb.hidden = true; ssb.onclick = null; }
-                const hasCsvBlocks = !!content.querySelector('.nb-csv-block');
 
-                // Append footer via DOM — innerHTML+= would destroy jspreadsheet instances
                 const footer = document.createElement('div');
+                footer.id = 'nb-tmpl-footer';
                 footer.style.cssText = 'padding:10px 32px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap';
-                const curNb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
-                const nbOptions = NbNav.notebooks
-                    .map(n => `<option value="${_esc(n)}"${n === curNb ? ' selected' : ''}>${_esc(n)}</option>`)
-                    .join('');
                 footer.innerHTML = `
-                    <input type="text" id="nb-tmpl-title" class="nb-opt-input"
-                           placeholder="Note title…" style="flex:1;min-width:120px">
-                    <button id="nb-tmpl-create" class="nb-tool-btn nb-btn-primary">Create note</button>
-                    ${hasCsvBlocks ? '<button id="nb-tmpl-sheet-save" class="nb-tool-btn">Save sheet</button>' : ''}
-                    <button id="nb-tmpl-edit"   class="nb-tool-btn">Edit</button>
-                    <button id="nb-tmpl-delete" class="nb-tool-btn nb-btn-danger">Delete</button>
-                    <span style="margin-left:auto;display:flex;align-items:center;gap:4px">
-                      <select id="nb-tmpl-default-nb" class="nb-scope-select" title="Target notebook">${nbOptions}</select>
-                      <button id="nb-tmpl-set-default" class="nb-tool-btn" title="Copy to notebook's .templates/ so it auto-applies on Add">📌 Set default</button>
-                    </span>`;
+                    <button id="nb-tmpl-edit"      class="nb-tool-btn">Edit</button>
+                    <button id="nb-tmpl-duplicate" class="nb-tool-btn">Duplicate</button>
+                    <button id="nb-tmpl-delete"    class="nb-tool-btn nb-btn-danger">Delete</button>`;
                 content.appendChild(footer);
 
-                const titleEl  = document.getElementById('nb-tmpl-title');
-                const createEl = document.getElementById('nb-tmpl-create');
+                footer.querySelector('#nb-tmpl-edit').addEventListener('click', showEditor);
 
-                async function _doCreate() {
-                    const title = titleEl.value.trim();
-                    if (!title) { titleEl.focus(); return; }
-                    createEl.textContent = 'Creating…'; createEl.disabled = true;
+                footer.querySelector('#nb-tmpl-duplicate').addEventListener('click', async () => {
+                    const dupBtn = footer.querySelector('#nb-tmpl-duplicate');
+                    if (footer.querySelector('#nb-tmpl-dup-row')) return; // already open
+                    dupBtn.disabled = true;
+                    const dupRow = document.createElement('div');
+                    dupRow.id = 'nb-tmpl-dup-row';
+                    dupRow.style.cssText = 'width:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);margin-top:4px';
+                    const lbl = document.createElement('span');
+                    lbl.style.cssText = 'font-size:11px;color:var(--text-dim);white-space:nowrap';
+                    lbl.textContent = 'Duplicate to:';
+                    const loadEl = document.createElement('span');
+                    loadEl.style.cssText = 'font-size:11px;color:var(--text-dim)';
+                    loadEl.textContent = '…';
+                    dupRow.append(lbl, loadEl);
+                    footer.appendChild(dupRow);
                     try {
-                        const ok = await addNote({
-                            notebook:      NbNav.notebook === '_all' ? 'home' : NbNav.notebook,
-                            folder:        subfolder,
-                            type:          'note', title, url: '', template_path: path,
+                        const defaultNb = notebook || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook);
+                        const nbSel  = await NbDialog.buildNbPicker(defaultNb);
+                        let fldSel   = await NbDialog.buildFolderPicker(defaultNb);
+                        nbSel.addEventListener('change', async () => {
+                            const next = await NbDialog.buildFolderPicker(nbSel.value);
+                            fldSel.replaceWith(next); fldSel = next;
                         });
-                        if (ok) { NbNav.activateCmd('list'); if (ok.selector) openNote(ok.selector); }
-                    } finally { createEl.textContent = 'Create note'; createEl.disabled = false; }
-                }
-                createEl.addEventListener('click', _doCreate);
-                titleEl.addEventListener('keydown', e => {
-                    if (e.key === 'Enter')  _doCreate();
-                    if (e.key === 'Escape') titleEl.value = '';
+                        const copyBtn = document.createElement('button');
+                        copyBtn.className = 'nb-tool-btn nb-btn-primary';
+                        copyBtn.textContent = 'Copy';
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.className = 'nb-tool-btn';
+                        cancelBtn.textContent = '×';
+                        loadEl.remove();
+                        dupRow.append(nbSel, fldSel, copyBtn, cancelBtn);
+                        cancelBtn.addEventListener('click', () => { dupRow.remove(); dupBtn.disabled = false; });
+                        copyBtn.addEventListener('click', async () => {
+                            const targetNb  = nbSel.value;
+                            const targetFld = fldSel.value;
+                            copyBtn.textContent = 'Copying…'; copyBtn.disabled = true;
+                            try {
+                                const body = isAnnotation
+                                    ? { scope: 'annotation', notebook: targetNb, folder: targetFld, content: latestRaw }
+                                    : { scope: 'local', name, notebook: targetNb, subfolder: targetFld, content: latestRaw };
+                                const sr = await fetch('/api/templates', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(body),
+                                });
+                                const sd = await sr.json();
+                                if (sd.success) {
+                                    copyBtn.textContent = '✓ Copied';
+                                    setTimeout(runTemplates, 900);
+                                } else {
+                                    alert('Duplicate failed: ' + (sd.error || 'unknown'));
+                                    copyBtn.textContent = 'Copy'; copyBtn.disabled = false;
+                                }
+                            } catch(e) {
+                                alert('Error: ' + e);
+                                copyBtn.textContent = 'Copy'; copyBtn.disabled = false;
+                            }
+                        });
+                    } catch(e) {
+                        loadEl.textContent = '✗ ' + e.message;
+                        loadEl.style.color = 'var(--red)';
+                        dupBtn.disabled = false;
+                    }
                 });
-                requestAnimationFrame(() => titleEl.focus());
 
-                document.getElementById('nb-tmpl-edit').addEventListener('click', showEditor);
-
-                document.getElementById('nb-tmpl-delete').addEventListener('click', async () => {
-                    if (!confirm(`Delete template "${name}"?`)) return;
-                    const dr = await fetch('/api/template?path=' + encodeURIComponent(path),
-                        { method: 'DELETE' });
+                footer.querySelector('#nb-tmpl-delete').addEventListener('click', async () => {
+                    const label = isAnnotation ? 'Annotation template' : `template "${name}"`;
+                    if (!confirm(`Delete ${label}?`)) return;
+                    const dr = await fetch('/api/template?path=' + encodeURIComponent(path), { method: 'DELETE' });
                     const dd = await dr.json();
                     if (dd.success) runTemplates();
                     else alert('Delete failed: ' + (dd.error || 'unknown'));
                 });
-
-                document.getElementById('nb-tmpl-set-default').addEventListener('click', async () => {
-                    const btn = document.getElementById('nb-tmpl-set-default');
-                    const nb  = document.getElementById('nb-tmpl-default-nb').value;
-                    btn.textContent = 'Setting…'; btn.disabled = true;
-                    try {
-                        const sr = await fetch('/api/template/default', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ template_path: path, notebook: nb }),
-                        });
-                        const sd = await sr.json();
-                        if (sd.success) {
-                            btn.textContent = '✓ Set';
-                            setTimeout(() => { btn.textContent = '📌 Set default'; btn.disabled = false; }, 1500);
-                        } else {
-                            alert('Failed: ' + (sd.error || 'unknown'));
-                            btn.textContent = '📌 Set default'; btn.disabled = false;
-                        }
-                    } catch(e) {
-                        alert('Error: ' + e);
-                        btn.textContent = '📌 Set default'; btn.disabled = false;
-                    }
-                });
-
-                if (hasCsvBlocks) {
-                    document.getElementById('nb-tmpl-sheet-save').addEventListener('click', async () => {
-                        const btn = document.getElementById('nb-tmpl-sheet-save');
-                        btn.textContent = 'Saving…'; btn.disabled = true;
-                        try {
-                            const hosts = [...content.querySelectorAll('.nb-csv-block')];
-                            let blockIdx = 0;
-                            const newRaw = latestRaw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
-                                const host = hosts[blockIdx++];
-                                if (!host?.spreadsheet) return match;
-                                const data = host.spreadsheet.worksheets[0].getData();
-                                const csv  = data.map(row =>
-                                    row.map(cell => {
-                                        const s = String(cell ?? '');
-                                        return s.includes(',') || s.includes('"') || s.includes('\n')
-                                            ? `"${s.replace(/"/g, '""')}"` : s;
-                                    }).join(',')
-                                ).join('\n');
-                                return '```csv\n' + csv + '\n```';
-                            });
-                            const sr = await fetch('/api/template', {
-                                method: 'PUT',
-                                headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({ path, content: newRaw }),
-                            });
-                            const sd = await sr.json();
-                            if (sd.success) {
-                                latestRaw = newRaw;
-                                btn.textContent = '✓ Saved';
-                                setTimeout(() => { btn.textContent = 'Save sheet'; btn.disabled = false; }, 1400);
-                            } else {
-                                alert('Save failed: ' + (sd.error || 'unknown'));
-                                btn.textContent = 'Save sheet'; btn.disabled = false;
-                            }
-                        } catch(e) {
-                            alert('Save error: ' + e);
-                            btn.textContent = 'Save sheet'; btn.disabled = false;
-                        }
-                    });
-                }
             };
 
             const showEditor = () => {
-                content.innerHTML = `
-                    <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
-                                font-family:var(--font-mono);border-bottom:1px solid var(--border);
-                                display:flex;align-items:center;gap:12px">
-                        <span>✏️ <strong>${_esc(name)}</strong></span>
-                        <span style="opacity:0.6">${scopeLabel}</span>
-                    </div>
+                content.innerHTML = `${HDR}
                     <textarea id="nb-tmpl-editor" spellcheck="false"
                         style="flex:1;width:100%;box-sizing:border-box;padding:16px 32px;
                                border:none;outline:none;resize:none;font-family:var(--font-mono);
                                font-size:13px;background:var(--bg);color:var(--text);
                                min-height:260px">${_esc(latestRaw)}</textarea>
-                    <div style="padding:10px 32px 14px;border-top:1px solid var(--border);
-                                display:flex;gap:8px">
+                    <div style="padding:10px 32px 14px;border-top:1px solid var(--border);display:flex;gap:8px">
                         <button id="nb-tmpl-save"   class="nb-tool-btn nb-btn-primary">Save</button>
                         <button id="nb-tmpl-cancel" class="nb-tool-btn">Cancel</button>
                     </div>`;
@@ -4313,10 +4273,8 @@ const NbMain = (() => {
                             body: JSON.stringify({ path, content: newContent }),
                         });
                         const sd = await sr.json();
-                        if (sd.success) {
-                            latestRaw = newContent;
-                            showPreview();
-                        } else alert('Save failed: ' + (sd.error || 'unknown'));
+                        if (sd.success) { latestRaw = newContent; showPreview(); }
+                        else alert('Save failed: ' + (sd.error || 'unknown'));
                     } finally { btn.textContent = 'Save'; btn.disabled = false; }
                 });
 
