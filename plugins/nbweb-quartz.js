@@ -264,7 +264,7 @@ Fields left empty ("") are not shown on the site.
                 scope:       'folder:items',
                 content: () => {
                     const date = new Date().toISOString().slice(0, 10);
-                    return `---\ntitle: \nprice: \nstatus: available\ncategory: \nimage: \ncaption: \ntags: []\ndate: ${date}\n---\n\n`;
+                    return `---\ntitle: \nprice: \nstatus: available\ncategory: \nimage: \ncaption: \ntags: []\ndate: ${date}\nprivate_body: true\n---\n\n`;
                 },
             },
         ],
