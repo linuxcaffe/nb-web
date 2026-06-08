@@ -624,6 +624,10 @@ const NbMain = (() => {
             if (/^(https?|mailto|ftp):/.test(href)) {
                 el.setAttribute('target', '_blank');
                 el.setAttribute('rel', 'noopener noreferrer');
+            } else if (href.startsWith('term:')) {
+                const cmd = href.slice(5);
+                el.addEventListener('click', e => { e.preventDefault(); NbWeb.runInTerminal(cmd); });
+                el.classList.add('nb-term-link');
             } else if (/^[a-z][a-z0-9_-]*:[^/]/.test(href)) {
                 el.addEventListener('click', e => { e.preventDefault(); openNote(href); });
                 el.classList.add('nb-nb-link');
