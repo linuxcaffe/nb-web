@@ -1,3 +1,7 @@
+---
+draft: true
+---
+
 - Project: https://github.com/linuxcaffe/nb-web
 - Issues:  https://github.com/linuxcaffe/nb-web/issues
 
@@ -9,9 +13,10 @@ A browser-based interface for [nb](https://github.com/xwmx/nb) — the plain-tex
 
 ## TL;DR
 
-- Browse, search, and edit all your nb notebooks in a split-pane web UI
+- Browse, search, and edit all your nb notebooks in a split-pane, mardkown rendering web UI
 - Full CRUD: add notes, bookmarks, todos, and contacts with per-notebook templates
 - **Wikilinks** — `[[Note Title]]` links between notes, resolved live on click
+- **Terminal links** — `[label](term:command)` in any note runs a shell command in the built-in terminal pane
 - **Live codeblocks** — embed Taskwarrior queries, hledger reports, git logs, and timeclock status directly in notes
 - **Git sync** — commit, push, and pull per notebook; one-repo branch-per-notebook model
 - **Plugins** — extend the UI without touching core; ships with Contacts, Archive, Quartz, and Codeblocks plugins
@@ -33,7 +38,7 @@ The sync model is explicit and notebook-scoped. nb-web talks to git directly rat
 
 ## What this means for you
 
-Your notes are always a browser tab away — searchable, readable, and editable — while remaining plain Markdown files you can grep, script, and back up like any other text. You get the power of a polished UI without giving up the permanence of plain text or the safety of git.
+Your notes are always a browser tab away — searchable, readable, and editable — while remaining plain Markdown files you can grep, script, and back up like any other text. You get the power of a polished UI, both at the desktop with full keyboard support, and finger friendly and compact for mobile use, without giving up the permanence of plain text or the safety of git.
 
 ---
 
@@ -76,6 +81,24 @@ Templates are plain Markdown files with `{{placeholder}}` substitution — title
 Write `[[Note Title]]` anywhere in a note body to link to another note. Links resolve on click — nb-web finds the note by title, case-insensitively, within the current notebook. Anchor to a heading with `[[Note Title#Section]]`. A `backlinks` codeblock shows every note that links to the current one.
 
 → [[WIKILINKS]]
+
+---
+
+### Terminal links
+
+[screenshot: rendered note with ▶ terminal link clicked, terminal pane open below]
+
+Write `[label](term:command)` anywhere in a note to create a clickable link that runs a shell command in the built-in terminal pane. The `▶` prefix and monospace yellow styling make terminal links visually distinct.
+
+```markdown
+[Preview site](term:cd ~/dev/mysite && npx quartz build --serve)
+[Sync notes](term:nb sync)
+[Today's tasks](term:task due:today)
+```
+
+Click once — the terminal opens and the command runs immediately. If the terminal is already open, the command is sent to the running session. Works in note bodies, templates, and wikilinked docs. The right tool for anything interactive: local servers, TUI apps, long-running processes.
+
+→ [[WIKILINKS#Terminal Links]]
 
 ---
 
@@ -244,6 +267,8 @@ The full documentation lives in the `docs` notebook — importable as `docs.nbz`
 | Project | What it is |
 |---------|-----------|
 | [nb](https://github.com/xwmx/nb) | The CLI note-taking tool nb-web wraps |
+| nb-quartz | Convert any notebook to a static website using quartz 
+| nb-plugins | plugins for CLI |
 | [tw-web](https://github.com/linuxcaffe/tw-web) | Sister app: web interface for Taskwarrior; designed to run alongside nb-web |
 | [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) | Standalone hledger live block; the same widget used in nb-web |
 | [mkd-codeblocks](https://codeberg.org/linuxcaffe/mkd-codeblocks) | The broader codeblock collection nb-web draws from |
