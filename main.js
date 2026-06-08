@@ -578,7 +578,9 @@ const NbMain = (() => {
         _finishRendered(content, note);
     }
 
-    function _finishRendered(container, note) {
+    // Enrich a rendered container: wikilinks, codeblocks, links, uuids, todos.
+    // Does NOT append the annotation footnote — call _finishRendered for that.
+    function _enrichRendered(container, note) {
         _renderCsvBlocks(container);
         NbWeb.renderCodeblocks(container);
 
@@ -650,7 +652,10 @@ const NbMain = (() => {
         container.querySelectorAll('.nb-todo-check').forEach(cb => {
             cb.addEventListener('change', () => _toggleTask(note.selector, cb.dataset.task, cb.checked));
         });
+    }
 
+    function _finishRendered(container, note) {
+        _enrichRendered(container, note);
         _appendAnnotation(container, note);
     }
 
@@ -711,6 +716,7 @@ const NbMain = (() => {
                 </div>
                 <div class="nb-ann-body nb-rendered">${_renderMarkdown(text)}</div>`;
 
+            _enrichRendered(foot.querySelector('.nb-ann-body'), note);
             foot.querySelector('.nb-ann-edit-btn').addEventListener('click', () =>
                 _editAnnotation(foot, note, text));
             foot.querySelector('.nb-ann-del-btn').addEventListener('click', () =>
