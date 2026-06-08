@@ -138,6 +138,8 @@
         detect: (notebooks) => notebooks.filter(nb => nb.website?.quartz_path),
 
         requirementCheck: async () => {
+            const gh = await NbWeb.checkWhich('gh');
+            if (!gh.found) return { ok: false, markdownFile: '/plugins/requirements/quartz-requirements.md' };
             const hasQuartz = NbWeb.notebooks().some(nb => nb.website?.quartz_path);
             if (hasQuartz) return { ok: true };
             return { ok: false, markdownFile: '/plugins/requirements/quartz-requirements.md' };
@@ -186,6 +188,16 @@
                         label:   'Publish',
                         primary: true,
                         fn:      (nb, btn) => NbWeb.publishWebsite(nb.name, btn),
+                    },
+                    {
+                        id:    'nbwq-nb-preview',
+                        icon:  '▶',
+                        label: 'Local preview',
+                        fn:    (nb) => {
+                            const qp = nb.website?.quartz_path;
+                            if (!qp) return;
+                            NbTerminal.run(`cd ${qp} && npx quartz build --serve`);
+                        },
                     },
                     {
                         id:    'nbwq-nb-open',
