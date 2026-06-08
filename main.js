@@ -625,7 +625,15 @@ const NbMain = (() => {
                 el.setAttribute('target', '_blank');
                 el.setAttribute('rel', 'noopener noreferrer');
             } else if (href.startsWith('term:')) {
-                const cmd = href.slice(5);
+                const raw = href.slice(5);
+                const cmd = raw.replace(/\{(file|dir|name|selector|notebook|title)\}/g, (_, v) => ({
+                    file:     note?.path     || '',
+                    dir:      note?.path     ? note.path.replace(/\/[^/]+$/, '') : '',
+                    name:     note?.filename ? note.filename.replace(/\.[^.]+$/, '') : '',
+                    selector: note?.selector || '',
+                    notebook: note?.notebook || '',
+                    title:    note?.title    || '',
+                })[v] ?? '');
                 el.addEventListener('click', e => { e.preventDefault(); NbWeb.runInTerminal(cmd); });
                 el.classList.add('nb-term-link');
             } else if (/^[a-z][a-z0-9_-]*:[^/]/.test(href)) {

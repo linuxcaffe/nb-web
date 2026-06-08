@@ -96,7 +96,16 @@ Write `[label](term:command)` anywhere in a note to create a clickable link that
 [Today's tasks](term:task due:today)
 ```
 
-Click once — the terminal opens and the command runs immediately. If the terminal is already open, the command is sent to the running session. Works in note bodies, templates, and wikilinked docs. The right tool for anything interactive: local servers, TUI apps, long-running processes.
+Commands can reference the **current note** using `{variable}` placeholders resolved at click time — `{file}` (full path), `{dir}` (directory), `{name}` (basename), `{selector}`, `{notebook}`, `{title}`:
+
+```markdown
+[Open in vim](term:vim {file})
+[Run as script](term:bash {file})
+[→ PDF](term:pandoc {file} -o {dir}/{name}.pdf)
+[Encrypt](term:nb encrypt {selector})
+```
+
+Put a `[Run](term:bash {file})` link in a notebook template and every note in that notebook gets a run button. The note *is* the script. Click once — the terminal opens and the command runs immediately. If the terminal is already open, the command is sent to the running session. Works in note bodies, templates, and wikilinked docs.
 
 → [[WIKILINKS#Terminal Links]]
 
