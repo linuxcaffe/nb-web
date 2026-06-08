@@ -726,8 +726,14 @@ const NbMain = (() => {
                 <div class="nb-ann-bar nb-ann-empty">
                     <button class="nb-ann-add-btn nb-tw-btn">+ Add annotation</button>
                 </div>`;
-            foot.querySelector('.nb-ann-add-btn').addEventListener('click', () =>
-                _editAnnotation(foot, note, ''));
+            foot.querySelector('.nb-ann-add-btn').addEventListener('click', async () => {
+                let initial = '';
+                try {
+                    const r = await fetch(`/api/note/annotation-template?selector=${encodeURIComponent(note.selector)}`);
+                    if (r.ok) { const d = await r.json(); initial = d.content || ''; }
+                } catch { /* no template — start empty */ }
+                _editAnnotation(foot, note, initial);
+            });
         }
     }
 

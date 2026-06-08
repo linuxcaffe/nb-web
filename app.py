@@ -2222,6 +2222,25 @@ def _sidecar_parent(fname: str) -> str | None:
     return m.group(1) if m else None
 
 
+@app.route('/api/note/annotation-template')
+def api_annotation_template():
+    selector = request.args.get('selector', '').strip()
+    if not selector:
+        return jsonify({'content': None})
+    path_r = run_nb('show', selector, '--path')
+    if not nb_ok(path_r):
+        return jsonify({'content': None})
+    fpath   = Path(path_r['stdout'].strip())
+    tmpl    = fpath.parent / '.template-annotation.md'
+    if not tmpl.exists():
+        return jsonify({'content': None})
+    raw = tmpl.read_text(errors='replace')
+    # Resolve {{title}} from the note's own frontmatter
+    title_m = re.search(r'^title:\s*(.+)$', fpath.read_text(errors='replace'), re.MULTILINE)
+    title   = title_m.group(1).strip() if title_m else ''
+    return jsonify({'content': _resolve_template_vars(raw, title=title)})
+
+
 @app.route('/api/note/annotate', methods=['POST', 'DELETE'])
 def api_note_annotate():
     selector = request.args.get('selector', '').strip()
