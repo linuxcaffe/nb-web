@@ -2059,28 +2059,60 @@ body.nb-fullscreen #nb-cmd-bar::after {
   padding: 0;
 }
 .nb-ann-body p:first-child { margin-top: 0; }
-.nb-ann-editor {
-  width: 100%;
-  min-height: 100px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 4px;
-  padding: 8px 10px;
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  line-height: 1.6;
-  resize: vertical;
-  box-sizing: border-box;
+/* Annotation split-editor — mirrors #nb-editor-wrap layout */
+#nb-ann-editor-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
-.nb-ann-editor:focus { outline: 1px solid var(--accent); }
-.nb-ann-editor-footer {
+#nb-ann-drag-handle {
+  height: 5px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: var(--border);
+  position: relative;
+  z-index: 5;
+  transition: background 0.15s;
+}
+#nb-ann-drag-handle::after {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+}
+#nb-ann-drag-handle:hover,
+#nb-ann-drag-handle.dragging {
+  background: var(--accent);
+  opacity: 0.7;
+}
+#nb-ann-editor-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  flex-shrink: 0;
 }
-.nb-ann-status { font-size: 0.82em; color: var(--text-muted); }
+#nb-ann-editor {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 12px 16px;
+  min-height: 0;
+}
+#nb-preview-pane.nb-ann-editing #nb-preview-content {
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: 50%; /* default; overridden by drag via inline style */
+  overflow-y: auto;
+}
 
 /* ── Import / Export / Move panel (lives in preview pane) ────── */
 #nb-action-panel {

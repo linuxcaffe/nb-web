@@ -51,6 +51,7 @@ const NbMain = (() => {
         _bindKeyboard();
         _bindDropImport();
         initDragHandle();
+        initAnnDragHandle();
         const deepLink = location.hash ? decodeURIComponent(location.hash.slice(1)) : null;
         if (deepLink) _noAutoSelect = true;
         await loadNotes();
@@ -725,28 +726,38 @@ const NbMain = (() => {
     }
 
     function _editAnnotation(foot, note, current) {
-        foot.innerHTML = `
-            <div class="nb-ann-bar">
-                <span class="nb-ann-label">📝 Annotation</span>
-            </div>
-            <textarea class="nb-ann-editor" placeholder="Markdown supported…" spellcheck="true">${_esc(current)}</textarea>
-            <div class="nb-ann-editor-footer">
-                <button class="nb-ann-save-btn nb-btn-primary">Save</button>
-                <button class="nb-ann-cancel-btn nb-tw-btn">Cancel</button>
-                <span class="nb-ann-status"></span>
-            </div>`;
+        foot.hidden = true;
 
-        const ta     = foot.querySelector('.nb-ann-editor');
-        const status = foot.querySelector('.nb-ann-status');
+        const wrap    = document.getElementById('nb-ann-editor-wrap');
+        const ta      = document.getElementById('nb-ann-editor');
+        const pane    = document.getElementById('nb-preview-pane');
+        const content = document.getElementById('nb-preview-content');
+
+        // Restore saved split height (fallback to CSS 50%)
+        const savedH = localStorage.getItem('nb-ann-split-h');
+        if (savedH) content.style.flexBasis = savedH + 'px';
+
+        ta.value = current || '';
+        wrap.hidden = false;
+        pane.classList.add('nb-ann-editing');
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
 
-        foot.querySelector('.nb-ann-cancel-btn').addEventListener('click', () =>
-            _renderAnnotationFoot(foot, note, current || null));
+        function _close(savedText) {
+            wrap.hidden = true;
+            pane.classList.remove('nb-ann-editing');
+            content.style.flexBasis = '';
+            foot.hidden = false;
+            document.getElementById('nb-ann-save-btn').textContent = 'Save';
+            _renderAnnotationFoot(foot, note, savedText !== undefined ? savedText : (current || null));
+        }
 
-        foot.querySelector('.nb-ann-save-btn').addEventListener('click', async () => {
+        document.getElementById('nb-ann-cancel-btn').onclick = () => _close(undefined);
+
+        document.getElementById('nb-ann-save-btn').onclick = async () => {
             const body = ta.value.trim();
-            status.textContent = 'Saving…';
+            const sb   = document.getElementById('nb-ann-save-btn');
+            sb.textContent = 'Saving…';
             try {
                 const r = await fetch(`/api/note/annotate?selector=${encodeURIComponent(note.selector)}`, {
                     method: 'POST',
@@ -754,10 +765,10 @@ const NbMain = (() => {
                     body: JSON.stringify({ content: body }),
                 });
                 const d = await r.json();
-                if (d.ok) _renderAnnotationFoot(foot, note, d.annotation);
-                else { status.textContent = '✗ ' + (d.error || 'failed'); }
-            } catch(e) { status.textContent = '✗ ' + e.message; }
-        });
+                if (d.ok) _close(d.annotation);
+                else { sb.textContent = 'Save'; alert('✗ ' + (d.error || 'failed')); }
+            } catch(e) { sb.textContent = 'Save'; alert('✗ ' + e.message); }
+        };
     }
 
     async function _deleteAnnotation(foot, note) {
@@ -1931,6 +1942,54 @@ const NbMain = (() => {
         });
     }
 
+    // ── Annotation split drag handle ───────────────────────────────
+
+    function initAnnDragHandle() {
+        const handle  = document.getElementById('nb-ann-drag-handle');
+        const content = document.getElementById('nb-preview-content');
+        const pane    = document.getElementById('nb-preview-pane');
+        const KEY     = 'nb-ann-split-h';
+        if (!handle || !content) return;
+
+        let dragging = false, startY = 0, startH = 0;
+
+        function applyHeight(px) {
+            const min = 80;
+            const max = pane.offsetHeight - handle.offsetHeight - 120;
+            content.style.flexBasis = Math.max(min, Math.min(px, max)) + 'px';
+        }
+
+        function startDrag(cy) {
+            dragging = true;
+            startY = cy;
+            startH = content.offsetHeight;
+            handle.classList.add('dragging');
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'row-resize';
+        }
+
+        function moveDrag(cy) {
+            if (!dragging) return;
+            applyHeight(startH + (cy - startY));
+        }
+
+        function endDrag() {
+            if (!dragging) return;
+            dragging = false;
+            handle.classList.remove('dragging');
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+            localStorage.setItem(KEY, content.offsetHeight);
+        }
+
+        handle.addEventListener('mousedown',  e => { e.preventDefault(); startDrag(e.clientY); });
+        document.addEventListener('mousemove', e => moveDrag(e.clientY));
+        document.addEventListener('mouseup',   endDrag);
+        handle.addEventListener('touchstart',  e => { e.preventDefault(); startDrag(e.touches[0].clientY); }, { passive: false });
+        document.addEventListener('touchmove', e => { if (dragging) { e.preventDefault(); moveDrag(e.touches[0].clientY); } }, { passive: false });
+        document.addEventListener('touchend',  endDrag);
+    }
+
     // ── Drag handle ────────────────────────────────────────────────
 
     function initDragHandle() {
@@ -2070,6 +2129,9 @@ const NbMain = (() => {
         document.querySelectorAll('[data-fmt]').forEach(btn => {
             btn.addEventListener('click', () => _applyFmt(btn.dataset.fmt));
         });
+        document.querySelectorAll('[data-ann-fmt]').forEach(btn => {
+            btn.addEventListener('click', () => _applyFmt(btn.dataset.annFmt, document.getElementById('nb-ann-editor')));
+        });
     }
 
     // Single source of truth for preview-pane button visibility.
@@ -2077,6 +2139,14 @@ const NbMain = (() => {
     // are simultaneously visible, or the done-bar stacks on top of them.
     function _setPaneMode(mode) {
         document.getElementById('nb-done-bar')?.remove();
+        // Always close annotation editor when switching modes or loading a new note
+        const annWrap = document.getElementById('nb-ann-editor-wrap');
+        if (!annWrap.hidden) {
+            annWrap.hidden = true;
+            document.getElementById('nb-preview-pane').classList.remove('nb-ann-editing');
+            document.getElementById('nb-preview-content').style.flexBasis = '';
+            document.getElementById('nb-ann-save-btn').textContent = 'Save';
+        }
         const previewActions = document.getElementById('nb-preview-actions');
         const editorWrap     = document.getElementById('nb-editor-wrap');
         const previewContent = document.getElementById('nb-preview-content');
@@ -2192,8 +2262,8 @@ const NbMain = (() => {
         _setPaneMode('preview');
     }
 
-    function _applyFmt(fmt) {
-        const ta  = document.getElementById('nb-editor');
+    function _applyFmt(fmt, ta) {
+        ta = ta || document.getElementById('nb-editor');
         const s   = ta.selectionStart, e = ta.selectionEnd;
         const sel = ta.value.slice(s, e);
         const map = {

@@ -107,6 +107,22 @@
       </div>
       <textarea id="nb-editor" spellcheck="true"></textarea>
     </div>
+
+    <!-- Annotation split-editor (hidden until annotation Edit/Add clicked) -->
+    <div id="nb-ann-editor-wrap" hidden>
+      <div id="nb-ann-drag-handle"></div>
+      <div id="nb-ann-editor-toolbar">
+        <button class="nb-tool-btn" data-ann-fmt="bold">B</button>
+        <button class="nb-tool-btn" data-ann-fmt="italic">I</button>
+        <button class="nb-tool-btn" data-ann-fmt="heading">#</button>
+        <button class="nb-tool-btn" data-ann-fmt="link">🔗</button>
+        <button class="nb-tool-btn" data-ann-fmt="tag">#tag</button>
+        <span class="nb-spacer"></span>
+        <button id="nb-ann-save-btn"   class="nb-tool-btn nb-btn-primary">Save</button>
+        <button id="nb-ann-cancel-btn" class="nb-tool-btn">Cancel</button>
+      </div>
+      <textarea id="nb-ann-editor" spellcheck="true" placeholder="Markdown supported…"></textarea>
+    </div>
   </main>
 
 </div><!-- #nb-layout -->
