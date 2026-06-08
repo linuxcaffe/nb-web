@@ -1706,72 +1706,115 @@ const NbMain = (() => {
 
     async function _doSaveAsTemplate() {
         if (!_activeSelector) return;
-
-        // Remove any existing template-save bar
         document.getElementById('nb-tmpl-save-bar')?.remove();
 
         const toolbar = document.getElementById('nb-preview-toolbar');
         const bar = document.createElement('div');
-        bar.id        = 'nb-tmpl-save-bar';
+        bar.id = 'nb-tmpl-save-bar';
         bar.className = 'nb-move-bar';
 
         const lbl = document.createElement('span');
-        lbl.className   = 'nb-move-label';
+        lbl.className = 'nb-move-label';
         lbl.textContent = 'Save as template:';
 
-        const nameInput = document.createElement('input');
-        nameInput.type        = 'text';
-        nameInput.className   = 'nb-rename-input';
-        nameInput.placeholder = 'template-name';
-        nameInput.style.width = '12em';
-        // Pre-fill from current title
-        const titleText = document.getElementById('nb-preview-title')?.textContent || '';
-        nameInput.value = titleText.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '');
-
-        const scopeSel = document.createElement('select');
-        scopeSel.className = 'nb-scope-select';
-        scopeSel.style.colorScheme = 'dark';
-        [['local', 'Notebook'], ['global', 'Global']].forEach(([v, t]) => {
+        const typeSel = document.createElement('select');
+        typeSel.className = 'nb-scope-select';
+        [['regular', 'Regular'], ['annotation', 'Annotation']].forEach(([v, t]) => {
             const opt = document.createElement('option');
             opt.value = v; opt.textContent = t;
-            scopeSel.appendChild(opt);
+            typeSel.appendChild(opt);
         });
 
+        const dynWrap = document.createElement('span');
+        dynWrap.style.cssText = 'display:flex;gap:4px;align-items:center;flex:1;min-width:0';
+
         const saveBtn = document.createElement('button');
-        saveBtn.className   = 'nb-tool-btn nb-btn-primary';
+        saveBtn.className = 'nb-tool-btn nb-btn-primary';
         saveBtn.textContent = 'Save';
 
         const cancelBtn = document.createElement('button');
-        cancelBtn.className   = 'nb-tool-btn';
+        cancelBtn.className = 'nb-tool-btn';
         cancelBtn.textContent = 'Cancel';
 
-        bar.append(lbl, nameInput, scopeSel, saveBtn, cancelBtn);
+        bar.append(lbl, typeSel, dynWrap, saveBtn, cancelBtn);
         toolbar.parentNode.insertBefore(bar, toolbar.nextSibling);
-        nameInput.select();
-        nameInput.focus();
 
-        cancelBtn.addEventListener('click', () => bar.remove());
+        const curNb     = _activeSelector.includes(':') ? _activeSelector.split(':')[0] : 'home';
+        const titleText = document.getElementById('nb-preview-title')?.textContent || '';
+
+        let _mode = 'regular';
+        let _nameInput = null, _scopeSel = null, _nbSel = null, _folderSel = null;
+
+        function buildRegular() {
+            dynWrap.innerHTML = '';
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text'; nameInput.className = 'nb-rename-input';
+            nameInput.placeholder = 'template-name'; nameInput.style.width = '12em';
+            nameInput.value = titleText.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '');
+            const scopeSel = document.createElement('select');
+            scopeSel.className = 'nb-scope-select';
+            [['local', 'Notebook'], ['global', 'Global']].forEach(([v, t]) => {
+                const opt = document.createElement('option');
+                opt.value = v; opt.textContent = t;
+                scopeSel.appendChild(opt);
+            });
+            dynWrap.append(nameInput, scopeSel);
+            _nameInput = nameInput; _scopeSel = scopeSel; _nbSel = null; _folderSel = null;
+            nameInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+                if (e.key === 'Escape') bar.remove();
+            });
+            nameInput.select(); nameInput.focus();
+        }
+
+        async function buildAnnotation() {
+            dynWrap.innerHTML = '';
+            const hint = document.createElement('span');
+            hint.className = 'nb-move-label';
+            hint.style.cssText = 'font-size:0.8em;opacity:0.55;white-space:nowrap';
+            hint.textContent = '.template-annotation.md →';
+            dynWrap.appendChild(hint);
+            saveBtn.disabled = true;
+            try {
+                const nbSel = await NbDialog.buildNbPicker(curNb);
+                let folderSel = await NbDialog.buildFolderPicker(curNb);
+                nbSel.addEventListener('change', async () => {
+                    const next = await NbDialog.buildFolderPicker(nbSel.value);
+                    folderSel.replaceWith(next);
+                    folderSel = next; _folderSel = next;
+                });
+                dynWrap.append(nbSel, folderSel);
+                _nameInput = null; _scopeSel = null; _nbSel = nbSel; _folderSel = folderSel;
+                saveBtn.disabled = false;
+                nbSel.focus();
+            } catch(e) {
+                hint.textContent = '✗ Failed to load notebooks: ' + e.message;
+                hint.style.color = 'var(--red)';
+            }
+        }
 
         async function commit() {
-            const name = nameInput.value.trim();
-            if (!name) { nameInput.focus(); return; }
             saveBtn.textContent = 'Saving…'; saveBtn.disabled = true;
             try {
-                // Fetch raw note content
                 const noteResp = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector));
                 const noteData = await noteResp.json();
                 const content  = noteData.raw ?? noteData.body ?? '';
-
-                const nb = _activeSelector.includes(':') ? _activeSelector.split(':')[0] : 'home';
+                let payload;
+                if (_mode === 'annotation') {
+                    payload = { scope: 'annotation', notebook: _nbSel?.value || curNb,
+                                folder: _folderSel?.value || '', content };
+                } else {
+                    const name = _nameInput?.value.trim();
+                    if (!name) { _nameInput?.focus(); saveBtn.textContent = 'Save'; saveBtn.disabled = false; return; }
+                    payload = { name, content, scope: _scopeSel.value, notebook: curNb };
+                }
                 const resp = await fetch('/api/templates', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ name, content, scope: scopeSel.value, notebook: nb }),
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
                 });
                 const rd = await resp.json();
                 if (rd.success) {
                     bar.remove();
-                    // Brief flash in title area
                     const ref = document.getElementById('nb-preview-ref');
                     if (ref) { const orig = ref.textContent; ref.textContent = '✓ saved'; setTimeout(() => ref.textContent = orig, 2000); }
                 } else {
@@ -1781,11 +1824,15 @@ const NbMain = (() => {
             } catch(e) { alert('Save error: ' + e); saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
         }
 
-        nameInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter')  { e.preventDefault(); commit(); }
-            if (e.key === 'Escape') bar.remove();
+        typeSel.addEventListener('change', async () => {
+            _mode = typeSel.value;
+            if (_mode === 'annotation') await buildAnnotation();
+            else buildRegular();
         });
+
+        cancelBtn.addEventListener('click', () => bar.remove());
         saveBtn.addEventListener('click', commit);
+        buildRegular();
     }
 
     // ── Keyboard navigation ────────────────────────────────────────
@@ -2151,6 +2198,7 @@ const NbMain = (() => {
     // are simultaneously visible, or the done-bar stacks on top of them.
     function _setPaneMode(mode) {
         document.getElementById('nb-done-bar')?.remove();
+        document.getElementById('nb-tmpl-save-bar')?.remove();
         // Always close annotation editor when switching modes or loading a new note
         const annWrap = document.getElementById('nb-ann-editor-wrap');
         if (!annWrap.hidden) {
@@ -3068,6 +3116,9 @@ const NbMain = (() => {
                 if (t.template_type === 'export_html') {
                     icon.textContent = '🖨';
                     icon.title = t.notebook ? 'Notebook export template' : 'Global export template';
+                } else if (t.template_type === 'annotation') {
+                    icon.textContent = '📌';
+                    icon.title = t.notebook ? 'Annotation template' : 'Global annotation template';
                 } else {
                     icon.textContent = t.notebook ? '📒' : '🌐';
                     icon.title = t.notebook ? 'Notebook template' : 'Global template';
@@ -3075,12 +3126,23 @@ const NbMain = (() => {
 
                 const title = document.createElement('span');
                 title.className = 'nb-list-title';
-                title.textContent = t.template_type === 'export_html' ? 'HTML export template' : t.name;
+                if (t.template_type === 'export_html') {
+                    title.textContent = 'HTML export template';
+                } else if (t.template_type === 'annotation') {
+                    title.textContent = 'Annotation template';
+                } else {
+                    title.textContent = t.name;
+                }
 
                 const excerpt = document.createElement('span');
                 excerpt.className = 'nb-list-excerpt';
-                excerpt.textContent = t.notebook ? `${t.notebook}: export` : 'global export';
-                if (t.template_type !== 'export_html') {
+                if (t.template_type === 'export_html') {
+                    excerpt.textContent = t.notebook ? `${t.notebook}: export` : 'global export';
+                } else if (t.template_type === 'annotation') {
+                    const parts = [t.notebook || 'global'];
+                    if (t.subfolder) parts.push(t.subfolder);
+                    excerpt.textContent = parts.join('/') + ': annotation';
+                } else {
                     excerpt.textContent = t.notebook || 'global';
                 }
 
@@ -5752,7 +5814,7 @@ const NbDialog = (() => {
         }, true);
     }
 
-    return { open, openFolder, close, isOpen, refresh, init };
+    return { open, openFolder, close, isOpen, refresh, init, buildNbPicker: _buildNbPicker, buildFolderPicker: _buildFolderPicker };
 })();
 
 document.addEventListener('DOMContentLoaded', async () => {

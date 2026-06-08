@@ -505,6 +505,32 @@ def api_templates():
                 'preview':   preview,
             })
 
+    # Annotation templates — .template-annotation.md anywhere in a notebook tree
+    for nb_dir in sorted(NB_DIR.iterdir()):
+        if not nb_dir.is_dir() or nb_dir.name.startswith('.') or nb_dir.name.startswith('-'):
+            continue
+        nb_name = nb_dir.name
+        for f in sorted(nb_dir.rglob('.template-annotation.md')):
+            rel = f.parent.relative_to(nb_dir)
+            subfolder = str(rel) if str(rel) != '.' else ''
+            key = f'{nb_name}/{subfolder}/.template-annotation' if subfolder else f'{nb_name}/.template-annotation'
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                preview = f.read_text(errors='replace')[:200]
+            except OSError:
+                preview = ''
+            templates.append({
+                'name':          '.template-annotation',
+                'path':          str(f),
+                'scope':         'annotation',
+                'notebook':      nb_name,
+                'subfolder':     subfolder,
+                'template_type': 'annotation',
+                'preview':       preview,
+            })
+
     # Export templates — one per notebook + global
     for nb_dir in sorted(NB_DIR.iterdir()):
         if not nb_dir.is_dir() or nb_dir.name.startswith('.') or nb_dir.name.startswith('-'):
@@ -544,6 +570,13 @@ def api_save_template():
     content  = data.get('content', '')
     scope    = data.get('scope', 'global')
     notebook = data.get('notebook', 'home')
+    if scope == 'annotation':
+        folder = data.get('folder', '').strip('/')
+        tdir   = NB_DIR / notebook / folder if folder else NB_DIR / notebook
+        tdir.mkdir(parents=True, exist_ok=True)
+        tpath  = tdir / '.template-annotation.md'
+        tpath.write_text(content)
+        return jsonify({'success': True, 'path': str(tpath), 'scope': scope})
     if not name:
         return jsonify({'error': 'name required'}), 400
     tdir = (NB_DIR / notebook / '.templates') if scope == 'local' else GLOBAL_TEMPLATES_DIR
