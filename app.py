@@ -4828,8 +4828,20 @@ def api_run():
 # API: Rename / Move note
 # ---------------------------------------------------------------------------
 
+def _resolve_dest_dir(dest: str) -> Path:
+    """Resolve nb move dest like 'work:folder/' to the filesystem directory."""
+    if ':' in dest:
+        nb_name, rest = dest.split(':', 1)
+        folder = rest.strip('/')
+    else:
+        nb_name = dest.strip('/')
+        folder = ''
+    return (NB_DIR / nb_name / folder) if folder else (NB_DIR / nb_name)
+
+
 @app.route('/api/note/rename', methods=['POST'])
 def api_rename():
+    """Rename the note file (and its annotation sidecar if present)."""
     data     = request.get_json() or {}
     selector = data.get('selector', '').strip()
     name     = data.get('name', '').strip()
@@ -4841,62 +4853,70 @@ def api_rename():
         return jsonify({'error': 'not found'}), 404
     fpath = Path(path_r['stdout'].strip())
 
-    # Encrypted notes: title is filename-only; preserve .enc by slugifying the new name
-    if fpath.name.lower().endswith('.enc'):
-        slug     = re.sub(r'[^\w]+', '_', name).strip('_').lower()
-        new_name = f"{slug}.md.enc"
-        r = run_nb('rename', selector, new_name, '--force')
-        return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+    # Sanitize: allow word chars, hyphens, underscores, dots
+    new_stem = re.sub(r'[^\w.-]+', '-', name).strip('-')
+    if not new_stem:
+        return jsonify({'error': 'invalid name'}), 400
 
-    # Read current content so we can update the title-bearing element in place.
-    # nb rename only changes the filename; if the title comes from an H1 or
-    # frontmatter, the displayed title would not change after a plain rename.
-    try:
-        raw = fpath.read_text(errors='replace')
-    except OSError:
-        return jsonify({'error': 'could not read file'}), 404
-
-    meta, body = parse_frontmatter(raw)
-
-    if meta.get('title'):
-        new_raw = re.sub(r'^(title:\s*).*$', lambda m: m.group(1) + name,
-                         raw, count=1, flags=re.MULTILINE)
-        r = run_nb('edit', selector, '--content', new_raw, '--overwrite')
+    # Build new filename preserving the original extension
+    if fpath.name.lower().endswith('.md.enc'):
+        new_name = new_stem + '.md.enc'
     else:
-        lines = body.splitlines(keepends=True)
-        updated = False
-        for i, line in enumerate(lines):
-            s = line.strip()
-            if s.startswith('# [ ] ') or s.startswith('# [x] '):
-                lines[i] = s[:6] + name + '\n'   # keep '# [ ] ' / '# [x] ' prefix
-                updated = True
-                break
-            if s.startswith('# '):
-                lines[i] = '# ' + name + '\n'
-                updated = True
-                break
-        if updated:
-            fm_part = ''
-            if raw.startswith('---'):
-                fm_end = raw.find('\n---', 3)
-                fm_part = raw[:fm_end + 4] + '\n'
-            r = run_nb('edit', selector, '--content', fm_part + ''.join(lines), '--overwrite')
-        else:
-            # Title is filename-derived — rename the file
-            r = run_nb('rename', selector, name, '--force')
+        ext = fpath.suffix  # '.md', '.pdf', '.png', etc.
+        new_name = new_stem + ext if not new_stem.lower().endswith(ext.lower()) else new_stem
 
-    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+    ann_path = _annotation_path(str(fpath))
+
+    r = run_nb('rename', selector, new_name, '--force')
+    if not nb_ok(r):
+        return jsonify({'success': False, 'stderr': strip_ansi(r['stderr'])})
+
+    # Rename annotation sidecar (non-fatal if missing or fails)
+    ann_moved = False
+    if ann_path.exists():
+        new_ann = fpath.parent / f'.{new_name}.annotations.md'
+        try:
+            ann_path.rename(new_ann)
+            ann_moved = True
+        except OSError:
+            pass
+
+    _sidecar_scan_cache.clear()
+    return jsonify({'success': True, 'ann_moved': ann_moved})
 
 
 @app.route('/api/note/move', methods=['POST'])
 def api_move():
+    """Move a note (and its annotation sidecar) to a new notebook/folder."""
     data     = request.get_json() or {}
     selector = data.get('selector', '').strip()
     dest     = data.get('dest', '').strip()   # e.g. "work:" or "tasks:folder/"
     if not selector or not dest:
         return jsonify({'error': 'selector and dest required'}), 400
+
+    # Capture annotation path before the move
+    path_r   = run_nb('show', selector, '--path')
+    fpath    = Path(path_r['stdout'].strip()) if nb_ok(path_r) else None
+    ann_path = _annotation_path(str(fpath)) if fpath else None
+
     r = run_nb('move', selector, dest, '--force')
-    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+    if not nb_ok(r):
+        return jsonify({'success': False, 'stderr': strip_ansi(r['stderr'])})
+
+    # Move annotation sidecar to the destination directory (non-fatal)
+    ann_moved = False
+    if ann_path and ann_path.exists() and fpath:
+        try:
+            dest_dir = _resolve_dest_dir(dest)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            new_ann = dest_dir / f'.{fpath.name}.annotations.md'
+            ann_path.rename(new_ann)
+            ann_moved = True
+        except OSError:
+            pass
+
+    _sidecar_scan_cache.clear()
+    return jsonify({'success': True, 'ann_moved': ann_moved})
 
 
 @app.route('/api/note/export-bulk', methods=['POST'])

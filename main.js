@@ -5705,10 +5705,18 @@ const NbDialog = (() => {
             return;
         }
 
+        // Pre-fill with the current filename stem (not the display title)
+        const curFilename = NbMain.activeFilename() || '';
+        const curStem     = curFilename.replace(/\.[^.]+$/, ''); // strip extension
+
         const nameInput = document.createElement('input');
         nameInput.type = 'text'; nameInput.className = 'nb-rename-input'; nameInput.style.flex = '1';
-        nameInput.value = document.getElementById('nb-preview-title')?.textContent || '';
-        const nameRow = _row('Name:', nameInput);
+        nameInput.value = curStem;
+        const nameRow = _row('Filename:', nameInput);
+
+        const hint = document.createElement('p');
+        hint.style.cssText = 'margin:2px 0 6px;font-size:11px;color:var(--text-dim)';
+        hint.textContent = 'Renames the file and re-indexes it. Annotation renamed automatically.';
 
         const saveBtn = document.createElement('button');
         saveBtn.className = 'nb-tool-btn nb-btn-primary'; saveBtn.textContent = 'Rename';
@@ -5732,10 +5740,9 @@ const NbDialog = (() => {
                 const d = await r.json();
                 if (d.success) {
                     close();
-                    document.getElementById('nb-preview-title').textContent = newName;
                     NbNav.reexecute();
                 } else {
-                    alert('Rename failed: ' + (d.stderr || 'unknown'));
+                    alert('Rename failed: ' + (d.stderr || d.error || 'unknown'));
                     saveBtn.textContent = 'Rename'; saveBtn.disabled = false;
                 }
             } catch(e) { saveBtn.textContent = 'Rename'; saveBtn.disabled = false; }
@@ -5744,7 +5751,7 @@ const NbDialog = (() => {
         saveBtn.addEventListener('click', commit);
         nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
 
-        body.append(nameRow, btnRow);
+        body.append(nameRow, hint, btnRow);
         nameInput.focus(); nameInput.select();
     }
 
