@@ -687,7 +687,7 @@ const NbMain = (() => {
                 setTimeout(() => pw.focus(), 50);
             }
             return;
-        } else if (['note','file',''].includes(note.type)) {
+        } else if (['note','file','strip',''].includes(note.type)) {
             html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         } else {
             html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw || '')}</pre>`;

@@ -399,6 +399,8 @@ INDICATORS = {
 #   2. Add its icon to INDICATORS above.
 #   3. Add it to the icon breakdown in main.js renderList if it should appear in
 #      the type count bar (e.g. `strip:'🎞️'`).
+#   4. Add it to the markdown-rendering whitelist in main.js renderPreview:
+#      ['note','file','strip',''].includes(note.type)   ← add the new name here
 #
 # Currently registered frontmatter types:
 #   strip  — film production stripboard note  🎞️  (NbWeb-cine plugin)
