@@ -569,7 +569,7 @@ const NbMain = (() => {
             }
             return;
         } else if (['note','file',''].includes(note.type)) {
-            html = _renderMarkdown(note.body, note.selector);
+            html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         } else {
             html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw || '')}</pre>`;
         }
@@ -1158,6 +1158,35 @@ const NbMain = (() => {
             });
         }
         return html;
+    }
+
+    // Fallback frontmatter display — shown above body for any note with meta fields
+    // that aren't handled by a plugin previewRenderer or specialised renderer.
+    // Skips `title` and `tags` which are already shown in the toolbar.
+    const _FM_SKIP = new Set(['title', 'tags']);
+    function _renderFmFallback(meta) {
+        if (!meta || typeof meta !== 'object') return '';
+        const rows = Object.entries(meta)
+            .filter(([k]) => !_FM_SKIP.has(k))
+            .map(([k, v]) => {
+                let display;
+                if (v === null || v === undefined || v === '') {
+                    display = '<em style="opacity:0.35">—</em>';
+                } else if (typeof v === 'object') {
+                    display = _esc(JSON.stringify(v));
+                } else {
+                    const s = String(v);
+                    display = s.includes('\n')
+                        ? `<pre style="margin:0;white-space:pre-wrap;font-size:0.9em">${_esc(s.trim())}</pre>`
+                        : _esc(s);
+                }
+                return `<div class="nb-contact-row">` +
+                    `<span class="nb-contact-label">${_esc(k)}</span>` +
+                    `<span class="nb-contact-value">${display}</span>` +
+                    `</div>`;
+            });
+        if (!rows.length) return '';
+        return `<div class="nb-contact-fields nb-fm-fallback">${rows.join('')}</div>`;
     }
 
     function _renderBookmark(note) {

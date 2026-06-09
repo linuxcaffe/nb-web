@@ -974,6 +974,7 @@ body {
 .nb-contact-sub       { font-size: 0.88em; color: var(--text-muted); margin-top: 2px; }
 
 .nb-contact-fields    { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.nb-fm-fallback       { padding: 16px 32px; border-bottom: 1px solid var(--border); margin-bottom: 0; }
 
 .nb-contact-row       { display: flex; gap: 12px; align-items: baseline; font-size: 0.9em; }
 .nb-contact-label     { min-width: 72px; text-align: right; color: var(--text-muted); font-size: 0.82em; flex-shrink: 0; }
