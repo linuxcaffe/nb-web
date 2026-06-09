@@ -40,6 +40,20 @@ const NbWeb = (() => {
             return;
         }
         _modules.set(name, { spec, enabled: true, activeNotebooks: [], error: null });
+        if (spec.hideExtrasCSS) {
+            const style = document.createElement('style');
+            style.dataset.nbModule = name;
+            style.textContent = spec.hideExtrasCSS;
+            document.head.appendChild(style);
+        }
+    }
+
+    // ── Extras-hidden API ─────────────────────────────────────────────────────
+
+    // Returns true when the 👁 extras toggle is active (class on #nb-preview-content).
+    function isExtrasHidden() {
+        return document.getElementById('nb-preview-content')
+            ?.classList.contains('nb-extras-hidden') ?? false;
     }
 
     // ── Initialisation (called after plugins are loaded) ───────────────────────
@@ -438,6 +452,7 @@ const NbWeb = (() => {
         getCodeblockRenderer,
         renderCodeblocks,
         getNotebookSections,
+        isExtrasHidden,
         list,
         setEnabled,
         unregister,

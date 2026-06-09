@@ -50,6 +50,7 @@ const NbMain = (() => {
         _bindListMenu();
         _bindSortBtn();
         _bindPreviewMenu();
+        _bindExtrasToggle();
         _bindKeyboard();
         _bindDropImport();
         initDragHandle();
@@ -1497,6 +1498,27 @@ const NbMain = (() => {
     function _toggleFullscreen() {
         _isFullscreen = !_isFullscreen;
         document.body.classList.toggle('nb-fullscreen', _isFullscreen);
+    }
+
+    // ── Extras toggle (👁) ─────────────────────────────────────────────────────
+    const _EXTRAS_KEY = 'nb-extras-hidden';
+
+    function _bindExtrasToggle() {
+        const btn     = document.getElementById('nb-extras-btn');
+        const content = document.getElementById('nb-preview-content');
+        if (!btn || !content) return;
+
+        const _apply = hidden => {
+            content.classList.toggle('nb-extras-hidden', hidden);
+            btn.classList.toggle('nb-active', hidden);
+        };
+        _apply(localStorage.getItem(_EXTRAS_KEY) === '1');
+
+        btn.addEventListener('click', () => {
+            const hidden = !content.classList.contains('nb-extras-hidden');
+            localStorage.setItem(_EXTRAS_KEY, hidden ? '1' : '0');
+            _apply(hidden);
+        });
     }
 
     function _bindPreviewMenu() {
