@@ -30,6 +30,7 @@ from flask_sock import Sock
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
+app.config['JSON_SORT_KEYS']     = False               # preserve document key order
 sock = Sock(app)
 
 NB_BIN  = os.environ.get('NB_BIN', 'nb')
