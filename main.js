@@ -485,6 +485,9 @@ const NbMain = (() => {
         // ── Lock / Unlock UI ───────────────────────────────────────────────
         document.getElementById('nb-unlock-btn')?.remove();
         const _isLocked = /^(yes|on|true|1)$/i.test(String(note.meta?.lock ?? ''));
+        // Stamp lock state on the content pane so codeblock renderers can read it
+        const _contentPane = document.getElementById('nb-preview-content');
+        if (_contentPane) _contentPane.dataset.noteLocked = _isLocked ? 'true' : '';
         const _editBtn  = document.getElementById('nb-edit-btn');
         if (_isLocked && _editBtn) {
             _editBtn.hidden = true;

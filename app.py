@@ -5343,14 +5343,7 @@ def api_cine_lock():
         if locked:
             patched = _patch_fm_fields(raw, lock='yes')
         else:
-            # Remove the lock: line entirely
-            if not raw.startswith('---'):
-                return jsonify({'ok': True})
-            end = raw.find('\n---', 3)
-            if end == -1:
-                return jsonify({'ok': True})
-            fm      = re.sub(r'\nlock:[^\n]*', '', raw[3:end])
-            patched = f'---{fm}\n---{raw[end+4:]}'
+            patched = _patch_fm_fields(raw, lock='')
         fpath.write_text(patched)
         try:
             notebook = fpath.relative_to(NB_DIR).parts[0]
