@@ -5179,7 +5179,7 @@ def api_cine_data():
                 })
             except Exception:
                 pass
-    shots.sort(key=lambda s: (s['day'] if s['day'] is not None else 0, s['seq']))
+    shots.sort(key=lambda s: (s['day'] if s['day'] is not None else 9999, s['seq']))
 
     def _scan_dir(subdir, code_field):
         out = {}
