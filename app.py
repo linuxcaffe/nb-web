@@ -5190,7 +5190,11 @@ def api_cine_data():
                     meta, _ = parse_frontmatter(f.read_text(errors='replace'))
                     code = str(meta.get(code_field, '')).strip()
                     if code:
-                        out[code] = f'{notebook}:{subdir}/{f.name}'
+                        out[code] = {
+                            'selector': f'{notebook}:{subdir}/{f.name}',
+                            'meta': {k: str(v).strip() if v is not None else ''
+                                     for k, v in meta.items()},
+                        }
                 except Exception:
                     pass
         return out
