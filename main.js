@@ -213,6 +213,24 @@ const NbMain = (() => {
         document.getElementById('nb-type-breakdown').textContent = breakdown;
 
         const _pluginIconFn = NbWeb.getListItemIcon(NbNav.notebook);
+
+        // Toolbar shortcut buttons — notes with toolbar: true in frontmatter
+        const _listBtnsEl = document.getElementById('nb-list-plugin-btns');
+        if (_listBtnsEl) {
+            _listBtnsEl.querySelectorAll('[data-toolbar-shortcut]').forEach(b => b.remove());
+            for (const tn of notes.filter(n => n.toolbar)) {
+                const btn = document.createElement('button');
+                btn.className = 'nb-icon-btn';
+                btn.dataset.toolbarShortcut = '1';
+                btn.textContent = tn.toolbar_icon
+                               || (_pluginIconFn ? _pluginIconFn(tn) : null)
+                               || '📌';
+                btn.title = tn.title || tn.filename;
+                btn.addEventListener('click', () => openNote(tn.selector));
+                _listBtnsEl.appendChild(btn);
+            }
+        }
+
         notes.forEach(note => {
             const li = document.createElement('li');
             li.className = 'nb-list-item' + (note.type === 'folder' ? ' folder' : '') +
@@ -510,6 +528,31 @@ const NbMain = (() => {
                 }
             });
             _editBtn.insertAdjacentElement('afterend', unlockBtn);
+        }
+
+        // Re-lock button — shown when lock: key exists in meta but value is cleared
+        document.getElementById('nb-relock-btn')?.remove();
+        const _hasSoftLock = !_isLocked && note.meta != null && 'lock' in note.meta;
+        if (_hasSoftLock && _editBtn) {
+            const relockBtn = document.createElement('button');
+            relockBtn.id        = 'nb-relock-btn';
+            relockBtn.className = 'nb-tool-btn';
+            relockBtn.title     = 'Lock this note';
+            relockBtn.textContent = '🔒';
+            relockBtn.addEventListener('click', async () => {
+                relockBtn.disabled = true;
+                try {
+                    await fetch('/api/cine/lock', {
+                        method:  'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body:    JSON.stringify({ selector: note.selector, locked: true }),
+                    });
+                    await openNote(note.selector);
+                } finally {
+                    relockBtn.disabled = false;
+                }
+            });
+            _editBtn.insertAdjacentElement('beforebegin', relockBtn);
         }
 
         if (note.type === 'image') {

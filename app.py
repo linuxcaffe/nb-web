@@ -1761,9 +1761,11 @@ def _list_notes(notebook, folder, limit):
             'selector':   f"{notebook}:{sel_path}",
             'excerpt':    excerpt,
             'updated':    '',
-            'pinned':     meta.get('pinned', '') == 'true',
-            'status':     todo_status,
-            'annotation': _read_annotation(str(fpath)),
+            'pinned':       meta.get('pinned', '') == 'true',
+            'status':       todo_status,
+            'annotation':   _read_annotation(str(fpath)),
+            'toolbar':      bool(meta.get('toolbar')),
+            'toolbar_icon': str(meta.get('toolbar_icon') or '').strip(),
         })
         if len(items) >= limit:
             break
