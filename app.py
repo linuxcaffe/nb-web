@@ -5270,9 +5270,10 @@ def api_cine_data():
                     'platform':  str(meta.get('platform', '')),
                     'actors':    _cine_csv(meta.get('actors', '')),
                     'resources': resources,
-                    # expanded sub-block dicts (tech, art, and any future blocks)
+                    # expanded sub-block dicts
                     'tech':      expanded.get('tech', {}),
                     'art':       expanded.get('art', {}),
+                    'cast':      expanded.get('cast', {}),
                     'locked':    bool(re.match(r'^(yes|on|true|1)$',
                                      str(meta.get('lock', '')).strip(), re.I)),
                 })
