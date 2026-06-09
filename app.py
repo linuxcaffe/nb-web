@@ -5200,8 +5200,34 @@ def api_cine_data():
     resources = _scan_dir('resouces', 'code')      # handle the notebook's typo
     resources.update(_scan_dir('resources', 'code'))  # and the correct spelling
 
+    scenes = []
+    script_dir = nb_path / 'script'
+    if script_dir.is_dir():
+        for f in sorted(script_dir.glob('*.md')):
+            try:
+                meta, body = parse_frontmatter(f.read_text(errors='replace'))
+                if 'scene_no' not in meta:
+                    continue  # skip cover page and non-scene files
+                synopsis = next(
+                    (l.strip() for l in body.splitlines() if l.strip() and not l.startswith('#')),
+                    ''
+                )
+                scenes.append({
+                    'selector':  f'{notebook}:script/{f.name}',
+                    'scene_no':  str(meta.get('scene_no', '')),
+                    'int_ext':   str(meta.get('int_ext',  '')).upper()[:1],
+                    'day_night': str(meta.get('day_night','N')).upper()[:1],
+                    'loc':       str(meta.get('loc',      '')),
+                    'synopsis':  synopsis[:120],
+                })
+            except Exception:
+                pass
+    scenes.sort(key=lambda s: (int(s['scene_no']) if s['scene_no'].isdigit() else 999,
+                                s['scene_no']))
+
     return jsonify({
         'shots':     shots,
+        'scenes':    scenes,
         'actors':    actors,
         'locations': locations,
         'resources': resources,
