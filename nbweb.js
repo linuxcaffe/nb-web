@@ -258,6 +258,21 @@ const NbWeb = (() => {
         container.innerHTML = `<div class="nb-requirements-card">${html}</div>`;
     }
 
+    // ── Editor keybinding API ─────────────────────────────────────────────────────
+
+    // Returns keybinding specs from all modules active for the note's notebook.
+    // Each spec: { key, ctrl, shift, alt, label, action(textarea, note) }
+    function getEditorKeybindings(note) {
+        const nb = note?.notebook || '';
+        const out = [];
+        for (const mod of _activeFor(nb)) {
+            const kb = mod.editorKeybindings;
+            if (typeof kb === 'function') out.push(...(kb(note) || []));
+            else if (Array.isArray(kb))   out.push(...kb);
+        }
+        return out;
+    }
+
     // ── Codeblock renderer API ────────────────────────────────────────────────────
 
     // Returns the renderer spec { html(text), render(container) } for a fence language, or null.
@@ -419,6 +434,7 @@ const NbWeb = (() => {
         renderRequirementsCard,
         runInTerminal,
         openTerminal,
+        getEditorKeybindings,
         getCodeblockRenderer,
         renderCodeblocks,
         getNotebookSections,

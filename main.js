@@ -2369,11 +2369,32 @@ const NbMain = (() => {
         }
     }
 
-    function _populateEditor(sel, raw, saveFn) {
+    function _populateEditor(sel, raw, saveFn, note = null) {
         _undoBuffer[sel] = raw;
         const ta = document.getElementById('nb-editor');
         ta.value = raw;
         document.getElementById('nb-save-btn').onclick = saveFn;
+
+        // Install plugin keybindings for this note; remove any previous handler
+        if (ta._pluginKeyHandler) ta.removeEventListener('keydown', ta._pluginKeyHandler);
+        ta._pluginKeyHandler = null;
+        const _bindings = NbWeb.getEditorKeybindings(note);
+        if (_bindings.length) {
+            ta._pluginKeyHandler = e => {
+                for (const b of _bindings) {
+                    if (e.key === b.key &&
+                        !!b.ctrl  === e.ctrlKey &&
+                        !!b.shift === e.shiftKey &&
+                        !!b.alt   === e.altKey) {
+                        e.preventDefault();
+                        b.action(ta, note);
+                        return;
+                    }
+                }
+            };
+            ta.addEventListener('keydown', ta._pluginKeyHandler);
+        }
+
         ta.focus();
     }
 
@@ -2409,7 +2430,7 @@ const NbMain = (() => {
         _setPaneMode('edit');
         fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
-            .then(d => _populateEditor(sel, d.raw || d.body || '', _saveNote));
+            .then(d => _populateEditor(sel, d.raw || d.body || '', _saveNote, d));
     }
 
     async function _saveEncryptedNote() {
