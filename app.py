@@ -5187,6 +5187,28 @@ def _cine_int(val, default=None):
         return default
 
 
+def _expand_subfields(meta):
+    """Second-pass YAML parse: any string value that is itself valid YAML dict/list
+    becomes a nested structure.  Block scalars (|) are already plain strings after
+    parse_frontmatter; this makes e.g. tech: {camera:…, sound:…, lights:…}.
+    Falls back to the original string on parse failure or non-mapping/non-list result.
+    """
+    if not _YAML_OK:
+        return meta
+    out = {}
+    for k, v in meta.items():
+        if isinstance(v, str) and v.strip():
+            try:
+                parsed = _yaml.safe_load(v)
+                if isinstance(parsed, (dict, list)):
+                    out[k] = parsed
+                    continue
+            except Exception:
+                pass
+        out[k] = v
+    return out
+
+
 def _cine_csv(val):
     if not val:
         return []
@@ -5223,6 +5245,14 @@ def api_cine_data():
         for f in sorted(shots_dir.glob('*.md')):
             try:
                 meta, _ = parse_frontmatter(f.read_text(errors='replace'))
+                expanded  = _expand_subfields(meta)
+
+                # resources: block-scalar dict/list passes through; legacy CSV strings
+                # are normalised to a list for backward-compat with the frontend counter.
+                _res_raw = expanded.get('resources', '')
+                resources = _res_raw if isinstance(_res_raw, (dict, list)) \
+                            else _cine_csv(_res_raw)
+
                 shots.append({
                     'selector':  f'{notebook}:shots/{f.name}',
                     'filename':  f.name,
@@ -5239,7 +5269,10 @@ def api_cine_data():
                     'lens':      str(meta.get('lens', '')),
                     'platform':  str(meta.get('platform', '')),
                     'actors':    _cine_csv(meta.get('actors', '')),
-                    'resources': _cine_csv(meta.get('resources', '')),
+                    'resources': resources,
+                    # expanded sub-block dicts (tech, art, and any future blocks)
+                    'tech':      expanded.get('tech', {}),
+                    'art':       expanded.get('art', {}),
                     'locked':    bool(re.match(r'^(yes|on|true|1)$',
                                      str(meta.get('lock', '')).strip(), re.I)),
                 })
