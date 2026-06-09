@@ -3609,12 +3609,21 @@ def api_nb_notebooks():
                 except Exception:
                     website = {}
 
+            cine = None
+            cine_json = entry / '.nb-cine.json'
+            if cine_json.exists():
+                try:
+                    cine = json.loads(cine_json.read_text())
+                except Exception:
+                    cine = {}
+
             notebooks.append({
                 'name': entry.name, 'count': count, 'mtime': mtime,
                 'folder_count': folder_count,
                 'has_remote': has_remote, 'unpushed': unpushed,
                 'is_current': entry.name == current_nb,
                 'website': website,
+                'cine': cine,
             })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
@@ -5101,6 +5110,184 @@ def api_nb_settings():
         _save_settings(validated)
         _settings = _load_settings()
     return jsonify(_settings)
+
+
+# ---------------------------------------------------------------------------
+# NbWeb-cine: film production scheduling
+# ---------------------------------------------------------------------------
+
+def _cine_int(val, default=None):
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _cine_csv(val):
+    if not val:
+        return []
+    if isinstance(val, list):
+        return [str(v).strip() for v in val if str(v).strip()]
+    return [v.strip() for v in str(val).replace('\n', ',').split(',') if v.strip()]
+
+
+@app.route('/api/cine/data')
+def api_cine_data():
+    """Return all shots + lookup maps + project config for a cine notebook.
+
+    Response: { shots, actors, locations, resources, config }
+    Shots are sorted by day then seq.
+    """
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'error': 'notebook not found'}), 404
+
+    config = {}
+    cine_json = nb_path / '.nb-cine.json'
+    if cine_json.exists():
+        try:
+            config = json.loads(cine_json.read_text())
+        except Exception:
+            pass
+
+    shots = []
+    shots_dir = nb_path / 'shots'
+    if shots_dir.is_dir():
+        for f in sorted(shots_dir.glob('*.md')):
+            try:
+                meta, _ = parse_frontmatter(f.read_text(errors='replace'))
+                shots.append({
+                    'selector':  f'{notebook}:shots/{f.name}',
+                    'filename':  f.name,
+                    'type':      meta.get('type', 'scene'),
+                    'day':       _cine_int(meta.get('day')),
+                    'seq':       _cine_int(meta.get('seq'), 999),
+                    'scene':     str(meta.get('scene', '')),
+                    'shot':      str(meta.get('shot', '')),
+                    'day_night': str(meta.get('day_night', '')).upper()[:1],
+                    'int_ext':   str(meta.get('int_ext', '')).upper()[:1],
+                    'desc':      str(meta.get('desc', '')).strip(),
+                    'loc':       str(meta.get('loc', '')),
+                    'cameras':   str(meta.get('cameras', '')),
+                    'lens':      str(meta.get('lens', '')),
+                    'platform':  str(meta.get('platform', '')),
+                    'actors':    _cine_csv(meta.get('actors', '')),
+                    'resources': _cine_csv(meta.get('resources', '')),
+                })
+            except Exception:
+                pass
+    shots.sort(key=lambda s: (s['day'] if s['day'] is not None else 9999, s['seq']))
+
+    def _scan_dir(subdir, code_field):
+        out = {}
+        d = nb_path / subdir
+        if d.is_dir():
+            for f in d.glob('*.md'):
+                try:
+                    meta, _ = parse_frontmatter(f.read_text(errors='replace'))
+                    code = str(meta.get(code_field, '')).strip()
+                    if code:
+                        out[code] = f'{notebook}:{subdir}/{f.name}'
+                except Exception:
+                    pass
+        return out
+
+    actors    = _scan_dir('actors', 'code')
+    locations = _scan_dir('locations', 'loc_code')
+    resources = _scan_dir('resouces', 'code')      # handle the notebook's typo
+    resources.update(_scan_dir('resources', 'code'))  # and the correct spelling
+
+    return jsonify({
+        'shots':     shots,
+        'actors':    actors,
+        'locations': locations,
+        'resources': resources,
+        'config':    config,
+    })
+
+
+def _patch_fm_fields(raw_text, **fields):
+    """Update specific frontmatter fields in-place, preserving all other content."""
+    if not raw_text.startswith('---'):
+        return raw_text
+    end = raw_text.find('\n---', 3)
+    if end == -1:
+        return raw_text
+    fm_block = raw_text[3:end]
+    body = raw_text[end + 4:]
+    for key, value in fields.items():
+        pat = re.compile(r'^(' + re.escape(key) + r':\s*).*$', re.MULTILINE)
+        if pat.search(fm_block):
+            fm_block = pat.sub(r'\g<1>' + str(value), fm_block)
+        else:
+            fm_block = fm_block.rstrip('\n') + f'\n{key}: {value}'
+    return f"---{fm_block}\n---{body}"
+
+
+@app.route('/api/cine/resequence', methods=['POST'])
+def api_cine_resequence():
+    """Batch-update day: and seq: frontmatter fields across a set of shots.
+
+    Body: {
+        "notebook": "Takeout",
+        "moves": [{"selector": "Takeout:shots/1a.md", "day": 1, "seq": 1}, ...]
+    }
+    Returns: {"updated": [...selectors], "errors": [...{selector, error}]}
+    """
+    data  = request.get_json(silent=True) or {}
+    moves = data.get('moves', [])
+    if not moves:
+        return jsonify({'error': 'moves required'}), 400
+
+    notebook = data.get('notebook', '')
+    updated  = []
+    errors   = []
+
+    for move in moves:
+        selector = move.get('selector', '')
+        try:
+            day = int(move['day'])
+            seq = int(move['seq'])
+        except (KeyError, TypeError, ValueError):
+            errors.append({'selector': selector, 'error': 'day and seq must be integers'})
+            continue
+
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            errors.append({'selector': selector, 'error': 'not found'})
+            continue
+
+        if not notebook:
+            try:
+                notebook = fpath.relative_to(NB_DIR).parts[0]
+            except ValueError:
+                pass
+
+        try:
+            raw     = fpath.read_text(errors='replace')
+            patched = _patch_fm_fields(raw, day=day, seq=seq)
+            fpath.write_text(patched)
+            updated.append(selector)
+        except Exception as e:
+            errors.append({'selector': selector, 'error': str(e)})
+
+    if updated and notebook:
+        nb_path = NB_DIR / notebook
+        if nb_path.is_dir() and (nb_path / '.git').exists():
+            try:
+                subprocess.run(['git', 'add', '-A'], capture_output=True,
+                               cwd=str(nb_path), timeout=10)
+                subprocess.run(
+                    ['git', 'commit', '-m',
+                     f'[nb-web] Resequence {len(updated)} shot(s)'],
+                    capture_output=True, cwd=str(nb_path), timeout=10)
+            except Exception:
+                pass  # git failure is non-fatal; files are already written
+
+    return jsonify({'updated': updated, 'errors': errors})
 
 
 # ---------------------------------------------------------------------------
