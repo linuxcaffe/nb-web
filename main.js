@@ -212,6 +212,7 @@ const NbMain = (() => {
             .join('  ');
         document.getElementById('nb-type-breakdown').textContent = breakdown;
 
+        const _pluginIconFn = NbWeb.getListItemIcon(NbNav.notebook);
         notes.forEach(note => {
             const li = document.createElement('li');
             li.className = 'nb-list-item' + (note.type === 'folder' ? ' folder' : '') +
@@ -238,7 +239,9 @@ const NbMain = (() => {
                                 zip:'🗜', tar:'🗜', gz:'🗜',
                                 html:'🌐', htm:'🌐' };
             const _ext = (note.filename || '').split('.').pop().toLowerCase();
-            const _iconChar = _isPinned          ? '📌'
+            const _pluginIcon = _pluginIconFn ? _pluginIconFn(note) : null;
+            const _iconChar = _pluginIcon        ? _pluginIcon
+                            : _isPinned          ? '📌'
                             : note.indicator     ? note.indicator
                             : note.type === 'bookmark' ? '🔖'
                             : _extIcon[_ext]     ? _extIcon[_ext]

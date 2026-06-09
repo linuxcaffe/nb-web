@@ -59,7 +59,7 @@ def _first_excerpt_line(body: str, meta: dict) -> str:
     """
     if meta.get('caption'):
         return str(meta['caption'])[:120]
-    for field in ('phone', 'email'):
+    for field in ('desc', 'phone', 'email'):
         val = meta.get(field)
         if val:
             first = next(iter(val.values()), None) if isinstance(val, dict) else str(val)
@@ -5179,7 +5179,7 @@ def api_cine_data():
                 })
             except Exception:
                 pass
-    shots.sort(key=lambda s: (s['day'] if s['day'] is not None else 9999, s['seq']))
+    shots.sort(key=lambda s: (s['day'] if s['day'] is not None else 0, s['seq']))
 
     def _scan_dir(subdir, code_field):
         out = {}

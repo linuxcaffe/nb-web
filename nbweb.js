@@ -95,6 +95,11 @@ const NbWeb = (() => {
         return _activeFor(notebook).find(m => m.listExcerpt)?.listExcerpt ?? null;
     }
 
+    // listItemIcon(notebook) → fn(note) → string|null — plugin icon override per note
+    function getListItemIcon(notebook) {
+        return _activeFor(notebook).find(m => m.listItemIcon)?.listItemIcon ?? null;
+    }
+
     // listButtons — notebook-specific, injected into the List panel toolbar
     function getListButtons(notebook) {
         return _activeFor(notebook).flatMap(m => m.listButtons ?? m.toolbarButtons ?? []);
@@ -386,6 +391,7 @@ const NbWeb = (() => {
         getPreviewRenderer,
         getSortOptions,
         getListExcerpt,
+        getListItemIcon,
         getListButtons,
         getNavButtons,
         getToolbarButtons: getListButtons, // backward-compat alias
