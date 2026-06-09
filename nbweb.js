@@ -82,7 +82,19 @@ const NbWeb = (() => {
     }
 
     function getPreviewRenderer(notebook) {
-        return _activeFor(notebook).find(m => m.previewRenderer)?.previewRenderer ?? null;
+        const active = _activeFor(notebook);
+        // new multi-renderer API: return first renderer's render fn as a backward-compat shim
+        const multi = active.find(m => m.previewRenderers?.length);
+        if (multi) return note => multi.previewRenderers[0].render(note);
+        return active.find(m => m.previewRenderer)?.previewRenderer ?? null;
+    }
+
+    // Returns all renderers from the first active module that has previewRenderers,
+    // filtered to those whose detect(note) returns true.
+    function getPreviewRenderers(notebook, note) {
+        const spec = _activeFor(notebook).find(m => m.previewRenderers?.length);
+        if (!spec) return [];
+        return spec.previewRenderers.filter(r => !r.detect || r.detect(note));
     }
 
     // Returns all custom sort options from plugins active for this notebook.
@@ -389,6 +401,7 @@ const NbWeb = (() => {
         _loadPlugins,
         _init,
         getPreviewRenderer,
+        getPreviewRenderers,
         getSortOptions,
         getListExcerpt,
         getListItemIcon,

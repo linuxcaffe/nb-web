@@ -456,7 +456,58 @@ const NbMain = (() => {
 
         const fileUrl = `/api/file?selector=${encodeURIComponent(note.selector)}`;
         let html = '';
-        const _pluginHtml = NbWeb.getPreviewRenderer(note.notebook)?.(note) ?? null;
+
+        // ── Renderer style toggle ──────────────────────────────────────────
+        const _rEl     = document.getElementById('nb-preview-renderers');
+        if (_rEl) _rEl.innerHTML = '';
+        const _renderers  = NbWeb.getPreviewRenderers(note.notebook, note);
+        const _modeKey    = `nb-render-mode:${note.notebook}`;
+        const _activeId   = _renderers.length > 1
+            ? (localStorage.getItem(_modeKey) || _renderers[0].id)
+            : (_renderers[0]?.id ?? '');
+        const _activeRend = _renderers.find(r => r.id === _activeId) ?? _renderers[0] ?? null;
+        if (_renderers.length > 1 && _rEl) {
+            for (const r of _renderers) {
+                const btn = document.createElement('button');
+                btn.className = 'nb-tool-btn' + (r.id === _activeId ? ' nb-active' : '');
+                btn.title = r.label;  btn.textContent = r.icon;
+                btn.addEventListener('click', () => {
+                    localStorage.setItem(_modeKey, r.id);
+                    renderPreview(note);
+                });
+                _rEl.appendChild(btn);
+            }
+        }
+        const _pluginHtml = _activeRend
+            ? _activeRend.render(note)
+            : (NbWeb.getPreviewRenderer(note.notebook)?.(note) ?? null);
+
+        // ── Lock / Unlock UI ───────────────────────────────────────────────
+        document.getElementById('nb-unlock-btn')?.remove();
+        const _isLocked = /^(yes|on|true|1)$/i.test(String(note.meta?.lock ?? ''));
+        const _editBtn  = document.getElementById('nb-edit-btn');
+        if (_isLocked && _editBtn) {
+            _editBtn.hidden = true;
+            const unlockBtn = document.createElement('button');
+            unlockBtn.id        = 'nb-unlock-btn';
+            unlockBtn.className = 'nb-tool-btn';
+            unlockBtn.title     = 'Remove lock from this note';
+            unlockBtn.textContent = '🔒 Unlock';
+            unlockBtn.addEventListener('click', async () => {
+                unlockBtn.disabled = true; unlockBtn.textContent = '…';
+                try {
+                    await fetch('/api/cine/lock', {
+                        method:  'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body:    JSON.stringify({ selector: note.selector, locked: false }),
+                    });
+                    await openNote(note.selector);
+                } finally {
+                    unlockBtn.disabled = false;
+                }
+            });
+            _editBtn.insertAdjacentElement('afterend', unlockBtn);
+        }
 
         if (note.type === 'image') {
             html = `<div style="text-align:center"><img src="${fileUrl}" class="nb-img-preview" alt="${_esc(note.title)}"></div>`;

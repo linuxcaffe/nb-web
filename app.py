@@ -5176,6 +5176,8 @@ def api_cine_data():
                     'platform':  str(meta.get('platform', '')),
                     'actors':    _cine_csv(meta.get('actors', '')),
                     'resources': _cine_csv(meta.get('resources', '')),
+                    'locked':    bool(re.match(r'^(yes|on|true|1)$',
+                                     str(meta.get('lock', '')).strip(), re.I)),
                 })
             except Exception:
                 pass
@@ -5318,6 +5320,54 @@ def api_cine_resequence():
                 pass  # git failure is non-fatal; files are already written
 
     return jsonify({'updated': updated, 'errors': errors})
+
+
+@app.route('/api/cine/lock', methods=['POST'])
+def api_cine_lock():
+    """Set or remove the lock: field in a note's frontmatter.
+
+    Body: {"selector": "Takeout:shots/1a.md", "locked": true|false}
+    Returns: {"ok": true}
+    """
+    data     = request.get_json(silent=True) or {}
+    selector = data.get('selector', '')
+    locked   = bool(data.get('locked', False))
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+
+    try:
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            return jsonify({'error': 'not found'}), 404
+        raw = fpath.read_text(errors='replace')
+        if locked:
+            patched = _patch_fm_fields(raw, lock='yes')
+        else:
+            # Remove the lock: line entirely
+            if not raw.startswith('---'):
+                return jsonify({'ok': True})
+            end = raw.find('\n---', 3)
+            if end == -1:
+                return jsonify({'ok': True})
+            fm      = re.sub(r'\nlock:[^\n]*', '', raw[3:end])
+            patched = f'---{fm}\n---{raw[end+4:]}'
+        fpath.write_text(patched)
+        try:
+            notebook = fpath.relative_to(NB_DIR).parts[0]
+            nb_path  = NB_DIR / notebook
+            if (nb_path / '.git').exists():
+                subprocess.run(['git', 'add', str(fpath)], capture_output=True,
+                               cwd=str(nb_path), timeout=10)
+                action = 'Lock' if locked else 'Unlock'
+                subprocess.run(['git', 'commit', '-m',
+                                f'[nb-web] {action}: {fpath.name}'],
+                               capture_output=True, cwd=str(nb_path), timeout=10)
+        except Exception:
+            pass  # git failure is non-fatal
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------------

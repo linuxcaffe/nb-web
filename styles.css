@@ -859,6 +859,8 @@ body {
   transition: color 0.15s, background 0.15s;
 }
 .nb-tool-btn:hover { color: var(--text); background: var(--bg); }
+.nb-tool-btn.nb-active { color: var(--text); background: var(--bg); border-color: var(--accent); }
+#nb-preview-renderers { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
 .nb-btn-primary {
   background: var(--accent);
   border: 1px solid var(--accent);
