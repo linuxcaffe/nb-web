@@ -13,6 +13,8 @@ const NbMain = (() => {
     let _sortMode       = 'default';
     let _defaultSortMode = 'default'; // effective default for the current notebook (set by resetSort)
     let _nbSortMode     = 'active-first';  // sort for Notebooks settings view
+    const _toolbarCache = {};              // { notebook: { ts, notes } }
+    const _TOOLBAR_TTL  = 30_000;
     let _lastNbList     = [];              // last fetched notebooks array
     let _lastNbCurrent  = 'home';          // nb's actual current notebook (from ~/.nb/.current)
     let _foldersFirst   = localStorage.getItem('nb-folders-first') !== 'false';
@@ -183,6 +185,21 @@ const NbMain = (() => {
         _updateSortBtn();
     }
 
+    async function _fetchToolbarNotes(nb) {
+        const now = Date.now();
+        const hit = _toolbarCache[nb];
+        if (hit && now - hit.ts < _TOOLBAR_TTL) return hit.notes;
+        try {
+            const r = await fetch(`/api/toolbar-notes?notebook=${encodeURIComponent(nb)}`);
+            if (r.ok) {
+                const d = await r.json();
+                _toolbarCache[nb] = { ts: now, notes: d.notes || [] };
+                return d.notes || [];
+            }
+        } catch (_) {}
+        return [];
+    }
+
     function renderList(notes, fromSort = false) {
         if (!fromSort) {
             _lastNotes = notes;
@@ -205,7 +222,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -214,22 +231,24 @@ const NbMain = (() => {
 
         const _pluginIconFn = NbWeb.getListItemIcon(NbNav.notebook);
 
-        // Toolbar shortcut buttons — notes with toolbar: true in frontmatter
-        const _listBtnsEl = document.getElementById('nb-list-plugin-btns');
-        if (_listBtnsEl) {
-            _listBtnsEl.querySelectorAll('[data-toolbar-shortcut]').forEach(b => b.remove());
-            for (const tn of notes.filter(n => n.toolbar)) {
+        // Toolbar shortcut buttons — notebook-wide scan (across all folders)
+        const _nb = NbNav.notebook;
+        _fetchToolbarNotes(_nb).then(toolbarNotes => {
+            const el = document.getElementById('nb-list-plugin-btns');
+            if (!el) return;
+            el.querySelectorAll('[data-toolbar-shortcut]').forEach(b => b.remove());
+            for (const tn of toolbarNotes) {
                 const btn = document.createElement('button');
                 btn.className = 'nb-icon-btn';
                 btn.dataset.toolbarShortcut = '1';
                 btn.textContent = tn.toolbar_icon
                                || (_pluginIconFn ? _pluginIconFn(tn) : null)
-                               || '📌';
-                btn.title = tn.title || tn.filename;
+                               || tn.indicator || '📌';
+                btn.title = tn.title || '';
                 btn.addEventListener('click', () => openNote(tn.selector));
-                _listBtnsEl.appendChild(btn);
+                el.appendChild(btn);
             }
-        }
+        });
 
         notes.forEach(note => {
             const li = document.createElement('li');
@@ -2434,6 +2453,7 @@ const NbMain = (() => {
             const d = await r.json();
             if (d.success) {
                 const savedSel = _activeSelector;
+                delete _toolbarCache[NbNav.notebook];  // bust so toolbar: changes show immediately
                 _closeEditor();
                 _noAutoSelect = true;
                 NbNav.reexecute();

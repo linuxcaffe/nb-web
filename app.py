@@ -386,9 +386,27 @@ INDICATORS = {
     'contact':     '🪪',
     'html':        '🌐',
     'archive':     '📦',
+    'strip':       '🎞️',
     'note':        '',
     'file':        '',
 }
+
+# Frontmatter type: values that override classify().
+#
+# classify() is filename-only; this hook lets notes opt into a richer type via
+# frontmatter  type: <name>  without renaming the file.  To register a new type:
+#   1. Add its name to _FM_TYPES below.
+#   2. Add its icon to INDICATORS above.
+#   3. Add it to the icon breakdown in main.js renderList if it should appear in
+#      the type count bar (e.g. `strip:'🎞️'`).
+#
+# Currently registered frontmatter types:
+#   strip  — film production stripboard note  🎞️  (NbWeb-cine plugin)
+_FM_TYPES = frozenset({'strip'})
+
+def _apply_meta_type(itype, meta):
+    fm = str(meta.get('type', '') or '').strip().lower()
+    return fm if fm in _FM_TYPES else itype
 
 
 def _sanitize_html(html):
@@ -1665,6 +1683,7 @@ def _build_all_notes() -> list:
                 except OSError:
                     continue
                 meta, body = parse_frontmatter(raw)
+                itype = _apply_meta_type(itype, meta)
             title = meta.get('title') or meta.get('name') or note_title(fname, body)
             if '/items/' in str(fpath):
                 parts = [str(meta[k]) for k in ('category', 'price', 'status') if meta.get(k)]
@@ -1744,6 +1763,7 @@ def _list_notes(notebook, folder, limit):
             except OSError:
                 continue
             meta, body = parse_frontmatter(raw)
+            itype = _apply_meta_type(itype, meta)
         title = meta.get('title') or meta.get('name') or note_title(fname, body)
         excerpt = _first_excerpt_line(body, meta)
         todo_status = None
@@ -1761,11 +1781,9 @@ def _list_notes(notebook, folder, limit):
             'selector':   f"{notebook}:{sel_path}",
             'excerpt':    excerpt,
             'updated':    '',
-            'pinned':       meta.get('pinned', '') == 'true',
-            'status':       todo_status,
-            'annotation':   _read_annotation(str(fpath)),
-            'toolbar':      bool(meta.get('toolbar')),
-            'toolbar_icon': str(meta.get('toolbar_icon') or '').strip(),
+            'pinned':     meta.get('pinned', '') == 'true',
+            'status':     todo_status,
+            'annotation': _read_annotation(str(fpath)),
         })
         if len(items) >= limit:
             break
@@ -1911,6 +1929,7 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
             try:
                 raw  = fpath.read_text(errors='replace')
                 meta, body = parse_frontmatter(raw)
+                itype = _apply_meta_type(itype, meta)
                 title   = meta.get('title') or meta.get('name') or note_title(fname, body)
                 excerpt = _first_excerpt_line(body, meta)
                 todo_status = None
@@ -2205,6 +2224,7 @@ def api_note():
         return jsonify({'error': 'could not read file'}), 404
 
     meta, body = parse_frontmatter(raw)
+    itype = _apply_meta_type(itype, meta)
     title = meta.get('title') or meta.get('name') or note_title(filename, body)
 
     tags = re.findall(r'#([\w/-]+)', body)
@@ -4211,6 +4231,46 @@ def _parse_cal_grep(raw, nb_name):
                 cur_excerpt = mm.group(1).strip()
     _flush()
     return entries
+
+
+@app.route('/api/toolbar-notes')
+def api_toolbar_notes():
+    """Scan a full notebook for notes with  toolbar: true  in frontmatter.
+
+    Recurses into subfolders so toolbar shortcuts work regardless of which
+    folder is currently open in the list pane.  Results are intentionally
+    lightweight — just enough to render the shortcut button.
+    """
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'notes': []})
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'notes': []})
+
+    result = []
+    for fpath in sorted(nb_path.rglob('*.md')):
+        rel = fpath.relative_to(nb_path)
+        if any(part.startswith('.') for part in rel.parts):
+            continue
+        try:
+            raw  = fpath.read_text(errors='replace')
+            meta, _ = parse_frontmatter(raw)
+            if not bool(meta.get('toolbar')):
+                continue
+            fname = fpath.name
+            itype = _apply_meta_type(classify(fname, notebook), meta)
+            result.append({
+                'selector':     f"{notebook}:{'/'.join(rel.parts)}",
+                'title':        meta.get('title') or note_title(fname, ''),
+                'toolbar_icon': str(meta.get('toolbar_icon') or '').strip(),
+                'type':         itype,
+                'indicator':    INDICATORS.get(itype, ''),
+            })
+        except Exception:
+            continue
+
+    return jsonify({'notes': result})
 
 
 @app.route('/api/cal')
