@@ -5367,7 +5367,8 @@ def _patch_fm_fields(raw_text, **fields):
     fm_block = raw_text[3:end]
     body = raw_text[end + 4:]
     for key, value in fields.items():
-        pat = re.compile(r'^(' + re.escape(key) + r':\s*).*$', re.MULTILINE)
+        # Also consume an orphaned bare-integer continuation line (e.g. "day:\n1")
+        pat = re.compile(r'^(' + re.escape(key) + r':\s*).*$(?:\n[ \t]*\d+[ \t]*$)?', re.MULTILINE)
         if pat.search(fm_block):
             fm_block = pat.sub(r'\g<1>' + str(value), fm_block)
         else:
