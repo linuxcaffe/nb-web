@@ -980,9 +980,10 @@ body {
 .nb-contact-fields    { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .nb-fm-fallback       { padding: 16px 32px; border-bottom: 1px solid var(--border); margin-bottom: 0; }
 
-/* Extras-hidden mode — toggled by 👁 button */
+/* Extras-hidden mode — toggled by ◉/○ button */
 #nb-preview-content.nb-extras-hidden .nb-fm-fallback { display: none; }
-#nb-preview-content.nb-extras-hidden .nb-annotation-foot { display: none; }
+/* Hide annotation foot only when it has content; spare the empty "Add annotation" button */
+#nb-preview-content.nb-extras-hidden .nb-annotation-foot:not(:has(.nb-ann-empty)) { display: none; }
 
 .nb-contact-row       { display: flex; gap: 12px; align-items: baseline; font-size: 0.9em; }
 .nb-contact-label     { min-width: 72px; text-align: right; color: var(--text-muted); font-size: 0.82em; flex-shrink: 0; }

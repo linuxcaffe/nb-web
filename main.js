@@ -600,7 +600,7 @@ const NbMain = (() => {
             _appendAnnotation(content, note);
             return;
         } else if (_pluginHtml !== null) {
-            html = _pluginHtml;
+            html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
@@ -690,7 +690,7 @@ const NbMain = (() => {
                 setTimeout(() => pw.focus(), 50);
             }
             return;
-        } else if (['note','file','strip','scene','shot',''].includes(note.type)) {
+        } else if (['note','file','strip','scene','shot','story','storyline',''].includes(note.type)) {
             html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         } else {
             html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw || '')}</pre>`;
@@ -1517,7 +1517,7 @@ const NbMain = (() => {
         const _apply = hidden => {
             content.classList.toggle('nb-extras-hidden', hidden);
             btn.classList.toggle('nb-active', hidden);
-            btn.textContent = hidden ? '🙈' : '👁';
+            btn.textContent = hidden ? '○' : '◉';
         };
         _apply(localStorage.getItem(_EXTRAS_KEY) === '1');
 
