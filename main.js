@@ -1517,6 +1517,7 @@ const NbMain = (() => {
         const _apply = hidden => {
             content.classList.toggle('nb-extras-hidden', hidden);
             btn.classList.toggle('nb-active', hidden);
+            btn.textContent = hidden ? '🙈' : '👁';
         };
         _apply(localStorage.getItem(_EXTRAS_KEY) === '1');
 
