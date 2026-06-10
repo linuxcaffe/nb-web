@@ -5378,8 +5378,8 @@ def api_cine_data():
         return resolved
 
     storylines_dir = nb_path / 'storylines'
-    lanes   = []
-    stories = []
+    lanes        = []
+    _story_raws  = []   # collected before lane lookup is built
     if storylines_dir.is_dir():
         for f in sorted(storylines_dir.glob('*.md')):
             try:
@@ -5396,22 +5396,33 @@ def api_cine_data():
                         'seq':      _cine_int(meta.get('seq'), 999),
                     })
                 elif ftype == 'story':
-                    scenes_raw = meta.get('scenes', '')
-                    stories.append({
-                        'selector':   f'{notebook}:storylines/{f.name}',
-                        'filename':   f.name,
-                        'stem':       stem,
-                        'title':      str(meta.get('title', stem)),
-                        'storyline':  str(meta.get('storyline', '')),
-                        'seq':        _cine_int(meta.get('seq'), 999),
-                        'scenes':     _resolve_scene_refs(scenes_raw),
-                        'scenes_raw': str(scenes_raw),
-                        'color':      str(meta.get('color', '')),
-                        'meta':       {k: v for k, v in meta.items()
-                                       if k not in ('type',)},
-                    })
+                    _story_raws.append((f, meta, stem))
             except Exception:
                 pass
+
+    # Resolve storyline: by stem OR title (natural to write the title)
+    _lane_lookup = {}
+    for lane in lanes:
+        _lane_lookup[lane['stem'].lower()]          = lane['stem']
+        _lane_lookup[lane['title'].strip().lower()] = lane['stem']
+
+    stories = []
+    for f, meta, stem in _story_raws:
+        raw_sl     = str(meta.get('storyline', '')).strip()
+        storyline  = _lane_lookup.get(raw_sl.lower(), raw_sl)
+        scenes_raw = meta.get('scenes', '')
+        stories.append({
+            'selector':   f'{notebook}:storylines/{f.name}',
+            'filename':   f.name,
+            'stem':       stem,
+            'title':      str(meta.get('title', stem)).strip(),
+            'storyline':  storyline,
+            'seq':        _cine_int(meta.get('seq'), 999),
+            'scenes':     _resolve_scene_refs(scenes_raw),
+            'scenes_raw': str(scenes_raw),
+            'color':      str(meta.get('color', '')),
+            'meta':       {k: v for k, v in meta.items() if k != 'type'},
+        })
 
     lanes.sort(key=lambda l: l['seq'])
     stories.sort(key=lambda s: (s['storyline'], s['seq']))
