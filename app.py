@@ -389,6 +389,8 @@ INDICATORS = {
     'archive':     '📦',
     'strip':       '🎞️',
     'scene':       '📜',
+    'storyline':   '🧵',
+    'story':       '🃏',
     'note':        '',
     'file':        '',
 }
@@ -410,8 +412,10 @@ INDICATORS = {
 # Currently registered frontmatter types:
 #   strip  — film production stripboard note  🎞️  (NbWeb-cine plugin)
 #   shot   — individual camera shot           🎬  (NbWeb-cine plugin)
-#   scene  — screenplay scene document        📜  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene'})
+#   scene     — screenplay scene document        📜  (NbWeb-cine plugin)
+#   storyline — named lane in the storylines board 🧵  (NbWeb-cine plugin)
+#   story     — card on the storylines board      🃏  (NbWeb-cine plugin)
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -5352,13 +5356,80 @@ def api_cine_data():
         return (int(v) if v.isdigit() else 999, v)
     scenes.sort(key=_scene_sort_key)
 
+    # Build a lookup for scene resolution: alias → selector, stem → selector
+    _scene_lookup = {}
+    for sc in scenes:
+        if sc['alias']:
+            _scene_lookup[sc['alias'].lower()] = sc['selector']
+        stem = sc['selector'].rsplit('/', 1)[-1]
+        if stem.endswith('.md'):
+            stem = stem[:-3]
+        _scene_lookup[stem.lower()] = sc['selector']
+
+    def _resolve_scene_refs(raw):
+        """Split a comma-separated scenes: field, resolve each to a selector."""
+        resolved = []
+        for token in re.split(r'[,\s]+', str(raw or '')):
+            token = token.strip()
+            if not token:
+                continue
+            sel = _scene_lookup.get(token.lower())
+            resolved.append({'ref': token, 'selector': sel})
+        return resolved
+
+    storylines_dir = nb_path / 'storylines'
+    lanes   = []
+    stories = []
+    if storylines_dir.is_dir():
+        for f in sorted(storylines_dir.glob('*.md')):
+            try:
+                meta, _ = parse_frontmatter(f.read_text(errors='replace'))
+                ftype = str(meta.get('type', '')).strip().lower()
+                stem  = f.stem
+                if ftype == 'storyline':
+                    lanes.append({
+                        'selector': f'{notebook}:storylines/{f.name}',
+                        'filename': f.name,
+                        'stem':     stem,
+                        'title':    str(meta.get('title', stem)),
+                        'color':    str(meta.get('color', '')),
+                        'seq':      _cine_int(meta.get('seq'), 999),
+                    })
+                elif ftype == 'story':
+                    scenes_raw = meta.get('scenes', '')
+                    stories.append({
+                        'selector':   f'{notebook}:storylines/{f.name}',
+                        'filename':   f.name,
+                        'stem':       stem,
+                        'title':      str(meta.get('title', stem)),
+                        'storyline':  str(meta.get('storyline', '')),
+                        'seq':        _cine_int(meta.get('seq'), 999),
+                        'scenes':     _resolve_scene_refs(scenes_raw),
+                        'scenes_raw': str(scenes_raw),
+                        'color':      str(meta.get('color', '')),
+                        'meta':       {k: v for k, v in meta.items()
+                                       if k not in ('type',)},
+                    })
+            except Exception:
+                pass
+
+    lanes.sort(key=lambda l: l['seq'])
+    stories.sort(key=lambda s: (s['storyline'], s['seq']))
+
+    # Scene coverage: which scene selectors are claimed by at least one story
+    claimed = {ref['selector'] for st in stories for ref in st['scenes'] if ref['selector']}
+    orphan_scenes = [sc for sc in scenes if sc['selector'] not in claimed]
+
     return jsonify({
-        'shots':     shots,
-        'scenes':    scenes,
-        'actors':    actors,
-        'locations': locations,
-        'resources': resources,
-        'config':    config,
+        'shots':         shots,
+        'scenes':        scenes,
+        'actors':        actors,
+        'locations':     locations,
+        'resources':     resources,
+        'config':        config,
+        'lanes':         lanes,
+        'stories':       stories,
+        'orphan_scenes': orphan_scenes,
     })
 
 
@@ -5465,6 +5536,70 @@ def api_cine_resequence():
                     capture_output=True, cwd=str(nb_path), timeout=10)
             except Exception:
                 pass  # git failure is non-fatal; files are already written
+
+    return jsonify({'updated': updated, 'errors': errors})
+
+
+@app.route('/api/cine/story/resequence', methods=['POST'])
+def api_cine_story_resequence():
+    """Batch-update storyline: and seq: frontmatter fields on story cards.
+
+    Body: {
+        "notebook": "Takeout",
+        "moves": [{"selector": "Takeout:storylines/they-lose-the-car.md",
+                   "storyline": "main-plot", "seq": 3}, ...]
+    }
+    Returns: {"updated": [...selectors], "errors": [...{selector, error}]}
+    """
+    data  = request.get_json(silent=True) or {}
+    moves = data.get('moves', [])
+    if not moves:
+        return jsonify({'error': 'moves required'}), 400
+
+    notebook = data.get('notebook', '')
+    updated  = []
+    errors   = []
+
+    for move in moves:
+        selector = move.get('selector', '')
+        try:
+            storyline = str(move['storyline'])
+            seq       = int(move['seq'])
+        except (KeyError, TypeError, ValueError):
+            errors.append({'selector': selector, 'error': 'storyline and seq required'})
+            continue
+
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            errors.append({'selector': selector, 'error': 'not found'})
+            continue
+
+        if not notebook:
+            try:
+                notebook = fpath.relative_to(NB_DIR).parts[0]
+            except ValueError:
+                pass
+
+        try:
+            raw     = fpath.read_text(errors='replace')
+            patched = _patch_fm_fields(raw, storyline=storyline, seq=seq)
+            fpath.write_text(patched)
+            updated.append(selector)
+        except Exception as e:
+            errors.append({'selector': selector, 'error': str(e)})
+
+    if updated and notebook:
+        nb_path = NB_DIR / notebook
+        if nb_path.is_dir() and (nb_path / '.git').exists():
+            try:
+                subprocess.run(['git', 'add', '-A'], capture_output=True,
+                               cwd=str(nb_path), timeout=10)
+                subprocess.run(
+                    ['git', 'commit', '-m',
+                     f'[nb-web] Resequence {len(updated)} story card(s)'],
+                    capture_output=True, cwd=str(nb_path), timeout=10)
+            except Exception:
+                pass
 
     return jsonify({'updated': updated, 'errors': errors})
 
