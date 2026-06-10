@@ -5529,7 +5529,7 @@ def api_cine_resequence():
 
         try:
             raw     = fpath.read_text(errors='replace')
-            patched = _patch_fm_fields(raw, day=day if day is not None else '', seq=seq)
+            patched = _patch_fm_fields(raw, day=day if day is not None else '""', seq=seq)
             fpath.write_text(patched)
             updated.append(selector)
         except Exception as e:
