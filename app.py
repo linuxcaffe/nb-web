@@ -388,6 +388,7 @@ INDICATORS = {
     'html':        '🌐',
     'archive':     '📦',
     'strip':       '🎞️',
+    'scene':       '📜',
     'note':        '',
     'file':        '',
 }
@@ -409,7 +410,8 @@ INDICATORS = {
 # Currently registered frontmatter types:
 #   strip  — film production stripboard note  🎞️  (NbWeb-cine plugin)
 #   shot   — individual camera shot           🎬  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot'})
+#   scene  — screenplay scene document        📜  (NbWeb-cine plugin)
+_FM_TYPES = frozenset({'strip', 'shot', 'scene'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -5328,7 +5330,7 @@ def api_cine_data():
         for f in sorted(script_dir.glob('*.md')):
             try:
                 meta, body = parse_frontmatter(f.read_text(errors='replace'))
-                if 'scene_no' not in meta:
+                if meta.get('type') != 'scene' and 'scene_no' not in meta:
                     continue  # skip cover page and non-scene files
                 synopsis = next(
                     (l.strip() for l in body.splitlines() if l.strip() and not l.startswith('#')),
@@ -5337,6 +5339,7 @@ def api_cine_data():
                 scenes.append({
                     'selector':  f'{notebook}:script/{f.name}',
                     'scene_no':  str(meta.get('scene_no', '')),
+                    'alias':     str(meta.get('alias',    '')),
                     'int_ext':   str(meta.get('int_ext',  '')).upper()[:1],
                     'day_night': str(meta.get('day_night','N')).upper()[:1],
                     'loc':       str(meta.get('loc',      '')),
@@ -5344,8 +5347,10 @@ def api_cine_data():
                 })
             except Exception:
                 pass
-    scenes.sort(key=lambda s: (int(s['scene_no']) if s['scene_no'].isdigit() else 999,
-                                s['scene_no']))
+    def _scene_sort_key(s):
+        v = s['scene_no'] or s['alias']
+        return (int(v) if v.isdigit() else 999, v)
+    scenes.sort(key=_scene_sort_key)
 
     return jsonify({
         'shots':     shots,

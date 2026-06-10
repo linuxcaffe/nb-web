@@ -1220,7 +1220,7 @@ const NbMain = (() => {
                     const r = await fetch('/api/note?selector=' + encodeURIComponent(sel));
                     if (!r.ok) return;
                     const d = await r.json();
-                    title = d.title || d.filename || sel;
+                    title = d.meta?.alias || d.title || d.filename || sel;
                     _wikilinkCache.set(sel, title);
                 }
                 if (title && title !== raw) span.textContent = title;
