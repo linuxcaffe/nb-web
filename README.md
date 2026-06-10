@@ -286,7 +286,7 @@ The full documentation lives in the `docs` notebook — importable as `docs.nbz`
 
 ## Metadata
 
-- License: MIT
+- License: [AGPL v3](LICENSE)
 - Language: Python (Flask) + Vanilla JavaScript
 - Requires: Python 3.8+, nb 7+
 - Platforms: Linux (primary), macOS (untested)
