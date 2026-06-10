@@ -2174,6 +2174,7 @@ const NbMain = (() => {
                 case 'e': if (_activeSelector) { e.preventDefault(); _openEditor(); } break;
                 case 'T': e.preventDefault(); NbTerminal.open();               break;
                 case ',': e.preventDefault(); NbTerminal.openSettings();       break;
+                case '.': e.preventDefault(); document.getElementById('nb-extras-btn')?.click(); break;
             }
         });
     }
