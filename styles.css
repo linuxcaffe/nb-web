@@ -731,6 +731,7 @@ body {
 
 /* Folder items */
 .nb-list-item.folder .nb-list-title { color: var(--text-muted); font-style: italic; }
+.nb-list-item[data-type="shot"] .nb-list-title { white-space: normal; line-height: 1.4; }
 .nb-folder-more-btn {
   flex-shrink: 0;
   margin-left: auto;

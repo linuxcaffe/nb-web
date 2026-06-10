@@ -30,7 +30,7 @@ from flask_sock import Sock
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
-app.config['JSON_SORT_KEYS']     = False               # preserve document key order
+app.json.sort_keys = False                             # preserve document key order (Flask 2.2+)
 sock = Sock(app)
 
 NB_BIN  = os.environ.get('NB_BIN', 'nb')
@@ -402,14 +402,24 @@ INDICATORS = {
 #      the type count bar (e.g. `strip:'🎞️'`).
 #   4. Add it to the markdown-rendering whitelist in main.js renderPreview:
 #      ['note','file','strip',''].includes(note.type)   ← add the new name here
+#   5. Registered types automatically get a `meta` dict in list items (scalar
+#      frontmatter fields only). Plugins use this via `listTitle: note => ...`
+#      to compute a custom display title from note.meta.
 #
 # Currently registered frontmatter types:
 #   strip  — film production stripboard note  🎞️  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip'})
+#   shot   — individual camera shot           🎬  (NbWeb-cine plugin)
+_FM_TYPES = frozenset({'strip', 'shot'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
     return fm if fm in _FM_TYPES else itype
+
+def _slim_meta(meta):
+    """Scalar frontmatter fields for list items (registered FM types only)."""
+    skip = frozenset({'title', 'type', 'tags'})
+    return {k: v for k, v in meta.items()
+            if isinstance(v, (str, int, float, bool)) and k not in skip}
 
 
 def _sanitize_html(html):
@@ -1924,6 +1934,7 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
         except OSError:
             mtime = 0
 
+        slim = None
         if itype in BINARY_TYPES:
             title   = note_title(fname, '')
             excerpt = ''
@@ -1934,15 +1945,20 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
                 meta, body = parse_frontmatter(raw)
                 itype = _apply_meta_type(itype, meta)
                 title   = meta.get('title') or meta.get('name') or note_title(fname, body)
-                excerpt = _first_excerpt_line(body, meta)
+                if itype == 'shot':
+                    excerpt = str(meta.get('desc', '')).strip()
+                else:
+                    excerpt = _first_excerpt_line(body, meta)
                 todo_status = None
                 if itype == 'todo':
                     first = next((l.strip() for l in body.splitlines() if l.strip()), '')
                     todo_status = 'closed' if first.startswith('# [x]') else 'open'
+                slim = _slim_meta(meta) if itype in _FM_TYPES else None
             except Exception:
                 title = note_title(fname, '')
                 excerpt = ''
                 todo_status = None
+                slim = None
 
         items.append({
             'selector':         sel,
@@ -1958,6 +1974,7 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
             'pinned':           False,
             'annotation_match': ann_match,
             'annotation':       _read_annotation(str(fpath)),
+            'meta':             slim,
         })
 
     return jsonify({'notes': items, 'total': len(items), 'query': tag_query})

@@ -126,6 +126,11 @@ const NbWeb = (() => {
         return _activeFor(notebook).find(m => m.listItemIcon)?.listItemIcon ?? null;
     }
 
+    // listTitle — notebook-specific fn(note) → string|null for custom list display titles
+    function getListTitle(notebookName) {
+        return _activeFor(notebookName).find(m => m.listTitle)?.listTitle ?? null;
+    }
+
     // listButtons — notebook-specific, injected into the List panel toolbar
     function getListButtons(notebook) {
         return _activeFor(notebook).flatMap(m => m.listButtons ?? m.toolbarButtons ?? []);
@@ -434,6 +439,7 @@ const NbWeb = (() => {
         getSortOptions,
         getListExcerpt,
         getListItemIcon,
+        getListTitle,
         getListButtons,
         getNavButtons,
         getToolbarButtons: getListButtons, // backward-compat alias

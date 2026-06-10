@@ -230,7 +230,8 @@ const NbMain = (() => {
             .join('  ');
         document.getElementById('nb-type-breakdown').textContent = breakdown;
 
-        const _pluginIconFn = NbWeb.getListItemIcon(NbNav.notebook);
+        const _pluginIconFn  = NbWeb.getListItemIcon(NbNav.notebook);
+        const _pluginTitleFn = NbWeb.getListTitle(NbNav.notebook);
 
         // Toolbar shortcut buttons — notebook-wide scan (across all folders)
         const _nb = NbNav.notebook;
@@ -296,9 +297,10 @@ const NbMain = (() => {
 
             const title = document.createElement('span');
             title.className = 'nb-list-title';
+            const _pluginTitle = _pluginTitleFn ? _pluginTitleFn(note) : null;
             title.textContent = _listDisplayMode === 'filename'
                 ? note.filename
-                : (note.title || note.filename);
+                : (_pluginTitle ?? note.title ?? note.filename);
             titleRow.appendChild(title);
 
             if (note.annotation_match) {
@@ -688,7 +690,7 @@ const NbMain = (() => {
                 setTimeout(() => pw.focus(), 50);
             }
             return;
-        } else if (['note','file','strip','scene',''].includes(note.type)) {
+        } else if (['note','file','strip','scene','shot',''].includes(note.type)) {
             html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         } else {
             html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw || '')}</pre>`;
@@ -1192,7 +1194,11 @@ const NbMain = (() => {
             const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook
             const r  = await fetch(`/api/notes?notebook=${encodeURIComponent(nb)}&q=${encodeURIComponent(sel)}`)
             const d  = await r.json()
-            const match = (d.notes || []).find(n => (n.title || '').toLowerCase() === sel.toLowerCase())
+            const lower = sel.toLowerCase()
+            const match = (d.notes || []).find(n =>
+                (n.title || '').toLowerCase() === lower ||
+                (n.filename || '').replace(/\.[^.]+$/, '').toLowerCase() === lower
+            )
             if (match) { _wikilinkCache.set('\x00' + sel, match.selector); return match.selector }
         } catch(e) { /* fall through */ }
         return sel
