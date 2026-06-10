@@ -5615,6 +5615,101 @@ def api_cine_story_resequence():
     return jsonify({'updated': updated, 'errors': errors})
 
 
+@app.route('/api/cine/story/create', methods=['POST'])
+def api_cine_story_create():
+    """Create a new story card in storylines/.
+
+    Body: {
+        "notebook":  "Takeout",
+        "title":     "They lose the car",
+        "storyline": "main-plot",   # lane stem (already resolved)
+        "seq":       4              # optional; auto-assigned if absent
+    }
+    Returns: {"selector": "Takeout:storylines/they-lose-the-car.md", "ok": true}
+    """
+    data      = request.get_json(silent=True) or {}
+    notebook  = data.get('notebook', '').strip()
+    title     = data.get('title', '').strip()
+    storyline = data.get('storyline', '').strip()
+
+    if not notebook or not title:
+        return jsonify({'error': 'notebook and title required'}), 400
+
+    nb_path        = NB_DIR / notebook
+    storylines_dir = nb_path / 'storylines'
+    if not nb_path.is_dir():
+        return jsonify({'error': 'notebook not found'}), 404
+
+    storylines_dir.mkdir(exist_ok=True)
+
+    # Auto-assign seq: max existing seq in this lane + 1
+    seq = data.get('seq')
+    if seq is None:
+        max_seq = 0
+        if storylines_dir.is_dir():
+            for f in storylines_dir.glob('*.md'):
+                try:
+                    m, _ = parse_frontmatter(f.read_text(errors='replace'))
+                    if str(m.get('type', '')).strip().lower() == 'story' \
+                            and str(m.get('storyline', '')).strip() == storyline:
+                        max_seq = max(max_seq, int(m.get('seq') or 0))
+                except Exception:
+                    pass
+        seq = max_seq + 1
+
+    # Build filename from title — slugify
+    slug = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:48]
+    fpath = storylines_dir / f'{slug}.md'
+    # Avoid collision
+    counter = 1
+    while fpath.exists():
+        fpath = storylines_dir / f'{slug}_{counter}.md'
+        counter += 1
+
+    # Load template if it exists, otherwise use minimal scaffold
+    tmpl_path = nb_path / '.templates' / 'story.md'
+    global_tmpl = NB_DIR / '.templates' / 'story.md'
+    if tmpl_path.exists():
+        scaffold = tmpl_path.read_text(errors='replace')
+        scaffold = _resolve_template_vars(scaffold, title=title)
+        # Inject storyline + seq into the frontmatter
+        scaffold = _patch_fm_fields(scaffold, storyline=storyline, seq=seq)
+    elif global_tmpl.exists():
+        scaffold = global_tmpl.read_text(errors='replace')
+        scaffold = _resolve_template_vars(scaffold, title=title)
+        scaffold = _patch_fm_fields(scaffold, storyline=storyline, seq=seq)
+    else:
+        # Minimal hardcoded scaffold — works before the template exists
+        scaffold = (
+            f'---\ntype: story\ntitle: {title}\nstoryline: {storyline}\n'
+            f'seq: {seq}\nscenes:\ncharacters:\ndesc:\n---\n'
+        )
+
+    fpath.write_text(scaffold)
+
+    # Update nb index and git commit
+    selector = f'{notebook}:storylines/{fpath.name}'
+    idx_path = storylines_dir / '.index'
+    if idx_path.exists():
+        existing = idx_path.read_text().splitlines()
+        if fpath.name not in existing:
+            idx_path.write_text('\n'.join(existing + [fpath.name]) + '\n')
+    else:
+        idx_path.write_text(fpath.name + '\n')
+
+    if (nb_path / '.git').exists():
+        try:
+            subprocess.run(['git', 'add', '-A'], capture_output=True,
+                           cwd=str(nb_path), timeout=10)
+            subprocess.run(
+                ['git', 'commit', '-m', f'[nb-web] Add story: {title}'],
+                capture_output=True, cwd=str(nb_path), timeout=10)
+        except Exception:
+            pass
+
+    return jsonify({'ok': True, 'selector': selector, 'filename': fpath.name})
+
+
 @app.route('/api/cine/lock', methods=['POST'])
 def api_cine_lock():
     """Set or remove the lock: field in a note's frontmatter.
