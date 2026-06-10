@@ -5358,22 +5358,46 @@ def api_cine_data():
 
 
 def _patch_fm_fields(raw_text, **fields):
-    """Update specific frontmatter fields in-place, preserving all other content."""
+    """Update specific frontmatter fields in-place, preserving all other content.
+
+    Processes line-by-line to avoid regex \s* consuming newlines into the key
+    prefix, which caused blank-line corruption when writing empty values.
+    Also drops orphaned bare-integer continuation lines (e.g. 'day:\\n1').
+    """
     if not raw_text.startswith('---'):
         return raw_text
     end = raw_text.find('\n---', 3)
     if end == -1:
         return raw_text
-    fm_block = raw_text[3:end]
-    body = raw_text[end + 4:]
-    for key, value in fields.items():
-        # Also consume an orphaned bare-integer continuation line (e.g. "day:\n1")
-        pat = re.compile(r'^(' + re.escape(key) + r':\s*).*$(?:\n[ \t]*\d+[ \t]*$)?', re.MULTILINE)
-        if pat.search(fm_block):
-            fm_block = pat.sub(r'\g<1>' + str(value), fm_block)
+    fm_text = raw_text[3:end]
+    body    = raw_text[end + 4:]
+
+    lines   = fm_text.split('\n')
+    updated = set()
+    result  = []
+    skip_next = False
+    key_pat = {k: re.compile(r'^' + re.escape(k) + r':[ \t]*') for k in fields}
+
+    for i, line in enumerate(lines):
+        if skip_next:
+            skip_next = False
+            continue
+        matched = next((k for k, p in key_pat.items() if p.match(line)), None)
+        if matched is not None:
+            v = fields[matched]
+            result.append(f'{matched}: {v}' if v != '' else f'{matched}:')
+            updated.add(matched)
+            # Drop an orphaned bare-integer on the very next line
+            if i + 1 < len(lines) and re.match(r'^[ \t]*\d+[ \t]*$', lines[i + 1]):
+                skip_next = True
         else:
-            fm_block = fm_block.rstrip('\n') + f'\n{key}: {value}'
-    return f"---{fm_block}\n---{body}"
+            result.append(line)
+
+    for key, value in fields.items():
+        if key not in updated:
+            result.append(f'{key}: {value}' if value != '' else f'{key}:')
+
+    return f"---{chr(10).join(result)}\n---{body}"
 
 
 @app.route('/api/cine/resequence', methods=['POST'])
