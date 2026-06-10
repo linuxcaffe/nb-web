@@ -5397,7 +5397,8 @@ def api_cine_resequence():
     for move in moves:
         selector = move.get('selector', '')
         try:
-            day = int(move['day'])
+            day_raw = move.get('day')
+            day = int(day_raw) if day_raw is not None else None
             seq = int(move['seq'])
         except (KeyError, TypeError, ValueError):
             errors.append({'selector': selector, 'error': 'day and seq must be integers'})
@@ -5416,7 +5417,7 @@ def api_cine_resequence():
 
         try:
             raw     = fpath.read_text(errors='replace')
-            patched = _patch_fm_fields(raw, day=day, seq=seq)
+            patched = _patch_fm_fields(raw, day=day if day is not None else '', seq=seq)
             fpath.write_text(patched)
             updated.append(selector)
         except Exception as e:
