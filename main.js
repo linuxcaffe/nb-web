@@ -662,6 +662,7 @@ const NbMain = (() => {
             const ext  = (note.filename || '').split('.').pop().toLowerCase();
             const lang = ['sh','bash','zsh','fish'].includes(ext) ? 'bash'
                        : ['journal','ledger','hledger'].includes(ext) ? 'ledger'
+                       : ['hs','lhs'].includes(ext) ? 'haskell'
                        : 'plaintext';
             const grammar = Prism.languages[lang] || Prism.languages.plaintext;
             const highlighted = Prism.highlight(note.body || '', grammar, lang);

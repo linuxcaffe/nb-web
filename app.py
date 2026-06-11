@@ -358,6 +358,7 @@ def classify(filename, notebook=None):
         return 'contact' if notebook == 'contacts' else 'note'
     if ext in ('.sh', '.bash', '.zsh', '.fish'):   return 'code'
     if ext in ('.journal', '.ledger', '.hledger'): return 'code'
+    if ext in ('.hs', '.lhs'):                     return 'code'
     if ext == '.vcf':                 return 'contact'
     if ext in ('.html', '.htm'):      return 'html'
     if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'): return 'image'
