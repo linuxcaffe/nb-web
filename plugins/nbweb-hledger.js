@@ -370,6 +370,7 @@ function _accountContent(acct, allAccounts, notebook) {
 function _accountFrontmatter(acct) {
     const fm = ['---', `title: "${acct.account}"`, 'type: account',
                 `hledger_account: "${acct.account}"`];
+    if (acct.type)      fm.push(`account_type: "${acct.type}"`);
     if (acct.cra_label) fm.push(`cra_label: "${acct.cra_label}"`);
     if (acct.cra_t1)    fm.push(`cra_line_t1: "${acct.cra_t1}"`);
     if (acct.cra_t2125) fm.push(`cra_line_t2125: "${acct.cra_t2125}"`);

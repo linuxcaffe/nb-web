@@ -3533,6 +3533,40 @@ const NbMain = (() => {
                 list.appendChild(li);
             });
 
+            // Plugin templates (read-only preview — managed via plugin UI)
+            const pluginTemplates = NbWeb.getTemplatesForNotebook(nb);
+            if (pluginTemplates.length) {
+                const byModule = new Map();
+                pluginTemplates.forEach(t => {
+                    if (!byModule.has(t.moduleName)) byModule.set(t.moduleName, []);
+                    byModule.get(t.moduleName).push(t);
+                });
+                for (const [, tmplGroup] of byModule) {
+                    const moduleLabel = tmplGroup[0].moduleLabel;
+                    const hdr = document.createElement('li');
+                    hdr.className = 'nb-list-section-header';
+                    hdr.textContent = moduleLabel;
+                    list.appendChild(hdr);
+
+                    for (const t of tmplGroup) {
+                        const content = typeof t.content === 'function' ? t.content({ name: nb }) : t.content;
+                        const li = document.createElement('li');
+                        li.className = 'nb-list-item';
+                        li.setAttribute('role', 'option');
+                        li.innerHTML = `<span class="nb-list-icon">🔌</span>
+                            <span class="nb-list-title">${_esc(t.name)}</span>
+                            <span class="nb-list-excerpt">${_esc(t.description || 'plugin template')}</span>`;
+                        li.addEventListener('click', () => {
+                            list.querySelectorAll('.nb-list-item').forEach(el => el.classList.remove('active'));
+                            li.classList.add('active');
+                            _previewVirtualTemplate(content, t.name, moduleLabel);
+                        });
+                        list.appendChild(li);
+                    }
+                }
+                countEl.textContent = `${templates.length + pluginTemplates.length} template${templates.length + pluginTemplates.length !== 1 ? 's' : ''}`;
+            }
+
             // "New export template" button if none exist yet
             const hasExportTmpl = templates.some(t => t.template_type === 'export_html');
             if (!hasExportTmpl) {
