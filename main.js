@@ -660,10 +660,24 @@ const NbMain = (() => {
             return;
         } else if (note.type === 'code') {
             const ext  = (note.filename || '').split('.').pop().toLowerCase();
-            const lang = ['sh','bash','zsh','fish'].includes(ext) ? 'bash'
-                       : ['journal','ledger','hledger'].includes(ext) ? 'ledger'
-                       : ['hs','lhs'].includes(ext) ? 'haskell'
-                       : 'plaintext';   // .txt and any unrecognised code type
+            const _langMap = {
+                sh:'bash', bash:'bash', zsh:'bash', fish:'bash',
+                journal:'ledger', ledger:'ledger', hledger:'ledger',
+                hs:'haskell', lhs:'haskell',
+                py:'python', pyw:'python',
+                js:'javascript', mjs:'javascript', cjs:'javascript',
+                ts:'javascript', tsx:'javascript', jsx:'javascript',
+                html:'markup', htm:'markup', xml:'markup', svg:'markup',
+                css:'css', scss:'css', less:'css',
+                json:'json', jsonc:'json',
+                sql:'sql',
+                yaml:'yaml', yml:'yaml',
+                c:'c', h:'c',
+                cpp:'cpp', cc:'cpp', cxx:'cpp', hpp:'cpp', hxx:'cpp',
+                rs:'rust',
+                toml:'toml',
+            };
+            const lang = _langMap[ext] || 'plaintext';
             const grammar = Prism.languages[lang] || Prism.languages.plaintext;
             const highlighted = Prism.highlight(note.body || '', grammar, lang);
             content.innerHTML = `<div class="nb-rendered"><pre class="nb-code-preview language-${lang}"><code class="language-${lang}">${highlighted}</code></pre></div>`;
