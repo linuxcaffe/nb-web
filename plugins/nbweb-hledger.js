@@ -336,12 +336,21 @@ async function _journalHealth(notebook) {
 
 // ── Account note generation ───────────────────────────────────────────────────
 
-function _noteBodyForAccount(acct, allAccounts, journalPath) {
+// Slug matching api_create_note: re.sub(r'[^\w]+', '_', title).strip('_').lower()
+function _accountSlug(accountPath) {
+    return accountPath.replace(/[^\w]+/g, '_').replace(/^_|_$/g, '').toLowerCase();
+}
+
+function _noteBodyForAccount(acct, allAccounts, journalPath, notebook) {
     const leafName   = acct.account.split(':').pop();
     const parentPath = acct.account.includes(':')
         ? acct.account.split(':').slice(0, -1).join(':')
         : null;
+    // HTML <a> tags survive marked.parse() intact — markdown link syntax breaks
+    // on URLs containing spaces (hledger flags) or curly-brace placeholders.
     const jFlag = journalPath ? ` -f ${journalPath}` : '';
+    const balLink = `<a href="term:hledger${jFlag} bal '{title}'">balance</a>`;
+    const regLink = `<a href="term:hledger${jFlag} reg '{title}'">register</a>`;
 
     const fm = [
         '---',
@@ -358,17 +367,24 @@ function _noteBodyForAccount(acct, allAccounts, journalPath) {
 
     if (acct.desc) body.push(acct.desc, '');
 
-    if (parentPath) body.push(`**Parent:** [[${parentPath}]]`, '');
-
-    if (acct.cra_t1) {
-        body.push(`**CRA T1 line ${acct.cra_t1}** — ${acct.cra_label || ''}`);
-        body.push(`[T1 General](term:xdg-open https://www.canada.ca/en/revenue-agency/services/forms-publications/tax-packages-years/general-income-tax-benefit-package.html)`, '');
-    } else if (acct.cra_t2125) {
-        body.push(`**CRA T2125 line ${acct.cra_t2125}** — ${acct.cra_label || ''}`);
-        body.push(`[T2125 form](term:xdg-open https://www.canada.ca/en/revenue-agency/services/forms-publications/forms/t2125.html)`, '');
+    // Wikilinks: use notebook:slug — colon in account paths misleads nb-web's
+    // wikilink resolver into treating them as notebook:selector pairs.
+    if (parentPath && notebook) {
+        const slug = _accountSlug(parentPath);
+        body.push(`**Parent:** [[${notebook}:${slug}]]`, '');
     }
 
-    body.push(`[balance](term:hledger${jFlag} bal '{title}') · [register](term:hledger${jFlag} reg '{title}')`);
+    if (acct.cra_t1) {
+        const url = 'https://www.canada.ca/en/revenue-agency/services/forms-publications/tax-packages-years/general-income-tax-benefit-package.html';
+        body.push(`**CRA T1 line ${acct.cra_t1}** — ${acct.cra_label || ''}`);
+        body.push(`<a href="term:xdg-open ${url}">T1 General Guide</a>`, '');
+    } else if (acct.cra_t2125) {
+        const url = 'https://www.canada.ca/en/revenue-agency/services/forms-publications/forms/t2125.html';
+        body.push(`**CRA T2125 line ${acct.cra_t2125}** — ${acct.cra_label || ''}`);
+        body.push(`<a href="term:xdg-open ${url}">T2125 form</a>`, '');
+    }
+
+    body.push(`${balLink} · ${regLink}`);
 
     return fm.join('\n') + body.join('\n');
 }
@@ -392,7 +408,7 @@ async function _createAccountNotes(notebook, accounts, journalPath, progressCb) 
 
     for (const acct of accounts) {
         try {
-            const body = _noteBodyForAccount(acct, accounts, journalPath);
+            const body = _noteBodyForAccount(acct, accounts, journalPath, notebook);
             const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -434,7 +450,7 @@ function _buildCoaWizard(el, notebook, config) {
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <button id="nb-hl-coa-preview" class="nb-tool-btn">Preview accounts</button>
                 <button id="nb-hl-coa-generate" class="nb-tool-btn nb-btn-primary">Generate accounts.journal</button>
-                <button id="nb-hl-coa-notes" class="nb-tool-btn" style="display:none">Create account notes</button>
+                <button id="nb-hl-coa-notes" class="nb-tool-btn">Create account notes</button>
                 <span id="nb-hl-coa-status" style="font-size:12px;color:var(--text-dim)"></span>
             </div>
             <pre id="nb-hl-coa-preview-text" style="display:none;font-size:11px;max-height:200px;overflow-y:auto;
@@ -530,12 +546,13 @@ function _buildCoaWizard(el, notebook, config) {
     });
 
     createNotesBtn.addEventListener('click', async () => {
-        if (!_lastAccounts.length) return;
+        const accounts = _lastAccounts.length ? _lastAccounts : buildAccounts();
+        if (!accounts.length) { statusEl.textContent = 'No accounts'; return; }
         createNotesBtn.disabled = true;
         const journalPath = config?.journal || null;
-        statusEl.textContent = `Creating notes… 0 / ${_lastAccounts.length}`;
+        statusEl.textContent = `Creating notes… 0 / ${accounts.length}`;
         const { created, errors } = await _createAccountNotes(
-            notebook, _lastAccounts, journalPath,
+            notebook, accounts, journalPath,
             (done, errs, total) => {
                 statusEl.textContent = `Creating notes… ${done + errs} / ${total}`;
             }
