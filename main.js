@@ -909,6 +909,11 @@ const NbMain = (() => {
         _resolveInlineQueries(container, note);
         _renderCsvBlocks(container);
         NbWeb.renderCodeblocks(container);
+        if (typeof Prism !== 'undefined') {
+            container.querySelectorAll('pre > code[class*="language-"]').forEach(el => {
+                if (!el.querySelector('.token')) Prism.highlightElement(el);
+            });
+        }
 
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
             .filter(Boolean).join(' ');
