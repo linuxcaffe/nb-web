@@ -334,9 +334,84 @@ async function _journalHealth(notebook) {
     } catch (_) { return null; }
 }
 
+// ── Account note generation ───────────────────────────────────────────────────
+
+function _noteBodyForAccount(acct, allAccounts, journalPath) {
+    const leafName   = acct.account.split(':').pop();
+    const parentPath = acct.account.includes(':')
+        ? acct.account.split(':').slice(0, -1).join(':')
+        : null;
+    const jFlag = journalPath ? ` -f ${journalPath}` : '';
+
+    const fm = [
+        '---',
+        `title: "${acct.account}"`,
+        'type: account',
+        `hledger_account: "${acct.account}"`,
+    ];
+    if (acct.cra_label) fm.push(`cra_label: "${acct.cra_label}"`);
+    if (acct.cra_t1)    fm.push(`cra_line_t1: "${acct.cra_t1}"`);
+    if (acct.cra_t2125) fm.push(`cra_line_t2125: "${acct.cra_t2125}"`);
+    fm.push('---', '');
+
+    const body = [`## ${leafName}`, ''];
+
+    if (acct.desc) body.push(acct.desc, '');
+
+    if (parentPath) body.push(`**Parent:** [[${parentPath}]]`, '');
+
+    if (acct.cra_t1) {
+        body.push(`**CRA T1 line ${acct.cra_t1}** — ${acct.cra_label || ''}`);
+        body.push(`[T1 General](term:xdg-open https://www.canada.ca/en/revenue-agency/services/forms-publications/tax-packages-years/general-income-tax-benefit-package.html)`, '');
+    } else if (acct.cra_t2125) {
+        body.push(`**CRA T2125 line ${acct.cra_t2125}** — ${acct.cra_label || ''}`);
+        body.push(`[T2125 form](term:xdg-open https://www.canada.ca/en/revenue-agency/services/forms-publications/forms/t2125.html)`, '');
+    }
+
+    body.push(`[balance](term:hledger${jFlag} bal '{title}') · [register](term:hledger${jFlag} reg '{title}')`);
+
+    return fm.join('\n') + body.join('\n');
+}
+
+async function _createAccountNotes(notebook, accounts, journalPath, progressCb) {
+    let created = 0;
+    let errors  = 0;
+
+    // Write annotation template for account notes
+    try {
+        await fetch('/api/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                scope:    'annotation',
+                notebook: notebook,
+                content:  '## Private details\n\nInstitution: \nAccount number: \nOnline banking: \nNotes: \n',
+            }),
+        });
+    } catch (_) {}
+
+    for (const acct of accounts) {
+        try {
+            const body = _noteBodyForAccount(acct, accounts, journalPath);
+            const r = await fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    notebook,
+                    title:            acct.account,
+                    template_content: body,
+                }),
+            });
+            if (r.ok) { created++; } else { errors++; }
+        } catch (_) { errors++; }
+        if (progressCb) progressCb(created, errors, accounts.length);
+    }
+    return { created, errors };
+}
+
 // ── CoA wizard UI ─────────────────────────────────────────────────────────────
 
-function _buildCoaWizard(el, notebook) {
+function _buildCoaWizard(el, notebook, config) {
     const domains  = Object.entries(_COA_DOMAINS);
     const provinces = Object.entries(_PROVINCES);
 
@@ -352,13 +427,14 @@ function _buildCoaWizard(el, notebook) {
                 <label style="font-size:12px;color:var(--text-dim)">Province</label>
                 <select id="nb-hl-province" class="nb-scope-select">
                     ${provinces.map(([code, p]) =>
-                        `<option value="${code}"${code === 'BC' ? ' selected' : ''}>${_esc(p.label)}</option>`).join('')}
+                        `<option value="${code}"${code === (config?.province || 'ON') ? ' selected' : ''}>${_esc(p.label)}</option>`).join('')}
                 </select>
             </div>
             <div id="nb-hl-coa-opts" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-bottom:10px;font-size:13px"></div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <button id="nb-hl-coa-preview" class="nb-tool-btn">Preview accounts</button>
                 <button id="nb-hl-coa-generate" class="nb-tool-btn nb-btn-primary">Generate accounts.journal</button>
+                <button id="nb-hl-coa-notes" class="nb-tool-btn" style="display:none">Create account notes</button>
                 <span id="nb-hl-coa-status" style="font-size:12px;color:var(--text-dim)"></span>
             </div>
             <pre id="nb-hl-coa-preview-text" style="display:none;font-size:11px;max-height:200px;overflow-y:auto;
@@ -366,14 +442,16 @@ function _buildCoaWizard(el, notebook) {
             <div id="nb-hl-coa-result" style="display:none;margin-top:8px"></div>
         </div>`;
 
-    const domainSel   = el.querySelector('#nb-hl-domain');
-    const provinceSel = el.querySelector('#nb-hl-province');
-    const optsEl      = el.querySelector('#nb-hl-coa-opts');
-    const previewBtn  = el.querySelector('#nb-hl-coa-preview');
-    const generateBtn = el.querySelector('#nb-hl-coa-generate');
-    const statusEl    = el.querySelector('#nb-hl-coa-status');
-    const previewText = el.querySelector('#nb-hl-coa-preview-text');
-    const resultEl    = el.querySelector('#nb-hl-coa-result');
+    const domainSel    = el.querySelector('#nb-hl-domain');
+    const provinceSel  = el.querySelector('#nb-hl-province');
+    const optsEl       = el.querySelector('#nb-hl-coa-opts');
+    const previewBtn   = el.querySelector('#nb-hl-coa-preview');
+    const generateBtn  = el.querySelector('#nb-hl-coa-generate');
+    const createNotesBtn = el.querySelector('#nb-hl-coa-notes');
+    const statusEl     = el.querySelector('#nb-hl-coa-status');
+    const previewText  = el.querySelector('#nb-hl-coa-preview-text');
+    const resultEl     = el.querySelector('#nb-hl-coa-result');
+    let _lastAccounts  = [];
 
     function getOpts() {
         const opts = {};
@@ -431,8 +509,10 @@ function _buildCoaWizard(el, notebook) {
             if (d.error) {
                 statusEl.textContent = '✗ ' + d.error;
             } else {
+                _lastAccounts = accounts;
                 statusEl.textContent = `✓ ${accounts.length} accounts written`;
                 previewText.style.display = 'none';
+                createNotesBtn.style.display = '';
                 resultEl.style.display = 'block';
                 resultEl.innerHTML = `
                     <div style="font-size:12px;background:var(--bg-alt,#1a1a1a);padding:8px;border-radius:4px;border:1px solid var(--border,#333)">
@@ -447,6 +527,22 @@ function _buildCoaWizard(el, notebook) {
             statusEl.textContent = '✗ ' + e.message;
         }
         generateBtn.disabled = false;
+    });
+
+    createNotesBtn.addEventListener('click', async () => {
+        if (!_lastAccounts.length) return;
+        createNotesBtn.disabled = true;
+        const journalPath = config?.journal || null;
+        statusEl.textContent = `Creating notes… 0 / ${_lastAccounts.length}`;
+        const { created, errors } = await _createAccountNotes(
+            notebook, _lastAccounts, journalPath,
+            (done, errs, total) => {
+                statusEl.textContent = `Creating notes… ${done + errs} / ${total}`;
+            }
+        );
+        statusEl.textContent = `✓ ${created} notes created${errors ? ` (${errors} errors)` : ''}`;
+        createNotesBtn.disabled = false;
+        if (typeof NbWeb !== 'undefined') NbWeb.refreshList?.();
     });
 }
 
@@ -475,7 +571,7 @@ async function _buildPluginContent(el, notebook, config) {
         </div>`;
 
     el.innerHTML = summaryHtml;
-    _buildCoaWizard(el, notebook);
+    _buildCoaWizard(el, notebook, config);
 
     // Async: fetch account count
     _getAccounts(notebook).then(accounts => {
