@@ -1095,6 +1095,38 @@ _HLEDGER_TEXT_CMDS = {'check', 'stats', 'tags', 'commodities', 'files',
                       'accounts', 'acc', 'a', 'prices', 'payees', 'notes',
                       'activity'}
 
+# Cache: (args_tuple, journal_mtime) → (stdout, stderr, returncode)
+# Keyed on full arg list so different queries never collide.
+# Invalidated automatically when journal mtime changes (e.g. after adding a transaction).
+_hledger_cache: dict = {}
+
+def _hledger_cached_run(cmd_args, journal_path=None):
+    """Run hledger subprocess with mtime-keyed cache. Returns (stdout, stderr, returncode)."""
+    mtime = 0.0
+    if journal_path:
+        try:
+            mtime = journal_path.stat().st_mtime
+        except OSError:
+            pass
+
+    key = (tuple(cmd_args), mtime)
+    if key in _hledger_cache:
+        return _hledger_cache[key]
+
+    # Evict if cache grows large (shouldn't happen in practice — queries are finite)
+    if len(_hledger_cache) > 500:
+        _hledger_cache.clear()
+
+    r = subprocess.run(
+        ['hledger'] + list(cmd_args),
+        capture_output=True, text=True,
+        env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+        timeout=15,
+    )
+    _hledger_cache[key] = (r.stdout, r.stderr.strip(), r.returncode)
+    return _hledger_cache[key]
+
+
 def _hledger_resolve_file(path_str):
     """Resolve and validate a ledger file path; returns Path or raises ValueError."""
     resolved = Path(os.path.expanduser(path_str)).resolve()
@@ -1134,14 +1166,12 @@ def api_inline_query():
             args = shlex.split(query)
             if not args or args[0] not in (_HLEDGER_READ_CMDS | _HLEDGER_TEXT_CMDS):
                 return jsonify({'error': f'hledger command not allowed: {args[0] if args else ""}'}), 400
-            r = subprocess.run(
-                ['hledger', '-f', str(journal)] + args,
-                capture_output=True, text=True, timeout=5,
-                env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+            stdout, stderr, returncode = _hledger_cached_run(
+                ['-f', str(journal)] + args, journal_path=journal
             )
-            if r.returncode != 0:
-                return jsonify({'error': r.stderr.strip() or 'hledger error'}), 500
-            return jsonify({'result': _iq_strip(r.stdout)})
+            if returncode != 0:
+                return jsonify({'error': stderr or 'hledger error'}), 500
+            return jsonify({'result': _iq_strip(stdout)})
 
         elif provider == 'tw':
             safe_cmds = {'count', 'ids', 'uuids'}
@@ -1230,15 +1260,17 @@ def api_hledger_query():
         expanded = [expanded[0], '-f', str(file_path)] + expanded[1:]
 
     use_json_fmt = cmd not in _HLEDGER_TEXT_CMDS and request.args.get('format') != 'text'
+    final_args = expanded + (['--output-format', 'json'] if use_json_fmt else [])
+    # Derive journal path for cache invalidation from -f flag or positional file_path
+    cache_journal = file_path
+    if not cache_journal:
+        for i, a in enumerate(expanded):
+            if a in ('-f', '--file') and i + 1 < len(expanded):
+                cache_journal = Path(expanded[i + 1])
+                break
     try:
-        result = subprocess.run(
-            ['hledger'] + expanded + (['--output-format', 'json'] if use_json_fmt else []),
-            capture_output=True, text=True,
-            env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
-            timeout=15,
-        )
-        stderr = result.stderr.strip()
-        if result.returncode != 0:
+        stdout, stderr, returncode = _hledger_cached_run(final_args, cache_journal)
+        if returncode != 0:
             return jsonify({'error': stderr or 'hledger error'}), 500
         _hl_cmd      = _settings.get('hledger_web_cmd', '').strip()
         _hl_terminal = _settings.get('hledger_terminal', False)
@@ -1253,10 +1285,10 @@ def api_hledger_query():
         if file_path:
             extra['file'] = str(file_path)
         try:
-            data = json.loads(result.stdout or 'null')
+            data = json.loads(stdout or 'null')
             return jsonify({'cmd': cmd, 'data': data, **extra})
         except json.JSONDecodeError:
-            return jsonify({'cmd': cmd, 'text': result.stdout.strip(), **extra})
+            return jsonify({'cmd': cmd, 'text': stdout.strip(), **extra})
     except FileNotFoundError:
         return jsonify({'error': 'hledger not found — is it installed?'}), 500
     except subprocess.TimeoutExpired:
