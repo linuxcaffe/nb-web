@@ -1534,6 +1534,50 @@ def _t_parse_report(tc_file: Path, period: str) -> dict:
     return {'rows': rows, 'total_seconds': sum(r['seconds'] for r in rows)}
 
 
+@app.route('/api/hledger/clear-account-notes', methods=['POST'])
+def api_hledger_clear_account_notes():
+    """Delete all notes with type: account from a notebook in one git commit."""
+    data     = request.get_json(silent=True) or {}
+    notebook = data.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    nb_root = NB_DIR / notebook
+    if not nb_root.is_dir():
+        return jsonify({'error': f'notebook {notebook!r} not found'}), 404
+
+    deleted = []
+    for fpath in sorted(nb_root.glob('*.md')):
+        if fpath.name.startswith('.'):
+            continue
+        try:
+            text = fpath.read_text(errors='replace')
+            # Quick frontmatter type check without full YAML parse
+            if 'type: account' not in text[:500]:
+                continue
+            fpath.unlink()
+            deleted.append(fpath.name)
+        except OSError:
+            pass
+
+    if not deleted:
+        return jsonify({'deleted': 0, 'files': []})
+
+    # Rewrite .index removing deleted entries
+    index_path = nb_root / '.index'
+    if index_path.exists():
+        kept = [ln for ln in index_path.read_text().splitlines()
+                if ln.strip() and ln.strip() not in deleted]
+        index_path.write_text('\n'.join(kept) + ('\n' if kept else ''))
+
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add', '-A'], cwd=str(nb_root), capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m',
+                    f'[nb] Clear {len(deleted)} account notes for rebuild'],
+                   cwd=str(nb_root), capture_output=True, env=env)
+
+    return jsonify({'deleted': len(deleted), 'files': deleted})
+
+
 @app.route('/api/t/status')
 def api_t_status():
     return jsonify(_t_parse_status(_t_tc_file()))
