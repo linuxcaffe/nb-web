@@ -481,7 +481,7 @@ function _buildCoaWizard(el, notebook, config) {
                 <button id="nb-hl-coa-preview" class="nb-tool-btn">Preview accounts</button>
                 <button id="nb-hl-coa-generate" class="nb-tool-btn nb-btn-primary">Generate accounts.journal</button>
                 <button id="nb-hl-coa-notes" class="nb-tool-btn">Create account notes</button>
-                <button id="nb-hl-coa-rebuild" class="nb-tool-btn" style="color:var(--orange,#e07b39)" title="Delete all type:account notes and regenerate from current wizard settings">⟳ Rebuild all</button>
+                <button id="nb-hl-coa-rebuild" class="nb-tool-btn" style="color:var(--orange,#e07b39)" title="Delete all type:account notes from this notebook">✕ Delete all accounts</button>
                 <span id="nb-hl-coa-status" style="font-size:12px;color:var(--text-dim)"></span>
             </div>
             <pre id="nb-hl-coa-preview-text" style="display:none;font-size:11px;max-height:200px;overflow-y:auto;
@@ -596,31 +596,21 @@ function _buildCoaWizard(el, notebook, config) {
 
     rebuildBtn.addEventListener('click', async () => {
         rebuildBtn.disabled = true;
-        createNotesBtn.disabled = true;
-        statusEl.textContent = 'Clearing account notes…';
+        statusEl.textContent = 'Deleting account notes…';
         try {
-            const cr = await fetch('/api/hledger/clear-account-notes', {
+            const r = await fetch('/api/hledger/clear-account-notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ notebook }),
             });
-            const cd = await cr.json();
-            if (cd.error) { statusEl.textContent = '✗ ' + cd.error; return; }
-            statusEl.textContent = `Deleted ${cd.deleted} — rebuilding…`;
-
-            const accounts = buildAccounts();
-            const journalPath = config?.journal || null;
-            const { created, errors } = await _createAccountNotes(
-                notebook, accounts, journalPath,
-                (done, errs, total) => {
-                    statusEl.textContent = `Rebuilding… ${done + errs} / ${total}`;
-                }
-            );
-            statusEl.textContent = `✓ Rebuilt: ${created} notes${errors ? ` (${errors} errors)` : ''}`;
+            const d = await r.json();
+            if (d.error) { statusEl.textContent = '✗ ' + d.error; return; }
+            statusEl.textContent = `✓ Deleted ${d.deleted} account notes`;
             if (typeof NbWeb !== 'undefined') NbWeb.refreshList?.();
+        } catch (e) {
+            statusEl.textContent = '✗ ' + e.message;
         } finally {
             rebuildBtn.disabled = false;
-            createNotesBtn.disabled = false;
         }
     });
 }
