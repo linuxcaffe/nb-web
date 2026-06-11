@@ -87,13 +87,17 @@ if pgrep -f "nb browse --respond" > /dev/null 2>&1; then
 fi
 
 # ── Kill stuck nb sync processes ─────────────────────────────────────────────
-# nb sync should complete in seconds; anything still running at launch is hung
-# (usually waiting on an unreachable git remote and burning CPU indefinitely).
-_STUCK_SYNCS=$(pgrep -f "nb.*sync" 2>/dev/null | tr '\n' ' ')
-if [ -n "$_STUCK_SYNCS" ]; then
-    echo "nb-web-launch: killing stuck nb sync process(es): $_STUCK_SYNCS"
-    pkill -f "nb.*sync" 2>/dev/null
-fi
+# nb sync should complete in seconds; anything still running >60s is hung
+# (waiting on an unreachable git remote, burning CPU indefinitely).
+# Use elapsed time to avoid killing fresh syncs or nb add commands whose
+# --content argument happens to contain the word "sync".
+while IFS= read -r _pid; do
+    _etime=$(ps -o etimes= -p "$_pid" 2>/dev/null | tr -d ' ')
+    if [ -n "$_etime" ] && [ "$_etime" -gt 60 ]; then
+        echo "nb-web-launch: killing stuck nb sync (pid $_pid, running ${_etime}s)"
+        kill "$_pid" 2>/dev/null
+    fi
+done < <(pgrep -f "nb [a-z_-]*:?sync" 2>/dev/null)
 
 # ── Start Flask if not already running ───────────────────────────────────────
 if curl -s "$FLASK_URL" > /dev/null 2>&1; then
