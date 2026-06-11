@@ -2691,6 +2691,8 @@ def api_note():
         'tags':     tags,
         'path':     fpath,
         'annotation': annotation_text,
+        'size':     Path(fpath).stat().st_size,
+        'mtime':    datetime.fromtimestamp(Path(fpath).stat().st_mtime).strftime('%Y-%m-%d'),
     })
 
 

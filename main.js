@@ -980,7 +980,7 @@ const NbMain = (() => {
         });
     }
 
-    function _buildToc(container) {
+    function _buildToc(container, note) {
         const rendered = container.querySelector('.nb-rendered');
         if (!rendered) return;
         const headings = [...rendered.querySelectorAll('h1, h2, h3, h4')];
@@ -996,8 +996,31 @@ const NbMain = (() => {
                 h.id = n === 0 ? slug : `${slug}-${n}`;
             }
         }
-        const nav  = document.createElement('nav');
-        nav.className = 'nb-toc';
+
+        // Header bar: "TOC  ~/…/path/file.md  4.2 KB  2026-06-11"
+        const home = note?.path?.match(/^(\/home\/[^/]+)/)?.[1] ?? '';
+        const shortPath = note?.path
+            ? note.path.replace(home, '~')
+            : (note?.selector ?? '');
+        const size = note?.size != null
+            ? (note.size < 1024 ? `${note.size} B`
+             : note.size < 1024*1024 ? `${(note.size/1024).toFixed(1)} KB`
+             : `${(note.size/1024/1024).toFixed(1)} MB`)
+            : '';
+        const mtime = note?.mtime ?? '';
+
+        const details = document.createElement('details');
+        details.className = 'nb-toc';
+        details.open = true;
+        const summary = document.createElement('summary');
+        summary.className = 'nb-toc-header';
+        summary.innerHTML =
+            `<span class="nb-toc-label">TOC</span>` +
+            `<span class="nb-toc-path">${_esc(shortPath)}</span>` +
+            (size  ? `<span class="nb-toc-meta">${_esc(size)}</span>`  : '') +
+            (mtime ? `<span class="nb-toc-meta">${_esc(mtime)}</span>` : '');
+        details.appendChild(summary);
+
         const ul = document.createElement('ul');
         const pane = document.getElementById('nb-preview-content');
         for (const h of headings) {
@@ -1014,13 +1037,13 @@ const NbMain = (() => {
             li.appendChild(a);
             ul.appendChild(li);
         }
-        nav.appendChild(ul);
-        rendered.prepend(nav);
+        details.appendChild(ul);
+        rendered.prepend(details);
     }
 
     function _finishRendered(container, note) {
         _enrichRendered(container, note);
-        if (note?.meta?.toc) _buildToc(container);
+        if (note?.meta?.toc) _buildToc(container, note);
         _appendAnnotation(container, note);
     }
 
