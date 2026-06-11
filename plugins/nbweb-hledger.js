@@ -348,11 +348,25 @@ function _accountSlug(accountPath) {
 function _accountContent(acct, allAccounts, notebook) {
     const parentPath = acct.account.includes(':')
         ? acct.account.split(':').slice(0, -1).join(':') : null;
+
+    // Direct children only (one level deeper, no further nesting)
+    const children = allAccounts.filter(a => {
+        if (!a.account.startsWith(acct.account + ':')) return false;
+        const rest = a.account.slice(acct.account.length + 1);
+        return !rest.includes(':');
+    });
+
     const lines = [];
     if (acct.desc) lines.push(acct.desc, '');
     if (parentPath && notebook) {
         const slug = _accountSlug(parentPath);
-        lines.push(`**Parent:** [[${notebook}:${slug}.md]]`, '');
+        lines.push(`**Parent:** [[${notebook}:accounts/${slug}.md]]`, '');
+    }
+    if (children.length && notebook) {
+        const childLinks = children
+            .map(c => `[[${notebook}:accounts/${_accountSlug(c.account)}.md]]`)
+            .join(' · ');
+        lines.push(`**Sub-accounts:** ${childLinks}`, '');
     }
     if (acct.cra_t1) {
         const url = 'https://www.canada.ca/en/revenue-agency/services/forms-publications/tax-packages-years/general-income-tax-benefit-package.html';

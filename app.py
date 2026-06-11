@@ -2893,11 +2893,13 @@ def api_create_note():
             note_path = note_dir / note_filename
             note_path.write_text(note_content)
             rel_in_nb = note_path.relative_to(nb_root)
-            index_path = nb_root / '.index'
+            # Write to the folder's own .index (not the root .index)
+            index_path = note_dir / '.index'
+            index_rel  = index_path.relative_to(nb_root)
             with open(index_path, 'a') as f:
-                f.write(str(rel_in_nb) + '\n')
+                f.write(note_filename + '\n')
             env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
-            subprocess.run(['git', 'add', str(rel_in_nb), '.index'],
+            subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)],
                            cwd=str(nb_root), capture_output=True, env=env)
             subprocess.run(['git', 'commit', '-m', f'[nb] Added: {note_filename}'],
                            cwd=str(nb_root), capture_output=True, env=env)
