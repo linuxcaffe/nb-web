@@ -2036,6 +2036,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-hl-addform-footer {
   display: flex; align-items: center; gap: 8px; margin-top: 8px;
 }
+.nb-hl-comment-inp { flex: 1; font-family: inherit; }
+.nb-hl-addform-footer .nb-hl-save-btn,
+.nb-hl-addform-footer .nb-hl-cancel-btn { margin-left: 0; }
+.nb-hl-addform-footer .nb-hl-save-btn   { margin-left: auto; }
 .nb-hl-form-status { font-size: 0.82em; color: var(--text-muted); }
 .nb-hl-btn-active  { color: var(--accent) !important; }
 

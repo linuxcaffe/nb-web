@@ -878,6 +878,7 @@
         trigger?.classList.add('nb-hl-btn-active');
 
         const today = _localDateStr();
+        let _accDlId = null;
 
         function makePostingRow() {
             const row = document.createElement('div');
@@ -889,6 +890,7 @@
             row.querySelector('.nb-hl-rm-row').addEventListener('click', () => {
                 if (form.querySelectorAll('.nb-hl-posting-row').length > 2) row.remove();
             });
+            if (_accDlId) row.querySelector('.nb-hl-acc-inp').setAttribute('list', _accDlId);
             return row;
         }
 
@@ -902,6 +904,7 @@
             <div class="nb-hl-postings"></div>
             <div class="nb-hl-addform-footer">
                 <button class="nb-tw-btn nb-hl-btn nb-hl-add-row">+ posting</button>
+                <input type="text" class="nb-hl-inp nb-hl-comment-inp" placeholder="; comment (optional)" autocomplete="off" spellcheck="false">
                 <button class="nb-btn-primary nb-hl-save-btn">Save</button>
                 <button class="nb-tw-btn nb-hl-cancel-btn">Cancel</button>
                 <span class="nb-hl-form-status"></span>
@@ -931,9 +934,10 @@
         form.querySelector('.nb-hl-cancel-btn').addEventListener('click', dismiss);
 
         form.querySelector('.nb-hl-save-btn').addEventListener('click', async () => {
-            const status = form.querySelector('.nb-hl-form-status');
-            const date   = form.querySelector('.nb-hl-date-inp').value;
-            const desc   = form.querySelector('.nb-hl-desc-inp').value.trim();
+            const status  = form.querySelector('.nb-hl-form-status');
+            const date    = form.querySelector('.nb-hl-date-inp').value;
+            const desc    = form.querySelector('.nb-hl-desc-inp').value.trim();
+            const comment = form.querySelector('.nb-hl-comment-inp').value.trim();
             const postings = [...form.querySelectorAll('.nb-hl-posting-row')].map(r => ({
                 account: r.querySelector('.nb-hl-acc-inp').value.trim(),
                 amount:  r.querySelector('.nb-hl-amt-inp').value.trim(),
@@ -949,7 +953,9 @@
                 const r = await fetch('/api/hledger-add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ date, description: desc, postings, ...(hlFile && { file: hlFile }) }),
+                    body: JSON.stringify({ date, description: desc, postings,
+                        ...(comment  && { comment }),
+                        ...(hlFile   && { file: hlFile }) }),
                 });
                 const d = await r.json();
                 if (d.error) {
@@ -966,6 +972,18 @@
         });
 
         form.querySelector('.nb-hl-desc-inp')?.focus();
+
+        // Populate account autocomplete datalist (async, best-effort)
+        fetch('/api/hledger/accounts?notebook=').then(r => r.json()).then(d => {
+            const accounts = d.accounts || [];
+            if (!accounts.length || !form.isConnected) return;
+            _accDlId = 'nb-hl-acc-dl-' + Date.now();
+            const dl = document.createElement('datalist');
+            dl.id = _accDlId;
+            accounts.forEach(a => { const o = document.createElement('option'); o.value = a; dl.appendChild(o); });
+            form.appendChild(dl);
+            form.querySelectorAll('.nb-hl-acc-inp').forEach(inp => inp.setAttribute('list', _accDlId));
+        }).catch(() => {});
     }
 
     function _buildHledgerBalance(el, data, q, launch) {
