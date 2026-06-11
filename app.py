@@ -1544,6 +1544,9 @@ def api_hledger_accounts():
         return jsonify({'error': str(e), 'accounts': []}), 500
 
 
+_HLEDGER_TYPE_MAP = {'asset': 'A', 'liability': 'L', 'equity': 'E', 'income': 'R', 'expense': 'X'}
+
+
 @app.route('/api/hledger/coa-generate', methods=['POST'])
 def api_hledger_coa_generate():
     """Write accounts.journal next to the main journal from a provided account list."""
@@ -1571,6 +1574,7 @@ def api_hledger_coa_generate():
         name = str(entry.get('account', '')).strip()
         if not name:
             continue
+        acc_type  = str(entry.get('type', '')).strip().lower()
         desc = str(entry.get('desc', '')).strip()
         cra  = str(entry.get('cra_t1', '') or entry.get('cra_t2125', '')).strip()
         comment_parts = []
@@ -1578,7 +1582,12 @@ def api_hledger_coa_generate():
         if cra:  comment_parts.append(f'CRA line {cra}')
         if comment_parts:
             lines.append(f'; {" — ".join(comment_parts)}')
-        lines.append(f'account {name}')
+        type_code  = _HLEDGER_TYPE_MAP.get(acc_type, '')
+        is_toplevel = ':' not in name
+        if type_code and is_toplevel:
+            lines.append(f'account {name}  ; type:{type_code}')
+        else:
+            lines.append(f'account {name}')
         lines.append('')
 
     try:
@@ -1596,6 +1605,81 @@ def api_hledger_coa_generate():
         'path':           str(out_path),
         'include_needed': include_needed,
         'include_line':   f'include {out_path.name}',
+    })
+
+
+@app.route('/api/hledger/aliases', methods=['GET'])
+def api_hledger_aliases_get():
+    """Return parsed alias directives from aliases.journal."""
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    config       = _hledger_config_for_notebook(notebook)
+    journal_path = _hledger_journal_path(config)
+    if not journal_path:
+        return jsonify({'error': 'Could not resolve journal path'}), 400
+
+    aliases_path = journal_path.parent / 'aliases.journal'
+    aliases = []
+    if aliases_path.exists():
+        for line in aliases_path.read_text(errors='replace').splitlines():
+            stripped = line.strip()
+            if stripped.startswith('alias ') and '=' in stripped:
+                rest = stripped[6:].strip()
+                parts = rest.split('=', 1)
+                aliases.append({'pattern': parts[0].strip(), 'account': parts[1].strip()})
+
+    include_needed = True
+    if journal_path.exists():
+        if 'aliases.journal' in journal_path.read_text(errors='replace'):
+            include_needed = False
+
+    return jsonify({
+        'aliases':        aliases,
+        'path':           str(aliases_path),
+        'include_needed': include_needed,
+        'include_line':   'include aliases.journal',
+    })
+
+
+@app.route('/api/hledger/aliases', methods=['POST'])
+def api_hledger_aliases_set():
+    """Write alias directives to aliases.journal."""
+    data     = request.get_json(silent=True) or {}
+    notebook = data.get('notebook', '').strip()
+    aliases  = data.get('aliases', [])   # [{pattern, account}]
+
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    config       = _hledger_config_for_notebook(notebook)
+    journal_path = _hledger_journal_path(config)
+    if not journal_path:
+        return jsonify({'error': 'Could not resolve journal path'}), 400
+
+    aliases_path = journal_path.parent / 'aliases.journal'
+    lines = ['; aliases.journal — payee / account pattern mappings for CSV import', '']
+    for entry in aliases:
+        pattern = str(entry.get('pattern', '')).strip()
+        account = str(entry.get('account', '')).strip()
+        if pattern and account:
+            lines.append(f'alias {pattern} = {account}')
+    lines.append('')
+
+    try:
+        aliases_path.write_text('\n'.join(lines))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    include_needed = True
+    if journal_path.exists():
+        if 'aliases.journal' in journal_path.read_text(errors='replace'):
+            include_needed = False
+
+    return jsonify({
+        'ok':             True,
+        'path':           str(aliases_path),
+        'include_needed': include_needed,
+        'include_line':   'include aliases.journal',
     })
 
 

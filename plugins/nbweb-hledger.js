@@ -646,6 +646,112 @@ function _buildCoaWizard(el, notebook, config) {
 
 // ── Setup panel (journal info + CoA wizard) ───────────────────────────────────
 
+// ── Aliases panel ─────────────────────────────────────────────────────────────
+
+async function _buildAliasesPanel(containerEl, notebook) {
+    const wrap = document.createElement('div');
+    wrap.className = 'nb-plugin-section';
+    wrap.innerHTML = `
+        <div class="nb-plugin-section-title">Import Aliases
+            <span style="font-size:11px;color:var(--text-dim);font-weight:normal;margin-left:8px">
+                payee pattern → account mapping for CSV import
+            </span>
+        </div>
+        <div id="nb-hl-aliases-list" style="margin-bottom:8px"></div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <input id="nb-hl-alias-pattern" type="text" placeholder="AMAZON.*"
+                   style="width:160px;font-size:12px;padding:2px 6px;background:var(--bg-input,#2a2a2a);
+                          color:var(--text);border:1px solid var(--border,#444);border-radius:3px">
+            <span style="font-size:12px;color:var(--text-dim)">=</span>
+            <input id="nb-hl-alias-account" type="text" placeholder="Expenses:Shopping"
+                   style="width:200px;font-size:12px;padding:2px 6px;background:var(--bg-input,#2a2a2a);
+                          color:var(--text);border:1px solid var(--border,#444);border-radius:3px">
+            <button id="nb-hl-alias-add" class="nb-tool-btn">Add</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <button id="nb-hl-aliases-save" class="nb-tool-btn nb-btn-primary">Save aliases.journal</button>
+            <span id="nb-hl-aliases-status" style="font-size:12px;color:var(--text-dim)"></span>
+        </div>`;
+    containerEl.appendChild(wrap);
+
+    let aliases = [];
+
+    function _renderList() {
+        const list = wrap.querySelector('#nb-hl-aliases-list');
+        if (!aliases.length) {
+            list.innerHTML = '<span style="font-size:12px;color:var(--text-dim)">No aliases yet — add one above.</span>';
+            return;
+        }
+        list.innerHTML = aliases.map((a, i) =>
+            `<div style="display:flex;gap:8px;align-items:center;margin-bottom:3px;font-size:12px">
+                <code style="color:var(--text-dim)">${_esc(a.pattern)}</code>
+                <span style="color:var(--text-dim)">→</span>
+                <code>${_esc(a.account)}</code>
+                <button class="nb-tool-btn nb-hl-alias-del" data-idx="${i}"
+                        style="padding:0 5px;font-size:11px;line-height:1.4;color:var(--orange,#e07b39)">✕</button>
+            </div>`
+        ).join('');
+        list.querySelectorAll('.nb-hl-alias-del').forEach(btn => {
+            btn.addEventListener('click', () => {
+                aliases.splice(Number(btn.dataset.idx), 1);
+                _renderList();
+            });
+        });
+    }
+
+    const status = wrap.querySelector('#nb-hl-aliases-status');
+
+    // Load existing aliases
+    try {
+        const data = await fetch(`/api/hledger/aliases?notebook=${encodeURIComponent(notebook)}`).then(r => r.json());
+        aliases = data.aliases || [];
+        if (data.include_needed && data.include_line) {
+            status.textContent = `Tip: add "${data.include_line}" to your main journal to activate aliases`;
+        }
+    } catch (_) {}
+    _renderList();
+
+    wrap.querySelector('#nb-hl-alias-add').addEventListener('click', () => {
+        const pattern = wrap.querySelector('#nb-hl-alias-pattern').value.trim();
+        const account = wrap.querySelector('#nb-hl-alias-account').value.trim();
+        if (!pattern || !account) return;
+        aliases.push({ pattern, account });
+        wrap.querySelector('#nb-hl-alias-pattern').value = '';
+        wrap.querySelector('#nb-hl-alias-account').value = '';
+        _renderList();
+    });
+
+    // Enter key in account field triggers add
+    wrap.querySelector('#nb-hl-alias-account').addEventListener('keydown', e => {
+        if (e.key === 'Enter') wrap.querySelector('#nb-hl-alias-add').click();
+    });
+
+    wrap.querySelector('#nb-hl-aliases-save').addEventListener('click', async () => {
+        const saveBtn = wrap.querySelector('#nb-hl-aliases-save');
+        saveBtn.disabled = true;
+        status.textContent = 'Saving…';
+        try {
+            const r = await fetch('/api/hledger/aliases', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notebook, aliases }),
+            });
+            const d = await r.json();
+            if (d.ok) {
+                status.textContent = `Saved to ${d.path.split('/').pop()}`;
+                if (d.include_needed) {
+                    status.textContent += ` — add "${d.include_line}" to your main journal`;
+                }
+            } else {
+                status.textContent = `Error: ${d.error}`;
+            }
+        } catch (e) {
+            status.textContent = `Error: ${e.message}`;
+        }
+        saveBtn.disabled = false;
+    });
+}
+
 function _buildSetupPanel(el, notebook, config) {
     const journal  = config?.journal || '(not set)';
     const province = config?.province || '—';
@@ -669,6 +775,7 @@ function _buildSetupPanel(el, notebook, config) {
         <div id="nb-hl-coa-container"></div>`;
 
     _buildCoaWizard(el.querySelector('#nb-hl-coa-container'), notebook, config);
+    _buildAliasesPanel(el.querySelector('#nb-hl-coa-container'), notebook);
 
     _getAccounts(notebook).then(accounts => {
         if (!accounts.length) return;
