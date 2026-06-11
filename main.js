@@ -1016,7 +1016,7 @@ const NbMain = (() => {
 
         const details = document.createElement('details');
         details.className = 'nb-toc';
-        details.open = true;
+        details.open = false;
         const summary = document.createElement('summary');
         summary.className = 'nb-toc-header';
         summary.innerHTML =
