@@ -663,7 +663,7 @@ const NbMain = (() => {
             const lang = ['sh','bash','zsh','fish'].includes(ext) ? 'bash'
                        : ['journal','ledger','hledger'].includes(ext) ? 'ledger'
                        : ['hs','lhs'].includes(ext) ? 'haskell'
-                       : 'plaintext';
+                       : 'plaintext';   // .txt and any unrecognised code type
             const grammar = Prism.languages[lang] || Prism.languages.plaintext;
             const highlighted = Prism.highlight(note.body || '', grammar, lang);
             content.innerHTML = `<div class="nb-rendered"><pre class="nb-code-preview language-${lang}"><code class="language-${lang}">${highlighted}</code></pre></div>`;

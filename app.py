@@ -354,8 +354,9 @@ def classify(filename, notebook=None):
     if f.endswith('.enc'):            return 'encrypted'
     if any(f.endswith(s) for s in ('.tar.gz', '.tar.bz2', '.tar.xz')): return 'archive'
     ext = Path(f).suffix
-    if ext in ('.md', '.org', '.txt', '.rst', '.adoc', '.asciidoc', '.latex'):
+    if ext in ('.md', '.org', '.rst', '.adoc', '.asciidoc', '.latex'):
         return 'contact' if notebook == 'contacts' else 'note'
+    if ext == '.txt':                                  return 'code'
     if ext in ('.sh', '.bash', '.zsh', '.fish'):   return 'code'
     if ext in ('.journal', '.ledger', '.hledger'): return 'code'
     if ext in ('.hs', '.lhs'):                     return 'code'
