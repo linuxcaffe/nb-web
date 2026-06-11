@@ -703,14 +703,14 @@ async function _buildBookkeeperPanel(el, notebook, config) {
             <div id="nb-hl-bk-period-body" class="nb-hl-bk-loading">Loading…</div>
         </div>
         <div class="nb-plugin-section" id="nb-hl-bk-recent">
-            <div class="nb-plugin-section-title">Recent Transactions</div>
+            <div class="nb-plugin-section-title">Transactions This Month</div>
             <div id="nb-hl-bk-recent-body" class="nb-hl-bk-loading">Loading…</div>
         </div>`;
 
     const [healthR, periodR, recentR] = await Promise.allSettled([
         fetch(q('check')).then(r => r.json()),
         fetch(q('is -p thismonth')).then(r => r.json()),
-        fetch(q('reg -n 10')).then(r => r.json()),
+        fetch(q('reg -p thismonth')).then(r => r.json()),
     ]);
 
     const healthBody = el.querySelector('#nb-hl-bk-health-body');

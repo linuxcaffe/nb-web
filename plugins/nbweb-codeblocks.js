@@ -1059,7 +1059,7 @@
                 el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty nb-hl-section-empty">—</div>');
             } else {
                 const tbody = rows.map(r => {
-                    const name    = (r.prrName || [])[0] || '';
+                    const name    = r.prrName || '';
                     const amounts = (r.prrAmounts || [[]])[0] || [];
                     const cls     = _hlAmtCls(amounts);
                     return `<tr>
