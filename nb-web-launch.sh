@@ -86,6 +86,15 @@ if pgrep -f "nb browse --respond" > /dev/null 2>&1; then
     pkill -f "socat.*6789" 2>/dev/null
 fi
 
+# ── Kill stuck nb sync processes ─────────────────────────────────────────────
+# nb sync should complete in seconds; anything still running at launch is hung
+# (usually waiting on an unreachable git remote and burning CPU indefinitely).
+_STUCK_SYNCS=$(pgrep -f "nb.*sync" 2>/dev/null | tr '\n' ' ')
+if [ -n "$_STUCK_SYNCS" ]; then
+    echo "nb-web-launch: killing stuck nb sync process(es): $_STUCK_SYNCS"
+    pkill -f "nb.*sync" 2>/dev/null
+fi
+
 # ── Start Flask if not already running ───────────────────────────────────────
 if curl -s "$FLASK_URL" > /dev/null 2>&1; then
     echo "nb-web-launch: server already running"
