@@ -690,10 +690,10 @@ const NbMain = (() => {
                 setTimeout(() => pw.focus(), 50);
             }
             return;
-        } else if (['note','file','strip','scene','shot','story','storyline',''].includes(note.type)) {
-            html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         } else {
-            html = `<pre class="nb-rendered" style="padding:0">${_esc(note.raw || '')}</pre>`;
+            // Unknown types (plugin types like 'account', 'contact', etc.) render as markdown.
+            // Only raw-display if there's genuinely no body to render.
+            html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         }
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
