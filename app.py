@@ -1075,7 +1075,8 @@ _HLEDGER_READ_CMDS = {
 }
 
 # Commands that produce plain text only — never append --output-format json.
-_HLEDGER_TEXT_CMDS = {'check', 'stats', 'tags', 'commodities', 'files'}
+_HLEDGER_TEXT_CMDS = {'check', 'stats', 'tags', 'commodities', 'files',
+                      'accounts', 'acc', 'a', 'prices'}
 
 def _hledger_resolve_file(path_str):
     """Resolve and validate a ledger file path; returns Path or raises ValueError."""
