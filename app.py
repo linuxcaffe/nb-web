@@ -1308,6 +1308,130 @@ def api_hledger_add():
         return jsonify({'error': str(e)}), 500
 
 
+def _hledger_notebook_path(notebook):
+    """Return Path to notebook dir, or None if invalid."""
+    if not notebook or '/' in notebook or notebook.startswith('.'):
+        return None
+    p = Path.home() / '.nb' / notebook
+    return p if p.is_dir() else None
+
+
+def _hledger_config_for_notebook(notebook):
+    """Return parsed .nb-hledger.json for notebook, or None."""
+    nb_path = _hledger_notebook_path(notebook)
+    if not nb_path:
+        return None
+    cfg_file = nb_path / '.nb-hledger.json'
+    if not cfg_file.exists():
+        return None
+    try:
+        return json.loads(cfg_file.read_text())
+    except Exception:
+        return None
+
+
+def _hledger_journal_path(config):
+    """Resolve the journal path from a hledger config dict."""
+    journal = (config or {}).get('journal', '')
+    if not journal:
+        env = os.environ.get('LEDGER_FILE', '')
+        journal = env if env else str(Path.home() / '.hledger.journal')
+    try:
+        return _hledger_resolve_file(journal)
+    except ValueError:
+        return None
+
+
+@app.route('/api/hledger/config')
+def api_hledger_config():
+    """Return .nb-hledger.json for a notebook, plus resolved journal path."""
+    notebook = request.args.get('notebook', '').strip()
+    config   = _hledger_config_for_notebook(notebook)
+    if config is None:
+        return jsonify({'error': 'No hledger config found for notebook'}), 404
+    journal_path = _hledger_journal_path(config)
+    return jsonify({
+        'config':     config,
+        'journal':    str(journal_path) if journal_path else None,
+        'journal_ok': journal_path is not None and journal_path.exists(),
+    })
+
+
+@app.route('/api/hledger/accounts')
+def api_hledger_accounts():
+    """Return all account names from the notebook's journal (for autocomplete)."""
+    notebook = request.args.get('notebook', '').strip()
+    config   = _hledger_config_for_notebook(notebook)
+    journal  = _hledger_journal_path(config)
+    if not journal or not journal.exists():
+        return jsonify({'accounts': []})
+    try:
+        result = subprocess.run(
+            ['hledger', '-f', str(journal), 'accounts', '--flat'],
+            capture_output=True, text=True, timeout=10,
+            env={**os.environ, 'NO_COLOR': '1'},
+        )
+        accounts = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+        return jsonify({'accounts': accounts})
+    except Exception as e:
+        return jsonify({'error': str(e), 'accounts': []}), 500
+
+
+@app.route('/api/hledger/coa-generate', methods=['POST'])
+def api_hledger_coa_generate():
+    """Write accounts.journal next to the main journal from a provided account list."""
+    data     = request.get_json(silent=True) or {}
+    notebook = data.get('notebook', '').strip()
+    accounts = data.get('accounts', [])   # [{account, type, desc, cra_t1, cra_t2125}]
+    header   = data.get('header', '')
+
+    if not notebook or not accounts:
+        return jsonify({'error': 'notebook and accounts are required'}), 400
+
+    config       = _hledger_config_for_notebook(notebook)
+    journal_path = _hledger_journal_path(config)
+    if not journal_path:
+        return jsonify({'error': 'Could not resolve journal path'}), 400
+
+    out_path = journal_path.parent / 'accounts.journal'
+    lines = []
+    if header:
+        for line in header.splitlines():
+            lines.append(f'; {line}' if line.strip() else ';')
+        lines.append('')
+
+    for entry in accounts:
+        name = str(entry.get('account', '')).strip()
+        if not name:
+            continue
+        desc = str(entry.get('desc', '')).strip()
+        cra  = str(entry.get('cra_t1', '') or entry.get('cra_t2125', '')).strip()
+        comment_parts = []
+        if desc: comment_parts.append(desc)
+        if cra:  comment_parts.append(f'CRA line {cra}')
+        if comment_parts:
+            lines.append(f'; {" — ".join(comment_parts)}')
+        lines.append(f'account {name}')
+        lines.append('')
+
+    try:
+        out_path.write_text('\n'.join(lines))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    include_needed = True
+    if journal_path.exists():
+        if 'accounts.journal' in journal_path.read_text(errors='replace'):
+            include_needed = False
+
+    return jsonify({
+        'ok':             True,
+        'path':           str(out_path),
+        'include_needed': include_needed,
+        'include_line':   f'include {out_path.name}',
+    })
+
+
 # ---------------------------------------------------------------------------
 # API: t timeclock (time tracking)
 # ---------------------------------------------------------------------------
@@ -3665,6 +3789,14 @@ def api_nb_notebooks():
                 except Exception:
                     cine = {}
 
+            hledger = None
+            hledger_json = entry / '.nb-hledger.json'
+            if hledger_json.exists():
+                try:
+                    hledger = json.loads(hledger_json.read_text())
+                except Exception:
+                    hledger = {}
+
             notebooks.append({
                 'name': entry.name, 'count': count, 'mtime': mtime,
                 'folder_count': folder_count,
@@ -3672,6 +3804,7 @@ def api_nb_notebooks():
                 'is_current': entry.name == current_nb,
                 'website': website,
                 'cine': cine,
+                'hledger': hledger,
             })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
