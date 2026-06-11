@@ -930,6 +930,13 @@ body {
                    font-size: 0.85em; line-height: 1.65; overflow-x: auto;
                    min-height: 100%; box-sizing: border-box; }
 
+/* ── Inline live queries  {{provider: query}} ────────────────────── */
+.nb-inline-query { font-variant-numeric: tabular-nums;
+                   color: var(--text-muted); font-style: italic; }
+.nb-iq-done  { color: inherit; font-style: normal; }
+.nb-iq-error { color: var(--text-muted); font-style: italic; cursor: help;
+               text-decoration: underline dotted var(--red, #c0392b); }
+
 .nb-include-link { cursor: pointer; text-decoration: underline dotted;
                    border-radius: 2px; padding: 0 1px; }
 .nb-include-link:hover { text-decoration: underline; opacity: 0.85; }

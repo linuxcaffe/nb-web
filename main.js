@@ -787,7 +787,70 @@ const NbMain = (() => {
 
     // Enrich a rendered container: wikilinks, codeblocks, links, uuids, todos.
     // Does NOT append the annotation footnote — call _finishRendered for that.
+    function _resolveInlineQueries(container, note) {
+        const IQ_RE = /\{\{(\w+):\s*([^}]*?)\}\}/g;
+        // Walk text nodes, skipping PRE/CODE so backtick examples aren't processed.
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+            acceptNode(n) {
+                let p = n.parentElement;
+                while (p) {
+                    if (['PRE','CODE','SCRIPT','STYLE'].includes(p.tagName))
+                        return NodeFilter.FILTER_REJECT;
+                    p = p.parentElement;
+                }
+                return n.textContent.includes('{{') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+            }
+        });
+        const textNodes = [];
+        let n;
+        while ((n = walker.nextNode())) textNodes.push(n);
+
+        const spans = [];
+        for (const textNode of textNodes) {
+            const text = textNode.textContent;
+            const parts = [];
+            let last = 0, m;
+            IQ_RE.lastIndex = 0;
+            while ((m = IQ_RE.exec(text)) !== null) {
+                if (m.index > last) parts.push(document.createTextNode(text.slice(last, m.index)));
+                const span = document.createElement('span');
+                span.className = 'nb-inline-query';
+                span.dataset.provider = m[1].toLowerCase();
+                span.dataset.query    = m[2].trim();
+                span.textContent = '⋯';
+                parts.push(span);
+                spans.push(span);
+                last = m.index + m[0].length;
+            }
+            if (!parts.length) continue;
+            if (last < text.length) parts.push(document.createTextNode(text.slice(last)));
+            textNode.replaceWith(...parts);
+        }
+
+        const nb = note?.notebook || NbNav.notebook;
+        for (const span of spans) {
+            const { provider, query } = span.dataset;
+            fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`)
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error) {
+                        span.textContent = `{{${provider}: ${query}}}`;
+                        span.classList.add('nb-iq-error');
+                        span.title = d.error;
+                    } else {
+                        span.textContent = d.result;
+                        span.classList.add('nb-iq-done');
+                    }
+                })
+                .catch(() => {
+                    span.textContent = `{{${provider}: ${query}}}`;
+                    span.classList.add('nb-iq-error');
+                });
+        }
+    }
+
     function _enrichRendered(container, note) {
+        _resolveInlineQueries(container, note);
         _renderCsvBlocks(container);
         NbWeb.renderCodeblocks(container);
 

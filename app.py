@@ -1103,6 +1103,85 @@ def _hledger_resolve_file(path_str):
     return resolved
 
 
+def _iq_strip(text):
+    """Strip hledger output to inline-friendly plain text.
+    Removes separator lines (----, ====), blank lines; joins with ' · '."""
+    lines = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        if not s or re.match(r'^[-=]+$', s):
+            continue
+        lines.append(s)
+    return ' · '.join(lines) if lines else ''
+
+
+@app.route('/api/inline-query')
+def api_inline_query():
+    """Resolve a {{provider: query}} inline query; returns {result} or {error}."""
+    provider = request.args.get('provider', '').strip().lower()
+    query    = request.args.get('query',    '').strip()
+    notebook = request.args.get('notebook', '').strip()
+
+    if not provider or not query:
+        return jsonify({'error': 'provider and query required'}), 400
+
+    try:
+        if provider == 'hledger':
+            config  = _hledger_config_for_notebook(notebook)
+            journal = _hledger_journal_path(config)
+            if not journal or not journal.exists():
+                return jsonify({'error': 'journal not found'}), 404
+            args = shlex.split(query)
+            if not args or args[0] not in (_HLEDGER_READ_CMDS | _HLEDGER_TEXT_CMDS):
+                return jsonify({'error': f'hledger command not allowed: {args[0] if args else ""}'}), 400
+            r = subprocess.run(
+                ['hledger', '-f', str(journal)] + args,
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
+            )
+            if r.returncode != 0:
+                return jsonify({'error': r.stderr.strip() or 'hledger error'}), 500
+            return jsonify({'result': _iq_strip(r.stdout)})
+
+        elif provider == 'tw':
+            safe_cmds = {'count', 'ids', 'uuids'}
+            args = shlex.split(query)
+            if not args:
+                return jsonify({'error': 'empty tw query'}), 400
+            # bare filter with no subcommand → treat as count
+            if args[0] not in safe_cmds:
+                args = args + ['count']
+            r = subprocess.run(
+                ['task'] + args,
+                capture_output=True, text=True, timeout=5,
+                env={**os.environ, 'NO_COLOR': '1'},
+            )
+            return jsonify({'result': r.stdout.strip()})
+
+        elif provider == 'nb':
+            safe_cmds = {'count', 'list', 'notebooks', 'show'}
+            args = shlex.split(query)
+            if not args or args[0] not in safe_cmds:
+                return jsonify({'error': f'nb command not allowed: {args[0] if args else ""}'}), 400
+            r = run_nb(*args)
+            if not nb_ok(r):
+                return jsonify({'error': r['stderr'].strip() or 'nb error'}), 500
+            return jsonify({'result': r['stdout'].strip()})
+
+        elif provider == 'date':
+            fmt = query.strip() or '%Y-%m-%d'
+            from datetime import datetime
+            return jsonify({'result': datetime.now().strftime(fmt)})
+
+        else:
+            return jsonify({'error': f'unknown provider: {provider}'}), 400
+
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': f'{provider} timed out'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/hledger-query')
 def api_hledger_query():
     """Run a read-only hledger report and return JSON or plain text."""
