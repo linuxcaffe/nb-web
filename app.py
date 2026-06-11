@@ -2336,6 +2336,8 @@ def _search_notes(notebook, folder, query, limit, tags=None):
         title   = re.sub(r'^\[[ x]\]\s*', '', title).strip()  # strip [ ] or [x]
         # Strip "filename · Title" duplicate format nb emits for filename matches
         title   = re.sub(r'^[^·]+·\s*', '', title).strip() if '·' in title else title
+        # Strip surrounding YAML quotes nb includes in search output ("Assets" → Assets)
+        title   = title.strip('"\'')
         # Build a full selector
         if ':' in raw_sel:
             selector = raw_sel
