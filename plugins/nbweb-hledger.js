@@ -857,10 +857,40 @@ async function _buildBookkeeperPanel(el, notebook, config) {
 
 // ── pluginContent ─────────────────────────────────────────────────────────────
 
+async function _buildTutorialPanel(el, notebook) {
+    el.innerHTML = '<div style="padding:8px;color:var(--text-dim);font-size:12px">Loading tutorial…</div>';
+    try {
+        const r = await fetch(`/api/list?notebook=${encodeURIComponent(notebook)}&folder=tutorial&limit=50`);
+        const d = await r.json();
+        const notes = (d.notes || []).filter(n => n.type !== 'folder');
+        if (!notes.length) {
+            el.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-dim)">No tutorial notes found in <code>tutorial/</code>.</div>';
+            return;
+        }
+        el.innerHTML = notes.map(n => {
+            const title = (n.title || n.filename || n.selector).replace(/^\d+_/, '').replace(/_/g, ' ');
+            return `<div class="nb-hl-tut-item" data-selector="${_esc(n.selector)}"
+                        style="padding:5px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-dim,#333);
+                               display:flex;align-items:center;gap:6px">
+                        <span style="color:var(--text-dim);font-size:11px;font-family:var(--font-mono)">${_esc(n.id || '')}</span>
+                        <span>${_esc(n.title || title)}</span>
+                    </div>`;
+        }).join('');
+        el.querySelectorAll('.nb-hl-tut-item').forEach(item => {
+            item.addEventListener('mouseenter', () => item.style.background = 'var(--bg-hover,#2a2a2a)');
+            item.addEventListener('mouseleave', () => item.style.background = '');
+            item.addEventListener('click', () => NbMain.openNote(item.dataset.selector));
+        });
+    } catch (e) {
+        el.innerHTML = `<div style="padding:12px;font-size:12px;color:var(--text-dim)">Error: ${_esc(e.message)}</div>`;
+    }
+}
+
 async function _buildPluginContent(el, notebook, config) {
     el.innerHTML = `
         <div class="nb-hl-panel-tabs">
             <button class="nb-hl-panel-tab${_bkPanelMode === 'bookkeeper' ? ' nb-active' : ''}" data-mode="bookkeeper">Bookkeeper</button>
+            <button class="nb-hl-panel-tab${_bkPanelMode === 'tutorial'   ? ' nb-active' : ''}" data-mode="tutorial">Tutorial</button>
             <button class="nb-hl-panel-tab${_bkPanelMode === 'setup'      ? ' nb-active' : ''}" data-mode="setup">Setup</button>
         </div>
         <div id="nb-hl-panel-body"></div>`;
@@ -876,6 +906,8 @@ async function _buildPluginContent(el, notebook, config) {
     const body = el.querySelector('#nb-hl-panel-body');
     if (_bkPanelMode === 'setup') {
         _buildSetupPanel(body, notebook, config);
+    } else if (_bkPanelMode === 'tutorial') {
+        await _buildTutorialPanel(body, notebook);
     } else {
         await _buildBookkeeperPanel(body, notebook, config);
     }
