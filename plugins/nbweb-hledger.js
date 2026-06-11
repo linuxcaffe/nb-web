@@ -393,22 +393,25 @@ async function _createAccountNotes(notebook, accounts, journalPath, progressCb) 
     let created = 0;
     let errors  = 0;
 
-    // Write note template and annotation template for account notes (idempotent)
+    // Seed note template only if it doesn't exist yet — don't overwrite user edits
     const jFlag = journalPath ? ` -f ${journalPath}` : '';
-    const noteTemplate = [
-        '---',
-        'title: "{{title}}"',
-        'type: account',
-        'hledger_account: "{{title}}"',
-        '---',
-        '## {{title}}',
-        '',
-        '{{content}}',
-        '',
-        `<a href="term:hledger${jFlag} bal '{{title}}'">balance</a>` +
-            ` · <a href="term:hledger${jFlag} reg '{{title}}'">register</a>`,
-    ].join('\n');
-    try {
+    const existingTpl = await fetch(`/api/templates?notebook=${encodeURIComponent(notebook)}`).then(r => r.json()).catch(() => ({}));
+    const tplExists = (existingTpl.templates || []).some(t => t.name === 'account' && t.scope === 'local');
+    if (!tplExists) {
+        const noteTemplate = [
+            '---',
+            'title: "{{title}}"',
+            'type: account',
+            'hledger_account: "{{title}}"',
+            '---',
+            '## {{title}}',
+            '',
+            '{{content}}',
+            '',
+            `<a href="term:hledger${jFlag} bal '{{title}}'">balance</a>` +
+                ` · <a href="term:hledger${jFlag} reg '{{title}}'">register</a>`,
+        ].join('\n');
+        try {
         await fetch('/api/templates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -419,7 +422,8 @@ async function _createAccountNotes(notebook, accounts, journalPath, progressCb) 
                 content:  noteTemplate,
             }),
         });
-    } catch (_) {}
+        } catch (_) {}
+    } // end if (!tplExists)
     try {
         await fetch('/api/templates', {
             method: 'POST',
@@ -680,7 +684,12 @@ function _renderAccountNote(note) {
         : ''
     ).join('');
 
-    const body = (note.body || '').trim();
+    // Preprocess wikilinks before marked so _enrichRendered can wire click handlers.
+    // Also substitute {title} so hledger codeblocks get the actual account name.
+    const acctName = m.hledger_account || note.title || '';
+    let body = (note.body || '').trim().replace(/\{title\}/g, acctName);
+    body = body.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) =>
+        `<span class="nb-wiki-link" data-selector="${_esc(target)}"${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`);
     const bodyHtml = body
         ? `<div class="nb-rendered" style="margin-top:12px">${typeof marked !== 'undefined' ? marked.parse(body) : `<pre>${_esc(body)}</pre>`}</div>`
         : '';
