@@ -389,9 +389,29 @@ function _noteBodyForAccount(acct, allAccounts, journalPath, notebook) {
     return fm.join('\n') + body.join('\n');
 }
 
+function _expandAccountTree(accounts) {
+    const byPath = new Map(accounts.map(a => [a.account, a]));
+    const extra  = [];
+    for (const acct of accounts) {
+        const parts = acct.account.split(':');
+        for (let i = 1; i < parts.length; i++) {
+            const ancestor = parts.slice(0, i).join(':');
+            if (!byPath.has(ancestor)) {
+                byPath.set(ancestor, { account: ancestor, type: acct.type });
+                extra.push({ account: ancestor, type: acct.type });
+            }
+        }
+    }
+    // Insert ancestors before their children so parent notes exist first
+    const sorted = [...extra, ...accounts];
+    sorted.sort((a, b) => a.account.localeCompare(b.account));
+    return sorted;
+}
+
 async function _createAccountNotes(notebook, accounts, journalPath, progressCb) {
     let created = 0;
     let errors  = 0;
+    accounts = _expandAccountTree(accounts);
 
     // Seed note template only if it doesn't exist yet — don't overwrite user edits
     const jFlag = journalPath ? ` -f ${journalPath}` : '';
