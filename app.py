@@ -1071,7 +1071,11 @@ _HLEDGER_READ_CMDS = {
     'cashflow','cf',
     'accounts','acc','a',
     'prices','commodities','stats','tags','files',
+    'check',
 }
+
+# Commands that produce plain text only — never append --output-format json.
+_HLEDGER_TEXT_CMDS = {'check', 'stats', 'tags', 'commodities', 'files'}
 
 def _hledger_resolve_file(path_str):
     """Resolve and validate a ledger file path; returns Path or raises ValueError."""
@@ -1128,9 +1132,10 @@ def api_hledger_query():
     if file_path:
         expanded = [expanded[0], '-f', str(file_path)] + expanded[1:]
 
+    use_json_fmt = cmd not in _HLEDGER_TEXT_CMDS and request.args.get('format') != 'text'
     try:
         result = subprocess.run(
-            ['hledger'] + expanded + ['--output-format', 'json'],
+            ['hledger'] + expanded + (['--output-format', 'json'] if use_json_fmt else []),
             capture_output=True, text=True,
             env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
             timeout=15,

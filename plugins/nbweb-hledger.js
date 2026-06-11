@@ -334,6 +334,8 @@ async function _journalHealth(notebook) {
     } catch (_) { return null; }
 }
 
+let _bkPanelMode = localStorage.getItem('nb-hl-panel-mode') || 'bookkeeper';
+
 // ── Account note generation ───────────────────────────────────────────────────
 
 // Slug matching api_create_note: re.sub(r'[^\w]+', '_', title).strip('_').lower()
@@ -642,19 +644,18 @@ function _buildCoaWizard(el, notebook, config) {
     });
 }
 
-// ── pluginContent ─────────────────────────────────────────────────────────────
+// ── Setup panel (journal info + CoA wizard) ───────────────────────────────────
 
-async function _buildPluginContent(el, notebook, config) {
-    const journal = config?.journal || '(not set)';
+function _buildSetupPanel(el, notebook, config) {
+    const journal  = config?.journal || '(not set)';
     const province = config?.province || '—';
     const entity   = config?.entity   || '—';
     const prov     = _PROVINCES[province];
 
-    // Health summary
-    const summaryHtml = `
+    el.innerHTML = `
         <div class="nb-plugin-section">
             <div class="nb-plugin-section-title">Journal</div>
-            <table style="font-size:12px;border-collapse:collapse;width:100%">
+            <table id="nb-hl-setup-info" style="font-size:12px;border-collapse:collapse;width:100%">
                 <tr><td style="color:var(--text-dim);padding:2px 8px 2px 0">File</td>
                     <td><code>${_esc(journal)}</code></td></tr>
                 <tr><td style="color:var(--text-dim);padding:2px 8px 2px 0">Province</td>
@@ -664,21 +665,98 @@ async function _buildPluginContent(el, notebook, config) {
                 ${config?.commodity ? `<tr><td style="color:var(--text-dim);padding:2px 8px 2px 0">Commodity</td>
                     <td>${_esc(config.commodity)}</td></tr>` : ''}
             </table>
-        </div>`;
+        </div>
+        <div id="nb-hl-coa-container"></div>`;
 
-    el.innerHTML = summaryHtml;
-    _buildCoaWizard(el, notebook, config);
+    _buildCoaWizard(el.querySelector('#nb-hl-coa-container'), notebook, config);
 
-    // Async: fetch account count
     _getAccounts(notebook).then(accounts => {
         if (!accounts.length) return;
-        const table = el.querySelector('table');
+        const table = el.querySelector('#nb-hl-setup-info');
         if (!table) return;
         const row = document.createElement('tr');
         row.innerHTML = `<td style="color:var(--text-dim);padding:2px 8px 2px 0">Accounts</td>
                          <td>${accounts.length} defined</td>`;
         table.appendChild(row);
     });
+}
+
+// ── Bookkeeper panel (daily use) ──────────────────────────────────────────────
+
+async function _buildBookkeeperPanel(el, notebook, config) {
+    const journal = config?.journal;
+    if (!journal) {
+        el.innerHTML = `<div class="nb-plugin-section" style="color:var(--text-dim);font-size:13px">
+            No journal configured — use the <strong>Setup</strong> tab to configure your journal.</div>`;
+        return;
+    }
+
+    const q = cmd => `/api/hledger-query?q=${encodeURIComponent(journal + ' ' + cmd)}&format=text`;
+
+    el.innerHTML = `
+        <div class="nb-plugin-section" id="nb-hl-bk-health">
+            <div class="nb-plugin-section-title">Journal Health</div>
+            <div id="nb-hl-bk-health-body" class="nb-hl-bk-loading">Checking…</div>
+        </div>
+        <div class="nb-plugin-section" id="nb-hl-bk-period">
+            <div class="nb-plugin-section-title">This Month</div>
+            <div id="nb-hl-bk-period-body" class="nb-hl-bk-loading">Loading…</div>
+        </div>
+        <div class="nb-plugin-section" id="nb-hl-bk-recent">
+            <div class="nb-plugin-section-title">Recent Transactions</div>
+            <div id="nb-hl-bk-recent-body" class="nb-hl-bk-loading">Loading…</div>
+        </div>`;
+
+    const [healthR, periodR, recentR] = await Promise.allSettled([
+        fetch(q('check')).then(r => r.json()),
+        fetch(q('is -p thismonth')).then(r => r.json()),
+        fetch(q('reg -n 10')).then(r => r.json()),
+    ]);
+
+    const healthBody = el.querySelector('#nb-hl-bk-health-body');
+    if (healthR.status === 'fulfilled' && !healthR.value?.error) {
+        healthBody.innerHTML = '<span style="color:var(--green,#4caf50)">✓ No errors found</span>';
+    } else {
+        const msg = (healthR.status === 'fulfilled' ? healthR.value?.error : healthR.reason?.message) || 'check failed';
+        healthBody.innerHTML = `<pre class="nb-hl-bk-pre" style="color:var(--orange,#e07b39)">${_esc(msg)}</pre>`;
+    }
+
+    function _renderText(r, fallback) {
+        if (r.status !== 'fulfilled') return `<span class="nb-hl-empty">${_esc(r.reason?.message || 'request failed')}</span>`;
+        if (r.value?.error)           return `<span class="nb-hl-empty">${_esc(r.value.error)}</span>`;
+        const raw = r.value?.text;
+        if (!raw || !raw.trim())      return `<span class="nb-hl-empty">${fallback}</span>`;
+        return `<pre class="nb-hl-bk-pre">${_esc(raw)}</pre>`;
+    }
+
+    el.querySelector('#nb-hl-bk-period-body').innerHTML  = _renderText(periodR, 'No transactions this month');
+    el.querySelector('#nb-hl-bk-recent-body').innerHTML  = _renderText(recentR, 'No transactions found');
+}
+
+// ── pluginContent ─────────────────────────────────────────────────────────────
+
+async function _buildPluginContent(el, notebook, config) {
+    el.innerHTML = `
+        <div class="nb-hl-panel-tabs">
+            <button class="nb-hl-panel-tab${_bkPanelMode === 'bookkeeper' ? ' nb-active' : ''}" data-mode="bookkeeper">Bookkeeper</button>
+            <button class="nb-hl-panel-tab${_bkPanelMode === 'setup'      ? ' nb-active' : ''}" data-mode="setup">Setup</button>
+        </div>
+        <div id="nb-hl-panel-body"></div>`;
+
+    el.querySelectorAll('.nb-hl-panel-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _bkPanelMode = btn.dataset.mode;
+            localStorage.setItem('nb-hl-panel-mode', _bkPanelMode);
+            _buildPluginContent(el, notebook, config);
+        });
+    });
+
+    const body = el.querySelector('#nb-hl-panel-body');
+    if (_bkPanelMode === 'setup') {
+        _buildSetupPanel(body, notebook, config);
+    } else {
+        await _buildBookkeeperPanel(body, notebook, config);
+    }
 }
 
 // ── previewRenderer ───────────────────────────────────────────────────────────
