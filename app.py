@@ -356,6 +356,8 @@ def classify(filename, notebook=None):
     ext = Path(f).suffix
     if ext in ('.md', '.org', '.txt', '.rst', '.adoc', '.asciidoc', '.latex'):
         return 'contact' if notebook == 'contacts' else 'note'
+    if ext in ('.sh', '.bash', '.zsh', '.fish'):   return 'code'
+    if ext in ('.journal', '.ledger', '.hledger'): return 'code'
     if ext == '.vcf':                 return 'contact'
     if ext in ('.html', '.htm'):      return 'html'
     if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'): return 'image'
@@ -392,6 +394,7 @@ INDICATORS = {
     'storyline':   '🧵',
     'story':       '🃏',
     'note':        '',
+    'code':        '📋',
     'file':        '',
 }
 
@@ -1369,6 +1372,34 @@ def api_hledger_config():
     })
 
 
+@app.route('/api/hledger/resolve-include')
+def api_hledger_resolve_include():
+    """Resolve an hledger include path relative to the current journal note.
+
+    Returns {selector, exists} where selector is an nb selector string if the
+    target file lives inside NB_DIR, or null if it's outside (e.g. absolute
+    path to a system file).
+    """
+    selector = request.args.get('selector', '').strip()
+    inc_path = request.args.get('path', '').strip()
+    if not selector or not inc_path:
+        return jsonify({'selector': None, 'exists': False})
+
+    base_path = _resolve_to_nb_path(selector)
+    if not base_path:
+        return jsonify({'selector': None, 'exists': False})
+
+    try:
+        resolved = (base_path.parent / Path(inc_path).expanduser()).resolve()
+        resolved.relative_to(NB_DIR)   # guard — must stay inside NB_DIR
+    except (ValueError, OSError):
+        return jsonify({'selector': None, 'exists': resolved.exists() if 'resolved' in dir() else False})
+
+    parts = resolved.relative_to(NB_DIR).parts   # e.g. ('accts', 'accounts.journal')
+    nb_sel = parts[0] + ':' + '/'.join(parts[1:])
+    return jsonify({'selector': nb_sel, 'exists': resolved.exists()})
+
+
 @app.route('/api/hledger/accounts')
 def api_hledger_accounts():
     """Return all account names from the notebook's journal (for autocomplete)."""
@@ -1548,7 +1579,7 @@ def _t_parse_report(tc_file: Path, period: str) -> dict:
 
 @app.route('/api/hledger/clear-account-notes', methods=['POST'])
 def api_hledger_clear_account_notes():
-    """Delete all notes with type: account from a notebook in one git commit."""
+    """Delete the accounts/ folder from a notebook (full rebuild target)."""
     data     = request.get_json(silent=True) or {}
     notebook = data.get('notebook', '').strip()
     if not notebook:
@@ -1557,37 +1588,22 @@ def api_hledger_clear_account_notes():
     if not nb_root.is_dir():
         return jsonify({'error': f'notebook {notebook!r} not found'}), 404
 
-    deleted = []
-    for fpath in sorted(nb_root.glob('*.md')):
-        if fpath.name.startswith('.'):
-            continue
-        try:
-            text = fpath.read_text(errors='replace')
-            # Quick frontmatter type check without full YAML parse
-            if 'type: account' not in text[:500]:
-                continue
-            fpath.unlink()
-            deleted.append(fpath.name)
-        except OSError:
-            pass
-
-    if not deleted:
+    accounts_dir = nb_root / 'accounts'
+    if not accounts_dir.is_dir():
         return jsonify({'deleted': 0, 'files': []})
 
-    # Rewrite .index removing deleted entries
-    index_path = nb_root / '.index'
-    if index_path.exists():
-        kept = [ln for ln in index_path.read_text().splitlines()
-                if ln.strip() and ln.strip() not in deleted]
-        index_path.write_text('\n'.join(kept) + ('\n' if kept else ''))
+    files = [f.name for f in accounts_dir.glob('*.md') if not f.name.startswith('.')]
+    try:
+        shutil.rmtree(str(accounts_dir))
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
 
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
     subprocess.run(['git', 'add', '-A'], cwd=str(nb_root), capture_output=True, env=env)
-    subprocess.run(['git', 'commit', '-m',
-                    f'[nb] Clear {len(deleted)} account notes for rebuild'],
+    subprocess.run(['git', 'commit', '-m', '[nb] Clear accounts/ for rebuild'],
                    cwd=str(nb_root), capture_output=True, env=env)
 
-    return jsonify({'deleted': len(deleted), 'files': deleted})
+    return jsonify({'deleted': len(files), 'files': files})
 
 
 @app.route('/api/t/status')

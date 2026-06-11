@@ -475,7 +475,7 @@ async function _createAccountNotes(notebook, accounts, journalPath, progressCb) 
             const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notebook, title: acct.account, template_content: noteText }),
+                body: JSON.stringify({ notebook, folder: 'accounts', title: acct.account, template_content: noteText }),
             });
             if (r.ok) { created++; } else { errors++; }
         } catch (_) { errors++; }

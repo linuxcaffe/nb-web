@@ -87,6 +87,34 @@ The wizard creates one `account` note per leaf account — each note is a stub w
 
 ---
 
+## Journal file preview
+
+`.journal`, `.ledger`, and `.hledger` files open with syntax highlighting in the preview pane:
+
+| Token | Highlighted as |
+|-------|---------------|
+| Transaction dates (`2024/01/01`) | constant |
+| Account names (indented postings) | string |
+| Amounts | variable |
+| Comments (`;`) | muted |
+| Directives (`account`, `payee`, `include`, …) | keyword |
+| Tags (`:tagname:`) | tag |
+
+### Clickable `include` links
+
+`include` directives in a journal file are rendered as clickable links — click the path to open that file directly in the preview pane.
+
+```
+include accounts.journal        ← click to open
+include ./subdir/payees.journal ← click to open
+```
+
+Links are resolved relative to the current journal file's location. A dotted underline means the file is found in the notebook; a strikethrough means it couldn't be resolved (e.g. an absolute path outside the notebook tree).
+
+This makes it easy to browse a multi-file journal — follow the include chain without leaving the app.
+
+---
+
 ## Inline journal entry
 
 In any hledger codeblock, click **[+ Add]** to open the inline entry form:

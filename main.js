@@ -658,6 +658,17 @@ const NbMain = (() => {
             content.innerHTML = `<embed src="${fileUrl}" type="application/pdf" class="nb-pdf-embed">`;
             _appendAnnotation(content, note);
             return;
+        } else if (note.type === 'code') {
+            const ext  = (note.filename || '').split('.').pop().toLowerCase();
+            const lang = ['sh','bash','zsh','fish'].includes(ext) ? 'bash'
+                       : ['journal','ledger','hledger'].includes(ext) ? 'ledger'
+                       : 'plaintext';
+            const grammar = Prism.languages[lang] || Prism.languages.plaintext;
+            const highlighted = Prism.highlight(note.body || '', grammar, lang);
+            content.innerHTML = `<div class="nb-rendered"><pre class="nb-code-preview language-${lang}"><code class="language-${lang}">${highlighted}</code></pre></div>`;
+            if (lang === 'ledger') _addIncludeLinks(content, note);
+            _appendAnnotation(content, note);
+            return;
         } else if (_pluginHtml !== null) {
             html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
         } else if (note.type === 'sheet') {
@@ -1105,6 +1116,30 @@ const NbMain = (() => {
         });
     }
 
+    async function _addIncludeLinks(container, note) {
+        const spans = [...container.querySelectorAll('code.language-ledger .token.keyword')];
+        for (const span of spans) {
+            const text = span.textContent;
+            if (!text.startsWith('include ')) continue;
+            const incPath = text.slice('include '.length).trim();
+            if (!incPath) continue;
+            try {
+                const d = await fetch(
+                    `/api/hledger/resolve-include?selector=${encodeURIComponent(note.selector)}&path=${encodeURIComponent(incPath)}`
+                ).then(r => r.json());
+                if (!d.selector) continue;
+                const sel = d.selector;
+                const link = document.createElement('span');
+                link.className = 'nb-include-link' + (d.exists ? '' : ' nb-include-missing');
+                link.title     = d.exists ? `Open ${sel}` : `Not found: ${sel}`;
+                link.textContent = incPath;
+                link.addEventListener('click', () => openNote(sel));
+                span.textContent = 'include ';
+                span.appendChild(link);
+            } catch (_) {}
+        }
+    }
+
     function _renderCsvBlocks(container) {
         const blocks = container.querySelectorAll('pre > code.language-csv');
         if (!blocks.length) return;
@@ -1481,6 +1516,8 @@ const NbMain = (() => {
                       if (goLight) document.documentElement.setAttribute('data-theme', 'light');
                       else         document.documentElement.removeAttribute('data-theme');
                       localStorage.setItem('nb-theme', goLight ? 'light' : '');
+                      const prismLink = document.getElementById('nb-prism-theme');
+                      if (prismLink) prismLink.href = goLight ? 'prism-light.min.css' : 'prism-tomorrow.min.css';
                   }},
                 'sep',
                 { label: '📥 Import files…', action: () => NbDialog.open('import') },

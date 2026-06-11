@@ -925,6 +925,16 @@ body {
 .nb-archive-listing { font-family: monospace; font-size: 0.85em; line-height: 1.6;
                       white-space: pre-wrap; word-break: break-all; }
 
+/* ── Syntax-highlighted code preview (.journal, .sh, etc.) ──────── */
+.nb-code-preview { margin: 0; padding: 20px 24px; border-radius: 0;
+                   font-size: 0.85em; line-height: 1.65; overflow-x: auto;
+                   min-height: 100%; box-sizing: border-box; }
+
+.nb-include-link { cursor: pointer; text-decoration: underline dotted;
+                   border-radius: 2px; padding: 0 1px; }
+.nb-include-link:hover { text-decoration: underline; opacity: 0.85; }
+.nb-include-missing { opacity: 0.45; cursor: not-allowed; text-decoration: line-through; }
+
 /* ── jspreadsheet + jsuites dark-mode overrides ─────────────────
    Scoped to both standalone sheets and embedded csv blocks        */
 :is(#nb-sheet-host, .nb-csv-block) .jss_worksheet,
