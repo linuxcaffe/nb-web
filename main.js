@@ -19,6 +19,7 @@ const NbMain = (() => {
     let _lastNbCurrent  = 'home';          // nb's actual current notebook (from ~/.nb/.current)
     let _foldersFirst   = localStorage.getItem('nb-folders-first') !== 'false';
     let _pinnedSelectors = new Set(JSON.parse(localStorage.getItem('nb-pinned') || '[]'));
+    let _activeNote      = null;   // full note object for the currently-open note
     let _isFullscreen    = false;
     let _listSeq        = 0;        // incremented on every new list request; stale responses are dropped
     const _history      = [];       // back-stack
@@ -490,6 +491,12 @@ const NbMain = (() => {
             if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
             const d = await r.json();
             renderPreview(d);
+            if (d.meta?.pinned && !_pinnedSelectors.has(selector)) {
+                _pinnedSelectors.add(selector);
+                localStorage.setItem('nb-pinned', JSON.stringify([..._pinnedSelectors]));
+                document.getElementById('nb-pin-indicator').hidden = false;
+                renderList(_getSortedNotes(_lastNotes), true);
+            }
             if (NbDialog.isOpen()) NbDialog.refresh();
         } catch (e) {
             content.innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${_esc(String(e))}</div>`;
@@ -497,6 +504,7 @@ const NbMain = (() => {
     }
 
     function renderPreview(note) {
+        _activeNote     = note;
         _activeType     = note.type;
         _activeFilename = note.filename;
         _activeNoteRef  = (note.notebook && note.id) ? `${note.notebook}:${note.id}` : null;
@@ -972,8 +980,47 @@ const NbMain = (() => {
         });
     }
 
+    function _buildToc(container) {
+        const rendered = container.querySelector('.nb-rendered');
+        if (!rendered) return;
+        const headings = [...rendered.querySelectorAll('h1, h2, h3, h4')];
+        if (headings.length < 2) return;
+        const slugCount = {};
+        for (const h of headings) {
+            if (!h.id) {
+                let slug = h.textContent.trim().toLowerCase()
+                    .replace(/[^\w\s-]/g, '').replace(/[\s_]+/g, '-')
+                    .replace(/-+/g, '-').replace(/^-|-$/g, '') || 'section';
+                const n = slugCount[slug] ?? 0;
+                slugCount[slug] = n + 1;
+                h.id = n === 0 ? slug : `${slug}-${n}`;
+            }
+        }
+        const nav  = document.createElement('nav');
+        nav.className = 'nb-toc';
+        const ul = document.createElement('ul');
+        const pane = document.getElementById('nb-preview-content');
+        for (const h of headings) {
+            const li = document.createElement('li');
+            li.className = `nb-toc-${h.tagName.toLowerCase()}`;
+            const a = document.createElement('a');
+            a.href = '#' + h.id;
+            a.textContent = h.textContent;
+            a.addEventListener('click', e => {
+                e.preventDefault();
+                pane?.querySelector(`#${CSS.escape(h.id)}`)
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            li.appendChild(a);
+            ul.appendChild(li);
+        }
+        nav.appendChild(ul);
+        rendered.prepend(nav);
+    }
+
     function _finishRendered(container, note) {
         _enrichRendered(container, note);
+        if (note?.meta?.toc) _buildToc(container);
         _appendAnnotation(container, note);
     }
 
@@ -1716,8 +1763,18 @@ const NbMain = (() => {
 
     function _togglePin() {
         if (!_activeSelector) return;
-        if (_pinnedSelectors.has(_activeSelector)) _pinnedSelectors.delete(_activeSelector);
-        else                                        _pinnedSelectors.add(_activeSelector);
+        if (_pinnedSelectors.has(_activeSelector)) {
+            _pinnedSelectors.delete(_activeSelector);
+            if (_activeNote?.meta?.pinned) {
+                const newRaw = _activeNote.raw.replace(/^pinned:[ \t]*\S.*\n?/m, '');
+                fetch('/api/note', { method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({selector: _activeSelector, content: newRaw}) });
+                _activeNote = {..._activeNote, meta: {..._activeNote.meta, pinned: undefined}};
+            }
+        } else {
+            _pinnedSelectors.add(_activeSelector);
+        }
         localStorage.setItem('nb-pinned', JSON.stringify([..._pinnedSelectors]));
         document.getElementById('nb-pin-indicator').hidden = !_pinnedSelectors.has(_activeSelector);
         renderList(_getSortedNotes(_lastNotes), true);

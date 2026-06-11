@@ -942,6 +942,18 @@ body {
 .nb-inline-content > .nb-rendered > *:first-child { margin-top: 0; }
 .nb-inline-content > .nb-rendered > *:last-child  { margin-bottom: 0; }
 
+.nb-toc { margin: 0 0 1.5em; padding: 0.6em 1em;
+          background: var(--bg2, rgba(255,255,255,0.03));
+          border: 1px solid var(--border-dim, #333); border-radius: 6px; }
+.nb-toc ul { list-style: none; margin: 0; padding: 0; }
+.nb-toc li { line-height: 1.8; }
+.nb-toc a  { color: var(--text-dim); text-decoration: none; font-size: 0.88em; }
+.nb-toc a:hover { color: var(--accent); }
+.nb-toc li.nb-toc-h1 { padding-left: 0; }
+.nb-toc li.nb-toc-h2 { padding-left: 0; }
+.nb-toc li.nb-toc-h3 { padding-left: 1.2em; }
+.nb-toc li.nb-toc-h4 { padding-left: 2.4em; }
+
 .nb-inline-query { font-variant-numeric: tabular-nums;
                    color: var(--text-muted); font-style: italic; }
 .nb-iq-done  { color: inherit; font-style: normal; }
