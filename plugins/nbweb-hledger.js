@@ -636,7 +636,9 @@ function _renderAccountNote(note) {
 // ── Plugin registration ───────────────────────────────────────────────────────
 
 NbWeb.registerModule('hledger', {
-    label:       'NbWeb-hledger',
+    label:              'NbWeb-hledger',
+    contentButtonIcon:  '⚡',
+    contentButtonLabel: 'Wizard',
     description: 'Plain-text accounting with domain knowledge — Canadian CoA, tax mappings, journal health',
     helpUrl:     '/plugins/nbweb-hledger.md',
 

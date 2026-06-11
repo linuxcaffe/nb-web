@@ -99,7 +99,61 @@ const NbMain = (() => {
             const nbObj = NbWeb.notebooks().find(n => n.name === nb);
             for (const btn of NbWeb.getListButtons(nb))
                 listEl.appendChild(_makePluginBtn(btn, nb, 'nb-icon-btn nb-list-plugin-btn', nbObj));
+            // Auto-inject panel toggle button for any active module with pluginContent
+            for (const mod of NbWeb.getPluginContentModules(nb)) {
+                const b = document.createElement('button');
+                b.className = 'nb-icon-btn nb-list-plugin-btn';
+                b.dataset.pluginBtn = 'panel';
+                b.dataset.pluginPanelFor = mod.name;
+                b.textContent = mod.contentButtonIcon || '⚙';
+                b.title = (mod.contentButtonLabel || mod.label || mod.name) + ' panel';
+                b.addEventListener('click', () => _togglePluginPanel(mod, nb));
+                listEl.appendChild(b);
+            }
         }
+        // Close any open plugin panel when switching notebooks
+        const content = document.getElementById('nb-preview-content');
+        if (content?.dataset.pluginPanel) {
+            delete content.dataset.pluginPanel;
+            content.innerHTML = '';
+            document.getElementById('nb-preview-title').textContent = '';
+            document.getElementById('nb-preview-actions').hidden = true;
+        }
+    }
+
+    async function _togglePluginPanel(mod, nb) {
+        const content = document.getElementById('nb-preview-content');
+        const titleEl = document.getElementById('nb-preview-title');
+        const actionsEl = document.getElementById('nb-preview-actions');
+        // Toggle off if already showing this module's panel
+        if (content.dataset.pluginPanel === mod.name) {
+            delete content.dataset.pluginPanel;
+            content.innerHTML = '';
+            titleEl.textContent = '';
+            actionsEl.hidden = true;
+            // Restore active button state
+            document.querySelectorAll(`[data-plugin-panel-for="${mod.name}"]`)
+                .forEach(b => b.classList.remove('nb-active'));
+            return;
+        }
+        // Show panel
+        content.dataset.pluginPanel = mod.name;
+        titleEl.textContent = mod.contentButtonLabel || mod.label || mod.name;
+        actionsEl.hidden = false;
+        // Mark button active
+        document.querySelectorAll('[data-plugin-panel-for]').forEach(b => b.classList.remove('nb-active'));
+        document.querySelectorAll(`[data-plugin-panel-for="${mod.name}"]`)
+            .forEach(b => b.classList.add('nb-active'));
+        content.innerHTML = '<div style="padding:12px" class="nb-rendered"></div>';
+        const el = content.firstElementChild;
+        if (mod.requirementCheck) {
+            const req = await mod.requirementCheck();
+            if (req && !req.ok) {
+                await NbWeb.renderRequirementsCard(el, req.markdownFile || req.markdown || '# Requirements not met');
+                return;
+            }
+        }
+        mod.pluginContent(el);
     }
 
     async function loadNotes(typeFilter, statusFilter, tagsFilter) {
@@ -447,6 +501,11 @@ const NbMain = (() => {
         _activeFilename = note.filename;
         _activeNoteRef  = (note.notebook && note.id) ? `${note.notebook}:${note.id}` : null;
         const content = document.getElementById('nb-preview-content');
+        // Clear plugin panel state — note click dismisses any open panel
+        if (content.dataset.pluginPanel) {
+            delete content.dataset.pluginPanel;
+            document.querySelectorAll('[data-plugin-panel-for]').forEach(b => b.classList.remove('nb-active'));
+        }
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
         document.getElementById('nb-done-bar')?.remove();
         document.getElementById('nb-preview-actions').hidden = false;

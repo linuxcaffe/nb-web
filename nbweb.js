@@ -136,6 +136,11 @@ const NbWeb = (() => {
         return _activeFor(notebook).flatMap(m => m.listButtons ?? m.toolbarButtons ?? []);
     }
 
+    // pluginContentModules — active modules that have a pluginContent fn (for panel toggle)
+    function getPluginContentModules(notebook) {
+        return _activeFor(notebook).filter(m => m.pluginContent);
+    }
+
     // navButtons — global, injected into the main nav (#nb-cmds-plugins)
     function getNavButtons() {
         const seen = new Set();
@@ -442,6 +447,7 @@ const NbWeb = (() => {
         getListTitle,
         getListButtons,
         getNavButtons,
+        getPluginContentModules,
         getToolbarButtons: getListButtons, // backward-compat alias
         getAddFormExtras,
         getTemplatesForNotebook,
