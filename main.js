@@ -830,6 +830,10 @@ const NbMain = (() => {
         const nb = note?.notebook || NbNav.notebook;
         for (const span of spans) {
             const { provider, query } = span.dataset;
+            if (provider === 'inline') {
+                _resolveInlineInclude(span, query, note);
+                continue;
+            }
             fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`)
                 .then(r => r.json())
                 .then(d => {
@@ -846,6 +850,50 @@ const NbMain = (() => {
                     span.textContent = `{{${provider}: ${query}}}`;
                     span.classList.add('nb-iq-error');
                 });
+        }
+    }
+
+    // Resolve a relative path or bare filename to an nb selector.
+    // baseSelector: e.g. "accts:tutorial/07_first_commands.md"
+    function _resolveRelPath(rawPath, baseSelector) {
+        if (!rawPath) return '';
+        if (/^[\w-]+:/.test(rawPath)) return rawPath;   // already a full selector
+        const ci     = (baseSelector || '').indexOf(':');
+        const nb     = ci >= 0 ? baseSelector.slice(0, ci) : '';
+        const rest   = ci >= 0 ? baseSelector.slice(ci + 1) : baseSelector;
+        const folder = rest.includes('/') ? rest.slice(0, rest.lastIndexOf('/') + 1) : '';
+        const parts  = (folder + rawPath).split('/').filter(Boolean);
+        const resolved = [];
+        for (const p of parts) {
+            if (p === '..') resolved.pop();
+            else if (p !== '.') resolved.push(p);
+        }
+        return nb ? `${nb}:${resolved.join('/')}` : resolved.join('/');
+    }
+
+    // {{inline: path}} — fetch target note body, render markdown inline.
+    // Depth-guarded: included content is not processed for further {{inline:}} to
+    // prevent recursion.
+    async function _resolveInlineInclude(span, rawPath, note) {
+        if (span.closest('.nb-inline-content')) { span.remove(); return; }
+        const selector = _resolveRelPath(rawPath.trim(), note?.selector || '');
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            if (d.error) throw new Error(d.error);
+            const html = _renderMarkdown(d.body || '', d.selector || selector);
+            const wrap = document.createElement('div');
+            wrap.className = 'nb-inline-content';
+            wrap.innerHTML = `<div class="nb-rendered">${html}</div>`;
+            span.replaceWith(wrap);
+            _enrichRendered(wrap, d);
+        } catch (e) {
+            const err = document.createElement('span');
+            err.className = 'nb-iq-error';
+            err.textContent = `[inline: ${rawPath}]`;
+            err.title = String(e);
+            span.replaceWith(err);
         }
     }
 
