@@ -341,52 +341,38 @@ function _accountSlug(accountPath) {
     return accountPath.replace(/[^\w]+/g, '_').replace(/^_|_$/g, '').toLowerCase();
 }
 
-function _noteBodyForAccount(acct, allAccounts, journalPath, notebook) {
-    const leafName   = acct.account.split(':').pop();
+// Returns the {{content}} portion for a single account — desc, parent link, CRA info.
+// Does NOT include term: links or codeblocks; those live in the template.
+function _accountContent(acct, allAccounts, notebook) {
     const parentPath = acct.account.includes(':')
-        ? acct.account.split(':').slice(0, -1).join(':')
-        : null;
-    // HTML <a> tags survive marked.parse() intact — markdown link syntax breaks
-    // on URLs containing spaces (hledger flags) or curly-brace placeholders.
-    const jFlag = journalPath ? ` -f ${journalPath}` : '';
-    const balLink = `<a href="term:hledger${jFlag} bal '{title}'">balance</a>`;
-    const regLink = `<a href="term:hledger${jFlag} reg '{title}'">register</a>`;
+        ? acct.account.split(':').slice(0, -1).join(':') : null;
+    const lines = [];
+    if (acct.desc) lines.push(acct.desc, '');
+    if (parentPath && notebook) {
+        const slug = _accountSlug(parentPath);
+        lines.push(`**Parent:** [[${notebook}:${slug}.md]]`, '');
+    }
+    if (acct.cra_t1) {
+        const url = 'https://www.canada.ca/en/revenue-agency/services/forms-publications/tax-packages-years/general-income-tax-benefit-package.html';
+        lines.push(`**CRA T1 line ${acct.cra_t1}** — ${acct.cra_label || ''}`);
+        lines.push(`<a href="term:xdg-open ${url}">T1 General Guide</a>`, '');
+    } else if (acct.cra_t2125) {
+        const url = 'https://www.canada.ca/en/revenue-agency/services/forms-publications/forms/t2125.html';
+        lines.push(`**CRA T2125 line ${acct.cra_t2125}** — ${acct.cra_label || ''}`);
+        lines.push(`<a href="term:xdg-open ${url}">T2125 form</a>`, '');
+    }
+    return lines.join('\n').trimEnd();
+}
 
-    const fm = [
-        '---',
-        `title: "${acct.account}"`,
-        'type: account',
-        `hledger_account: "${acct.account}"`,
-    ];
+// Build frontmatter only — body comes from the template.
+function _accountFrontmatter(acct) {
+    const fm = ['---', `title: "${acct.account}"`, 'type: account',
+                `hledger_account: "${acct.account}"`];
     if (acct.cra_label) fm.push(`cra_label: "${acct.cra_label}"`);
     if (acct.cra_t1)    fm.push(`cra_line_t1: "${acct.cra_t1}"`);
     if (acct.cra_t2125) fm.push(`cra_line_t2125: "${acct.cra_t2125}"`);
-    fm.push('---', '');
-
-    const body = [`## ${leafName}`, ''];
-
-    if (acct.desc) body.push(acct.desc, '');
-
-    // Wikilinks: use notebook:slug — colon in account paths misleads nb-web's
-    // wikilink resolver into treating them as notebook:selector pairs.
-    if (parentPath && notebook) {
-        const slug = _accountSlug(parentPath);
-        body.push(`**Parent:** [[${notebook}:${slug}.md]]`, '');
-    }
-
-    if (acct.cra_t1) {
-        const url = 'https://www.canada.ca/en/revenue-agency/services/forms-publications/tax-packages-years/general-income-tax-benefit-package.html';
-        body.push(`**CRA T1 line ${acct.cra_t1}** — ${acct.cra_label || ''}`);
-        body.push(`<a href="term:xdg-open ${url}">T1 General Guide</a>`, '');
-    } else if (acct.cra_t2125) {
-        const url = 'https://www.canada.ca/en/revenue-agency/services/forms-publications/forms/t2125.html';
-        body.push(`**CRA T2125 line ${acct.cra_t2125}** — ${acct.cra_label || ''}`);
-        body.push(`<a href="term:xdg-open ${url}">T2125 form</a>`, '');
-    }
-
-    body.push(`${balLink} · ${regLink}`);
-
-    return fm.join('\n') + body.join('\n');
+    fm.push('---');
+    return fm.join('\n');
 }
 
 function _expandAccountTree(accounts) {
@@ -456,17 +442,38 @@ async function _createAccountNotes(notebook, accounts, journalPath, progressCb) 
         });
     } catch (_) {}
 
+    // Fetch the account template once — all notes are built from it.
+    // Falls back to a minimal inline body if the template is missing.
+    let tplBody = null;
+    try {
+        const tplList = await fetch(`/api/templates?notebook=${encodeURIComponent(notebook)}`).then(r => r.json());
+        const tplMeta = (tplList.templates || []).find(t => t.name === 'account' && t.scope === 'local');
+        if (tplMeta?.path) {
+            const tplData = await fetch(`/api/template?path=${encodeURIComponent(tplMeta.path)}`).then(r => r.json());
+            tplBody = tplData.content || null;
+        }
+    } catch (_) {}
+
     for (const acct of accounts) {
         try {
-            const body = _noteBodyForAccount(acct, accounts, journalPath, notebook);
+            const content = _accountContent(acct, accounts, notebook);
+            let noteText;
+            if (tplBody) {
+                // Substitute {{title}} and {{content}} into the template.
+                // Frontmatter is rebuilt from scratch so CRA fields are included.
+                const bodyPart = tplBody
+                    .replace(/^---[\s\S]*?---\n?/, '')   // strip template's own FM
+                    .replace(/\{\{title\}\}/g, acct.account)
+                    .replace(/\{\{content\}\}/g, content);
+                noteText = _accountFrontmatter(acct) + '\n' + bodyPart;
+            } else {
+                // Minimal fallback if template missing
+                noteText = _accountFrontmatter(acct) + '\n## ' + acct.account.split(':').pop() + '\n\n' + content;
+            }
             const r = await fetch('/api/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    notebook,
-                    title:            acct.account,
-                    template_content: body,
-                }),
+                body: JSON.stringify({ notebook, title: acct.account, template_content: noteText }),
             });
             if (r.ok) { created++; } else { errors++; }
         } catch (_) { errors++; }
