@@ -371,7 +371,7 @@ function _noteBodyForAccount(acct, allAccounts, journalPath, notebook) {
     // wikilink resolver into treating them as notebook:selector pairs.
     if (parentPath && notebook) {
         const slug = _accountSlug(parentPath);
-        body.push(`**Parent:** [[${notebook}:${slug}]]`, '');
+        body.push(`**Parent:** [[${notebook}:${slug}.md]]`, '');
     }
 
     if (acct.cra_t1) {
@@ -393,7 +393,33 @@ async function _createAccountNotes(notebook, accounts, journalPath, progressCb) 
     let created = 0;
     let errors  = 0;
 
-    // Write annotation template for account notes
+    // Write note template and annotation template for account notes (idempotent)
+    const jFlag = journalPath ? ` -f ${journalPath}` : '';
+    const noteTemplate = [
+        '---',
+        'title: "{{title}}"',
+        'type: account',
+        'hledger_account: "{{title}}"',
+        '---',
+        '## {{title}}',
+        '',
+        '{{content}}',
+        '',
+        `<a href="term:hledger${jFlag} bal '{{title}}'">balance</a>` +
+            ` · <a href="term:hledger${jFlag} reg '{{title}}'">register</a>`,
+    ].join('\n');
+    try {
+        await fetch('/api/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                scope:    'local',
+                notebook: notebook,
+                name:     'account',
+                content:  noteTemplate,
+            }),
+        });
+    } catch (_) {}
     try {
         await fetch('/api/templates', {
             method: 'POST',

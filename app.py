@@ -2593,13 +2593,6 @@ def api_create_note():
             )
 
         using_template = bool(template_path or template_content)
-        args = ['add', target]
-        # Skip --title when a template is used: {{title}} is already substituted
-        # into the content, and nb prepending "# Title\n\n" breaks YAML frontmatter.
-        if title and not using_template:
-            args += ['--title', title]
-        args += ['--content', note_content]
-        if tags:    args += ['--tags', ','.join(tags)]
         slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
         # Clean slug when: subfolder note (items/ etc.) OR template-driven note.
         # Template = intentional structured content that needs a predictable URL.
@@ -2608,6 +2601,35 @@ def api_create_note():
             note_filename = f"{slug}.md"
         else:
             note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
+
+        # When content starts with YAML frontmatter, nb CLI's --content corrupts
+        # it (strips <a href= tags, reorders blocks). Write directly to disk instead.
+        if using_template and note_content.lstrip().startswith('---'):
+            nb_root = NB_DIR / notebook
+            note_dir = nb_root / folder if folder else nb_root
+            note_dir.mkdir(parents=True, exist_ok=True)
+            note_path = note_dir / note_filename
+            note_path.write_text(note_content)
+            rel_in_nb = note_path.relative_to(nb_root)
+            index_path = nb_root / '.index'
+            with open(index_path, 'a') as f:
+                f.write(str(rel_in_nb) + '\n')
+            env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+            subprocess.run(['git', 'add', str(rel_in_nb), '.index'],
+                           cwd=str(nb_root), capture_output=True, env=env)
+            subprocess.run(['git', 'commit', '-m', f'[nb] Added: {note_filename}'],
+                           cwd=str(nb_root), capture_output=True, env=env)
+            rel = f'{folder}/{note_filename}' if folder else note_filename
+            return jsonify({'success': True, 'output': f'Added: {note_filename}',
+                            'selector': f'{notebook}:{rel}'})
+
+        args = ['add', target]
+        # Skip --title when a template is used: {{title}} is already substituted
+        # into the content, and nb prepending "# Title\n\n" breaks YAML frontmatter.
+        if title and not using_template:
+            args += ['--title', title]
+        args += ['--content', note_content]
+        if tags:    args += ['--tags', ','.join(tags)]
         args += ['--filename', note_filename]
         r = run_nb(*args)
         if nb_ok(r):
