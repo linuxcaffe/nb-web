@@ -1276,8 +1276,13 @@ def api_hledger_add():
     if not ledger_path.exists():
         return jsonify({'error': f'Ledger file not found: {ledger_path}'}), 400
 
+    comment = data.get('comment', '').strip()
+
     # Build journal entry text
-    lines = [f'{date} {desc}']
+    desc_line = f'{date} {desc}'
+    if comment:
+        desc_line += f'  ; {comment}'
+    lines = [desc_line]
     for p in postings:
         account = str(p.get('account', '')).strip()
         amount  = str(p.get('amount',  '')).strip()
@@ -2710,14 +2715,47 @@ def api_edit_note():
 
     if append is not None:
         r = run_nb('edit', selector, '--content', append)
-    elif prepend is not None:
+        return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
+
+    if prepend is not None:
         r = run_nb('edit', selector, '--content', prepend, '--prepend')
-    elif content is not None:
-        r = run_nb('edit', selector, '--content', content, '--overwrite')
-    else:
+        return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
+
+    if content is None:
         return jsonify({'error': 'content, append, or prepend required'}), 400
 
-    return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
+    # Direct write — nb edit --content --overwrite silently truncates content that
+    # starts with YAML frontmatter (---) due to an nb CLI bug. Write the file
+    # directly and commit, exactly as api_create_note does for frontmatter notes.
+    path_r = run_nb('show', selector, '--path')
+    if not nb_ok(path_r):
+        return jsonify({'error': 'not found'}), 404
+    note_path = Path(path_r['stdout'].strip())
+    if not note_path.is_file():
+        return jsonify({'error': 'not found'}), 404
+
+    try:
+        note_path.write_text(content)
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
+
+    nb_root = note_path.parent
+    # Walk up to find the notebook root (contains .git)
+    p = note_path.parent
+    while p != p.parent:
+        if (p / '.git').is_dir():
+            nb_root = p
+            break
+        p = p.parent
+
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    rel = note_path.relative_to(nb_root)
+    subprocess.run(['git', 'add', str(rel)], cwd=str(nb_root),
+                   capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m', f'[nb] Edit: {note_path.name}'],
+                   cwd=str(nb_root), capture_output=True, env=env)
+
+    return jsonify({'success': True, 'stderr': ''})
 
 
 # ---------------------------------------------------------------------------
