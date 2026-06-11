@@ -898,7 +898,7 @@ const NbMain = (() => {
                 el.setAttribute('target', '_blank');
                 el.setAttribute('rel', 'noopener noreferrer');
             } else if (href.startsWith('term:')) {
-                const raw = href.slice(5);
+                const raw = decodeURIComponent(href.slice(5));
                 const cmd = raw.replace(/\{(file|dir|name|selector|notebook|title)\}/g, (_, v) => ({
                     file:     note?.path     || '',
                     dir:      note?.path     ? note.path.replace(/\/[^/]+$/, '') : '',
