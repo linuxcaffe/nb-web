@@ -938,7 +938,7 @@ body {
                      background: var(--bg2, rgba(255,255,255,0.03));
                      /* Break out of the 720px prose column — fill the actual preview pane */
                      width: 100cqi; box-sizing: border-box; }
-.nb-inline-content > .nb-rendered { max-width: 100%; }
+#nb-preview-content .nb-inline-content > .nb-rendered { max-width: 100%; }
 .nb-inline-content > .nb-rendered > *:first-child { margin-top: 0; }
 .nb-inline-content > .nb-rendered > *:last-child  { margin-bottom: 0; }
 
