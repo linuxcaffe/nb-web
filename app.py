@@ -41,6 +41,7 @@ PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
 DEBUG   = os.environ.get('NB_WEB_DEBUG', '').lower() in ('1', 'true', 'yes')
 
 GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
+TEST_DIR             = NB_DIR / '.test'
 CMDS_FILE            = Path(__file__).parent / 'cmds.txt'
 
 _RE_HEADING       = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
@@ -5721,6 +5722,56 @@ def api_run():
         'success': nb_ok(r),
         'stderr':  strip_ansi(r['stderr']),
     })
+
+
+# ---------------------------------------------------------------------------
+# API: Test codeblock runner
+# ---------------------------------------------------------------------------
+
+@app.route('/api/test/run', methods=['POST'])
+def api_test_run():
+    """Run a script from ~/.nb/.test/ with note context env vars."""
+    data        = request.get_json(force=True) or {}
+    script_name = (data.get('script') or '').strip()
+    selector    = (data.get('selector') or '').strip()
+
+    if not script_name:
+        return jsonify({'error': 'no script name', 'exit_code': 1}), 400
+    if '/' in script_name or script_name.startswith('.'):
+        return jsonify({'error': 'invalid script name', 'exit_code': 1}), 400
+
+    script_path = TEST_DIR / script_name
+    if not script_path.exists() and not script_name.endswith('.sh'):
+        script_path = TEST_DIR / (script_name + '.sh')
+    if not script_path.exists():
+        return jsonify({'error': f'script not found: {script_name} (looked in {TEST_DIR})', 'exit_code': 1}), 404
+
+    notebook  = selector.split(':')[0] if ':' in selector else ''
+    note_path = _resolve_to_nb_path(selector) if selector else None
+
+    env = {
+        **os.environ,
+        'NB_DIR':           str(NB_DIR),
+        'NB_NOTE_SELECTOR': selector,
+        'NB_NOTEBOOK':      notebook,
+        'NB_NOTE_PATH':     str(note_path) if note_path else '',
+        'NO_COLOR':         '1',
+    }
+    try:
+        result = subprocess.run(
+            ['bash', str(script_path)],
+            capture_output=True, text=True,
+            env=env, timeout=30,
+        )
+        return jsonify({
+            'stdout':    result.stdout,
+            'stderr':    result.stderr,
+            'exit_code': result.returncode,
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'script timed out (30s)', 'exit_code': 1})
+    except Exception as e:
+        return jsonify({'error': str(e), 'exit_code': 1})
 
 
 # ---------------------------------------------------------------------------

@@ -1315,6 +1315,80 @@
         el.appendChild(list);
     }
 
+    // ── test codeblock ────────────────────────────────────────────────────────
+    // Form 1: "script | Label"  → clickable button; runs on click; resets on pass
+    // Form 2: "script"          → auto-runs at render; invisible on pass+empty output
+
+    async function _loadTestBlock(el) {
+        const raw    = (el.dataset.query || '').trim();
+        const pipe   = raw.indexOf('|');
+        const script = (pipe >= 0 ? raw.slice(0, pipe) : raw).trim();
+        const label  = pipe >= 0 ? raw.slice(pipe + 1).trim() : '';
+        if (!script) { el.remove(); return; }
+        if (label) {
+            _buildTestBtn(el, script, label);
+        } else {
+            el.innerHTML = '<span class="nb-spin">⟳</span>';
+            await _runTest(el, script, null, null);
+        }
+    }
+
+    function _buildTestBtn(el, script, label) {
+        el.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'nb-test-btn';
+        btn.textContent = `▶ ${label}`;
+        const out = document.createElement('div');
+        out.className = 'nb-test-out';
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = '⟳ …';
+            out.innerHTML = '';
+            await _runTest(el, script, btn, out);
+            btn.disabled = false;
+            btn.textContent = `▶ ${label}`;
+        });
+        el.appendChild(btn);
+        el.appendChild(out);
+    }
+
+    async function _runTest(el, script, btn, out) {
+        const selector = NbMain.activeSelector() || '';
+        let d;
+        try {
+            const r = await fetch('/api/test/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ script, selector }),
+            });
+            d = await r.json();
+        } catch (e) {
+            d = { error: String(e), exit_code: 1, stdout: '' };
+        }
+
+        const stdout = (d.stdout || '').trim();
+        const pass   = d.exit_code === 0 && !stdout && !d.error;
+
+        if (pass) {
+            // Form 2: vanish; Form 1: button already resets in _buildTestBtn
+            if (!btn) el.remove();
+            return;
+        }
+
+        const text = d.error && !stdout ? `⚠ ${d.error}` : stdout || d.error || '';
+        const wrap = document.createElement('div');
+        wrap.className = 'nb-rendered' + (d.exit_code !== 0 ? ' nb-test-fail' : '');
+        wrap.innerHTML = NbMain.renderMarkdown(text, '');
+        NbMain.enrichRendered(wrap, null);
+
+        if (out) {
+            out.appendChild(wrap);
+        } else {
+            el.innerHTML = '';
+            el.appendChild(wrap);
+        }
+    }
+
     // ── Plugin registration ───────────────────────────────────────────────────
 
     NbWeb.registerModule('codeblocks', {
@@ -1369,6 +1443,11 @@
                 lang:   'git',
                 html:   text => `<div class="nb-git-block" data-cmd="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => { for (const el of container.querySelectorAll('.nb-git-block')) await _loadGitBlock(el); },
+            },
+            {
+                lang:   'test',
+                html:   text => `<div class="nb-test-block" data-query="${text.trim().replace(/"/g,'&quot;')}"></div>`,
+                render: async container => { for (const el of container.querySelectorAll('.nb-test-block')) await _loadTestBlock(el); },
             },
         ],
 

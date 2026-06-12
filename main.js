@@ -1048,8 +1048,32 @@ const NbMain = (() => {
 
     function _finishRendered(container, note) {
         _enrichRendered(container, note);
-        if (note?.meta?.toc) _buildToc(container, note);
+        if (note?.meta?.toc) {
+            _buildToc(container, note);
+            _watchInlineTocRebuild(container, note);
+        }
         _appendAnnotation(container, note);
+    }
+
+    // If the note has {{inline:}} includes, watch for them to land and rebuild the TOC
+    // from the fully-expanded DOM. Inline fetches are async fire-and-forget, so the
+    // initial _buildToc sees only source headings. The observer debounces until the DOM
+    // is quiet, then rebuilds once from all headings including those inside included notes.
+    function _watchInlineTocRebuild(container, note) {
+        const rendered = container.querySelector('.nb-rendered');
+        if (!rendered) return;
+        if (!rendered.querySelector('.nb-inline-query[data-provider="inline"]')) return;
+        let tid;
+        const obs = new MutationObserver(() => {
+            clearTimeout(tid);
+            tid = setTimeout(() => {
+                obs.disconnect();
+                container.querySelector('.nb-toc')?.remove();
+                _buildToc(container, note);
+            }, 500);
+        });
+        obs.observe(rendered, { childList: true, subtree: true });
+        setTimeout(() => obs.disconnect(), 15000);
     }
 
     // ── Encrypted note decrypt/render ──────────────────────────────────────
@@ -5277,7 +5301,8 @@ const NbMain = (() => {
              clearSelection: _clearSelection,
              deselect: sel => { _selectedSelectors.delete(sel); _updateSelectionUI(); },
              renderNoteHtml: _renderNoteHtml,
-             renderMarkdown: (body, sel) => _renderMarkdown(body, sel) };
+             renderMarkdown:  (body, sel)       => _renderMarkdown(body, sel),
+             enrichRendered:  (container, note) => _enrichRendered(container, note) };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────
