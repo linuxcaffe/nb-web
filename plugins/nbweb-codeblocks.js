@@ -1341,10 +1341,8 @@
             if (entry.isDir) {
                 btn.addEventListener('click', () => _navGo(el, undefined, undefined, entry.path));
             } else {
-                btn.addEventListener('click', async () => {
-                    const d = await fetch(`/api/hledger/path-selector?path=${encodeURIComponent(entry.path)}`).then(r => r.json());
-                    if (d.selector) NbMain.openNote(d.selector);
-                    else if (typeof NbTerminal !== 'undefined') NbTerminal.run(`\${EDITOR:-nano} "${entry.path}"`);
+                btn.addEventListener('click', () => {
+                    if (typeof NbTerminal !== 'undefined') NbTerminal.run(`\${EDITOR:-nano} "${entry.path}"`);
                 });
             }
             li.appendChild(icon);
