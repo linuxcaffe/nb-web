@@ -842,6 +842,7 @@ function _buildBkAddSection(container, notebook, config) {
         <div class="nb-hl-postings"></div>
         <div class="nb-hl-addform-footer">
             <button class="nb-tw-btn nb-hl-btn nb-hl-add-row">+ row</button>
+            <input type="text" class="nb-hl-inp nb-hl-comment-inp" placeholder="; comment (optional)" autocomplete="off" spellcheck="false">
             <button class="nb-btn-primary nb-hl-save-btn">Save</button>
             <button class="nb-tw-btn nb-hl-bk-add-close" title="Close">✕</button>
             <span class="nb-hl-form-status"></span>
@@ -863,9 +864,10 @@ function _buildBkAddSection(container, notebook, config) {
 
     container.querySelector('.nb-hl-save-btn').addEventListener('click', async () => {
         const status = container.querySelector('.nb-hl-form-status');
-        const date   = container.querySelector('.nb-hl-date-inp').value;
-        const desc   = container.querySelector('.nb-hl-desc-inp').value.trim();
-        const rows   = [...postings.querySelectorAll('.nb-hl-posting-row')].map(r => ({
+        const date    = container.querySelector('.nb-hl-date-inp').value;
+        const desc    = container.querySelector('.nb-hl-desc-inp').value.trim();
+        const comment = container.querySelector('.nb-hl-comment-inp').value.trim();
+        const rows    = [...postings.querySelectorAll('.nb-hl-posting-row')].map(r => ({
             account: r.querySelector('.nb-hl-acc-inp').value.trim(),
             amount:  r.querySelector('.nb-hl-amt-inp').value.trim(),
         })).filter(p => p.account);
@@ -876,12 +878,14 @@ function _buildBkAddSection(container, notebook, config) {
             const r = await fetch('/api/hledger-add', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({date, description: desc, postings: rows,
+                    ...(comment && {comment}),
                     ...(journal && {file: journal})})
             });
             const d = await r.json();
             if (d.error) { status.textContent = '✗ ' + d.error; return; }
             status.textContent = '✓ Saved';
             container.querySelector('.nb-hl-desc-inp').value = '';
+            container.querySelector('.nb-hl-comment-inp').value = '';
             postings.querySelectorAll('.nb-hl-amt-inp').forEach(i => { i.value = ''; i._edited = false; });
             postings.querySelectorAll('.nb-hl-acc-inp').forEach(i => i.value = '');
             [...postings.querySelectorAll('.nb-hl-posting-row')].slice(2).forEach(r => r.remove());
