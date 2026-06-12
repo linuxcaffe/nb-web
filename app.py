@@ -2952,16 +2952,27 @@ def api_note():
     if not selector:
         return jsonify({'error': 'selector required'}), 400
 
-    # Resolve selector to a real path first (handles both filename and id selectors)
-    path_r = run_nb('show', selector, '--path')
-    if not nb_ok(path_r):
-        return jsonify({'error': 'not found'}), 404
-    fpath = path_r['stdout'].strip()
+    note_notebook = None
+    note_id       = None
+
+    # Absolute path selector — used by rawPath nav for files in hidden dirs (.test etc.)
+    if selector.startswith('/'):
+        fpath = selector
+        try:
+            Path(fpath).resolve().relative_to(NB_DIR)
+        except ValueError:
+            return jsonify({'error': 'not found'}), 404
+        if not Path(fpath).exists():
+            return jsonify({'error': 'not found'}), 404
+    else:
+        # Resolve selector to a real path first (handles both filename and id selectors)
+        path_r = run_nb('show', selector, '--path')
+        if not nb_ok(path_r):
+            return jsonify({'error': 'not found'}), 404
+        fpath = path_r['stdout'].strip()
 
     # Determine notebook name and numeric id from filesystem path
     p = Path(fpath)
-    note_notebook = None
-    note_id = None
     try:
         for nb_candidate in NB_DIR.iterdir():
             if not nb_candidate.is_dir() or nb_candidate.name.startswith('.'):

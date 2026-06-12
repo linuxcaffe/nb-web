@@ -1341,9 +1341,7 @@
             if (entry.isDir) {
                 btn.addEventListener('click', () => _navGo(el, undefined, undefined, entry.path));
             } else {
-                btn.addEventListener('click', () => {
-                    if (typeof NbTerminal !== 'undefined') NbTerminal.run(`\${EDITOR:-nano} "${entry.path}"`);
-                });
+                btn.addEventListener('click', () => NbMain.openNote(entry.path));
             }
             li.appendChild(icon);
             li.appendChild(btn);
