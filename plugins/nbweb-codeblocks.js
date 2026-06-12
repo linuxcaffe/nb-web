@@ -1227,7 +1227,9 @@
 
         try {
             if (rawPath) {
-                const d = await fetch(`/api/fs/list?path=${encodeURIComponent(rawPath)}`).then(r => r.json());
+                const _r = await fetch(`/api/fs/list?path=${encodeURIComponent(rawPath)}`);
+                if (!_r.ok) throw new Error(`HTTP ${_r.status} — try restarting nb-web`);
+                const d = await _r.json();
                 if (d.error) throw new Error(d.error);
                 _navBuildFs(el, d.entries || [], d.path || rawPath);
             } else if (!notebook) {
