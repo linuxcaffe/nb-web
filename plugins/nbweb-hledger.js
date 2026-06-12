@@ -1167,6 +1167,277 @@ function _renderAccountNote(note) {
     </div>`;
 }
 
+// ── Chart codeblock ───────────────────────────────────────────────────────────
+
+let _chartJsLoading = false;
+let _chartJsReady   = false;
+const _chartJsCallbacks = [];
+
+function _loadChartJs(cb) {
+    if (_chartJsReady) { cb(); return; }
+    _chartJsCallbacks.push(cb);
+    if (_chartJsLoading) return;
+    _chartJsLoading = true;
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+    s.onload = () => {
+        _chartJsReady = true;
+        _chartJsCallbacks.splice(0).forEach(fn => fn());
+    };
+    document.head.appendChild(s);
+}
+
+function _fmtCcy(v) {
+    const abs = Math.abs(v);
+    const s   = abs >= 1000 ? abs.toLocaleString(undefined, {maximumFractionDigits: 0})
+                            : abs.toFixed(2);
+    return (v < 0 ? '-' : '') + s;
+}
+
+function _drawChart(canvas, report, data, altView = false) {
+    const labels = data.labels;
+
+    const green  = 'rgba(100,200,100,0.8)';
+    const red    = 'rgba(250,100,100,0.8)';
+    const blue   = 'rgba(100,140,250,1)';
+    const teal   = 'rgba(80,200,200,0.8)';
+    const purple = 'rgba(180,100,250,0.8)';
+
+    const baseOpts = {
+        plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+                callbacks: {
+                    label: ctx => ` ${ctx.dataset.label}: ${_fmtCcy(ctx.parsed.y)}`
+                }
+            }
+        },
+        scales: {
+            y: { ticks: { callback: v => _fmtCcy(v) } }
+        }
+    };
+
+    if (report === 'cashflow') {
+        new Chart(canvas, {
+            data: {
+                labels,
+                datasets: [
+                    { type: 'bar',   label: 'Income',     data: data.income,     backgroundColor: green },
+                    { type: 'bar',   label: 'Expenses',   data: data.expenses,   backgroundColor: red },
+                    { type: 'line',  label: 'Net change',  data: data.cumulative, borderColor: blue,
+                      backgroundColor: 'transparent', pointRadius: 3, tension: 0.3 },
+                ]
+            },
+            options: { ...baseOpts, scales: { y: { stacked: false, ticks: { callback: v => _fmtCcy(v) } } } }
+        });
+
+    } else if (report === 'networth') {
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Net Worth',    data: data.networth,    borderColor: blue,   fill: false, tension: 0.3, pointRadius: 3 },
+                    { label: 'Assets',       data: data.assets,      borderColor: green,  fill: false, tension: 0.3, pointRadius: 2 },
+                    { label: 'Liabilities',  data: data.liabilities, borderColor: red,    fill: false, tension: 0.3, pointRadius: 2 },
+                ]
+            },
+            options: baseOpts
+        });
+
+    } else if (report === 'expenses') {
+        const palette = [red, purple, teal, 'rgba(250,180,50,0.8)', 'rgba(50,180,250,0.8)',
+                         'rgba(250,120,50,0.8)', 'rgba(130,200,80,0.8)', 'rgba(200,80,180,0.8)'];
+        if (altView) {
+            // Alt: doughnut of period totals
+            const totals = data.series.map(s => s.data.reduce((a, b) => a + b, 0));
+            const grand  = totals.reduce((a, b) => a + b, 0);
+            new Chart(canvas, {
+                type: 'doughnut',
+                data: {
+                    labels: data.series.map(s => s.label),
+                    datasets: [{ data: totals, backgroundColor: palette }]
+                },
+                options: {
+                    aspectRatio: 1.5,
+                    plugins: {
+                        legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${_fmtCcy(ctx.parsed)} (${(100*ctx.parsed/grand).toFixed(1)}%)` } }
+                    }
+                }
+            });
+        } else {
+            new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: data.series.map((s, i) => ({
+                        label: s.label, data: s.data,
+                        backgroundColor: palette[i % palette.length], stack: 'expenses',
+                    }))
+                },
+                options: { ...baseOpts, scales: { y: { stacked: true, ticks: { callback: v => _fmtCcy(v) } } } }
+            });
+        }
+
+    } else if (report.endsWith('-pie')) {
+        const palette = [red, green, blue, purple, teal,
+                         'rgba(250,180,50,0.85)', 'rgba(50,180,250,0.85)',
+                         'rgba(250,120,50,0.85)', 'rgba(130,200,80,0.85)', 'rgba(200,80,180,0.85)'];
+        const total = data.values.reduce((a, b) => a + b, 0);
+        if (altView) {
+            // Alt: horizontal bar
+            new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{ data: data.values, backgroundColor: palette, label: report.replace('-pie','') }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: ctx => ` ${_fmtCcy(ctx.parsed.x)} (${(100*ctx.parsed.x/total).toFixed(1)}%)` } }
+                    },
+                    scales: { x: { ticks: { callback: v => _fmtCcy(v) } } }
+                }
+            });
+        } else {
+            new Chart(canvas, {
+                type: 'doughnut',
+                data: {
+                    labels: data.labels,
+                    datasets: [{ data: data.values, backgroundColor: palette }]
+                },
+                options: {
+                    plugins: {
+                        legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${_fmtCcy(ctx.parsed)} (${(100*ctx.parsed/total).toFixed(1)}%)` } }
+                    }
+                }
+            });
+        }
+    }
+}
+
+const _CHART_QUICK_PERIODS = [
+    { key: 'thismonth', label: 'mo' },
+    { key: 'thisyear',  label: 'yr' },
+    { key: 'lastyear',  label: 'prev' },
+];
+
+async function _loadChartBlock(el) {
+    const raw    = el.dataset.query || '';
+    const parts  = raw.trim().split(/\s+/);
+    const report = parts[0] || 'cashflow';
+
+    // Parse fence args: "cashflow thisyear depth:3" or "cashflow -p thisyear"
+    let initPeriod = 'thisyear';
+    let depth      = '2';
+    for (let i = 1; i < parts.length; i++) {
+        if (parts[i] === '-p' && parts[i + 1])  { initPeriod = parts[++i]; }
+        else if (parts[i].startsWith('depth:'))  { depth = parts[i].slice(6); }
+        else if (/^[a-z0-9]/.test(parts[i]))    { initPeriod = parts[i]; }
+    }
+
+    const notebook   = (typeof NbNav !== 'undefined' ? NbNav.notebook : '') || '';
+    let   activePeriod = initPeriod;
+
+    const canAlt = report.endsWith('-pie') || report === 'expenses';
+    // default view: pie reports start as doughnut, expenses starts as bar
+    let   altView = false;
+
+    const buildUrl = () =>
+        `/api/hledger/chart?notebook=${encodeURIComponent(notebook)}`
+        + `&report=${encodeURIComponent(report)}&period=${encodeURIComponent(activePeriod)}`
+        + `&depth=${encodeURIComponent(depth)}`;
+
+    const altLabel = () => {
+        if (report.endsWith('-pie')) return altView ? '◕' : '▦';
+        return altView ? '▦' : '◕';  // expenses: default bar → shows pie icon
+    };
+
+    el.innerHTML = `
+        <div class="nb-chart-header">
+            <span class="nb-chart-toggle">▾</span>
+            <span class="nb-chart-title">
+                <span class="nb-chart-report">${report}</span>
+            </span>
+            <span class="nb-chart-pickers">${
+                _CHART_QUICK_PERIODS.map(p =>
+                    `<button class="nb-chart-p${p.key === initPeriod ? ' nb-chart-p-on' : ''}"
+                             data-p="${p.key}">${p.label}</button>`
+                ).join('')
+            }</span>
+            ${canAlt ? `<button class="nb-chart-viewbtn" title="Toggle chart type">${altLabel()}</button>` : ''}
+            <button class="nb-chart-refresh" title="Reload">↺</button>
+        </div>
+        <div class="nb-chart-body">
+            <div class="nb-chart-loading">Loading chart…</div>
+        </div>`;
+
+    el.classList.add('nb-chart-block');
+
+    const toggle  = el.querySelector('.nb-chart-toggle');
+    const title   = el.querySelector('.nb-chart-title');
+    const body    = el.querySelector('.nb-chart-body');
+    const refresh = el.querySelector('.nb-chart-refresh');
+    const pickers = el.querySelector('.nb-chart-pickers');
+    const viewBtn = el.querySelector('.nb-chart-viewbtn');
+
+    let _lastData = null;
+
+    const draw = data => {
+        body.innerHTML = '<canvas></canvas>';
+        _loadChartJs(() => _drawChart(body.querySelector('canvas'), report, data, altView));
+    };
+
+    const load = () => {
+        body.innerHTML = '<div class="nb-chart-loading">Loading…</div>';
+        _lastData = null;
+        fetch(buildUrl())
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { body.innerHTML = `<div class="nb-chart-err">${data.error}</div>`; return; }
+                _lastData = data;
+                draw(data);
+            })
+            .catch(e => { body.innerHTML = `<div class="nb-chart-err">${e.message}</div>`; });
+    };
+
+    const collapse = () => {
+        el.classList.toggle('nb-chart-collapsed');
+        toggle.textContent = el.classList.contains('nb-chart-collapsed') ? '▸' : '▾';
+    };
+
+    toggle.addEventListener('click', collapse);
+    title.addEventListener('click',  collapse);
+    refresh.addEventListener('click', () => { el.classList.remove('nb-chart-collapsed'); toggle.textContent = '▾'; load(); });
+
+    pickers.addEventListener('click', e => {
+        const btn = e.target.closest('.nb-chart-p');
+        if (!btn) return;
+        activePeriod = btn.dataset.p;
+        pickers.querySelectorAll('.nb-chart-p').forEach(b =>
+            b.classList.toggle('nb-chart-p-on', b.dataset.p === activePeriod));
+        el.classList.remove('nb-chart-collapsed');
+        toggle.textContent = '▾';
+        load();
+    });
+
+    if (viewBtn) {
+        viewBtn.addEventListener('click', () => {
+            altView = !altView;
+            viewBtn.textContent = altLabel();
+            el.classList.remove('nb-chart-collapsed');
+            toggle.textContent = '▾';
+            if (_lastData) draw(_lastData);  // redraw without re-fetching
+        });
+    }
+
+    load();
+}
+
 // ── Plugin registration ───────────────────────────────────────────────────────
 
 NbWeb.registerModule('hledger', {
@@ -1235,6 +1506,17 @@ NbWeb.registerModule('hledger', {
         if (note.type === 'account') return _renderAccountNote(note);
         return null;
     },
+
+    codeblockRenderers: [
+        {
+            lang: 'chart',
+            html: text => `<div class="nb-chart-block" data-query="${text.trim().replace(/"/g, '&quot;')}"><div class="nb-chart-loading">Loading chart…</div></div>`,
+            render: async container => {
+                const blocks = container.querySelectorAll('.nb-chart-block[data-query]');
+                for (const el of blocks) await _loadChartBlock(el);
+            },
+        },
+    ],
 });
 
 // Expose accounts getter so NbWeb-codeblocks can wire autocomplete

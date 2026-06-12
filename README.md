@@ -1,5 +1,6 @@
 ---
 draft: true
+toc: true
 ---
 
 - Project: https://github.com/linuxcaffe/nb-web

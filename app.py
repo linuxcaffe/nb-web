@@ -19,6 +19,7 @@ try:
 except ImportError:
     _YAML_OK = False
 
+import csv
 import io
 import shlex
 import shutil
@@ -1847,9 +1848,13 @@ def _parse_journal_by_date(content, date_from='', date_to=''):
 
 @app.route('/api/hledger/export-daily', methods=['POST'])
 def api_hledger_export_daily():
-    """Extract hledger blocks from YYYYMMDD.md daily notes → journal file."""
+    """Extract hledger blocks from daily notes → journal file.
+
+    Scans both flat YYYYMMDD.md (nb daily convention) and hierarchical
+    YYYY-MM/YYYY-MM-DD.md (obsidian_hledger convention) layouts.
+    """
     data      = request.get_json(silent=True) or {}
-    notebook  = safe_name(data.get('notebook', ''))
+    notebook  = data.get('notebook', '').strip()
     date_from = data.get('from', '')
     date_to   = data.get('to', '')
     output    = data.get('output', '').strip()
@@ -1861,11 +1866,14 @@ def api_hledger_export_daily():
 
     fence_re = re.compile(r'```hledger\n(.*?)```', re.DOTALL)
     blocks   = []
-    for fpath in sorted(nb_path.glob('*.md')):
+    for fpath in sorted(nb_path.rglob('*.md')):
         stem = fpath.stem
-        if not re.match(r'^\d{8}$', stem):
+        if re.match(r'^\d{8}$', stem):
+            ds = f'{stem[:4]}-{stem[4:6]}-{stem[6:]}'
+        elif re.match(r'^\d{4}-\d{2}-\d{2}$', stem):
+            ds = stem
+        else:
             continue
-        ds = f'{stem[:4]}-{stem[4:6]}-{stem[6:]}'
         if date_from and ds < date_from:
             continue
         if date_to and ds > date_to:
@@ -1881,6 +1889,12 @@ def api_hledger_export_daily():
         try:
             out_path = Path(os.path.expanduser(output))
             out_path.parent.mkdir(parents=True, exist_ok=True)
+            if out_path.exists():
+                base, ext = out_path.stem, out_path.suffix
+                i = 1
+                while out_path.exists():
+                    out_path = out_path.with_name(f'{base}_{i}{ext}')
+                    i += 1
             out_path.write_text(content)
         except OSError as e:
             return jsonify({'error': str(e)}), 500
@@ -1892,7 +1906,7 @@ def api_hledger_export_daily():
 def api_hledger_import_daily():
     """Import hledger journal transactions into YYYYMMDD.md daily notes."""
     data      = request.get_json(silent=True) or {}
-    notebook  = safe_name(data.get('notebook', ''))
+    notebook  = data.get('notebook', '').strip()
     file_path = data.get('file', '').strip()
     date_from = data.get('from', '')
     date_to   = data.get('to', '')
@@ -1914,16 +1928,26 @@ def api_hledger_import_daily():
     txns    = _parse_journal_by_date(journal_text, date_from, date_to)
     created = updated = 0
     errors  = []
+    _fence_re = re.compile(r'(```hledger\n)(.*?)(```)', re.DOTALL)
     for ds, blocks in sorted(txns.items()):
         stem      = ds.replace('-', '')
         note_path = nb_path / f'{stem}.md'
-        hblock    = '\n```hledger\n' + '\n\n'.join(blocks) + '\n```\n'
+        new_txns  = '\n\n'.join(blocks)
         try:
             if note_path.exists():
-                note_path.write_text(note_path.read_text(errors='replace').rstrip() + '\n' + hblock)
+                existing = note_path.read_text(errors='replace')
+                m = _fence_re.search(existing)
+                if m:
+                    inner = m.group(2).rstrip('\n')
+                    new_inner = inner + ('\n\n' if inner else '') + new_txns
+                    note_path.write_text(
+                        existing[:m.start()] + f'```hledger\n{new_inner}\n```' + existing[m.end():]
+                    )
+                else:
+                    note_path.write_text(existing.rstrip() + '\n\n```hledger\n' + new_txns + '\n```\n')
                 updated += 1
             else:
-                note_path.write_text(f'---\ntitle: "{ds}"\ntype: note\n---\n\n# {ds}\n{hblock}')
+                note_path.write_text(f'---\ntitle: "{ds}"\ntype: note\n---\n\n# {ds}\n\n```hledger\n{new_txns}\n```\n')
                 idx_path = nb_path / '.index'
                 if idx_path.exists():
                     idx = idx_path.read_text().splitlines()
@@ -1940,6 +1964,158 @@ def api_hledger_import_daily():
                    cwd=str(nb_path), capture_output=True, env=env_)
 
     return jsonify({'ok': True, 'created': created, 'updated': updated, 'errors': errors})
+
+
+def _parse_hl_amount(s):
+    """Parse a hledger amount string like '£1,234.56' or '-5.00' to float."""
+    if not s or s.strip() in ('', '0'):
+        return 0.0
+    cleaned = re.sub(r'[^\d.\-]', '', s.replace(',', ''))
+    try:
+        return float(cleaned) if cleaned not in ('', '-') else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _hl_bal_csv(text):
+    """Parse hledger bal --output-format=csv output.
+
+    Returns (month_labels, [(account, [float])]).
+    Skips title rows, section markers, and the Total row.
+    Handles both plain bal (no title row) and is/bs format (title row present).
+    """
+    reader = csv.reader(text.splitlines())
+    header = None
+    rows = []
+    for row in reader:
+        if not row:
+            continue
+        if all(v.strip() == '' for v in row[1:]):
+            continue
+        if header is None:
+            header = row
+            continue
+        rows.append(row)
+
+    if not header:
+        return [], []
+
+    month_indices = []
+    month_labels  = []
+    for i, col in enumerate(header[1:], 1):
+        col = col.strip()
+        if col.lower() == 'total':
+            continue
+        month_labels.append(col)
+        month_indices.append(i)
+
+    accounts = []
+    for row in rows:
+        account = row[0].strip()
+        if account.lower() in ('total', ''):
+            continue
+        amounts = [_parse_hl_amount(row[i] if i < len(row) else '') for i in month_indices]
+        accounts.append((account, amounts))
+
+    return month_labels, accounts
+
+
+def _sum_amounts(accounts, n):
+    totals = [0.0] * n
+    for _, amounts in accounts:
+        for i, v in enumerate(amounts[:n]):
+            totals[i] += v
+    return totals
+
+
+@app.route('/api/hledger/chart')
+def api_hledger_chart():
+    notebook = request.args.get('notebook', '').strip()
+    report   = request.args.get('report', 'cashflow').strip()
+    period   = request.args.get('period', 'thisyear').strip()
+
+    config  = _hledger_config_for_notebook(notebook) if notebook else None
+    jpath   = _hledger_journal_path(config)
+    if not jpath:
+        return jsonify({'error': 'no journal configured'}), 400
+
+    depth = request.args.get('depth', '2').strip()
+
+    def run_bal(type_code, extra_args='', monthly=True):
+        cmd = ['hledger', '-f', str(jpath), 'bal', f'type:{type_code}',
+               '-N', '--output-format=csv', '-p', period]
+        if monthly:
+            cmd.append('--monthly')
+        if extra_args:
+            cmd += shlex.split(extra_args)
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        return r.stdout
+
+    def run_pie(type_code):
+        _, accts = _hl_bal_csv(run_bal(type_code, f'--depth {shlex.quote(depth)}', monthly=False))
+        labels = [a for a, _ in accts]
+        values = [round(abs(v[0]), 2) if v else 0.0 for _, v in accts]
+        return labels, values
+
+    try:
+        if report == 'cashflow':
+            rev_labels, rev_accts = _hl_bal_csv(run_bal('R'))
+            exp_labels, exp_accts = _hl_bal_csv(run_bal('X'))
+            labels = rev_labels or exp_labels
+            n      = len(labels)
+            income   = [-v for v in _sum_amounts(rev_accts, n)]
+            expenses = _sum_amounts(exp_accts, n)
+            cur = 0.0
+            cumulative = []
+            for inc, exp in zip(income, expenses):
+                cur += inc - exp
+                cumulative.append(round(cur, 2))
+            return jsonify({
+                'report': 'cashflow', 'labels': labels,
+                'income':     [round(v, 2) for v in income],
+                'expenses':   [round(v, 2) for v in expenses],
+                'cumulative': cumulative,
+            })
+
+        elif report == 'networth':
+            ast_labels, ast_accts = _hl_bal_csv(run_bal('A'))
+            lib_labels, lib_accts = _hl_bal_csv(run_bal('L'))
+            labels = ast_labels or lib_labels
+            n      = len(labels)
+            assets      = _sum_amounts(ast_accts, n)
+            liabilities = _sum_amounts(lib_accts, n)
+            networth    = [round(a - abs(l), 2) for a, l in zip(assets, liabilities)]
+            return jsonify({
+                'report': 'networth', 'labels': labels,
+                'assets':      [round(v, 2) for v in assets],
+                'liabilities': [round(abs(v), 2) for v in liabilities],
+                'networth':    networth,
+            })
+
+        elif report == 'expenses':
+            labels, accts = _hl_bal_csv(run_bal('X', f'--depth {shlex.quote(depth)}'))
+            n = len(labels)
+            series = [{'label': acct, 'data': [round(v, 2) for v in amounts[:n]]}
+                      for acct, amounts in accts]
+            return jsonify({'report': 'expenses', 'labels': labels, 'series': series})
+
+        elif report == 'expenses-pie':
+            labels, values = run_pie('X')
+            return jsonify({'report': 'expenses-pie', 'labels': labels, 'values': values})
+
+        elif report == 'assets-pie':
+            labels, values = run_pie('A')
+            return jsonify({'report': 'assets-pie', 'labels': labels, 'values': values})
+
+        elif report == 'income-pie':
+            labels, values = run_pie('R')
+            return jsonify({'report': 'income-pie', 'labels': labels, 'values': values})
+
+        else:
+            return jsonify({'error': f'unknown report: {report}'}), 400
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/t/status')

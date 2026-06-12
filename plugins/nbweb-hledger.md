@@ -156,6 +156,62 @@ When accounts have `cra_line_t1` values, the **T1 report** (under Reports) group
 
 ---
 
+## Chart codeblocks
+
+Add a `` ```chart ``` `` fence anywhere in a note to render an interactive financial chart:
+
+````markdown
+```chart
+cashflow thisyear
+```
+````
+
+The fence body is `<report> [period] [depth:N]`.
+
+### Report types
+
+| Report | Default view | Description |
+|--------|-------------|-------------|
+| `cashflow` | bar + line | Monthly income vs expenses with cumulative net change |
+| `networth` | line | Assets, liabilities, and net worth over time |
+| `expenses` | stacked bar | Monthly expense breakdown by category |
+| `expenses-pie` | doughnut | Expense share by category for the period |
+| `assets-pie` | doughnut | Asset allocation snapshot |
+| `income-pie` | doughnut | Income sources for the period |
+
+### Options
+
+- **Period** — any hledger period expression: `thismonth`, `thisyear`, `lastyear`, `last6months`, `2025`, `2025-01..2025-06`, …
+- **`depth:N`** — account depth for category breakdown (default `2`). Higher values show more granular sub-categories.
+- **`-p period`** — alternative flag syntax, e.g. `cashflow -p lastyear`
+
+### Header controls
+
+Every chart block has an interactive header:
+
+- **▾ / ▸** — click the toggle or the report name to collapse/expand the chart body
+- **mo / yr / prev** — quick period switcher; reloads data from hledger
+- **◕ / ▦** — toggle between doughnut and bar views (`*-pie` and `expenses` only); redraws without re-fetching
+- **↺** — force reload from hledger
+
+### Examples
+
+````markdown
+```chart
+networth last2years
+```
+
+```chart
+expenses-pie thismonth depth:3
+```
+
+```chart
+expenses lastyear depth:2
+```
+````
+
+---
+
 ## hledger docs
 
 Full hledger documentation: <https://hledger.org/docs.html>
