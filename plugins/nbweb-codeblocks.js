@@ -463,6 +463,12 @@
     function _showTwAddForm(el, q, trigger) {
         const existing = trigger._cbForm || el.querySelector('.nb-tw-addform');
         if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('active'); return; }
+        if (document.getElementById('nb-preview-content')?.dataset.noteLocked === 'true') {
+            trigger.title = "Can't add — this file is locked";
+            trigger.textContent = '🔒';
+            setTimeout(() => { trigger.title = 'Add task'; trigger.textContent = '+'; }, 2500);
+            return;
+        }
         trigger?.classList.add('active');
 
         const form = document.createElement('div');
@@ -875,6 +881,12 @@
     function _showHledgerAddForm(el, q, trigger) {
         const existing = trigger._cbForm || el.querySelector('.nb-hl-addform');
         if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('nb-hl-btn-active'); return; }
+        if (document.getElementById('nb-preview-content')?.dataset.noteLocked === 'true') {
+            trigger.title = "Can't add — this file is locked";
+            trigger.textContent = '🔒';
+            setTimeout(() => { trigger.title = 'Add transaction'; trigger.textContent = '+'; }, 2500);
+            return;
+        }
         trigger?.classList.add('nb-hl-btn-active');
 
         const _fn   = typeof NbMain !== 'undefined' ? (NbMain.activeFilename() || '') : '';
