@@ -659,6 +659,19 @@ function _buildCoaWizard(el, notebook, config) {
     });
 }
 
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+function _dateFromActiveNote() {
+    const fn = typeof NbMain !== 'undefined' ? (NbMain.activeFilename() || '') : '';
+    const m  = fn.match(/^(\d{4})(\d{2})(\d{2})\b/);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : new Date().toISOString().slice(0, 10);
+}
+
+function _negateAmt(s) {
+    s = (s || '').trim();
+    return s.startsWith('-') ? s.slice(1).trim() : s ? '-' + s : '';
+}
+
 // ── Setup panel (journal info + CoA wizard) ───────────────────────────────────
 
 // ── Aliases panel ─────────────────────────────────────────────────────────────
@@ -803,6 +816,183 @@ function _buildSetupPanel(el, notebook, config) {
     });
 }
 
+// ── Bookkeeper: inline add-transaction form ────────────────────────────────────
+
+function _buildBkAddSection(container, notebook, config) {
+    const journal = config?.journal || '';
+
+    function makeRow() {
+        const row = document.createElement('div');
+        row.className = 'nb-hl-posting-row';
+        row.innerHTML = `
+            <input type="text" class="nb-hl-inp nb-hl-acc-inp" placeholder="account" autocomplete="off" spellcheck="false">
+            <input type="text" class="nb-hl-inp nb-hl-amt-inp" placeholder="amount">
+            <button class="nb-tw-btn nb-hl-rm-row" title="Remove">✕</button>`;
+        row.querySelector('.nb-hl-rm-row').addEventListener('click', () => {
+            if (postings.querySelectorAll('.nb-hl-posting-row').length > 2) row.remove();
+        });
+        return row;
+    }
+
+    container.innerHTML = `
+        <div class="nb-hl-addform-top">
+            <input type="date" class="nb-hl-inp nb-hl-date-inp" value="${_dateFromActiveNote()}">
+            <input type="text" class="nb-hl-inp nb-hl-desc-inp" placeholder="Description" autocomplete="off">
+        </div>
+        <div class="nb-hl-postings"></div>
+        <div class="nb-hl-addform-footer">
+            <button class="nb-tw-btn nb-hl-btn nb-hl-add-row">+ row</button>
+            <button class="nb-btn-primary nb-hl-save-btn">Save</button>
+            <button class="nb-tw-btn nb-hl-bk-add-close" title="Close">✕</button>
+            <span class="nb-hl-form-status"></span>
+        </div>`;
+
+    const postings = container.querySelector('.nb-hl-postings');
+    const row1 = makeRow(); postings.appendChild(row1);
+    const row2 = makeRow(); postings.appendChild(row2);
+    const amt1 = row1.querySelector('.nb-hl-amt-inp');
+    const amt2 = row2.querySelector('.nb-hl-amt-inp');
+    amt1.addEventListener('input', () => { if (!amt2._edited) amt2.value = _negateAmt(amt1.value); });
+    amt2.addEventListener('input', () => { amt2._edited = amt2.value !== '' && amt2.value !== _negateAmt(amt1.value); });
+
+    container.querySelector('.nb-hl-add-row').addEventListener('click', () => postings.appendChild(makeRow()));
+    container.querySelector('.nb-hl-bk-add-close').addEventListener('click', () => {
+        container.hidden = true;
+        container.closest('.nb-hl-bk-add-wrap')?.querySelector('.nb-hl-bk-add-btn')?.classList.remove('nb-active');
+    });
+
+    container.querySelector('.nb-hl-save-btn').addEventListener('click', async () => {
+        const status = container.querySelector('.nb-hl-form-status');
+        const date   = container.querySelector('.nb-hl-date-inp').value;
+        const desc   = container.querySelector('.nb-hl-desc-inp').value.trim();
+        const rows   = [...postings.querySelectorAll('.nb-hl-posting-row')].map(r => ({
+            account: r.querySelector('.nb-hl-acc-inp').value.trim(),
+            amount:  r.querySelector('.nb-hl-amt-inp').value.trim(),
+        })).filter(p => p.account);
+        if (!date || !desc) { status.textContent = 'Date and description required'; return; }
+        if (!rows.length)   { status.textContent = 'At least one posting required'; return; }
+        status.textContent = 'Saving…';
+        try {
+            const r = await fetch('/api/hledger-add', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({date, description: desc, postings: rows,
+                    ...(journal && {file: journal})})
+            });
+            const d = await r.json();
+            if (d.error) { status.textContent = '✗ ' + d.error; return; }
+            status.textContent = '✓ Saved';
+            container.querySelector('.nb-hl-desc-inp').value = '';
+            postings.querySelectorAll('.nb-hl-amt-inp').forEach(i => { i.value = ''; i._edited = false; });
+            postings.querySelectorAll('.nb-hl-acc-inp').forEach(i => i.value = '');
+            [...postings.querySelectorAll('.nb-hl-posting-row')].slice(2).forEach(r => r.remove());
+            container.querySelector('.nb-hl-desc-inp').focus();
+        } catch (e) { status.textContent = '✗ ' + e.message; }
+    });
+
+    // Account autocomplete (best-effort)
+    fetch(`/api/hledger/accounts?notebook=${encodeURIComponent(notebook)}`).then(r => r.json()).then(d => {
+        const accounts = d.accounts || [];
+        if (!accounts.length || !container.isConnected) return;
+        const dlId = 'nb-hl-bk-acc-dl';
+        let dl = document.getElementById(dlId);
+        if (!dl) {
+            dl = document.createElement('datalist'); dl.id = dlId;
+            accounts.forEach(a => { const o = document.createElement('option'); o.value = a; dl.appendChild(o); });
+            container.appendChild(dl);
+        }
+        container.querySelectorAll('.nb-hl-acc-inp').forEach(i => i.setAttribute('list', dlId));
+    }).catch(() => {});
+
+    container.querySelector('.nb-hl-desc-inp').focus();
+}
+
+// ── Files panel (import / export) ─────────────────────────────────────────────
+
+async function _buildFilesPanel(el, notebook, config) {
+    const today     = new Date().toISOString().slice(0, 10);
+    const yearStart = today.slice(0, 4) + '-01-01';
+    const defOut    = (config?.journal || '').replace(/(\.[^.]+)$/, `.${today.slice(0, 4)}$1`) || '';
+
+    el.innerHTML = `
+        <div class="nb-plugin-section">
+            <div class="nb-plugin-section-title">Export — Daily Notes → File</div>
+            <div class="nb-hl-files-row">
+                <label class="nb-hl-files-lbl">From</label>
+                <input type="date" class="nb-hl-inp nb-hl-files-from" value="${yearStart}">
+                <label class="nb-hl-files-lbl">To</label>
+                <input type="date" class="nb-hl-inp nb-hl-files-to" value="${today}">
+            </div>
+            <div class="nb-hl-files-row" style="margin-top:5px">
+                <label class="nb-hl-files-lbl">Output</label>
+                <input type="text" class="nb-hl-inp nb-hl-files-out" style="flex:1"
+                       placeholder="~/path/to/export.journal" value="${_esc(defOut)}">
+            </div>
+            <div class="nb-hl-files-row" style="margin-top:8px">
+                <button class="nb-btn-primary nb-hl-files-exp-btn">Export</button>
+                <span class="nb-hl-files-status nb-hl-exp-status"></span>
+            </div>
+        </div>
+        <div class="nb-plugin-section">
+            <div class="nb-plugin-section-title">Import — File → Daily Notes</div>
+            <div class="nb-hl-files-row">
+                <label class="nb-hl-files-lbl">File</label>
+                <input type="text" class="nb-hl-inp nb-hl-files-in" style="flex:1"
+                       placeholder="~/path/to/import.journal">
+            </div>
+            <div class="nb-hl-files-row" style="margin-top:5px">
+                <label class="nb-hl-files-lbl">From</label>
+                <input type="date" class="nb-hl-inp nb-hl-files-ifrom">
+                <label class="nb-hl-files-lbl">To</label>
+                <input type="date" class="nb-hl-inp nb-hl-files-ito">
+            </div>
+            <div class="nb-hl-files-row" style="margin-top:8px">
+                <button class="nb-btn-primary nb-hl-files-imp-btn">Import</button>
+                <span class="nb-hl-files-status nb-hl-imp-status"></span>
+            </div>
+            <div style="font-size:11px;color:var(--text-dim);margin-top:6px">
+                Transactions are appended to existing daily notes, or new notes are created.
+            </div>
+        </div>`;
+
+    el.querySelector('.nb-hl-files-exp-btn').addEventListener('click', async () => {
+        const st  = el.querySelector('.nb-hl-exp-status');
+        const out = el.querySelector('.nb-hl-files-out').value.trim();
+        if (!out) { st.textContent = 'Output path required'; return; }
+        st.textContent = 'Exporting…';
+        try {
+            const r = await fetch('/api/hledger/export-daily', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({notebook,
+                    from: el.querySelector('.nb-hl-files-from').value,
+                    to:   el.querySelector('.nb-hl-files-to').value,
+                    output: out})
+            });
+            const d = await r.json();
+            if (d.error) { st.textContent = '✗ ' + d.error; return; }
+            st.textContent = `✓ ${d.blocks} block${d.blocks !== 1 ? 's' : ''} → ${d.path}`;
+        } catch (e) { st.textContent = '✗ ' + e.message; }
+    });
+
+    el.querySelector('.nb-hl-files-imp-btn').addEventListener('click', async () => {
+        const st   = el.querySelector('.nb-hl-imp-status');
+        const file = el.querySelector('.nb-hl-files-in').value.trim();
+        if (!file) { st.textContent = 'File path required'; return; }
+        st.textContent = 'Importing…';
+        try {
+            const r = await fetch('/api/hledger/import-daily', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({notebook, file,
+                    from: el.querySelector('.nb-hl-files-ifrom').value || undefined,
+                    to:   el.querySelector('.nb-hl-files-ito').value   || undefined})
+            });
+            const d = await r.json();
+            if (d.error) { st.textContent = '✗ ' + d.error; return; }
+            const errs = d.errors?.length ? ` (${d.errors.length} error${d.errors.length !== 1 ? 's' : ''})` : '';
+            st.textContent = `✓ ${d.created} created, ${d.updated} updated${errs}`;
+        } catch (e) { st.textContent = '✗ ' + e.message; }
+    });
+}
+
 // ── Bookkeeper panel (daily use) ──────────────────────────────────────────────
 
 async function _buildBookkeeperPanel(el, notebook, config) {
@@ -816,6 +1006,10 @@ async function _buildBookkeeperPanel(el, notebook, config) {
     const q = cmd => `/api/hledger-query?q=${encodeURIComponent(journal + ' ' + cmd)}&format=text`;
 
     el.innerHTML = `
+        <div class="nb-hl-bk-add-wrap nb-plugin-section" style="padding-bottom:4px">
+            <button class="nb-tw-btn nb-hl-bk-add-btn" style="width:100%;text-align:left">+ Add Transaction</button>
+            <div class="nb-hl-addform nb-hl-bk-add-form" hidden></div>
+        </div>
         <div class="nb-plugin-section" id="nb-hl-bk-health">
             <div class="nb-plugin-section-title">Journal Health</div>
             <div id="nb-hl-bk-health-body" class="nb-hl-bk-loading">Checking…</div>
@@ -828,6 +1022,23 @@ async function _buildBookkeeperPanel(el, notebook, config) {
             <div class="nb-plugin-section-title">Transactions This Month</div>
             <div id="nb-hl-bk-recent-body" class="nb-hl-bk-loading">Loading…</div>
         </div>`;
+
+    // Wire add-transaction toggle
+    const addBtn  = el.querySelector('.nb-hl-bk-add-btn');
+    const addForm = el.querySelector('.nb-hl-bk-add-form');
+    let   _addBuilt = false;
+    addBtn.addEventListener('click', () => {
+        const showing = !addForm.hidden;
+        addForm.hidden = showing;
+        addBtn.classList.toggle('nb-active', !showing);
+        if (!showing && !_addBuilt) {
+            _addBuilt = true;
+            _buildBkAddSection(addForm, notebook, config);
+        } else if (!showing) {
+            addForm.querySelector('.nb-hl-date-inp').value = _dateFromActiveNote();
+            addForm.querySelector('.nb-hl-desc-inp')?.focus();
+        }
+    });
 
     const [healthR, periodR, recentR] = await Promise.allSettled([
         fetch(q('check')).then(r => r.json()),
@@ -892,6 +1103,7 @@ async function _buildPluginContent(el, notebook, config) {
             <button class="nb-hl-panel-tab${_bkPanelMode === 'bookkeeper' ? ' nb-active' : ''}" data-mode="bookkeeper">Bookkeeper</button>
             <button class="nb-hl-panel-tab${_bkPanelMode === 'tutorial'   ? ' nb-active' : ''}" data-mode="tutorial">Tutorial</button>
             <button class="nb-hl-panel-tab${_bkPanelMode === 'setup'      ? ' nb-active' : ''}" data-mode="setup">Setup</button>
+            <button class="nb-hl-panel-tab${_bkPanelMode === 'files'      ? ' nb-active' : ''}" data-mode="files">Files</button>
         </div>
         <div id="nb-hl-panel-body"></div>`;
 
@@ -908,6 +1120,8 @@ async function _buildPluginContent(el, notebook, config) {
         _buildSetupPanel(body, notebook, config);
     } else if (_bkPanelMode === 'tutorial') {
         await _buildTutorialPanel(body, notebook);
+    } else if (_bkPanelMode === 'files') {
+        await _buildFilesPanel(body, notebook, config);
     } else {
         await _buildBookkeeperPanel(body, notebook, config);
     }

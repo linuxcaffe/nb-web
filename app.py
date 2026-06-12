@@ -1821,6 +1821,127 @@ def api_hledger_clear_account_notes():
     return jsonify({'deleted': len(files), 'files': files})
 
 
+# ---------------------------------------------------------------------------
+# hledger daily-note import / export
+# ---------------------------------------------------------------------------
+
+def _parse_journal_by_date(content, date_from='', date_to=''):
+    """Return {date_str: [txn_block, ...]} from hledger journal text."""
+    date_re = re.compile(r'^(\d{4}[-/]\d{2}[-/]\d{2})\b')
+    result  = {}
+    for block in re.split(r'\n\s*\n', content):
+        block = block.strip()
+        if not block:
+            continue
+        m = date_re.match(block.split('\n')[0])
+        if not m:
+            continue
+        ds = m.group(1).replace('/', '-')
+        if date_from and ds < date_from:
+            continue
+        if date_to and ds > date_to:
+            continue
+        result.setdefault(ds, []).append(block)
+    return result
+
+
+@app.route('/api/hledger/export-daily', methods=['POST'])
+def api_hledger_export_daily():
+    """Extract hledger blocks from YYYYMMDD.md daily notes → journal file."""
+    data      = request.get_json(silent=True) or {}
+    notebook  = safe_name(data.get('notebook', ''))
+    date_from = data.get('from', '')
+    date_to   = data.get('to', '')
+    output    = data.get('output', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'error': f'notebook {notebook!r} not found'}), 404
+
+    fence_re = re.compile(r'```hledger\n(.*?)```', re.DOTALL)
+    blocks   = []
+    for fpath in sorted(nb_path.glob('*.md')):
+        stem = fpath.stem
+        if not re.match(r'^\d{8}$', stem):
+            continue
+        ds = f'{stem[:4]}-{stem[4:6]}-{stem[6:]}'
+        if date_from and ds < date_from:
+            continue
+        if date_to and ds > date_to:
+            continue
+        _, body = parse_frontmatter(fpath.read_text(errors='replace'))
+        for blk in fence_re.findall(body):
+            stripped = blk.strip()
+            if stripped:
+                blocks.append(stripped)
+
+    content = '\n\n'.join(blocks) + ('\n' if blocks else '')
+    if output:
+        try:
+            out_path = Path(os.path.expanduser(output))
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(content)
+        except OSError as e:
+            return jsonify({'error': str(e)}), 500
+        return jsonify({'ok': True, 'path': str(out_path), 'blocks': len(blocks)})
+    return jsonify({'ok': True, 'content': content, 'blocks': len(blocks)})
+
+
+@app.route('/api/hledger/import-daily', methods=['POST'])
+def api_hledger_import_daily():
+    """Import hledger journal transactions into YYYYMMDD.md daily notes."""
+    data      = request.get_json(silent=True) or {}
+    notebook  = safe_name(data.get('notebook', ''))
+    file_path = data.get('file', '').strip()
+    date_from = data.get('from', '')
+    date_to   = data.get('to', '')
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    if not file_path:
+        return jsonify({'error': 'file required'}), 400
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'error': f'notebook {notebook!r} not found'}), 404
+    try:
+        jpath = Path(os.path.expanduser(file_path))
+        if not jpath.exists():
+            return jsonify({'error': f'file not found: {file_path}'}), 404
+        journal_text = jpath.read_text(errors='replace')
+    except OSError as e:
+        return jsonify({'error': str(e)}), 400
+
+    txns    = _parse_journal_by_date(journal_text, date_from, date_to)
+    created = updated = 0
+    errors  = []
+    for ds, blocks in sorted(txns.items()):
+        stem      = ds.replace('-', '')
+        note_path = nb_path / f'{stem}.md'
+        hblock    = '\n```hledger\n' + '\n\n'.join(blocks) + '\n```\n'
+        try:
+            if note_path.exists():
+                note_path.write_text(note_path.read_text(errors='replace').rstrip() + '\n' + hblock)
+                updated += 1
+            else:
+                note_path.write_text(f'---\ntitle: "{ds}"\ntype: note\n---\n\n# {ds}\n{hblock}')
+                idx_path = nb_path / '.index'
+                if idx_path.exists():
+                    idx = idx_path.read_text().splitlines()
+                    if note_path.name not in idx:
+                        idx_path.write_text('\n'.join(idx + [note_path.name]) + '\n')
+                created += 1
+        except OSError as e:
+            errors.append(f'{ds}: {e}')
+
+    env_ = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add', '-A'], cwd=str(nb_path), capture_output=True, env=env_)
+    subprocess.run(['git', 'commit', '-m',
+                    f'[nb] Import hledger transactions ({created} created, {updated} updated)'],
+                   cwd=str(nb_path), capture_output=True, env=env_)
+
+    return jsonify({'ok': True, 'created': created, 'updated': updated, 'errors': errors})
+
+
 @app.route('/api/t/status')
 def api_t_status():
     return jsonify(_t_parse_status(_t_tc_file()))

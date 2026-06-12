@@ -1965,6 +1965,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-hl-panel-tab:hover { color: var(--text); }
 .nb-hl-panel-tab.nb-active { color: var(--accent); border-bottom-color: var(--accent); }
 .nb-hl-bk-loading { font-size: 12px; color: var(--text-dim); }
+.nb-hl-bk-add-form { margin-top: 8px; }
+.nb-hl-files-row  { display: flex; align-items: center; gap: 6px; }
+.nb-hl-files-lbl  { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.nb-hl-files-status { font-size: 11px; color: var(--text-dim); margin-left: 4px; }
 .nb-hl-bk-pre {
   font-size: 11px; font-family: var(--font-mono); line-height: 1.45;
   white-space: pre; overflow-x: auto; background: var(--bg-alt, #1a1a1a);

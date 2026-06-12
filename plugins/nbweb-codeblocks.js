@@ -877,7 +877,9 @@
         if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('nb-hl-btn-active'); return; }
         trigger?.classList.add('nb-hl-btn-active');
 
-        const today = _localDateStr();
+        const _fn   = typeof NbMain !== 'undefined' ? (NbMain.activeFilename() || '') : '';
+        const _dm   = _fn.match(/^(\d{4})(\d{2})(\d{2})\b/);
+        const today = _dm ? `${_dm[1]}-${_dm[2]}-${_dm[3]}` : _localDateStr();
         let _accDlId = null;
 
         function makePostingRow() {
