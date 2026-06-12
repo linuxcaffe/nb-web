@@ -1177,40 +1177,60 @@
             return { notebook: raw.slice(0, colon), folder: raw.slice(colon + 1).replace(/\/$/, '') };
         }
         const m = raw.replace(/^~/, '').match(/\/\.nb\/([^/]+)(\/(.+))?$/);
-        if (m) return { notebook: m[1], folder: m[3] || '' };
+        if (m) {
+            const nb = m[1];
+            // Hidden dir (e.g. .test, .templates) — not an nb notebook, use raw fs listing
+            if (nb.startsWith('.')) return { rawPath: raw };
+            return { notebook: nb, folder: m[3] || '' };
+        }
         if (raw) return { notebook: raw.replace(/^.*\//, ''), folder: '' };
         return { notebook: '', folder: '' };
     }
 
     // Entry point — called on first render and on refresh
     async function _loadNavBlock(el) {
-        const { notebook, folder } = _navParseQuery(el.dataset.query || '');
-        // Set initial state only if not already navigated
         if (!el.dataset.navReady) {
-            el.dataset.navNb     = notebook;
-            el.dataset.navFolder = folder;
-            el.dataset.navReady  = '1';
+            const parsed = _navParseQuery(el.dataset.query || '');
+            if (parsed.rawPath !== undefined) {
+                el.dataset.navRawPath = parsed.rawPath;
+            } else {
+                el.dataset.navNb     = parsed.notebook;
+                el.dataset.navFolder = parsed.folder;
+            }
+            el.dataset.navReady = '1';
         }
         await _navRender(el);
     }
 
-    // Navigate to a location and re-render
-    async function _navGo(el, notebook, folder) {
-        el.dataset.navNb     = notebook;
-        el.dataset.navFolder = folder;
+    // Navigate to a location and re-render.
+    // Pass rawPath (string) to enter filesystem mode; omit/pass undefined to use nb mode.
+    async function _navGo(el, notebook, folder, rawPath) {
+        if (rawPath !== undefined) {
+            el.dataset.navRawPath = rawPath;
+            delete el.dataset.navNb;
+            delete el.dataset.navFolder;
+        } else {
+            delete el.dataset.navRawPath;
+            el.dataset.navNb     = notebook;
+            el.dataset.navFolder = folder;
+        }
         await _navRender(el);
     }
 
     async function _navRender(el) {
-        const notebook = el.dataset.navNb     || '';
-        const folder   = el.dataset.navFolder || '';
+        const rawPath  = el.dataset.navRawPath || '';
+        const notebook = el.dataset.navNb      || '';
+        const folder   = el.dataset.navFolder  || '';
         const wasCollapsed = el.classList.contains('nb-collapsed');
         el.innerHTML = '';
         if (wasCollapsed) el.classList.add('nb-collapsed');
 
         try {
-            if (!notebook) {
-                // "nb" root — show notebooks
+            if (rawPath) {
+                const d = await fetch(`/api/fs/list?path=${encodeURIComponent(rawPath)}`).then(r => r.json());
+                if (d.error) throw new Error(d.error);
+                _navBuildFs(el, d.entries || [], d.path || rawPath);
+            } else if (!notebook) {
                 const d = await fetch('/api/nb/notebooks').then(r => r.json());
                 const nbs = Array.isArray(d) ? d : (d.notebooks || []);
                 _navBuildNotebooks(el, nbs);
@@ -1226,11 +1246,22 @@
         }
     }
 
-    function _navHeader(el, notebook, folder) {
-        const hdr = document.createElement('div');
+    function _navMakeHeader(el) {
+        const hdr  = document.createElement('div');
         hdr.className = 'nb-nav-header';
+        const acts = document.createElement('span');
+        acts.className = 'nb-nav-acts';
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn nb-nav-refresh';
+        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', () => _navRender(el));
+        acts.appendChild(refBtn);
+        hdr.appendChild(acts);
+        return hdr;
+    }
 
-        // Breadcrumbs
+    function _navHeader(el, notebook, folder) {
+        const hdr   = _navMakeHeader(el);
         const crumbs = document.createElement('span');
         crumbs.className = 'nb-nav-crumbs nb-collapse-zone';
 
@@ -1252,19 +1283,73 @@
                 crumbs.appendChild(mkCrumb(part, notebook, folderParts.slice(0, i + 1).join('/'), i === folderParts.length - 1));
             });
         }
-        hdr.appendChild(crumbs);
-
-        const acts = document.createElement('span');
-        acts.className = 'nb-nav-acts';
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn nb-nav-refresh';
-        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _navRender(el));
-        acts.appendChild(refBtn);
-        hdr.appendChild(acts);
-
+        hdr.prepend(crumbs);
         el.appendChild(hdr);
         _initCollapseToggle(el);
+    }
+
+    // Header for raw filesystem mode — breadcrumb shows path relative to .nb/
+    function _navHeaderFs(el, absPath) {
+        const hdr    = _navMakeHeader(el);
+        const crumbs = document.createElement('span');
+        crumbs.className = 'nb-nav-crumbs nb-collapse-zone';
+
+        const nbBtn = document.createElement('button');
+        nbBtn.className = 'nb-nav-crumb';
+        nbBtn.textContent = 'nb';
+        nbBtn.addEventListener('click', e => { e.stopPropagation(); _navGo(el, '', ''); });
+        crumbs.appendChild(nbBtn);
+
+        const parts  = absPath.split('/');
+        const nbIdx  = parts.lastIndexOf('.nb');
+        const rel    = nbIdx >= 0 ? parts.slice(nbIdx + 1) : [];
+        rel.forEach((part, i) => {
+            crumbs.insertAdjacentHTML('beforeend', '<span class="nb-nav-sep">›</span>');
+            const isCurrent = i === rel.length - 1;
+            const b = document.createElement('button');
+            b.className = 'nb-nav-crumb' + (isCurrent ? ' nb-nav-crumb-cur' : '');
+            b.textContent = part;
+            if (!isCurrent) {
+                const target = parts.slice(0, nbIdx + 1 + i + 1).join('/');
+                b.addEventListener('click', e => { e.stopPropagation(); _navGo(el, undefined, undefined, target); });
+            }
+            crumbs.appendChild(b);
+        });
+
+        hdr.prepend(crumbs);
+        el.appendChild(hdr);
+        _initCollapseToggle(el);
+    }
+
+    // Build a raw filesystem listing (used for hidden dirs like .test, .templates)
+    function _navBuildFs(el, entries, absPath) {
+        _navHeaderFs(el, absPath);
+        if (!entries.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-nav-empty">Empty</div>'); return; }
+        const list = document.createElement('ul');
+        list.className = 'nb-nav-list';
+        for (const entry of entries) {
+            const li  = document.createElement('li');
+            li.className = 'nb-nav-item' + (entry.isDir ? ' nb-nav-folder' : '');
+            const icon = document.createElement('span');
+            icon.className = 'nb-nav-icon';
+            icon.textContent = entry.isDir ? '▸' : '·';
+            const btn = document.createElement('button');
+            btn.className = 'nb-nav-link';
+            btn.textContent = entry.name;
+            if (entry.isDir) {
+                btn.addEventListener('click', () => _navGo(el, undefined, undefined, entry.path));
+            } else {
+                btn.addEventListener('click', async () => {
+                    const d = await fetch(`/api/hledger/path-selector?path=${encodeURIComponent(entry.path)}`).then(r => r.json());
+                    if (d.selector) NbMain.openNote(d.selector);
+                    else if (typeof NbTerminal !== 'undefined') NbTerminal.run(`\${EDITOR:-nano} "${entry.path}"`);
+                });
+            }
+            li.appendChild(icon);
+            li.appendChild(btn);
+            list.appendChild(li);
+        }
+        el.appendChild(list);
     }
 
     function _navBuildNotebooks(el, notebooks) {

@@ -1550,6 +1550,26 @@ def api_hledger_path_selector():
         return jsonify({'selector': None, 'exists': Path(path).expanduser().exists()})
 
 
+@app.route('/api/fs/list')
+def api_fs_list():
+    """List a directory that is inside NB_DIR (including hidden dirs like .test)."""
+    path = request.args.get('path', '').strip()
+    if not path:
+        return jsonify({'error': 'no path'}), 400
+    p = Path(path).expanduser().resolve()
+    try:
+        p.relative_to(NB_DIR)
+    except ValueError:
+        return jsonify({'error': 'path outside NB_DIR'}), 403
+    if not p.is_dir():
+        return jsonify({'error': 'not a directory'}), 404
+    entries = sorted(
+        [{'name': c.name, 'isDir': c.is_dir(), 'path': str(c)} for c in p.iterdir()],
+        key=lambda e: (not e['isDir'], e['name'].lower()),
+    )
+    return jsonify({'entries': entries, 'path': str(p)})
+
+
 @app.route('/api/hledger/accounts')
 def api_hledger_accounts():
     """Return all account names from the notebook's journal (for autocomplete)."""
