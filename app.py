@@ -1089,6 +1089,7 @@ _HLEDGER_READ_CMDS = {
     'accounts','acc','a',
     'prices','commodities','stats','tags','files',
     'check','payees','notes','activity',
+    'roi',
 }
 
 # Commands that produce plain text only — never append --output-format json.
@@ -1217,7 +1218,7 @@ def api_inline_query():
 def api_hledger_query():
     """Run a read-only hledger report and return JSON or plain text."""
     q    = request.args.get('q', '').strip()
-    args = q.split() if q else ['balance']
+    args = shlex.split(q) if q else ['balance']
 
     # Positional file path: first token starting with ~ or / is the ledger file.
     file_path = None
@@ -1285,6 +1286,14 @@ def api_hledger_query():
             extra = {}
         if file_path:
             extra['file'] = str(file_path)
+        # Always report which journal was used + nb selector if inside NB_DIR
+        _jpath = file_path or Path('~/.hledger.journal').expanduser()
+        extra['journal'] = str(_jpath)
+        try:
+            _jrel  = Path(_jpath).resolve().relative_to(NB_DIR)
+            extra['journalSelector'] = _jrel.parts[0] + ':' + '/'.join(_jrel.parts[1:])
+        except ValueError:
+            extra['journalSelector'] = None
         try:
             data = json.loads(stdout or 'null')
             return jsonify({'cmd': cmd, 'data': data, **extra})
@@ -1523,6 +1532,21 @@ def api_hledger_resolve_include():
     parts = resolved.relative_to(NB_DIR).parts   # e.g. ('accts', 'accounts.journal')
     nb_sel = parts[0] + ':' + '/'.join(parts[1:])
     return jsonify({'selector': nb_sel, 'exists': resolved.exists()})
+
+
+@app.route('/api/hledger/path-selector')
+def api_hledger_path_selector():
+    """Convert an absolute filesystem path to an nb selector if it lives inside NB_DIR."""
+    path = request.args.get('path', '').strip()
+    if not path:
+        return jsonify({'selector': None, 'exists': False})
+    try:
+        p = Path(path).expanduser().resolve()
+        rel = p.relative_to(NB_DIR)
+        sel = rel.parts[0] + ':' + '/'.join(rel.parts[1:])
+        return jsonify({'selector': sel, 'exists': p.exists()})
+    except (ValueError, OSError):
+        return jsonify({'selector': None, 'exists': Path(path).expanduser().exists()})
 
 
 @app.route('/api/hledger/accounts')

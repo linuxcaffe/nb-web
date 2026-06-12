@@ -734,11 +734,16 @@
             const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
-            el.dataset.hlFile = d.file || '';
+            el.dataset.hlFile         = d.file            || '';
+            el.dataset.hlJournal      = d.journal         || '';
+            el.dataset.hlJournalSel   = d.journalSelector || '';
             const launch = d.terminalMode ? {terminal: true, cmd: d.launchCmd}
                          : d.webUrl       ? {url: d.webUrl}
                          : null;
-            if (d.text != null) { _buildHledgerPre(el, d.text, q, launch); return; }
+            if (d.text != null) {
+                if (d.cmd === 'files') { _buildHledgerFiles(el, d.text, q, launch); return; }
+                _buildHledgerPre(el, d.text, q, launch); return;
+            }
             const cmd = d.cmd || 'balance';
             const BALANCE   = new Set(['balance','bal','b']);
             const REGISTER  = new Set(['register','reg','r']);
@@ -821,6 +826,18 @@
 
         const acts = document.createElement('span');
         acts.className = 'nb-hl-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-edit-btn';
+        editBtn.title = 'Edit journal';
+        editBtn.textContent = '✎';
+        editBtn.addEventListener('click', () => {
+            const sel  = el.dataset.hlJournalSel;
+            const path = el.dataset.hlJournal;
+            if (sel)       NbMain.openNote(sel);
+            else if (path) NbTerminal.run(`\${EDITOR:-nano} "${path}"`);
+        });
+        acts.appendChild(editBtn);
 
         const addBtn = document.createElement('button');
         addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
@@ -1119,6 +1136,185 @@
         el.insertAdjacentHTML('beforeend', `<pre class="nb-hl-pre">${_esc(text)}</pre>`);
     }
 
+    async function _buildHledgerFiles(el, text, q, launch) {
+        el.innerHTML = '';
+        _hlHeader(el, q, () => _loadHledgerBlock(el), launch);
+        const paths = text.trim().split('\n').filter(Boolean);
+        const list = document.createElement('div');
+        list.className = 'nb-hl-files-list';
+        for (const rawPath of paths) {
+            const row = document.createElement('div');
+            row.className = 'nb-hl-file-row';
+            const link = document.createElement('button');
+            link.className = 'nb-tw-btn nb-hl-file-link';
+            link.title = rawPath;
+            link.textContent = rawPath.replace(/^.*\//, '');   // basename
+            link.addEventListener('click', async () => {
+                try {
+                    const d = await fetch(
+                        `/api/hledger/path-selector?path=${encodeURIComponent(rawPath)}`
+                    ).then(r => r.json());
+                    if (d.selector) NbMain.openNote(d.selector);
+                    else            NbTerminal.run(`\${EDITOR:-nano} "${rawPath}"`);
+                } catch (_) { NbTerminal.run(`\${EDITOR:-nano} "${rawPath}"`); }
+            });
+            const hint = document.createElement('span');
+            hint.className = 'nb-hl-file-hint';
+            hint.textContent = rawPath.replace(/\/[^/]+$/, '');  // dirname
+            row.appendChild(link);
+            row.appendChild(hint);
+            list.appendChild(row);
+        }
+        el.appendChild(list);
+    }
+
+    // ── nav codeblock ─────────────────────────────────────────────────────────
+
+    function _navParseQuery(raw) {
+        raw = (raw || '').trim();
+        if (/^[^/\s]+:/.test(raw)) {         // nb selector: notebook:folder/
+            const colon = raw.indexOf(':');
+            return { notebook: raw.slice(0, colon), folder: raw.slice(colon + 1).replace(/\/$/, '') };
+        }
+        const m = raw.replace(/^~/, '').match(/\/\.nb\/([^/]+)(\/(.+))?$/);
+        if (m) return { notebook: m[1], folder: m[3] || '' };
+        if (raw) return { notebook: raw.replace(/^.*\//, ''), folder: '' };
+        return { notebook: '', folder: '' };
+    }
+
+    // Entry point — called on first render and on refresh
+    async function _loadNavBlock(el) {
+        const { notebook, folder } = _navParseQuery(el.dataset.query || '');
+        // Set initial state only if not already navigated
+        if (!el.dataset.navReady) {
+            el.dataset.navNb     = notebook;
+            el.dataset.navFolder = folder;
+            el.dataset.navReady  = '1';
+        }
+        await _navRender(el);
+    }
+
+    // Navigate to a location and re-render
+    async function _navGo(el, notebook, folder) {
+        el.dataset.navNb     = notebook;
+        el.dataset.navFolder = folder;
+        await _navRender(el);
+    }
+
+    async function _navRender(el) {
+        const notebook = el.dataset.navNb     || '';
+        const folder   = el.dataset.navFolder || '';
+        const wasCollapsed = el.classList.contains('nb-collapsed');
+        el.innerHTML = '';
+        if (wasCollapsed) el.classList.add('nb-collapsed');
+
+        try {
+            if (!notebook) {
+                // "nb" root — show notebooks
+                const d = await fetch('/api/nb/notebooks').then(r => r.json());
+                const nbs = Array.isArray(d) ? d : (d.notebooks || []);
+                _navBuildNotebooks(el, nbs);
+            } else {
+                const params = new URLSearchParams({ notebook, limit: 200 });
+                if (folder) params.set('folder', folder);
+                const d = await fetch(`/api/notes?${params}`).then(r => r.json());
+                const notes = Array.isArray(d) ? d : (d.notes || []);
+                _navBuildNotes(el, notes, notebook, folder);
+            }
+        } catch (e) {
+            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
+    function _navHeader(el, notebook, folder) {
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-nav-header';
+
+        // Breadcrumbs
+        const crumbs = document.createElement('span');
+        crumbs.className = 'nb-nav-crumbs nb-collapse-zone';
+
+        const mkCrumb = (label, nb, fld, isCurrent) => {
+            const b = document.createElement('button');
+            b.className = 'nb-nav-crumb' + (isCurrent ? ' nb-nav-crumb-cur' : '');
+            b.textContent = label;
+            if (!isCurrent) b.addEventListener('click', e => { e.stopPropagation(); _navGo(el, nb, fld); });
+            return b;
+        };
+
+        crumbs.appendChild(mkCrumb('nb', '', '', !notebook));
+        if (notebook) {
+            crumbs.insertAdjacentHTML('beforeend', '<span class="nb-nav-sep">›</span>');
+            const folderParts = folder ? folder.split('/') : [];
+            crumbs.appendChild(mkCrumb(notebook, notebook, '', folderParts.length === 0));
+            folderParts.forEach((part, i) => {
+                crumbs.insertAdjacentHTML('beforeend', '<span class="nb-nav-sep">›</span>');
+                crumbs.appendChild(mkCrumb(part, notebook, folderParts.slice(0, i + 1).join('/'), i === folderParts.length - 1));
+            });
+        }
+        hdr.appendChild(crumbs);
+
+        const acts = document.createElement('span');
+        acts.className = 'nb-nav-acts';
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn nb-nav-refresh';
+        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', () => _navRender(el));
+        acts.appendChild(refBtn);
+        hdr.appendChild(acts);
+
+        el.appendChild(hdr);
+        _initCollapseToggle(el);
+    }
+
+    function _navBuildNotebooks(el, notebooks) {
+        _navHeader(el, '', '');
+        if (!notebooks.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-nav-empty">No notebooks</div>'); return; }
+        const list = document.createElement('ul');
+        list.className = 'nb-nav-list';
+        for (const nb of notebooks) {
+            const li = document.createElement('li');
+            li.className = 'nb-nav-item nb-nav-folder';
+            li.innerHTML = `<span class="nb-nav-icon">▸</span>`;
+            const btn = document.createElement('button');
+            btn.className = 'nb-nav-link';
+            btn.textContent = nb.name || nb.title || nb;
+            if (nb.count != null) btn.insertAdjacentHTML('beforeend', ` <span class="nb-nav-count">${nb.count}</span>`);
+            btn.addEventListener('click', () => _navGo(el, nb.name || nb, ''));
+            li.appendChild(btn);
+            list.appendChild(li);
+        }
+        el.appendChild(list);
+    }
+
+    function _navBuildNotes(el, notes, notebook, folder) {
+        _navHeader(el, notebook, folder);
+        if (!notes.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-nav-empty">Empty</div>'); return; }
+        const list = document.createElement('ul');
+        list.className = 'nb-nav-list';
+        for (const n of notes) {
+            const isFolder = n.type === 'folder';
+            const li = document.createElement('li');
+            li.className = 'nb-nav-item' + (isFolder ? ' nb-nav-folder' : '');
+            const icon = document.createElement('span');
+            icon.className = 'nb-nav-icon';
+            icon.textContent = isFolder ? '▸' : n.type === 'pdf' ? '⬜' : n.type === 'todo' ? '☐' : '·';
+            const btn = document.createElement('button');
+            btn.className = 'nb-nav-link';
+            btn.textContent = n.title || n.filename || n.selector;
+            if (isFolder) {
+                const sub = folder ? `${folder}/${n.filename}` : n.filename;
+                btn.addEventListener('click', () => _navGo(el, notebook, sub));
+            } else {
+                btn.addEventListener('click', () => NbMain.openNote(n.selector));
+            }
+            li.appendChild(icon);
+            li.appendChild(btn);
+            list.appendChild(li);
+        }
+        el.appendChild(list);
+    }
+
     // ── Plugin registration ───────────────────────────────────────────────────
 
     NbWeb.registerModule('codeblocks', {
@@ -1153,6 +1349,11 @@
                         await _loadHledgerBlock(el);
                     }
                 },
+            },
+            {
+                lang:   'nav',
+                html:   text => `<div class="nb-nav-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                render: async container => { for (const el of container.querySelectorAll('.nb-nav-block')) await _loadNavBlock(el); },
             },
             {
                 lang:   't',
