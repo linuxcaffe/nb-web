@@ -2955,13 +2955,9 @@ def api_note():
     note_notebook = None
     note_id       = None
 
-    # Absolute path selector — used by rawPath nav for files in hidden dirs (.test etc.)
+    # Absolute path selector — any readable file on the local system
     if selector.startswith('/'):
         fpath = selector
-        try:
-            Path(fpath).resolve().relative_to(NB_DIR)
-        except ValueError:
-            return jsonify({'error': 'not found'}), 404
         if not Path(fpath).exists():
             return jsonify({'error': 'not found'}), 404
     else:

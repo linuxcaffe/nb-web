@@ -834,8 +834,7 @@
         editBtn.addEventListener('click', () => {
             const sel  = el.dataset.hlJournalSel;
             const path = el.dataset.hlJournal;
-            if (sel)       NbMain.openNote(sel);
-            else if (path) NbTerminal.run(`\${EDITOR:-nano} "${path}"`);
+            NbMain.openNote(sel || path);
         });
         acts.appendChild(editBtn);
 
@@ -1149,15 +1148,7 @@
             link.className = 'nb-tw-btn nb-hl-file-link';
             link.title = rawPath;
             link.textContent = rawPath.replace(/^.*\//, '');   // basename
-            link.addEventListener('click', async () => {
-                try {
-                    const d = await fetch(
-                        `/api/hledger/path-selector?path=${encodeURIComponent(rawPath)}`
-                    ).then(r => r.json());
-                    if (d.selector) NbMain.openNote(d.selector);
-                    else            NbTerminal.run(`\${EDITOR:-nano} "${rawPath}"`);
-                } catch (_) { NbTerminal.run(`\${EDITOR:-nano} "${rawPath}"`); }
-            });
+            link.addEventListener('click', () => NbMain.openNote(rawPath));
             const hint = document.createElement('span');
             hint.className = 'nb-hl-file-hint';
             hint.textContent = rawPath.replace(/\/[^/]+$/, '');  // dirname
@@ -1459,16 +1450,27 @@
         }
 
         const text = d.error && !stdout ? `⚠ ${d.error}` : stdout || d.error || '';
+        const result = document.createElement('div');
+        result.className = 'nb-test-result';
+
+        const dismiss = document.createElement('button');
+        dismiss.className = 'nb-test-dismiss';
+        dismiss.title = 'Dismiss until next render';
+        dismiss.textContent = '×';
+        dismiss.addEventListener('click', () => { el.innerHTML = ''; });
+        result.appendChild(dismiss);
+
         const wrap = document.createElement('div');
         wrap.className = 'nb-rendered' + (d.exit_code !== 0 ? ' nb-test-fail' : '');
         wrap.innerHTML = NbMain.renderMarkdown(text, '');
         NbMain.enrichRendered(wrap, null);
+        result.appendChild(wrap);
 
         if (out) {
-            out.appendChild(wrap);
+            out.appendChild(result);
         } else {
             el.innerHTML = '';
-            el.appendChild(wrap);
+            el.appendChild(result);
         }
     }
 
