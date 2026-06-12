@@ -3307,10 +3307,24 @@ def api_edit_note():
         return jsonify({'error': 'selector required'}), 400
 
     if append is not None:
+        if selector.startswith('/'):
+            try:
+                p = Path(selector)
+                p.write_text(p.read_text() + '\n' + append)
+                return jsonify({'success': True, 'stderr': ''})
+            except OSError as e:
+                return jsonify({'error': str(e)}), 500
         r = run_nb('edit', selector, '--content', append)
         return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
 
     if prepend is not None:
+        if selector.startswith('/'):
+            try:
+                p = Path(selector)
+                p.write_text(prepend + '\n' + p.read_text())
+                return jsonify({'success': True, 'stderr': ''})
+            except OSError as e:
+                return jsonify({'error': str(e)}), 500
         r = run_nb('edit', selector, '--content', prepend, '--prepend')
         return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
 
@@ -3320,12 +3334,17 @@ def api_edit_note():
     # Direct write — nb edit --content --overwrite silently truncates content that
     # starts with YAML frontmatter (---) due to an nb CLI bug. Write the file
     # directly and commit, exactly as api_create_note does for frontmatter notes.
-    path_r = run_nb('show', selector, '--path')
-    if not nb_ok(path_r):
-        return jsonify({'error': 'not found'}), 404
-    note_path = Path(path_r['stdout'].strip())
-    if not note_path.is_file():
-        return jsonify({'error': 'not found'}), 404
+    if selector.startswith('/'):
+        note_path = Path(selector)
+        if not note_path.is_file():
+            return jsonify({'error': 'not found'}), 404
+    else:
+        path_r = run_nb('show', selector, '--path')
+        if not nb_ok(path_r):
+            return jsonify({'error': 'not found'}), 404
+        note_path = Path(path_r['stdout'].strip())
+        if not note_path.is_file():
+            return jsonify({'error': 'not found'}), 404
 
     try:
         note_path.write_text(content)

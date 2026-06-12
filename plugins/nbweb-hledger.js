@@ -1259,7 +1259,7 @@ function _drawChart(canvas, report, data, altView = false) {
                     datasets: [{ data: totals, backgroundColor: palette }]
                 },
                 options: {
-                    aspectRatio: 1.5,
+                    aspectRatio: 2,
                     plugins: {
                         legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${_fmtCcy(ctx.parsed)} (${(100*ctx.parsed/grand).toFixed(1)}%)` } }
@@ -1310,6 +1310,7 @@ function _drawChart(canvas, report, data, altView = false) {
                     datasets: [{ data: data.values, backgroundColor: palette }]
                 },
                 options: {
+                    aspectRatio: 2,
                     plugins: {
                         legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${_fmtCcy(ctx.parsed)} (${(100*ctx.parsed/total).toFixed(1)}%)` } }
@@ -1326,15 +1327,22 @@ const _CHART_QUICK_PERIODS = [
     { key: 'lastyear',  label: 'prev' },
 ];
 
-async function _loadChartBlock(el) {
-    const raw    = el.dataset.query || '';
-    const parts  = raw.trim().split(/\s+/);
-    const report = parts[0] || 'cashflow';
+const _CHART_APPS = new Set(['hledger']);
 
-    // Parse fence args: "cashflow thisyear depth:3" or "cashflow -p thisyear"
+async function _loadChartBlock(el) {
+    const raw   = el.dataset.query || '';
+    const parts = raw.trim().split(/\s+/);
+
+    // Syntax: "chart [app] <report> [period] [depth:N]"
+    // app is optional — defaults to 'hledger' for backward compat
+    let app = 'hledger', reportIdx = 0;
+    if (parts[0] && _CHART_APPS.has(parts[0])) { app = parts[0]; reportIdx = 1; }
+    const report = parts[reportIdx] || 'cashflow';
+
+    // Parse remaining args: period, depth
     let initPeriod = 'thisyear';
     let depth      = '2';
-    for (let i = 1; i < parts.length; i++) {
+    for (let i = reportIdx + 1; i < parts.length; i++) {
         if (parts[i] === '-p' && parts[i + 1])  { initPeriod = parts[++i]; }
         else if (parts[i].startsWith('depth:'))  { depth = parts[i].slice(6); }
         else if (/^[a-z0-9]/.test(parts[i]))    { initPeriod = parts[i]; }
@@ -1361,7 +1369,7 @@ async function _loadChartBlock(el) {
         <div class="nb-chart-header">
             <span class="nb-chart-toggle">▾</span>
             <span class="nb-chart-title">
-                <span class="nb-chart-report">${report}</span>
+                ${reportIdx > 0 ? `<span class="nb-chart-app">${app}</span> ` : ''}<span class="nb-chart-report">${report}</span>
             </span>
             <span class="nb-chart-pickers">${
                 _CHART_QUICK_PERIODS.map(p =>

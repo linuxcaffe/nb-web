@@ -915,6 +915,24 @@ const NbMain = (() => {
             });
         }
 
+        container.querySelectorAll('pre:not(.nb-copy-added)').forEach(pre => {
+            const code = pre.querySelector('code');
+            if (!code) return;
+            pre.classList.add('nb-copy-added');
+            const btn = document.createElement('button');
+            btn.className = 'nb-copy-btn';
+            btn.title = 'Copy to clipboard';
+            btn.textContent = '⎘';
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(code.innerText || code.textContent || '').then(() => {
+                    btn.textContent = '✓';
+                    setTimeout(() => { btn.textContent = '⎘'; }, 1500);
+                }).catch(() => {});
+            });
+            pre.appendChild(btn);
+        });
+
         const _hq = [NbNav.searchQuery?.trim(), NbNav.tagsQuery?.trim()]
             .filter(Boolean).join(' ');
         if (_hq) _highlightTerms(container.querySelector('.nb-rendered'), _hq);
@@ -952,12 +970,20 @@ const NbMain = (() => {
             });
         });
 
-        container.querySelectorAll('.nb-rendered a[href]').forEach(el => {
+        // When container itself is .nb-rendered (e.g. test block output), query a[href] directly.
+        const _linkEls = container.classList.contains('nb-rendered')
+            ? container.querySelectorAll('a[href]')
+            : container.querySelectorAll('.nb-rendered a[href]');
+        _linkEls.forEach(el => {
             const href = el.getAttribute('href');
             if (!href) return;
             if (/^(https?|mailto|ftp):/.test(href)) {
                 el.setAttribute('target', '_blank');
                 el.setAttribute('rel', 'noopener noreferrer');
+            } else if (href.startsWith('note:')) {
+                const path = decodeURIComponent(href.slice(5));
+                el.addEventListener('click', e => { e.preventDefault(); openNote(path); });
+                el.classList.add('nb-nb-link');
             } else if (href.startsWith('term:')) {
                 const raw = decodeURIComponent(href.slice(5));
                 const cmd = raw.replace(/\{(file|dir|name|selector|notebook|title)\}/g, (_, v) => ({
@@ -1048,7 +1074,7 @@ const NbMain = (() => {
 
     function _finishRendered(container, note) {
         _enrichRendered(container, note);
-        if (note?.meta?.toc) {
+        if (note?.meta?.toc || note?.meta?.type === 'book') {
             _buildToc(container, note);
             _watchInlineTocRebuild(container, note);
         }

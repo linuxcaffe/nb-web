@@ -954,9 +954,9 @@ body {
 .nb-toc-header::-webkit-details-marker { display: none; }
 .nb-toc[open] .nb-toc-header::before  { content: '▾'; margin-right: 0.3em; }
 .nb-toc:not([open]) .nb-toc-header::before { content: '▸'; margin-right: 0.3em; }
-.nb-toc-header:hover { background: var(--bg3, rgba(255,255,255,0.06)); }
+.nb-toc-header:hover .nb-toc-path { color: var(--accent); }
 .nb-toc-label { font-weight: 600; color: var(--text); }
-.nb-toc-path  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-toc-path  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .nb-toc-meta  { white-space: nowrap; opacity: 0.6; }
 .nb-toc ul    { list-style: none; margin: 0; padding: 0.4em 0.75em 0.6em; }
 .nb-toc li    { line-height: 1.8; }
@@ -2019,6 +2019,26 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-hl-error  { color: var(--red); font-size: 0.88em; }
 
 /* ── Chart codeblock ──────────────────────────────────────────── */
+.nb-rendered pre { position: relative; }
+.nb-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  background: var(--bg-alt, rgba(255,255,255,0.08));
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.8em;
+  line-height: 1.4;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+.nb-rendered pre:hover .nb-copy-btn { opacity: 1; }
+.nb-copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+
 .nb-chart-block {
   margin: 1em 0;
   border: 1px solid var(--border);
@@ -2036,6 +2056,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-chart-toggle { cursor: pointer; color: var(--text-dim); margin-right: 4px; user-select: none; }
 .nb-chart-title  { flex: 1; cursor: pointer; }
 .nb-chart-report { font-weight: 600; color: var(--text); }
+.nb-chart-app    { font-size: 0.82em; color: var(--text-dim); margin-right: 2px; }
 .nb-chart-pickers { display: flex; gap: 3px; margin: 0 6px; }
 .nb-chart-p {
   background: none; border: 1px solid var(--border); border-radius: 3px;
