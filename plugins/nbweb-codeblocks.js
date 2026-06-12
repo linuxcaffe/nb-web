@@ -752,6 +752,22 @@
         }
     }
 
+    function _accountFromQuery(q) {
+        const CMDS     = new Set(['reg','register','bal','balance','bs','is','cf','print',
+                                  'check','accounts','activity','stats','aregister','areg',
+                                  'incomestatement','balancesheet','cashflow']);
+        const QUERY_RE = /^(date2?|payee|desc|note|cur|amt|tag|acct|code|status|type|not|inacct|real|depth):/i;
+        for (const tok of (q || '').split(/\s+/)) {
+            if (!tok || tok.startsWith('-'))                         continue; // flag
+            if (tok.includes('/') || tok.startsWith('~'))           continue; // path
+            if (/^\d/.test(tok))                                    continue; // number/date
+            if (CMDS.has(tok.toLowerCase()))                        continue; // command
+            if (QUERY_RE.test(tok))                                 continue; // query filter
+            if (/^[A-Za-z][\w:]*$/.test(tok))                      return tok;
+        }
+        return '';
+    }
+
     function _negateHlAmount(s) {
         s = (s || '').trim();
         return s.startsWith('-') ? s.slice(1).trim() : s ? '-' + s : '';
@@ -929,6 +945,8 @@
         const row2 = makePostingRow();
         postingsEl.appendChild(row1);
         postingsEl.appendChild(row2);
+        const _preAcct = _accountFromQuery(q);
+        if (_preAcct) row1.querySelector('.nb-hl-acc-inp').value = _preAcct;
 
         const amt1 = row1.querySelector('.nb-hl-amt-inp');
         const amt2 = row2.querySelector('.nb-hl-amt-inp');
