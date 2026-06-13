@@ -229,9 +229,12 @@
     .nbz-extras-group { margin-top: 8px; }
     .nbz-extras-group-label { font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
     .nbz-plugin-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
-    .nbz-action-install { color: #57ab5a; }
-    .nbz-action-upgrade  { color: #e58d4b; }
-    .nbz-action-current  { color: var(--text-dim); }
+    .nbz-action-install   { color: #57ab5a; }
+    .nbz-action-upgrade   { color: #e58d4b; }
+    .nbz-action-new       { color: #57ab5a; }
+    .nbz-action-overwrite { color: #e58d4b; }
+    .nbz-action-current   { color: var(--text-dim); }
+    .nbz-action-skipped   { color: var(--text-dim); }
   </style>
 </head>
 <body>
@@ -409,15 +412,22 @@
       <div id="nbz-preview-desc" style="margin-top:4px;font-style:italic"></div>
     </div>
     <div id="nbz-extras" class="nbz-extras" hidden></div>
+    <div id="nbz-pw-row" hidden style="margin-bottom:10px">
+      <label style="font-size:0.82em;color:var(--text-muted);display:block;margin-bottom:4px">🔒 Encrypted archive — enter password</label>
+      <input type="password" id="nbz-pw" autocomplete="off" placeholder="Password">
+      <p id="nbz-pw-err" class="hint" style="color:#e74c3c;display:none"></p>
+    </div>
     <div id="nbz-name-row" hidden style="margin-bottom:10px">
       <label style="font-size:0.82em;color:var(--text-muted);display:block;margin-bottom:4px">Import as</label>
       <input type="text" id="nbz-name" autocomplete="off">
       <p id="nbz-conflict" class="hint" style="color:#e58d4b;display:none">⚠ Name already in use — choose another.</p>
     </div>
     <div class="row">
+      <button class="tool-btn" id="nbz-dry-run" disabled>Dry run</button>
       <button class="tool-btn" id="nbz-go" disabled>Import</button>
       <span class="status" id="nbz-status"></span>
     </div>
+    <pre id="nbz-dry-report" hidden style="margin-top:.8em;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px 14px;font-size:0.8em;white-space:pre-wrap;color:var(--text-muted);max-height:320px;overflow-y:auto"></pre>
   </div>
 </section>
 
@@ -646,10 +656,15 @@
     const nameRow   = document.getElementById('nbz-name-row');
     const nameIn    = document.getElementById('nbz-name');
     const conflict  = document.getElementById('nbz-conflict');
+    const dryBtn    = document.getElementById('nbz-dry-run');
+    const dryReport = document.getElementById('nbz-dry-report');
     const goBtn     = document.getElementById('nbz-go');
     const status    = document.getElementById('nbz-status');
+    const pwRow     = document.getElementById('nbz-pw-row');
+    const pwIn      = document.getElementById('nbz-pw');
+    const pwErr     = document.getElementById('nbz-pw-err');
 
-    let _file = null, _previewData = null;
+    let _file = null, _previewData = null, _isEncrypted = false;
 
     drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
     drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
@@ -675,31 +690,37 @@
         });
         html += `</div>`;
       }
+      const _extraRows = (items, cbClass) => items.map(item => {
+        const isCurrent  = item.action === 'current';
+        const isOverwrite = item.action === 'overwrite';
+        const lbl = isCurrent ? '✓ current' : isOverwrite ? '↺ overwrite' : '+ new';
+        const cls = `nbz-action-${item.action}`;
+        return `<div class="nbz-plugin-row">
+          <input type="checkbox" class="${cbClass}" data-file="${_esc(item.filename)}"
+            ${isCurrent ? 'disabled' : 'checked'}>
+          <span style="flex:1;font-size:0.85em">${_esc(item.filename)}</span>
+          <span class="${cls}" style="font-size:0.8em">${lbl}</span>
+        </div>`;
+      }).join('');
+
       if (d.test_scripts?.length) {
         html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Test scripts</div>
-          <label style="display:flex;gap:8px;align-items:center;font-size:0.85em;cursor:pointer">
-            <input type="checkbox" id="nbz-tests" checked>
-            ${d.test_scripts.length} script${d.test_scripts.length!==1?'s':''}:
-            <span style="color:var(--text-dim)">${d.test_scripts.slice(0,4).map(_esc).join(', ')}${d.test_scripts.length>4?' +'+( d.test_scripts.length-4)+' more':''}</span>
-          </label></div>`;
+          ${_extraRows(d.test_scripts, 'nbz-script-cb')}</div>`;
       }
       if (d.templates?.length) {
         html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Templates</div>
-          <label style="display:flex;gap:8px;align-items:center;font-size:0.85em;cursor:pointer">
-            <input type="checkbox" id="nbz-templates" checked>
-            ${d.templates.length} template${d.templates.length!==1?'s':''}:
-            <span style="color:var(--text-dim)">${d.templates.slice(0,4).map(_esc).join(', ')}${d.templates.length>4?' +'+( d.templates.length-4)+' more':''}</span>
-          </label></div>`;
+          ${_extraRows(d.templates, 'nbz-template-cb')}</div>`;
       }
       extrasEl.innerHTML = html;
       extrasEl.hidden = !html;
     }
 
     async function _onFile(file) {
-      _file = file; _previewData = null;
+      _file = file; _previewData = null; _isEncrypted = false;
       dropLbl.textContent = file.name;
       preview.hidden = true; extrasEl.hidden = true; nameRow.hidden = true;
-      goBtn.disabled = true;
+      pwRow.hidden = true; pwIn.value = ''; pwErr.style.display = 'none';
+      dryReport.hidden = true; dryBtn.disabled = true; goBtn.disabled = true;
       status.textContent = 'Reading…'; status.className = 'status';
       const fd = new FormData(); fd.append('archive', file);
       try {
@@ -709,10 +730,17 @@
         _previewData = d;
         status.textContent = ''; status.className = 'status';
         const m = d.meta, date = (m.archived_at||'').slice(0,10);
+        if (d.encrypted) {
+          // Metadata readable without password; password required to extract notebook
+          _isEncrypted = true;
+          pwRow.hidden = false; pwIn.focus();
+          goBtn.disabled = true;   // re-enabled when password is typed
+        }
         const tags = [
           m.note_count != null && `${m.note_count} notes`,
           date,
           m.includes_git && 'git history',
+          d.encrypted && '🔒 encrypted',
           d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
           d.test_scripts?.length && `${d.test_scripts.length} test script${d.test_scripts.length!==1?'s':''}`,
           d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
@@ -726,30 +754,145 @@
         nameIn.value = d.suggested;
         conflict.style.display = d.conflict ? 'block' : 'none';
         nameRow.hidden = false;
-        goBtn.disabled = false;
+        dryBtn.disabled = false;
+        goBtn.disabled = _isEncrypted && !pwIn.value;
       } catch(e) {
         status.textContent = '✗ ' + e.message; status.className = 'status err';
       }
     }
 
-    goBtn.addEventListener('click', async () => {
-      if (!_file) return;
-      const name = nameIn.value.trim();
-      if (!name) { nameIn.focus(); return; }
-      goBtn.disabled = true; goBtn.textContent = 'Importing…';
-      status.textContent = ''; status.className = 'status';
+    pwIn.addEventListener('input', () => {
+      if (_isEncrypted) {
+        goBtn.disabled = !pwIn.value.trim();
+        pwErr.style.display = 'none';
+      }
+    });
 
+    function _buildFormData(nameOverride) {
+      const name = nameOverride !== undefined ? nameOverride : nameIn.value.trim();
       const pluginCbs = [...extrasEl.querySelectorAll('.nbz-plugin-cb:checked:not(:disabled)')];
       const fd = new FormData();
       fd.append('archive', _file);
-      fd.append('name', name);
-      const toInstall = pluginCbs.map(cb => cb.dataset.file).filter(Boolean);
-      if (toInstall.length)                               fd.append('install_plugins',   JSON.stringify(toInstall));
-      if (extrasEl.querySelector('#nbz-tests:checked'))   fd.append('install_tests',     'true');
-      if (extrasEl.querySelector('#nbz-templates:checked')) fd.append('install_templates', 'true');
+      if (name) fd.append('name', name);
+      if (_isEncrypted && pwIn.value) fd.append('password', pwIn.value);
+      const toInstall  = pluginCbs.map(cb => cb.dataset.file).filter(Boolean);
+      const toTests    = [...extrasEl.querySelectorAll('.nbz-script-cb:checked')]
+                           .map(cb => cb.dataset.file).filter(Boolean);
+      const toTemplates = [...extrasEl.querySelectorAll('.nbz-template-cb:checked')]
+                           .map(cb => cb.dataset.file).filter(Boolean);
+      if (toInstall.length)   fd.append('install_plugins',   JSON.stringify(toInstall));
+      if (toTests.length)     fd.append('install_tests',     JSON.stringify(toTests));
+      if (toTemplates.length) fd.append('install_templates', JSON.stringify(toTemplates));
+      return fd;
+    }
 
+    async function _unlockAndPreview() {
+      const pw = pwIn.value;
+      if (!pw) { pwIn.focus(); return; }
+      pwErr.style.display = 'none';
+      goBtn.disabled = true; goBtn.textContent = 'Unlocking…';
+      const fd = new FormData();
+      fd.append('archive', _file);
+      fd.append('password', pw);
       try {
-        const r = await fetch('/api/nb/import', { method: 'POST', body: fd });
+        const r = await fetch('/api/nb/import-preview', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (!d.ok) {
+          pwErr.textContent = d.error || 'Wrong password.';
+          pwErr.style.display = 'block';
+          pwIn.select(); pwIn.focus();
+          goBtn.textContent = 'Unlock'; goBtn.disabled = false;
+          return;
+        }
+        _previewData = d; _isEncrypted = true;
+        pwRow.hidden = true;  // password accepted — hide field, keep in memory via _isEncrypted
+        const m = d.meta, date = (m.archived_at||'').slice(0,10);
+        const tags = [
+          m.note_count != null && `${m.note_count} notes`,
+          date,
+          '🔒 encrypted',
+          d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
+          d.test_scripts?.length && `${d.test_scripts.length} test script${d.test_scripts.length!==1?'s':''}`,
+          d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
+        ].filter(Boolean).join(' · ');
+        prevName.textContent = m.name;
+        prevMeta.textContent = tags;
+        prevDesc.textContent = m.description || '';
+        prevDesc.hidden = !m.description;
+        preview.hidden = false;
+        _renderExtras(d);
+        nameIn.value = d.suggested;
+        conflict.style.display = d.conflict ? 'block' : 'none';
+        nameRow.hidden = false;
+        goBtn.textContent = 'Import'; goBtn.disabled = false;
+        dryBtn.disabled = false;
+      } catch(e) {
+        pwErr.textContent = e.message; pwErr.style.display = 'block';
+        goBtn.textContent = 'Unlock'; goBtn.disabled = false;
+      }
+    }
+
+    function _renderDryReport(d) {
+      const lines = [];
+      const nb = d.notebook_dest || d.notebook;
+      if (d.notebook_conflict) {
+        lines.push(`⚠ Notebook "${d.notebook}" already exists — choose a different name.`);
+      } else {
+        lines.push(`Notebook: "${nb}" (${(d.notebook_files||[]).length} files)`);
+      }
+      if (d.plugins?.length) {
+        lines.push('');
+        lines.push('Plugins:');
+        d.plugins.forEach(p => {
+          const icon = p.action==='install' ? '+' : p.action==='upgrade' ? '↑' : p.action==='current' ? '✓' : '–';
+          const ver  = p.archive_version ? `v${p.archive_version}` : '';
+          const iVer = p.installed_version ? ` (installed: v${p.installed_version})` : '';
+          lines.push(`  ${icon} ${p.action.padEnd(8)}  ${p.name || p.filename} ${ver}${iVer}`);
+        });
+      }
+      if (d.test_scripts?.length) {
+        lines.push('');
+        lines.push('Test scripts:');
+        d.test_scripts.forEach(s => lines.push(`  ${s.action==='new'?'+':'↺'} ${s.action.padEnd(9)}  ${s.filename} → ${s.dest}`));
+      }
+      if (d.templates?.length) {
+        lines.push('');
+        lines.push('Templates:');
+        d.templates.forEach(t => lines.push(`  ${t.action==='new'?'+':'↺'} ${t.action.padEnd(9)}  ${t.filename} → ${t.dest}`));
+      }
+      dryReport.textContent = lines.join('\n');
+      dryReport.hidden = false;
+    }
+
+    dryBtn.addEventListener('click', async () => {
+      if (!_file) return;
+      dryBtn.disabled = true; dryBtn.textContent = 'Checking…';
+      dryReport.hidden = true;
+      status.textContent = ''; status.className = 'status';
+      try {
+        const r = await fetch('/api/nb/import-dry-run', { method: 'POST', body: _buildFormData() });
+        const d = await r.json();
+        if (!d.ok) { status.textContent = '✗ ' + (d.error || 'Dry run failed.'); status.className = 'status err'; }
+        else { _renderDryReport(d); }
+      } catch(e) {
+        status.textContent = '✗ ' + e.message; status.className = 'status err';
+      }
+      dryBtn.disabled = false; dryBtn.textContent = 'Dry run';
+    });
+
+    goBtn.addEventListener('click', async () => {
+      if (!_file) return;
+      if (_isEncrypted && !pwIn.value) {
+        pwErr.textContent = 'Password required to import the notebook.';
+        pwErr.style.display = 'block'; pwIn.focus(); return;
+      }
+      const name = nameIn.value.trim();
+      if (!name) { nameIn.focus(); return; }
+      goBtn.disabled = true; dryBtn.disabled = true; goBtn.textContent = 'Importing…';
+      dryReport.hidden = true;
+      status.textContent = ''; status.className = 'status';
+      try {
+        const r = await fetch('/api/nb/import', { method: 'POST', body: _buildFormData() });
         const d = await r.json();
         if (d.ok) {
           const parts = [`✓ Imported "${_esc(d.notebook)}" (${d.note_count} notes)`];
@@ -757,19 +900,22 @@
           if (d.copied_tests?.length)      parts.push(`${d.copied_tests.length} test script(s) copied`);
           if (d.copied_templates?.length)  parts.push(`${d.copied_templates.length} template(s) copied`);
           status.textContent = parts.join(' · '); status.className = 'status ok';
-          goBtn.textContent = 'Import'; goBtn.disabled = false;
-          // Reload plugin list if anything was installed
+          goBtn.textContent = 'Import'; goBtn.disabled = false; dryBtn.disabled = false;
           if (d.installed_plugins?.length) loadPlugins();
         } else if (d.conflict) {
           conflict.style.display = 'block';
-          goBtn.disabled = false; goBtn.textContent = 'Import';
+          goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
+        } else if (d.encrypted) {
+          pwErr.textContent = d.error || 'Wrong password.'; pwErr.style.display = 'block';
+          pwIn.select(); pwIn.focus();
+          goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
         } else {
           status.textContent = '✗ ' + (d.error || 'Import failed.'); status.className = 'status err';
-          goBtn.disabled = false; goBtn.textContent = 'Import';
+          goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
         }
       } catch(e) {
         status.textContent = '✗ ' + e.message; status.className = 'status err';
-        goBtn.disabled = false; goBtn.textContent = 'Import';
+        goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
       }
     });
   })();

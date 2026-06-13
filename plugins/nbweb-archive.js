@@ -29,6 +29,14 @@
                 _chk('nbarch-templates', 'Templates',     true)  +
             `</div>` +
             `<input id="nbarch-desc" class="nb-opt-input" placeholder="Description (optional)" style="margin-top:2px">` +
+            `<div style="display:flex;align-items:center;gap:8px;margin-top:2px">` +
+                _chk('nbarch-encrypt', 'Encrypt', false) +
+            `</div>` +
+            `<div id="nbarch-pw-wrap" hidden style="display:flex;flex-direction:column;gap:4px">` +
+                `<input id="nbarch-pw1"  type="password" class="nb-opt-input" placeholder="Password">` +
+                `<input id="nbarch-pw2"  type="password" class="nb-opt-input" placeholder="Confirm password">` +
+                `<div id="nbarch-pw-err" style="color:var(--text-danger,#e74c3c);font-size:11px;display:none">Passwords don't match — try again.</div>` +
+            `</div>` +
             `<div style="display:flex;gap:6px">` +
                 `<button id="nbarch-go" class="nb-tool-btn nb-btn-primary">↓ Create archive</button>` +
                 `<button id="nbarch-cancel" class="nb-tool-btn">Cancel</button>` +
@@ -41,9 +49,31 @@
             archiveBtn.disabled = false;
         };
 
+        const encCb   = form.querySelector('#nbarch-encrypt');
+        const pwWrap  = form.querySelector('#nbarch-pw-wrap');
+        const pw1     = form.querySelector('#nbarch-pw1');
+        const pw2     = form.querySelector('#nbarch-pw2');
+        const pwErr   = form.querySelector('#nbarch-pw-err');
+        encCb.onchange = () => {
+            pwWrap.hidden = !encCb.checked;
+            if (encCb.checked) { pw1.focus(); pwErr.style.display = 'none'; }
+            else { pw1.value = ''; pw2.value = ''; }
+        };
+        pw2.addEventListener('input', () => { pwErr.style.display = 'none'; });
+
         form.querySelector('#nbarch-go').onclick = async () => {
             const btn  = form.querySelector('#nbarch-go');
             const stat = form.querySelector('#nbarch-status');
+
+            if (encCb.checked) {
+                if (!pw1.value) { pw1.focus(); return; }
+                if (pw1.value !== pw2.value) {
+                    pwErr.style.display = 'block';
+                    pw2.value = ''; pw2.focus();
+                    return;
+                }
+            }
+
             btn.disabled = true;
             btn.textContent = 'Archiving…';
             stat.textContent = '';
@@ -59,6 +89,7 @@
                         include_tests:     form.querySelector('#nbarch-tests').checked,
                         include_templates: form.querySelector('#nbarch-templates').checked,
                         description:       form.querySelector('#nbarch-desc').value.trim(),
+                        password:          encCb.checked ? pw1.value : '',
                     }),
                 });
                 if (!r.ok) {
