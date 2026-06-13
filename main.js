@@ -1081,23 +1081,34 @@ const NbMain = (() => {
         _appendAnnotation(container, note);
     }
 
-    // If the note has {{inline:}} includes, watch for them to land and rebuild the TOC
-    // from the fully-expanded DOM. Inline fetches are async fire-and-forget, so the
-    // initial _buildToc sees only source headings. The observer debounces until the DOM
-    // is quiet, then rebuilds once from all headings including those inside included notes.
+    // If the note has {{inline:}} includes or test blocks, watch for async content
+    // to land and rebuild the TOC from the fully-expanded DOM.
+    //
+    // Two signals are used:
+    //   1. MutationObserver (inline includes) — debounces 500 ms after DOM quiets
+    //   2. 'nb-tests-settled' custom event — fired once by the test renderer after
+    //      all Form 2 test blocks in the current render pass have resolved
+    //
+    // This avoids relying solely on debounce timing for test blocks, which can
+    // take >500 ms to return from /api/test/run.
     function _watchInlineTocRebuild(container, note) {
         const rendered = container.querySelector('.nb-rendered');
         if (!rendered) return;
+
+        const rebuild = () => {
+            container.querySelector('.nb-toc')?.remove();
+            _buildToc(container, note);
+        };
+
+        // Signal from test renderer — fires exactly once when all auto-run tests settle
+        container.addEventListener('nb-tests-settled', rebuild, { once: true });
+
+        // MutationObserver for {{inline:}} blocks (fire-and-forget, DOM-visible)
         if (!rendered.querySelector('.nb-inline-query[data-provider="inline"]')) return;
         let tid;
         const obs = new MutationObserver(() => {
             clearTimeout(tid);
-            tid = setTimeout(() => {
-                // Don't disconnect here — test blocks arrive async and may fire
-                // after inline includes settle. The 15s timeout below cleans up.
-                container.querySelector('.nb-toc')?.remove();
-                _buildToc(container, note);
-            }, 500);
+            tid = setTimeout(rebuild, 500);
         });
         obs.observe(rendered, { childList: true, subtree: true });
         setTimeout(() => obs.disconnect(), 15000);
@@ -1537,7 +1548,12 @@ const NbMain = (() => {
         const cached = _wikilinkCache.get('\x00' + sel)
         if (cached) return cached
         try {
-            const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook
+            // Use the notebook of the note currently displayed, not the list panel's notebook.
+            // When a note from hledger: is open but the list shows docs:, bare [[links]] must
+            // still resolve within hledger — NbNav.notebook would give the wrong scope.
+            const activeSel = NbMain.activeSelector() || ''
+            const activeNb  = activeSel.includes(':') ? activeSel.split(':')[0] : null
+            const nb = activeNb || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook)
             const r  = await fetch(`/api/notes?notebook=${encodeURIComponent(nb)}&q=${encodeURIComponent(sel)}`)
             const d  = await r.json()
             const lower = sel.toLowerCase()

@@ -1598,12 +1598,13 @@
 
     async function _runGroupTest(el, scripts, btn, out) {
         const selector = NbMain.activeSelector() || '';
+        const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
         const results  = await Promise.all(scripts.map(async ({ script }) => {
             try {
                 const r = await fetch('/api/test/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ script, selector }),
+                    body: JSON.stringify({ script, selector, force }),
                 });
                 return { script, ...(await r.json()) };
             } catch (e) {
@@ -1691,12 +1692,13 @@
 
     async function _runTest(el, script, btn, out) {
         const selector = NbMain.activeSelector() || '';
+        const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
         let d;
         try {
             const r = await fetch('/api/test/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ script, selector }),
+                body: JSON.stringify({ script, selector, force }),
             });
             d = await r.json();
         } catch (e) {
@@ -1741,6 +1743,7 @@
     // Converts [label](subtest:scriptname) links inside a test result into
     // toggle buttons that run the named script and expand its output inline.
     function _enrichSubtests(container) {
+        if (!container.innerHTML.includes('subtest:')) return;   // #5: fast guard
         container.querySelectorAll('a[href^="subtest:"]').forEach(a => {
             const script = a.getAttribute('href').slice('subtest:'.length);
             const label  = a.textContent;
@@ -1777,7 +1780,7 @@
                     const r = await fetch('/api/test/run', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ script, selector }),
+                        body: JSON.stringify({ script, selector, force: true }),
                     });
                     d = await r.json();
                 } catch (e) {
@@ -1816,57 +1819,58 @@
                 lang:   'tw',
                 html:   text => `<div class="nb-tw-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => {
-                    const blocks = container.querySelectorAll('.nb-tw-block');
+                    const blocks = [...container.querySelectorAll('.nb-tw-block')];
                     if (!blocks.length) return;
                     const w = await NbWeb.checkWhich('task');
-                    for (const el of blocks) {
-                        if (!w.found) { await NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md'); continue; }
-                        await _loadTwBlock(el);
-                    }
+                    await Promise.all(blocks.map(el =>
+                        w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md')
+                    ));
                 },
             },
             {
                 lang:   'hledger',
                 html:   text => `<div class="nb-hl-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => {
-                    const blocks = container.querySelectorAll('.nb-hl-block');
+                    const blocks = [...container.querySelectorAll('.nb-hl-block')];
                     if (!blocks.length) return;
                     const w = await NbWeb.checkWhich('hledger');
-                    for (const el of blocks) {
-                        if (!w.found) { await NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md'); continue; }
-                        await _loadHledgerBlock(el);
-                    }
+                    await Promise.all(blocks.map(el =>
+                        w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md')
+                    ));
                 },
             },
             {
                 lang:   'nav',
                 html:   text => `<div class="nb-nav-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-nav-block')) await _loadNavBlock(el); },
+                render: async container => { await Promise.all([...container.querySelectorAll('.nb-nav-block')].map(el => _loadNavBlock(el))); },
             },
             {
                 lang:   'front',
                 html:   text => `<div class="nb-front-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-front-block')) await _loadFrontBlock(el); },
+                render: async container => { await Promise.all([...container.querySelectorAll('.nb-front-block')].map(el => _loadFrontBlock(el))); },
             },
             {
                 lang:   't',
                 html:   text => `<div class="nb-t-block" data-period="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-t-block')) await _loadTBlock(el); },
+                render: async container => { await Promise.all([...container.querySelectorAll('.nb-t-block')].map(el => _loadTBlock(el))); },
             },
             {
                 lang:   'nb',
                 html:   text => `<div class="nb-nb-block" data-cmd="${text.trim().toLowerCase().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-nb-block')) await _loadNbBlock(el); },
+                render: async container => { await Promise.all([...container.querySelectorAll('.nb-nb-block')].map(el => _loadNbBlock(el))); },
             },
             {
                 lang:   'git',
                 html:   text => `<div class="nb-git-block" data-cmd="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-git-block')) await _loadGitBlock(el); },
+                render: async container => { await Promise.all([...container.querySelectorAll('.nb-git-block')].map(el => _loadGitBlock(el))); },
             },
             {
                 lang:   'test',
                 html:   text => `<div class="nb-test-block" data-query="${text.trim().replace(/"/g,'&quot;')}"></div>`,
-                render: async container => { for (const el of container.querySelectorAll('.nb-test-block')) await _loadTestBlock(el); },
+                render: async container => {
+                    await Promise.all([...container.querySelectorAll('.nb-test-block')].map(el => _loadTestBlock(el)));
+                    container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
+                },
             },
         ],
 

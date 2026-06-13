@@ -178,6 +178,8 @@ _settings = _load_settings()
 # ---------------------------------------------------------------------------
 
 _weather_cache: dict = {'value': None, 'ts': 0.0}
+_test_cache:    dict = {}   # (script, selector) -> {'result': dict, 'ts': float}
+_TEST_CACHE_TTL = 30        # seconds; force=True bypasses
 
 def _fetch_weather() -> str:
     if _weather_cache['value'] and time.time() - _weather_cache['ts'] < 3600:
@@ -2655,19 +2657,28 @@ def _list_notes(notebook, folder, limit):
 
 
 def _resolve_fname(nb_name, raw_id_or_sel):
-    """Return (fname, fpath) for a note identified by id or selector, or (None, None)."""
+    """Return (fname, fpath) for a note identified by id or selector, or (None, None).
+
+    Handles both flat ids ('42') and subfolder paths ('hledger/32').
+    """
     try:
-        raw_id = str(raw_id_or_sel).split(':')[-1]
+        raw_str = str(raw_id_or_sel).split(':')[-1]  # strip notebook prefix if any
+        folder  = ''
+        raw_id  = raw_str
+        if '/' in raw_str:
+            # Subfolder path like 'hledger/32' — split into folder + id
+            folder, raw_id = raw_str.rsplit('/', 1)
         if not raw_id.isdigit():
             return None, None
-        idx    = read_index(nb_name)
+        idx    = read_index(nb_name, folder)
         id_num = int(raw_id)
         if not (1 <= id_num <= len(idx)):
             return None, None
         fname = idx[id_num - 1]
         if not fname:
             return None, None
-        return fname, NB_DIR / nb_name / fname
+        rel = Path(folder) / fname if folder else Path(fname)
+        return fname, NB_DIR / nb_name / rel
     except Exception:
         return None, None
 
@@ -6311,6 +6322,7 @@ def api_test_run():
     data        = request.get_json(force=True) or {}
     script_name = (data.get('script') or '').strip()
     selector    = (data.get('selector') or '').strip()
+    force       = bool(data.get('force', False))
 
     if not script_name:
         return jsonify({'error': 'no script name', 'exit_code': 1}), 400
@@ -6322,6 +6334,14 @@ def api_test_run():
         script_path = TEST_DIR / (script_name + '.sh')
     if not script_path.exists():
         return jsonify({'error': f'script not found: {script_name} (looked in {TEST_DIR})', 'exit_code': 1}), 404
+
+    # Return cached result for auto-runs (force=False) within TTL
+    cache_key = (script_name, selector)
+    now = time.time()
+    if not force:
+        entry = _test_cache.get(cache_key)
+        if entry and (now - entry['ts']) < _TEST_CACHE_TTL:
+            return jsonify(entry['result'])
 
     notebook  = selector.split(':')[0] if ':' in selector else ''
     note_path = _resolve_to_nb_path(selector) if selector else None
@@ -6340,11 +6360,13 @@ def api_test_run():
             capture_output=True, text=True,
             env=env, timeout=30,
         )
-        return jsonify({
+        result_data = {
             'stdout':    result.stdout,
             'stderr':    result.stderr,
             'exit_code': result.returncode,
-        })
+        }
+        _test_cache[cache_key] = {'result': result_data, 'ts': now}
+        return jsonify(result_data)
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'script timed out (30s)', 'exit_code': 1})
     except Exception as e:
@@ -7563,4 +7585,4 @@ if __name__ == '__main__':
     _install_prepush_hooks()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
-    app.run(host=HOST, port=PORT, debug=DEBUG, use_reloader=False)
+    app.run(host=HOST, port=PORT, debug=DEBUG, use_reloader=False, threaded=True)
