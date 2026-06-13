@@ -1163,6 +1163,149 @@
         el.appendChild(list);
     }
 
+    // ── front codeblock ───────────────────────────────────────────────────────
+    // Syntax: field:value field2:value2 | Optional label
+    //   field:value  → frontmatter field equals value (case-insensitive)
+    //   field:        → frontmatter field exists (any value)
+    //   field:""      → frontmatter field is absent or empty
+
+    // Parse: [nb1 nb2] field:value field2: field3:"" | Label
+    // Leading bare words (no colon) = notebook scope; none = all notebooks.
+    function _frontParseQuery(raw) {
+        raw = (raw || '').trim();
+        const pipeIdx = raw.indexOf(' |');
+        const label   = pipeIdx >= 0 ? raw.slice(pipeIdx + 2).trim() : '';
+        const qpart   = pipeIdx >= 0 ? raw.slice(0, pipeIdx).trim() : raw;
+
+        // Consume leading tokens with no colon as notebook names
+        const notebooks = [];
+        const tokens    = qpart ? qpart.split(/\s+/) : [];
+        let i = 0;
+        while (i < tokens.length && !tokens[i].includes(':')) {
+            notebooks.push(tokens[i++]);
+        }
+        const filterPart = tokens.slice(i).join(' ');
+
+        const filters = [];
+        const pat = /(\w[\w.-]*):"([^"]*)"|(\w[\w.-]*):(\S*)/g;
+        let m;
+        while ((m = pat.exec(filterPart))) {
+            if (m[1] !== undefined) {
+                filters.push({ field: m[1], op: m[2] === '' ? 'empty' : 'eq', value: m[2] });
+            } else {
+                const field = m[3], value = m[4];
+                filters.push({ field, op: value === '' ? 'exists' : 'eq', value });
+            }
+        }
+        return { notebooks, filters, label };
+    }
+
+    async function _loadFrontBlock(el) {
+        const parsed = _frontParseQuery(el.dataset.query || '');
+        el.dataset.frontNotebooks = parsed.notebooks.join(',');
+        el.dataset.frontFilters   = JSON.stringify(parsed.filters);
+        el.dataset.frontLabel     = parsed.label;
+        await _frontRender(el);
+    }
+
+    async function _frontRender(el) {
+        const notebooks  = el.dataset.frontNotebooks || '';
+        const filters    = JSON.parse(el.dataset.frontFilters || '[]');
+        const label      = el.dataset.frontLabel || '';
+        const wasOpen    = el.classList.contains('nb-front-open');
+        el.innerHTML     = '<span class="nb-spin">⟳</span>';
+        try {
+            const params = new URLSearchParams({ notebooks, filters: JSON.stringify(filters) });
+            const notes  = await fetch(`/api/front-query?${params}`).then(r => r.json());
+            if (notes.error) throw new Error(notes.error);
+
+            // Determine which notebooks appear in results
+            const nbSet   = new Set(notes.map(n => n.notebook).filter(Boolean));
+            const multiNb = nbSet.size > 1;
+            const nbLabel = nbSet.size === 1 ? `(${[...nbSet][0]})`
+                          : nbSet.size > 1   ? `(${nbSet.size} notebooks)`
+                          : '';
+
+            el.innerHTML = '';
+
+            // ── Header ──────────────────────────────────────────────────────
+            const hdr = document.createElement('div');
+            hdr.className = 'nb-front-header';
+
+            const toggle = document.createElement('span');
+            toggle.className = 'nb-front-toggle';
+
+            const countEl = document.createElement('span');
+            countEl.className = 'nb-front-count';
+            countEl.textContent = notes.length ? String(notes.length) : 'No matches';
+
+            const refBtn = document.createElement('button');
+            refBtn.className = 'nb-tw-btn nb-nav-refresh nb-front-refresh';
+            refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+            refBtn.addEventListener('click', e => { e.stopPropagation(); _frontRender(el); });
+
+            // Whole header is the click zone
+            hdr.addEventListener('click', () => {
+                el.classList.toggle('nb-front-open');
+                toggle.textContent = el.classList.contains('nb-front-open') ? '▼' : '▶';
+            });
+
+            hdr.appendChild(toggle);
+            hdr.appendChild(countEl);
+            if (nbLabel) {
+                const nbEl = document.createElement('span');
+                nbEl.className = 'nb-front-nb';
+                nbEl.textContent = nbLabel;
+                hdr.appendChild(nbEl);
+            }
+            if (label) {
+                const lbl = document.createElement('span');
+                lbl.className = 'nb-front-label';
+                lbl.textContent = label;
+                hdr.appendChild(lbl);
+            }
+            hdr.appendChild(refBtn);
+            el.appendChild(hdr);
+
+            // ── List ────────────────────────────────────────────────────────
+            if (notes.length) {
+                const list = document.createElement('ul');
+                list.className = 'nb-nav-list';
+                for (const n of notes) {
+                    const li = document.createElement('li');
+                    li.className = 'nb-nav-item';
+                    if (n.meta && Object.keys(n.meta).length) {
+                        li.dataset.tip = Object.entries(n.meta).map(([k, v]) => `${k}: ${v.replace(/\n/g,' ')}`).join('\n');
+                    }
+                    const icon = document.createElement('span');
+                    icon.className = 'nb-nav-icon';
+                    icon.textContent = n.type === 'todo' ? '☐' : '·';
+                    const btn = document.createElement('button');
+                    btn.className = 'nb-nav-link';
+                    btn.textContent = n.title || n.filename;
+                    btn.addEventListener('click', () => NbMain.openNote(n.selector));
+                    li.appendChild(icon);
+                    li.appendChild(btn);
+                    if (multiNb && n.notebook) {
+                        const badge = document.createElement('span');
+                        badge.className = 'nb-front-nb-badge';
+                        badge.textContent = n.notebook;
+                        li.appendChild(badge);
+                    }
+                    list.appendChild(li);
+                }
+                el.appendChild(list);
+            }
+
+            // Default collapsed; restore open state on refresh
+            toggle.textContent = wasOpen ? '▼' : '▶';
+            if (wasOpen) el.classList.add('nb-front-open');
+
+        } catch (e) {
+            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
     // ── nav codeblock ─────────────────────────────────────────────────────────
 
     function _navParseQuery(raw) {
@@ -1517,6 +1660,11 @@
                 lang:   'nav',
                 html:   text => `<div class="nb-nav-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => { for (const el of container.querySelectorAll('.nb-nav-block')) await _loadNavBlock(el); },
+            },
+            {
+                lang:   'front',
+                html:   text => `<div class="nb-front-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                render: async container => { for (const el of container.querySelectorAll('.nb-front-block')) await _loadFrontBlock(el); },
             },
             {
                 lang:   't',
