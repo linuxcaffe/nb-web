@@ -173,20 +173,37 @@
 
     .plugin-row {
       display: flex; align-items: center; gap: 10px;
-      padding: 6px 0;
+      padding: 7px 0;
       border-bottom: 1px solid var(--border);
       font-size: 0.88em;
     }
     .plugin-row:last-child { border-bottom: none; }
-    .plugin-name { flex: 1; font-weight: 500; }
-    .plugin-url  { flex: 2; font-family: var(--font-mono); font-size: 0.82em; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .plugin-toggle { font-size: 0.8em; color: var(--text-muted); cursor: pointer; }
+    .plugin-name  { flex: 1; font-weight: 500; min-width: 0; }
+    .plugin-url   { flex: 2; font-family: var(--font-mono); font-size: 0.8em; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .plugin-badge {
+      font-size: 0.72em; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+      border-radius: 3px; padding: 1px 6px; flex-shrink: 0;
+    }
+    .plugin-badge-core      { background: rgba(87,171,90,.15);  color: #57ab5a; border: 1px solid rgba(87,171,90,.3); }
+    .plugin-badge-bundled   { background: rgba(61,143,212,.12); color: var(--accent); border: 1px solid rgba(61,143,212,.25); }
+    .plugin-badge-ecosystem { background: rgba(229,141,75,.12); color: #e58d4b; border: 1px solid rgba(229,141,75,.25); }
+    .plugin-badge-plugin    { background: rgba(205,217,229,.08); color: var(--text-muted); border: 1px solid var(--border); }
+    .plugin-toggle { font-size: 0.8em; color: var(--text-muted); cursor: pointer; flex-shrink: 0; }
+    a.plugin-homepage {
+      font-size: 0.8em; color: var(--text-dim); text-decoration: none; flex-shrink: 0;
+    }
+    a.plugin-homepage:hover { color: var(--accent); }
     button.plugin-remove {
       background: none; border: 1px solid var(--border); color: var(--text-dim);
-      border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 0.8em;
+      border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 0.8em; flex-shrink: 0;
     }
     button.plugin-remove:hover { border-color: #e5534b; color: #e5534b; }
-    .plugin-disabled .plugin-name { color: var(--text-dim); }
+    .plugin-disabled .plugin-name { opacity: 0.5; }
+    .plugin-group-label {
+      font-size: 0.72em; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--text-dim); padding: 8px 0 4px; margin-top: .4em;
+    }
+    .plugin-group-label:first-child { margin-top: 0; padding-top: 0; }
   </style>
 </head>
 <body>
@@ -355,10 +372,12 @@
     <label>Install plugin</label>
     <div class="row" style="flex-wrap:nowrap;gap:8px;margin-bottom:6px">
       <input type="text" id="plugin-install-url" placeholder="https://… or /local/path/to/plugin.js" autocomplete="off" style="flex:1;max-width:none">
-      <input type="text" id="plugin-install-name" placeholder="Display name" autocomplete="off" style="width:160px;flex-shrink:0">
+      <button class="tool-btn" id="btn-plugin-browse" title="Browse for a local .js file">Browse…</button>
+      <input type="file" id="plugin-file-input" accept=".js" style="display:none">
+      <input type="text" id="plugin-install-name" placeholder="Display name" autocomplete="off" style="width:150px;flex-shrink:0">
       <button class="tool-btn" id="btn-plugin-install">Install</button>
     </div>
-    <p class="hint">HTTP/HTTPS URL or local absolute path to a .js file. A name is inferred from the filename if left blank.</p>
+    <p class="hint">HTTP/HTTPS URL, local absolute path, or browse to a .js file. Name is inferred from filename if blank.</p>
     <span class="status" id="status-plugin-install"></span>
   </div>
 
@@ -556,38 +575,74 @@
   });
 
   // ── Plugin manager ────────────────────────────────────────────
+  const _PLUGIN_TYPE_ORDER = ['core', 'bundled', 'ecosystem', 'plugin'];
+  const _PLUGIN_GROUP_LABELS = {
+    core:      'Core',
+    bundled:   'Bundled',
+    ecosystem: 'Ecosystem',
+    plugin:    'Installed',
+  };
+
   async function _renderPluginList(plugins) {
     const el = document.getElementById('plugin-list');
     if (!plugins || !plugins.length) {
       el.innerHTML = '<p class="hint">No plugins installed.</p>';
       return;
     }
-    el.innerHTML = plugins.map((p, i) => {
-      const isManaged = p.url.startsWith('/nb-web-plugins/');
-      const label = p.name || p.url.split('/').pop();
-      const tag   = isManaged ? '' : '<span style="font-size:0.75em;color:var(--text-dim);margin-left:4px">bundled</span>';
-      const rmBtn = isManaged ? `<button class="plugin-remove" data-url="${p.url}">Remove</button>` : '';
-      return `
-      <div class="plugin-row ${p.enabled ? '' : 'plugin-disabled'}" data-idx="${i}">
-        <span class="plugin-name">${label}${tag}</span>
-        <span class="plugin-url" title="${p.url}">${p.url}</span>
-        <label class="plugin-toggle" title="${p.enabled ? 'Disable' : 'Enable'}">
-          <input type="checkbox" ${p.enabled ? 'checked' : ''} data-url="${p.url}" class="plugin-enabled-cb" style="cursor:pointer">
-          ${p.enabled ? 'enabled' : 'disabled'}
-        </label>
-        ${rmBtn}
-      </div>`;
-    }).join('');
+
+    // Group by type in declared order
+    const groups = {};
+    _PLUGIN_TYPE_ORDER.forEach(t => { groups[t] = []; });
+    plugins.forEach(p => {
+      const t = p.type || 'plugin';
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(p);
+    });
+
+    let html = '';
+    _PLUGIN_TYPE_ORDER.forEach(type => {
+      const items = groups[type];
+      if (!items.length) return;
+      html += `<div class="plugin-group-label">${_PLUGIN_GROUP_LABELS[type] || type}</div>`;
+      items.forEach(p => {
+        const isCore    = p.type === 'core';
+        const isRemovable = !isCore && p.type !== 'bundled';
+        const badge = `<span class="plugin-badge plugin-badge-${p.type || 'plugin'}">${p.type || 'plugin'}</span>`;
+        const label = p.name || p.url.split('/').pop();
+        const homepageLink = p.homepage
+          ? `<a class="plugin-homepage" href="${p.homepage}" target="_blank" title="${p.homepage}">↗</a>`
+          : '';
+        const toggleEl = isCore
+          ? `<span class="plugin-toggle" style="cursor:default;opacity:.4">locked</span>`
+          : `<label class="plugin-toggle" title="${p.enabled ? 'Disable' : 'Enable'}">
+               <input type="checkbox" ${p.enabled ? 'checked' : ''} data-url="${p.url}" class="plugin-enabled-cb" style="cursor:pointer">
+               ${p.enabled ? 'on' : 'off'}
+             </label>`;
+        const rmBtn = isRemovable
+          ? `<button class="plugin-remove" data-url="${p.url}">Remove</button>` : '';
+        html += `
+        <div class="plugin-row ${p.enabled ? '' : 'plugin-disabled'}">
+          <span class="plugin-name">${label}</span>
+          ${badge}
+          ${homepageLink}
+          <span class="plugin-url" title="${p.url}">${p.url}</span>
+          ${toggleEl}
+          ${rmBtn}
+        </div>`;
+      });
+    });
+    el.innerHTML = html;
 
     el.querySelectorAll('.plugin-enabled-cb').forEach(cb => {
       cb.addEventListener('change', async () => {
         cb.disabled = true;
-        await fetch('/api/plugins/toggle', {
+        const d = await fetch('/api/plugins/toggle', {
           method: 'PATCH',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({url: cb.dataset.url, enabled: cb.checked}),
-        }).then(r => r.json()).then(d => { if (d.plugins) _renderPluginList(d.plugins); });
-        cb.disabled = false;
+        }).then(r => r.json()).catch(() => null);
+        if (d?.plugins) _renderPluginList(d.plugins);
+        else cb.disabled = false;
       });
     });
 
@@ -595,8 +650,10 @@
       btn.addEventListener('click', async () => {
         if (!confirm(`Remove plugin ${btn.dataset.url}?`)) return;
         btn.disabled = true;
-        await fetch('/api/plugins/uninstall?url=' + encodeURIComponent(btn.dataset.url), {method: 'DELETE'})
-          .then(r => r.json()).then(d => { if (d.plugins) _renderPluginList(d.plugins); });
+        const d = await fetch('/api/plugins/uninstall?url=' + encodeURIComponent(btn.dataset.url), {method: 'DELETE'})
+          .then(r => r.json()).catch(() => null);
+        if (d?.plugins) _renderPluginList(d.plugins);
+        else btn.disabled = false;
       });
     });
   }
@@ -608,26 +665,56 @@
     if (d) _renderPluginList(d.plugins || []);
   }
 
+  // Browse button — triggers file input, fills URL field on selection
+  let _selectedFile = null;
+  document.getElementById('btn-plugin-browse').addEventListener('click', () => {
+    document.getElementById('plugin-file-input').click();
+  });
+  document.getElementById('plugin-file-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    _selectedFile = file;
+    document.getElementById('plugin-install-url').value = file.name;
+    if (!document.getElementById('plugin-install-name').value.trim()) {
+      document.getElementById('plugin-install-name').value = file.name.replace(/\.js$/, '');
+    }
+  });
+  // Clear selected file when URL is edited manually
+  document.getElementById('plugin-install-url').addEventListener('input', () => {
+    _selectedFile = null;
+    document.getElementById('plugin-file-input').value = '';
+  });
+
   document.getElementById('btn-plugin-install').addEventListener('click', async () => {
     const btn    = document.getElementById('btn-plugin-install');
     const status = document.getElementById('status-plugin-install');
-    const url    = document.getElementById('plugin-install-url').value.trim();
+    const urlVal = document.getElementById('plugin-install-url').value.trim();
     const name   = document.getElementById('plugin-install-name').value.trim();
-    if (!url) { status.textContent = 'Enter a URL or path.'; status.className = 'status err'; return; }
+    if (!urlVal && !_selectedFile) { status.textContent = 'Enter a URL, path, or browse for a file.'; status.className = 'status err'; return; }
     btn.disabled = true;
     status.textContent = 'Installing…'; status.className = 'status';
     try {
-      const r = await fetch('/api/plugins/install', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({url, name}),
-      });
+      let r;
+      if (_selectedFile) {
+        const fd = new FormData();
+        fd.append('file', _selectedFile);
+        if (name) fd.append('name', name);
+        r = await fetch('/api/plugins/install', {method: 'POST', body: fd});
+      } else {
+        r = await fetch('/api/plugins/install', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url: urlVal, name}),
+        });
+      }
       const d = await r.json();
       if (d.error) { status.textContent = '✗ ' + d.error; status.className = 'status err'; }
       else {
         status.textContent = '✓ Installed'; status.className = 'status ok';
         document.getElementById('plugin-install-url').value  = '';
         document.getElementById('plugin-install-name').value = '';
+        document.getElementById('plugin-file-input').value   = '';
+        _selectedFile = null;
         _renderPluginList(d.plugins);
       }
     } catch(e) {
