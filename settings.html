@@ -170,6 +170,71 @@
       max-height: 200px;
       overflow-y: auto;
     }
+
+    .plugin-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88em;
+    }
+    .plugin-row:last-child { border-bottom: none; }
+    .plugin-name  { flex: 1; font-weight: 500; min-width: 0; }
+    .plugin-url   { flex: 2; font-family: var(--font-mono); font-size: 0.8em; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .plugin-badge {
+      font-size: 0.72em; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+      border-radius: 3px; padding: 1px 6px; flex-shrink: 0;
+    }
+    .plugin-badge-core      { background: rgba(87,171,90,.15);  color: #57ab5a; border: 1px solid rgba(87,171,90,.3); }
+    .plugin-badge-bundled   { background: rgba(61,143,212,.12); color: var(--accent); border: 1px solid rgba(61,143,212,.25); }
+    .plugin-badge-ecosystem { background: rgba(229,141,75,.12); color: #e58d4b; border: 1px solid rgba(229,141,75,.25); }
+    .plugin-badge-plugin    { background: rgba(205,217,229,.08); color: var(--text-muted); border: 1px solid var(--border); }
+    .plugin-toggle { font-size: 0.8em; color: var(--text-muted); cursor: pointer; flex-shrink: 0; }
+    a.plugin-homepage {
+      font-size: 0.8em; color: var(--text-dim); text-decoration: none; flex-shrink: 0;
+    }
+    a.plugin-homepage:hover { color: var(--accent); }
+    button.plugin-remove {
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 0.8em; flex-shrink: 0;
+    }
+    button.plugin-remove:hover { border-color: #e5534b; color: #e5534b; }
+    .plugin-disabled .plugin-name { opacity: 0.5; }
+    .plugin-group-label {
+      font-size: 0.72em; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--text-dim); padding: 8px 0 4px; margin-top: .4em;
+    }
+    .plugin-group-label:first-child { margin-top: 0; padding-top: 0; }
+
+    #nbz-drop {
+      display: flex; align-items: center; justify-content: center;
+      height: 72px;
+      border: 2px dashed var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.88em;
+      color: var(--text-dim);
+      transition: border-color .15s, color .15s;
+      margin-bottom: 10px;
+    }
+    #nbz-drop.drag-over { border-color: var(--accent); color: var(--accent); }
+    #nbz-preview {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 0.85em;
+      margin-bottom: 10px;
+    }
+    .nbz-extras { margin-bottom: 10px; font-size: 0.85em; }
+    .nbz-extras-group { margin-top: 8px; }
+    .nbz-extras-group-label { font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
+    .nbz-plugin-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
+    .nbz-action-install   { color: #57ab5a; }
+    .nbz-action-upgrade   { color: #e58d4b; }
+    .nbz-action-new       { color: #57ab5a; }
+    .nbz-action-overwrite { color: #e58d4b; }
+    .nbz-action-current   { color: var(--text-dim); }
+    .nbz-action-skipped   { color: var(--text-dim); }
   </style>
 </head>
 <body>
@@ -183,6 +248,8 @@
   <a href="#sec-git">Git</a>
   <a href="#sec-terminal">Terminal</a>
   <a href="#sec-import">Import</a>
+  <a href="#sec-archive">Archive</a>
+  <a href="#sec-plugins">Plugins</a>
   <a href="#sec-nb">nb settings</a>
   <a href="#sec-server">Server</a>
 </nav>
@@ -325,6 +392,65 @@
   <div class="row">
     <button class="save-btn" id="save-import">Save</button>
     <span class="status" id="status-import"></span>
+  </div>
+</section>
+
+<!-- ── Archive ───────────────────────────────────────────────────── -->
+<section id="sec-archive">
+  <h2>Archive</h2>
+  <p class="hint" style="margin-bottom:1em">Import a <code>.nbz</code> notebook archive. To create an archive, open <strong>Menu → Notebooks</strong>, select a notebook, and use the Archive section there.</p>
+
+  <div class="field">
+    <label>Import .nbz</label>
+    <label id="nbz-drop">
+      <span id="nbz-drop-label">Drop .nbz here or click to pick</span>
+      <input id="nbz-file" type="file" accept=".nbz,.zip" style="display:none">
+    </label>
+    <div id="nbz-preview" hidden>
+      <div id="nbz-preview-name" style="font-weight:600;margin-bottom:2px"></div>
+      <div id="nbz-preview-meta" style="color:var(--text-dim)"></div>
+      <div id="nbz-preview-desc" style="margin-top:4px;font-style:italic"></div>
+    </div>
+    <div id="nbz-extras" class="nbz-extras" hidden></div>
+    <div id="nbz-pw-row" hidden style="margin-bottom:10px">
+      <label style="font-size:0.82em;color:var(--text-muted);display:block;margin-bottom:4px">🔒 Encrypted archive — enter password</label>
+      <input type="password" id="nbz-pw" autocomplete="off" placeholder="Password">
+      <p id="nbz-pw-err" class="hint" style="color:#e74c3c;display:none"></p>
+    </div>
+    <div id="nbz-name-row" hidden style="margin-bottom:10px">
+      <label style="font-size:0.82em;color:var(--text-muted);display:block;margin-bottom:4px">Import as</label>
+      <input type="text" id="nbz-name" autocomplete="off">
+      <p id="nbz-conflict" class="hint" style="color:#e58d4b;display:none">⚠ Name already in use — choose another.</p>
+    </div>
+    <div class="row">
+      <button class="tool-btn" id="nbz-dry-run" disabled>Dry run</button>
+      <button class="tool-btn" id="nbz-go" disabled>Import</button>
+      <span class="status" id="nbz-status"></span>
+    </div>
+    <pre id="nbz-dry-report" hidden style="margin-top:.8em;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px 14px;font-size:0.8em;white-space:pre-wrap;color:var(--text-muted);max-height:320px;overflow-y:auto"></pre>
+  </div>
+</section>
+
+<!-- ── Plugins ───────────────────────────────────────────────────── -->
+<section id="sec-plugins">
+  <h2>Plugins</h2>
+  <p class="hint" style="margin-bottom:1em">Plugins extend nb-web with new codeblock types, list views, and UI. Files are saved to <code>~/.nb/.web/plugins/</code> and loaded on page start.</p>
+
+  <div class="field">
+    <label>Install plugin</label>
+    <div class="row" style="flex-wrap:nowrap;gap:8px;margin-bottom:6px">
+      <input type="text" id="plugin-install-url" placeholder="https://… or /local/path/to/plugin.js" autocomplete="off" style="flex:1;max-width:none">
+      <button class="tool-btn" id="btn-plugin-browse" title="Browse for a local .js file">Browse…</button>
+      <input type="file" id="plugin-file-input" accept=".js" style="display:none">
+      <input type="text" id="plugin-install-name" placeholder="Display name" autocomplete="off" style="width:150px;flex-shrink:0">
+      <button class="tool-btn" id="btn-plugin-install">Install</button>
+    </div>
+    <p class="hint">HTTP/HTTPS URL, local absolute path, or browse to a .js file. Name is inferred from filename if blank.</p>
+    <span class="status" id="status-plugin-install"></span>
+  </div>
+
+  <div id="plugin-list-wrap">
+    <div id="plugin-list" style="margin-top:.4em"></div>
   </div>
 </section>
 
@@ -516,8 +642,435 @@
     setTimeout(poll, 700);
   });
 
+  // ── Archive import ───────────────────────────────────────────
+  (function() {
+    const _esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const drop      = document.getElementById('nbz-drop');
+    const fileIn    = document.getElementById('nbz-file');
+    const dropLbl   = document.getElementById('nbz-drop-label');
+    const preview   = document.getElementById('nbz-preview');
+    const prevName  = document.getElementById('nbz-preview-name');
+    const prevMeta  = document.getElementById('nbz-preview-meta');
+    const prevDesc  = document.getElementById('nbz-preview-desc');
+    const extrasEl  = document.getElementById('nbz-extras');
+    const nameRow   = document.getElementById('nbz-name-row');
+    const nameIn    = document.getElementById('nbz-name');
+    const conflict  = document.getElementById('nbz-conflict');
+    const dryBtn    = document.getElementById('nbz-dry-run');
+    const dryReport = document.getElementById('nbz-dry-report');
+    const goBtn     = document.getElementById('nbz-go');
+    const status    = document.getElementById('nbz-status');
+    const pwRow     = document.getElementById('nbz-pw-row');
+    const pwIn      = document.getElementById('nbz-pw');
+    const pwErr     = document.getElementById('nbz-pw-err');
+
+    let _file = null, _previewData = null, _isEncrypted = false;
+
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag-over'); if (e.dataTransfer.files[0]) _onFile(e.dataTransfer.files[0]); });
+    fileIn.addEventListener('change', () => { if (fileIn.files[0]) _onFile(fileIn.files[0]); });
+    nameIn.addEventListener('input', () => { conflict.style.display = 'none'; });
+
+    function _renderExtras(d) {
+      let html = '';
+      if (d.plugins?.length) {
+        html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Plugins</div>`;
+        d.plugins.forEach(p => {
+          const actionable = p.action !== 'current';
+          const cls = `nbz-action-${p.action}`;
+          const lbl = p.action === 'install' ? '+ install' : p.action === 'upgrade' ? '↑ upgrade' : '✓ current';
+          html += `<div class="nbz-plugin-row">
+            <input type="checkbox" class="nbz-plugin-cb" data-file="${_esc(p.filename)}"
+              ${actionable ? 'checked' : 'disabled checked'}>
+            <span style="flex:1">${_esc(p.name || p.filename)}</span>
+            <span class="${cls}" style="font-size:0.8em">${lbl}</span>
+            ${p.version ? `<span style="font-size:0.75em;color:var(--text-dim)">v${_esc(p.version)}</span>` : ''}
+          </div>`;
+        });
+        html += `</div>`;
+      }
+      const _extraRows = (items, cbClass) => items.map(item => {
+        const isCurrent  = item.action === 'current';
+        const isOverwrite = item.action === 'overwrite';
+        const lbl = isCurrent ? '✓ current' : isOverwrite ? '↺ overwrite' : '+ new';
+        const cls = `nbz-action-${item.action}`;
+        return `<div class="nbz-plugin-row">
+          <input type="checkbox" class="${cbClass}" data-file="${_esc(item.filename)}"
+            ${isCurrent ? 'disabled' : 'checked'}>
+          <span style="flex:1;font-size:0.85em">${_esc(item.filename)}</span>
+          <span class="${cls}" style="font-size:0.8em">${lbl}</span>
+        </div>`;
+      }).join('');
+
+      if (d.test_scripts?.length) {
+        html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Test scripts</div>
+          ${_extraRows(d.test_scripts, 'nbz-script-cb')}</div>`;
+      }
+      if (d.templates?.length) {
+        html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Templates</div>
+          ${_extraRows(d.templates, 'nbz-template-cb')}</div>`;
+      }
+      extrasEl.innerHTML = html;
+      extrasEl.hidden = !html;
+    }
+
+    async function _onFile(file) {
+      _file = file; _previewData = null; _isEncrypted = false;
+      dropLbl.textContent = file.name;
+      preview.hidden = true; extrasEl.hidden = true; nameRow.hidden = true;
+      pwRow.hidden = true; pwIn.value = ''; pwErr.style.display = 'none';
+      dryReport.hidden = true; dryBtn.disabled = true; goBtn.disabled = true;
+      status.textContent = 'Reading…'; status.className = 'status';
+      const fd = new FormData(); fd.append('archive', file);
+      try {
+        const r = await fetch('/api/nb/import-preview', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (!d.ok) { status.textContent = '✗ ' + d.error; status.className = 'status err'; return; }
+        _previewData = d;
+        status.textContent = ''; status.className = 'status';
+        const m = d.meta, date = (m.archived_at||'').slice(0,10);
+        if (d.encrypted) {
+          // Metadata readable without password; password required to extract notebook
+          _isEncrypted = true;
+          pwRow.hidden = false; pwIn.focus();
+          goBtn.disabled = true;   // re-enabled when password is typed
+        }
+        const tags = [
+          m.note_count != null && `${m.note_count} notes`,
+          date,
+          m.includes_git && 'git history',
+          d.encrypted && '🔒 encrypted',
+          d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
+          d.test_scripts?.length && `${d.test_scripts.length} test script${d.test_scripts.length!==1?'s':''}`,
+          d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
+        ].filter(Boolean).join(' · ');
+        prevName.textContent = m.name;
+        prevMeta.textContent = tags;
+        prevDesc.textContent = m.description || '';
+        prevDesc.hidden = !m.description;
+        preview.hidden = false;
+        _renderExtras(d);
+        nameIn.value = d.suggested;
+        conflict.style.display = d.conflict ? 'block' : 'none';
+        nameRow.hidden = false;
+        dryBtn.disabled = false;
+        goBtn.disabled = _isEncrypted && !pwIn.value;
+      } catch(e) {
+        status.textContent = '✗ ' + e.message; status.className = 'status err';
+      }
+    }
+
+    pwIn.addEventListener('input', () => {
+      if (_isEncrypted) {
+        goBtn.disabled = !pwIn.value.trim();
+        pwErr.style.display = 'none';
+      }
+    });
+
+    function _buildFormData(nameOverride) {
+      const name = nameOverride !== undefined ? nameOverride : nameIn.value.trim();
+      const pluginCbs = [...extrasEl.querySelectorAll('.nbz-plugin-cb:checked:not(:disabled)')];
+      const fd = new FormData();
+      fd.append('archive', _file);
+      if (name) fd.append('name', name);
+      if (_isEncrypted && pwIn.value) fd.append('password', pwIn.value);
+      const toInstall  = pluginCbs.map(cb => cb.dataset.file).filter(Boolean);
+      const toTests    = [...extrasEl.querySelectorAll('.nbz-script-cb:checked')]
+                           .map(cb => cb.dataset.file).filter(Boolean);
+      const toTemplates = [...extrasEl.querySelectorAll('.nbz-template-cb:checked')]
+                           .map(cb => cb.dataset.file).filter(Boolean);
+      if (toInstall.length)   fd.append('install_plugins',   JSON.stringify(toInstall));
+      if (toTests.length)     fd.append('install_tests',     JSON.stringify(toTests));
+      if (toTemplates.length) fd.append('install_templates', JSON.stringify(toTemplates));
+      return fd;
+    }
+
+    async function _unlockAndPreview() {
+      const pw = pwIn.value;
+      if (!pw) { pwIn.focus(); return; }
+      pwErr.style.display = 'none';
+      goBtn.disabled = true; goBtn.textContent = 'Unlocking…';
+      const fd = new FormData();
+      fd.append('archive', _file);
+      fd.append('password', pw);
+      try {
+        const r = await fetch('/api/nb/import-preview', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (!d.ok) {
+          pwErr.textContent = d.error || 'Wrong password.';
+          pwErr.style.display = 'block';
+          pwIn.select(); pwIn.focus();
+          goBtn.textContent = 'Unlock'; goBtn.disabled = false;
+          return;
+        }
+        _previewData = d; _isEncrypted = true;
+        pwRow.hidden = true;  // password accepted — hide field, keep in memory via _isEncrypted
+        const m = d.meta, date = (m.archived_at||'').slice(0,10);
+        const tags = [
+          m.note_count != null && `${m.note_count} notes`,
+          date,
+          '🔒 encrypted',
+          d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
+          d.test_scripts?.length && `${d.test_scripts.length} test script${d.test_scripts.length!==1?'s':''}`,
+          d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
+        ].filter(Boolean).join(' · ');
+        prevName.textContent = m.name;
+        prevMeta.textContent = tags;
+        prevDesc.textContent = m.description || '';
+        prevDesc.hidden = !m.description;
+        preview.hidden = false;
+        _renderExtras(d);
+        nameIn.value = d.suggested;
+        conflict.style.display = d.conflict ? 'block' : 'none';
+        nameRow.hidden = false;
+        goBtn.textContent = 'Import'; goBtn.disabled = false;
+        dryBtn.disabled = false;
+      } catch(e) {
+        pwErr.textContent = e.message; pwErr.style.display = 'block';
+        goBtn.textContent = 'Unlock'; goBtn.disabled = false;
+      }
+    }
+
+    function _renderDryReport(d) {
+      const lines = [];
+      const nb = d.notebook_dest || d.notebook;
+      if (d.notebook_conflict) {
+        lines.push(`⚠ Notebook "${d.notebook}" already exists — choose a different name.`);
+      } else {
+        lines.push(`Notebook: "${nb}" (${(d.notebook_files||[]).length} files)`);
+      }
+      if (d.plugins?.length) {
+        lines.push('');
+        lines.push('Plugins:');
+        d.plugins.forEach(p => {
+          const icon = p.action==='install' ? '+' : p.action==='upgrade' ? '↑' : p.action==='current' ? '✓' : '–';
+          const ver  = p.archive_version ? `v${p.archive_version}` : '';
+          const iVer = p.installed_version ? ` (installed: v${p.installed_version})` : '';
+          lines.push(`  ${icon} ${p.action.padEnd(8)}  ${p.name || p.filename} ${ver}${iVer}`);
+        });
+      }
+      if (d.test_scripts?.length) {
+        lines.push('');
+        lines.push('Test scripts:');
+        d.test_scripts.forEach(s => lines.push(`  ${s.action==='new'?'+':'↺'} ${s.action.padEnd(9)}  ${s.filename} → ${s.dest}`));
+      }
+      if (d.templates?.length) {
+        lines.push('');
+        lines.push('Templates:');
+        d.templates.forEach(t => lines.push(`  ${t.action==='new'?'+':'↺'} ${t.action.padEnd(9)}  ${t.filename} → ${t.dest}`));
+      }
+      dryReport.textContent = lines.join('\n');
+      dryReport.hidden = false;
+    }
+
+    dryBtn.addEventListener('click', async () => {
+      if (!_file) return;
+      dryBtn.disabled = true; dryBtn.textContent = 'Checking…';
+      dryReport.hidden = true;
+      status.textContent = ''; status.className = 'status';
+      try {
+        const r = await fetch('/api/nb/import-dry-run', { method: 'POST', body: _buildFormData() });
+        const d = await r.json();
+        if (!d.ok) { status.textContent = '✗ ' + (d.error || 'Dry run failed.'); status.className = 'status err'; }
+        else { _renderDryReport(d); }
+      } catch(e) {
+        status.textContent = '✗ ' + e.message; status.className = 'status err';
+      }
+      dryBtn.disabled = false; dryBtn.textContent = 'Dry run';
+    });
+
+    goBtn.addEventListener('click', async () => {
+      if (!_file) return;
+      if (_isEncrypted && !pwIn.value) {
+        pwErr.textContent = 'Password required to import the notebook.';
+        pwErr.style.display = 'block'; pwIn.focus(); return;
+      }
+      const name = nameIn.value.trim();
+      if (!name) { nameIn.focus(); return; }
+      goBtn.disabled = true; dryBtn.disabled = true; goBtn.textContent = 'Importing…';
+      dryReport.hidden = true;
+      status.textContent = ''; status.className = 'status';
+      try {
+        const r = await fetch('/api/nb/import', { method: 'POST', body: _buildFormData() });
+        const d = await r.json();
+        if (d.ok) {
+          const parts = [`✓ Imported "${_esc(d.notebook)}" (${d.note_count} notes)`];
+          if (d.installed_plugins?.length) parts.push(`${d.installed_plugins.length} plugin(s) installed`);
+          if (d.copied_tests?.length)      parts.push(`${d.copied_tests.length} test script(s) copied`);
+          if (d.copied_templates?.length)  parts.push(`${d.copied_templates.length} template(s) copied`);
+          status.textContent = parts.join(' · '); status.className = 'status ok';
+          goBtn.textContent = 'Import'; goBtn.disabled = false; dryBtn.disabled = false;
+          if (d.installed_plugins?.length) loadPlugins();
+        } else if (d.conflict) {
+          conflict.style.display = 'block';
+          goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
+        } else if (d.encrypted) {
+          pwErr.textContent = d.error || 'Wrong password.'; pwErr.style.display = 'block';
+          pwIn.select(); pwIn.focus();
+          goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
+        } else {
+          status.textContent = '✗ ' + (d.error || 'Import failed.'); status.className = 'status err';
+          goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
+        }
+      } catch(e) {
+        status.textContent = '✗ ' + e.message; status.className = 'status err';
+        goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
+      }
+    });
+  })();
+
+  // ── Plugin manager ────────────────────────────────────────────
+  const _PLUGIN_TYPE_ORDER = ['core', 'bundled', 'ecosystem', 'plugin'];
+  const _PLUGIN_GROUP_LABELS = {
+    core:      'Core',
+    bundled:   'Bundled',
+    ecosystem: 'Ecosystem',
+    plugin:    'Installed',
+  };
+
+  async function _renderPluginList(plugins) {
+    const el = document.getElementById('plugin-list');
+    if (!plugins || !plugins.length) {
+      el.innerHTML = '<p class="hint">No plugins installed.</p>';
+      return;
+    }
+
+    // Group by type in declared order
+    const groups = {};
+    _PLUGIN_TYPE_ORDER.forEach(t => { groups[t] = []; });
+    plugins.forEach(p => {
+      const t = p.type || 'plugin';
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(p);
+    });
+
+    let html = '';
+    _PLUGIN_TYPE_ORDER.forEach(type => {
+      const items = groups[type];
+      if (!items.length) return;
+      html += `<div class="plugin-group-label">${_PLUGIN_GROUP_LABELS[type] || type}</div>`;
+      items.forEach(p => {
+        const isCore    = p.type === 'core';
+        const isRemovable = !isCore && p.type !== 'bundled';
+        const badge = `<span class="plugin-badge plugin-badge-${p.type || 'plugin'}">${p.type || 'plugin'}</span>`;
+        const label = p.name || p.url.split('/').pop();
+        const homepageLink = p.homepage
+          ? `<a class="plugin-homepage" href="${p.homepage}" target="_blank" title="${p.homepage}">↗</a>`
+          : '';
+        const toggleEl = isCore
+          ? `<span class="plugin-toggle" style="cursor:default;opacity:.4">locked</span>`
+          : `<label class="plugin-toggle" title="${p.enabled ? 'Disable' : 'Enable'}">
+               <input type="checkbox" ${p.enabled ? 'checked' : ''} data-url="${p.url}" class="plugin-enabled-cb" style="cursor:pointer">
+               ${p.enabled ? 'on' : 'off'}
+             </label>`;
+        const rmBtn = isRemovable
+          ? `<button class="plugin-remove" data-url="${p.url}">Remove</button>` : '';
+        html += `
+        <div class="plugin-row ${p.enabled ? '' : 'plugin-disabled'}">
+          <span class="plugin-name">${label}</span>
+          ${badge}
+          ${homepageLink}
+          <span class="plugin-url" title="${p.url}">${p.url}</span>
+          ${toggleEl}
+          ${rmBtn}
+        </div>`;
+      });
+    });
+    el.innerHTML = html;
+
+    el.querySelectorAll('.plugin-enabled-cb').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        cb.disabled = true;
+        const d = await fetch('/api/plugins/toggle', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url: cb.dataset.url, enabled: cb.checked}),
+        }).then(r => r.json()).catch(() => null);
+        if (d?.plugins) _renderPluginList(d.plugins);
+        else cb.disabled = false;
+      });
+    });
+
+    el.querySelectorAll('.plugin-remove').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Remove plugin ${btn.dataset.url}?`)) return;
+        btn.disabled = true;
+        const d = await fetch('/api/plugins/uninstall?url=' + encodeURIComponent(btn.dataset.url), {method: 'DELETE'})
+          .then(r => r.json()).catch(() => null);
+        if (d?.plugins) _renderPluginList(d.plugins);
+        else btn.disabled = false;
+      });
+    });
+  }
+
+  async function loadPlugins() {
+    const r = await fetch('/api/nb-settings').catch(() => null);
+    if (!r) return;
+    const d = await r.json().catch(() => null);
+    if (d) _renderPluginList(d.plugins || []);
+  }
+
+  // Browse button — triggers file input, fills URL field on selection
+  let _selectedFile = null;
+  document.getElementById('btn-plugin-browse').addEventListener('click', () => {
+    document.getElementById('plugin-file-input').click();
+  });
+  document.getElementById('plugin-file-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    _selectedFile = file;
+    document.getElementById('plugin-install-url').value = file.name;
+    if (!document.getElementById('plugin-install-name').value.trim()) {
+      document.getElementById('plugin-install-name').value = file.name.replace(/\.js$/, '');
+    }
+  });
+  // Clear selected file when URL is edited manually
+  document.getElementById('plugin-install-url').addEventListener('input', () => {
+    _selectedFile = null;
+    document.getElementById('plugin-file-input').value = '';
+  });
+
+  document.getElementById('btn-plugin-install').addEventListener('click', async () => {
+    const btn    = document.getElementById('btn-plugin-install');
+    const status = document.getElementById('status-plugin-install');
+    const urlVal = document.getElementById('plugin-install-url').value.trim();
+    const name   = document.getElementById('plugin-install-name').value.trim();
+    if (!urlVal && !_selectedFile) { status.textContent = 'Enter a URL, path, or browse for a file.'; status.className = 'status err'; return; }
+    btn.disabled = true;
+    status.textContent = 'Installing…'; status.className = 'status';
+    try {
+      let r;
+      if (_selectedFile) {
+        const fd = new FormData();
+        fd.append('file', _selectedFile);
+        if (name) fd.append('name', name);
+        r = await fetch('/api/plugins/install', {method: 'POST', body: fd});
+      } else {
+        r = await fetch('/api/plugins/install', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url: urlVal, name}),
+        });
+      }
+      const d = await r.json();
+      if (d.error) { status.textContent = '✗ ' + d.error; status.className = 'status err'; }
+      else {
+        status.textContent = '✓ Installed'; status.className = 'status ok';
+        document.getElementById('plugin-install-url').value  = '';
+        document.getElementById('plugin-install-name').value = '';
+        document.getElementById('plugin-file-input').value   = '';
+        _selectedFile = null;
+        _renderPluginList(d.plugins);
+      }
+    } catch(e) {
+      status.textContent = '✗ ' + e.message; status.className = 'status err';
+    } finally { btn.disabled = false; }
+  });
+
   loadNbWebSettings();
   loadNbSettings();
+  loadPlugins();
 </script>
 </body>
 </html>

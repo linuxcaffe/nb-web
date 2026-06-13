@@ -1,4 +1,8 @@
 // NbWeb-contacts — contact card renderer and VCF browser for the contacts notebook
+// @name     NbWeb Contacts
+// @version  0.1.0
+// @type     bundled
+// @homepage
 (() => {
 
     const _esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

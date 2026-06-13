@@ -1093,7 +1093,8 @@ const NbMain = (() => {
         const obs = new MutationObserver(() => {
             clearTimeout(tid);
             tid = setTimeout(() => {
-                obs.disconnect();
+                // Don't disconnect here — test blocks arrive async and may fire
+                // after inline includes settle. The 15s timeout below cleans up.
                 container.querySelector('.nb-toc')?.remove();
                 _buildToc(container, note);
             }, 500);

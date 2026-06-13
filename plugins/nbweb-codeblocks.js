@@ -1,6 +1,10 @@
 // NbWeb-codeblocks — live fenced code block renderers for nb-web
 // Provides: tw (Taskwarrior), hledger, t (timeclock), nb, git block types.
 // Global plugin — no detect(), active for all notebooks.
+// @name     NbWeb Codeblocks
+// @version  0.1.0
+// @type     core
+// @homepage
 (() => {
 
     // ── Utilities ─────────────────────────────────────────────────────────────
@@ -1159,6 +1163,149 @@
         el.appendChild(list);
     }
 
+    // ── front codeblock ───────────────────────────────────────────────────────
+    // Syntax: field:value field2:value2 | Optional label
+    //   field:value  → frontmatter field equals value (case-insensitive)
+    //   field:        → frontmatter field exists (any value)
+    //   field:""      → frontmatter field is absent or empty
+
+    // Parse: [nb1 nb2] field:value field2: field3:"" | Label
+    // Leading bare words (no colon) = notebook scope; none = all notebooks.
+    function _frontParseQuery(raw) {
+        raw = (raw || '').trim();
+        const pipeIdx = raw.indexOf(' |');
+        const label   = pipeIdx >= 0 ? raw.slice(pipeIdx + 2).trim() : '';
+        const qpart   = pipeIdx >= 0 ? raw.slice(0, pipeIdx).trim() : raw;
+
+        // Consume leading tokens with no colon as notebook names
+        const notebooks = [];
+        const tokens    = qpart ? qpart.split(/\s+/) : [];
+        let i = 0;
+        while (i < tokens.length && !tokens[i].includes(':')) {
+            notebooks.push(tokens[i++]);
+        }
+        const filterPart = tokens.slice(i).join(' ');
+
+        const filters = [];
+        const pat = /(\w[\w.-]*):"([^"]*)"|(\w[\w.-]*):(\S*)/g;
+        let m;
+        while ((m = pat.exec(filterPart))) {
+            if (m[1] !== undefined) {
+                filters.push({ field: m[1], op: m[2] === '' ? 'empty' : 'eq', value: m[2] });
+            } else {
+                const field = m[3], value = m[4];
+                filters.push({ field, op: value === '' ? 'exists' : 'eq', value });
+            }
+        }
+        return { notebooks, filters, label };
+    }
+
+    async function _loadFrontBlock(el) {
+        const parsed = _frontParseQuery(el.dataset.query || '');
+        el.dataset.frontNotebooks = parsed.notebooks.join(',');
+        el.dataset.frontFilters   = JSON.stringify(parsed.filters);
+        el.dataset.frontLabel     = parsed.label;
+        await _frontRender(el);
+    }
+
+    async function _frontRender(el) {
+        const notebooks  = el.dataset.frontNotebooks || '';
+        const filters    = JSON.parse(el.dataset.frontFilters || '[]');
+        const label      = el.dataset.frontLabel || '';
+        const wasOpen    = el.classList.contains('nb-front-open');
+        el.innerHTML     = '<span class="nb-spin">⟳</span>';
+        try {
+            const params = new URLSearchParams({ notebooks, filters: JSON.stringify(filters) });
+            const notes  = await fetch(`/api/front-query?${params}`).then(r => r.json());
+            if (notes.error) throw new Error(notes.error);
+
+            // Determine which notebooks appear in results
+            const nbSet   = new Set(notes.map(n => n.notebook).filter(Boolean));
+            const multiNb = nbSet.size > 1;
+            const nbLabel = nbSet.size === 1 ? `(${[...nbSet][0]})`
+                          : nbSet.size > 1   ? `(${nbSet.size} notebooks)`
+                          : '';
+
+            el.innerHTML = '';
+
+            // ── Header ──────────────────────────────────────────────────────
+            const hdr = document.createElement('div');
+            hdr.className = 'nb-front-header';
+
+            const toggle = document.createElement('span');
+            toggle.className = 'nb-front-toggle';
+
+            const countEl = document.createElement('span');
+            countEl.className = 'nb-front-count';
+            countEl.textContent = notes.length ? String(notes.length) : 'No matches';
+
+            const refBtn = document.createElement('button');
+            refBtn.className = 'nb-tw-btn nb-nav-refresh nb-front-refresh';
+            refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+            refBtn.addEventListener('click', e => { e.stopPropagation(); _frontRender(el); });
+
+            // Whole header is the click zone
+            hdr.addEventListener('click', () => {
+                el.classList.toggle('nb-front-open');
+                toggle.textContent = el.classList.contains('nb-front-open') ? '▼' : '▶';
+            });
+
+            hdr.appendChild(toggle);
+            hdr.appendChild(countEl);
+            if (nbLabel) {
+                const nbEl = document.createElement('span');
+                nbEl.className = 'nb-front-nb';
+                nbEl.textContent = nbLabel;
+                hdr.appendChild(nbEl);
+            }
+            if (label) {
+                const lbl = document.createElement('span');
+                lbl.className = 'nb-front-label';
+                lbl.textContent = label;
+                hdr.appendChild(lbl);
+            }
+            hdr.appendChild(refBtn);
+            el.appendChild(hdr);
+
+            // ── List ────────────────────────────────────────────────────────
+            if (notes.length) {
+                const list = document.createElement('ul');
+                list.className = 'nb-nav-list';
+                for (const n of notes) {
+                    const li = document.createElement('li');
+                    li.className = 'nb-nav-item';
+                    if (n.meta && Object.keys(n.meta).length) {
+                        li.dataset.tip = Object.entries(n.meta).map(([k, v]) => `${k}: ${v.replace(/\n/g,' ')}`).join('\n');
+                    }
+                    const icon = document.createElement('span');
+                    icon.className = 'nb-nav-icon';
+                    icon.textContent = n.type === 'todo' ? '☐' : '·';
+                    const btn = document.createElement('button');
+                    btn.className = 'nb-nav-link';
+                    btn.textContent = n.title || n.filename;
+                    btn.addEventListener('click', () => NbMain.openNote(n.selector));
+                    li.appendChild(icon);
+                    li.appendChild(btn);
+                    if (multiNb && n.notebook) {
+                        const badge = document.createElement('span');
+                        badge.className = 'nb-front-nb-badge';
+                        badge.textContent = n.notebook;
+                        li.appendChild(badge);
+                    }
+                    list.appendChild(li);
+                }
+                el.appendChild(list);
+            }
+
+            // Default collapsed; restore open state on refresh
+            toggle.textContent = wasOpen ? '▼' : '▶';
+            if (wasOpen) el.classList.add('nb-front-open');
+
+        } catch (e) {
+            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
     // ── nav codeblock ─────────────────────────────────────────────────────────
 
     function _navParseQuery(raw) {
@@ -1247,7 +1394,7 @@
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn nb-nav-refresh';
         refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _navRender(el));
+        refBtn.addEventListener('click', () => _loadNavBlock(el));
         acts.appendChild(refBtn);
         hdr.appendChild(acts);
         return hdr;
@@ -1394,17 +1541,133 @@
     // Form 2: "script"          → auto-runs at render; invisible on pass+empty output
 
     async function _loadTestBlock(el) {
-        const raw    = (el.dataset.query || '').trim();
-        const pipe   = raw.indexOf('|');
-        const script = (pipe >= 0 ? raw.slice(0, pipe) : raw).trim();
-        const label  = pipe >= 0 ? raw.slice(pipe + 1).trim() : '';
-        if (!script) { el.remove(); return; }
-        if (label) {
-            _buildTestBtn(el, script, label);
+        const raw   = (el.dataset.query || '').trim();
+        const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+
+        if (lines.length <= 1) {
+            // Single-script — existing behaviour unchanged
+            const line   = lines[0] || '';
+            const pipe   = line.indexOf('|');
+            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+            if (!script) { el.remove(); return; }
+            if (label) { _buildTestBtn(el, script, label); }
+            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, script, null, null); }
+            return;
+        }
+
+        // Multi-script group — parse scripts and optional group label
+        // A line starting with | (no script) sets the group label only.
+        const scripts = [];
+        let groupLabel = '';
+        for (const line of lines) {
+            if (line.startsWith('|')) { groupLabel = groupLabel || line.slice(1).trim(); continue; }
+            const pipe   = line.indexOf('|');
+            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+            if (script) { scripts.push({ script, label }); groupLabel = groupLabel || label; }
+        }
+        if (!scripts.length) { el.remove(); return; }
+
+        if (groupLabel) {
+            _buildGroupBtn(el, scripts, groupLabel);
         } else {
             el.innerHTML = '<span class="nb-spin">⟳</span>';
-            await _runTest(el, script, null, null);
+            await _runGroupTest(el, scripts, null, null);
         }
+    }
+
+    function _buildGroupBtn(el, scripts, label) {
+        el.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'nb-test-btn';
+        btn.textContent = `▶ ${label}`;
+        const out = document.createElement('div');
+        out.className = 'nb-test-out';
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = '⟳ …';
+            out.innerHTML = '';
+            await _runGroupTest(el, scripts, btn, out);
+            btn.disabled = false;
+            btn.textContent = `▶ ${label}`;
+        });
+        el.appendChild(btn);
+        el.appendChild(out);
+    }
+
+    async function _runGroupTest(el, scripts, btn, out) {
+        const selector = NbMain.activeSelector() || '';
+        const results  = await Promise.all(scripts.map(async ({ script }) => {
+            try {
+                const r = await fetch('/api/test/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script, selector }),
+                });
+                return { script, ...(await r.json()) };
+            } catch (e) {
+                return { script, error: String(e), exit_code: 1, stdout: '' };
+            }
+        }));
+
+        const failures = results.filter(r => r.exit_code !== 0 || (r.stdout || '').trim() || r.error);
+        if (!failures.length) { if (!btn) el.remove(); return; }
+
+        const result  = document.createElement('div');
+        result.className = 'nb-test-result';
+
+        const dismiss = document.createElement('button');
+        dismiss.className = 'nb-test-dismiss';
+        dismiss.title = 'Dismiss until next render';
+        dismiss.textContent = '×';
+        dismiss.addEventListener('click', () => { el.innerHTML = ''; });
+        result.appendChild(dismiss);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'nb-rendered nb-group-result';
+
+        const hdr = document.createElement('p');
+        hdr.className = 'nb-group-hdr';
+        hdr.textContent = `${failures.length} of ${scripts.length} check${scripts.length !== 1 ? 's' : ''} failed`;
+        wrap.appendChild(hdr);
+
+        failures.forEach(({ script, stdout, error, exit_code }) => {
+            const entry = scripts.find(s => s.script === script);
+            const label = (entry && entry.label) || script;
+            const text  = (stdout || '').trim() || error || '';
+
+            const row = document.createElement('div');
+            row.className = 'nb-subtest';
+
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className = 'nb-subtest-toggle';
+            toggleBtn.textContent = label;
+
+            const body = document.createElement('div');
+            body.className = 'nb-subtest-body';
+            body.hidden = true;
+
+            const inner = document.createElement('div');
+            inner.className = 'nb-rendered' + (exit_code !== 0 ? ' nb-test-fail' : '');
+            inner.innerHTML = NbMain.renderMarkdown(text, '');
+            NbMain.enrichRendered(inner, null);
+            body.appendChild(inner);
+
+            toggleBtn.addEventListener('click', () => {
+                body.hidden = !body.hidden;
+                if (body.hidden) toggleBtn.removeAttribute('data-open');
+                else toggleBtn.dataset.open = '1';
+            });
+
+            row.appendChild(toggleBtn);
+            row.appendChild(body);
+            wrap.appendChild(row);
+        });
+
+        result.appendChild(wrap);
+        if (out) { out.appendChild(result); }
+        else      { el.innerHTML = ''; el.appendChild(result); }
     }
 
     function _buildTestBtn(el, script, label) {
@@ -1466,12 +1729,78 @@
         NbMain.enrichRendered(wrap, null);
         result.appendChild(wrap);
 
+        _enrichSubtests(wrap);
         if (out) {
             out.appendChild(result);
         } else {
             el.innerHTML = '';
             el.appendChild(result);
         }
+    }
+
+    // Converts [label](subtest:scriptname) links inside a test result into
+    // toggle buttons that run the named script and expand its output inline.
+    function _enrichSubtests(container) {
+        container.querySelectorAll('a[href^="subtest:"]').forEach(a => {
+            const script = a.getAttribute('href').slice('subtest:'.length);
+            const label  = a.textContent;
+
+            const wrap = document.createElement('span');
+            wrap.className = 'nb-subtest';
+
+            const btn = document.createElement('button');
+            btn.className = 'nb-subtest-toggle';
+            btn.textContent = label;
+
+            const body = document.createElement('div');
+            body.className = 'nb-subtest-body';
+            body.hidden = true;
+
+            btn.addEventListener('click', async () => {
+                if (!body.hidden) {
+                    body.hidden = true;
+                    btn.removeAttribute('data-open');
+                    return;
+                }
+                if (body.children.length) {
+                    body.hidden = false;
+                    btn.dataset.open = '1';
+                    return;
+                }
+                btn.disabled = true;
+                const saved = btn.textContent;
+                btn.textContent = '⟳ …';
+
+                const selector = NbMain.activeSelector() || '';
+                let d;
+                try {
+                    const r = await fetch('/api/test/run', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ script, selector }),
+                    });
+                    d = await r.json();
+                } catch (e) {
+                    d = { error: String(e), exit_code: 1, stdout: '' };
+                }
+
+                const text = (d.stdout || '').trim() || d.error || '✓ Check passed.';
+                const inner = document.createElement('div');
+                inner.className = 'nb-rendered' + (d.exit_code !== 0 ? ' nb-test-fail' : '');
+                inner.innerHTML = NbMain.renderMarkdown(text, '');
+                NbMain.enrichRendered(inner, null);
+                body.appendChild(inner);
+                body.hidden = false;
+
+                btn.disabled = false;
+                btn.textContent = saved;
+                btn.dataset.open = '1';
+            });
+
+            wrap.appendChild(btn);
+            wrap.appendChild(body);
+            a.replaceWith(wrap);
+        });
     }
 
     // ── Plugin registration ───────────────────────────────────────────────────
@@ -1513,6 +1842,11 @@
                 lang:   'nav',
                 html:   text => `<div class="nb-nav-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => { for (const el of container.querySelectorAll('.nb-nav-block')) await _loadNavBlock(el); },
+            },
+            {
+                lang:   'front',
+                html:   text => `<div class="nb-front-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                render: async container => { for (const el of container.querySelectorAll('.nb-front-block')) await _loadFrontBlock(el); },
             },
             {
                 lang:   't',
