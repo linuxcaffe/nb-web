@@ -42,6 +42,8 @@ DEBUG   = os.environ.get('NB_WEB_DEBUG', '').lower() in ('1', 'true', 'yes')
 
 GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
 TEST_DIR             = NB_DIR / '.test'
+WEB_DIR              = NB_DIR / '.web'
+WEB_PLUGINS_DIR      = WEB_DIR / 'plugins'
 CMDS_FILE            = Path(__file__).parent / 'cmds.txt'
 
 _RE_HEADING       = re.compile(r'^#{1,6}(\s|$)')   # true MD heading; bare #tag is not a heading
@@ -126,7 +128,7 @@ _SETTINGS_SCHEMA = {
                             'coerce': lambda v: v if isinstance(v, dict) else {}},
     'plugins':            {'type': list, 'default': [],
                             'coerce': lambda v: [
-                                {'url': str(p.get('url', '')), 'enabled': bool(p.get('enabled', True))}
+                                {'url': str(p.get('url', '')), 'name': str(p.get('name', '')), 'enabled': bool(p.get('enabled', True))}
                                 for p in v if isinstance(p, dict) and p.get('url')
                             ] if isinstance(v, list) else []},
 }
@@ -6100,6 +6102,132 @@ def api_nb_settings():
 
 
 # ---------------------------------------------------------------------------
+# Plugin manager
+# ---------------------------------------------------------------------------
+
+@app.route('/nb-web-plugins/<path:filename>')
+def serve_web_plugin(filename):
+    """Serve managed plugin JS files from ~/.nb/.web/plugins/."""
+    return send_from_directory(str(WEB_PLUGINS_DIR), filename)
+
+
+def _plugin_filename_from_url(url: str) -> str:
+    """Extract a safe filename from a URL or path."""
+    from urllib.parse import urlparse
+    name = urlparse(url).path.split('/')[-1] or 'plugin.js'
+    name = re.sub(r'[^\w.\-]', '_', name)
+    if not name.endswith('.js'):
+        name += '.js'
+    return name
+
+
+@app.route('/api/plugins/install', methods=['POST'])
+def api_plugin_install():
+    """Download or copy a plugin JS file into WEB_PLUGINS_DIR, register in settings."""
+    global _settings
+    body = request.get_json(silent=True) or {}
+    source = (body.get('url') or '').strip()
+    name   = (body.get('name') or '').strip()
+    if not source:
+        return jsonify({'error': 'url required'}), 400
+
+    WEB_PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Determine filename and fetch/copy the file
+    if source.startswith(('http://', 'https://')):
+        filename = _plugin_filename_from_url(source)
+        dest = WEB_PLUGINS_DIR / filename
+        try:
+            import urllib.request
+            req = urllib.request.Request(source, headers={'User-Agent': 'nb-web/1.0'})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                dest.write_bytes(resp.read())
+        except Exception as e:
+            return jsonify({'error': f'Download failed: {e}'}), 502
+        stored_url = f'/nb-web-plugins/{filename}'
+
+    elif source.startswith('/nb-web-plugins/'):
+        # Already a managed URL — just register it (file assumed present)
+        stored_url = source
+        filename   = source.split('/')[-1]
+
+    else:
+        # Local filesystem path
+        src_path = Path(os.path.expanduser(source))
+        if not src_path.is_file():
+            return jsonify({'error': f'File not found: {source}'}), 404
+        filename = src_path.name
+        if not filename.endswith('.js'):
+            return jsonify({'error': 'Plugin must be a .js file'}), 400
+        dest = WEB_PLUGINS_DIR / filename
+        shutil.copy2(str(src_path), str(dest))
+        stored_url = f'/nb-web-plugins/{filename}'
+
+    if not name:
+        name = filename[:-3] if filename.endswith('.js') else filename
+
+    # Check for duplicate URL
+    plugins = list(_settings.get('plugins', []))
+    if any(p['url'] == stored_url for p in plugins):
+        return jsonify({'error': f'Plugin already installed: {stored_url}'}), 409
+
+    plugins.append({'url': stored_url, 'name': name, 'enabled': True})
+    _save_settings({'plugins': plugins})
+    _settings = _load_settings()
+    return jsonify({'ok': True, 'plugins': _settings['plugins']})
+
+
+@app.route('/api/plugins/uninstall', methods=['DELETE'])
+def api_plugin_uninstall():
+    """Remove a plugin from settings; delete its file if managed."""
+    global _settings
+    url = (request.args.get('url') or '').strip()
+    if not url:
+        body = request.get_json(silent=True) or {}
+        url = (body.get('url') or '').strip()
+    if not url:
+        return jsonify({'error': 'url required'}), 400
+
+    plugins = [p for p in _settings.get('plugins', []) if p['url'] != url]
+    if len(plugins) == len(_settings.get('plugins', [])):
+        return jsonify({'error': 'Plugin not found'}), 404
+
+    # Delete managed file
+    if url.startswith('/nb-web-plugins/'):
+        filename = url.split('/')[-1]
+        plugin_file = WEB_PLUGINS_DIR / filename
+        if plugin_file.is_file():
+            plugin_file.unlink()
+
+    _save_settings({'plugins': plugins})
+    _settings = _load_settings()
+    return jsonify({'ok': True, 'plugins': _settings['plugins']})
+
+
+@app.route('/api/plugins/toggle', methods=['PATCH'])
+def api_plugin_toggle():
+    """Enable or disable a plugin by URL."""
+    global _settings
+    body = request.get_json(silent=True) or {}
+    url     = (body.get('url') or '').strip()
+    enabled = bool(body.get('enabled', True))
+    if not url:
+        return jsonify({'error': 'url required'}), 400
+
+    plugins = list(_settings.get('plugins', []))
+    for p in plugins:
+        if p['url'] == url:
+            p['enabled'] = enabled
+            break
+    else:
+        return jsonify({'error': 'Plugin not found'}), 404
+
+    _save_settings({'plugins': plugins})
+    _settings = _load_settings()
+    return jsonify({'ok': True, 'plugins': _settings['plugins']})
+
+
+# ---------------------------------------------------------------------------
 # NbWeb-cine: film production scheduling
 # ---------------------------------------------------------------------------
 
@@ -6856,6 +6984,7 @@ def _assert_nb_auto_sync_off():
 
 
 if __name__ == '__main__':
+    WEB_PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
     _assert_nb_auto_sync_off()
     _assert_notebook_tracking()
     _install_prepush_hooks()

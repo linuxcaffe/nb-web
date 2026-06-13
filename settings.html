@@ -170,6 +170,23 @@
       max-height: 200px;
       overflow-y: auto;
     }
+
+    .plugin-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88em;
+    }
+    .plugin-row:last-child { border-bottom: none; }
+    .plugin-name { flex: 1; font-weight: 500; }
+    .plugin-url  { flex: 2; font-family: var(--font-mono); font-size: 0.82em; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .plugin-toggle { font-size: 0.8em; color: var(--text-muted); cursor: pointer; }
+    button.plugin-remove {
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 0.8em;
+    }
+    button.plugin-remove:hover { border-color: #e5534b; color: #e5534b; }
+    .plugin-disabled .plugin-name { color: var(--text-dim); }
   </style>
 </head>
 <body>
@@ -183,6 +200,7 @@
   <a href="#sec-git">Git</a>
   <a href="#sec-terminal">Terminal</a>
   <a href="#sec-import">Import</a>
+  <a href="#sec-plugins">Plugins</a>
   <a href="#sec-nb">nb settings</a>
   <a href="#sec-server">Server</a>
 </nav>
@@ -325,6 +343,27 @@
   <div class="row">
     <button class="save-btn" id="save-import">Save</button>
     <span class="status" id="status-import"></span>
+  </div>
+</section>
+
+<!-- ── Plugins ───────────────────────────────────────────────────── -->
+<section id="sec-plugins">
+  <h2>Plugins</h2>
+  <p class="hint" style="margin-bottom:1em">Plugins extend nb-web with new codeblock types, list views, and UI. Files are saved to <code>~/.nb/.web/plugins/</code> and loaded on page start.</p>
+
+  <div class="field">
+    <label>Install plugin</label>
+    <div class="row" style="flex-wrap:nowrap;gap:8px;margin-bottom:6px">
+      <input type="text" id="plugin-install-url" placeholder="https://… or /local/path/to/plugin.js" autocomplete="off" style="flex:1;max-width:none">
+      <input type="text" id="plugin-install-name" placeholder="Display name" autocomplete="off" style="width:160px;flex-shrink:0">
+      <button class="tool-btn" id="btn-plugin-install">Install</button>
+    </div>
+    <p class="hint">HTTP/HTTPS URL or local absolute path to a .js file. A name is inferred from the filename if left blank.</p>
+    <span class="status" id="status-plugin-install"></span>
+  </div>
+
+  <div id="plugin-list-wrap">
+    <div id="plugin-list" style="margin-top:.4em"></div>
   </div>
 </section>
 
@@ -516,8 +555,89 @@
     setTimeout(poll, 700);
   });
 
+  // ── Plugin manager ────────────────────────────────────────────
+  async function _renderPluginList(plugins) {
+    const el = document.getElementById('plugin-list');
+    if (!plugins || !plugins.length) {
+      el.innerHTML = '<p class="hint">No plugins installed.</p>';
+      return;
+    }
+    el.innerHTML = plugins.map((p, i) => {
+      const isManaged = p.url.startsWith('/nb-web-plugins/');
+      const label = p.name || p.url.split('/').pop();
+      const tag   = isManaged ? '' : '<span style="font-size:0.75em;color:var(--text-dim);margin-left:4px">bundled</span>';
+      const rmBtn = isManaged ? `<button class="plugin-remove" data-url="${p.url}">Remove</button>` : '';
+      return `
+      <div class="plugin-row ${p.enabled ? '' : 'plugin-disabled'}" data-idx="${i}">
+        <span class="plugin-name">${label}${tag}</span>
+        <span class="plugin-url" title="${p.url}">${p.url}</span>
+        <label class="plugin-toggle" title="${p.enabled ? 'Disable' : 'Enable'}">
+          <input type="checkbox" ${p.enabled ? 'checked' : ''} data-url="${p.url}" class="plugin-enabled-cb" style="cursor:pointer">
+          ${p.enabled ? 'enabled' : 'disabled'}
+        </label>
+        ${rmBtn}
+      </div>`;
+    }).join('');
+
+    el.querySelectorAll('.plugin-enabled-cb').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        cb.disabled = true;
+        await fetch('/api/plugins/toggle', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url: cb.dataset.url, enabled: cb.checked}),
+        }).then(r => r.json()).then(d => { if (d.plugins) _renderPluginList(d.plugins); });
+        cb.disabled = false;
+      });
+    });
+
+    el.querySelectorAll('.plugin-remove').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Remove plugin ${btn.dataset.url}?`)) return;
+        btn.disabled = true;
+        await fetch('/api/plugins/uninstall?url=' + encodeURIComponent(btn.dataset.url), {method: 'DELETE'})
+          .then(r => r.json()).then(d => { if (d.plugins) _renderPluginList(d.plugins); });
+      });
+    });
+  }
+
+  async function loadPlugins() {
+    const r = await fetch('/api/nb-settings').catch(() => null);
+    if (!r) return;
+    const d = await r.json().catch(() => null);
+    if (d) _renderPluginList(d.plugins || []);
+  }
+
+  document.getElementById('btn-plugin-install').addEventListener('click', async () => {
+    const btn    = document.getElementById('btn-plugin-install');
+    const status = document.getElementById('status-plugin-install');
+    const url    = document.getElementById('plugin-install-url').value.trim();
+    const name   = document.getElementById('plugin-install-name').value.trim();
+    if (!url) { status.textContent = 'Enter a URL or path.'; status.className = 'status err'; return; }
+    btn.disabled = true;
+    status.textContent = 'Installing…'; status.className = 'status';
+    try {
+      const r = await fetch('/api/plugins/install', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url, name}),
+      });
+      const d = await r.json();
+      if (d.error) { status.textContent = '✗ ' + d.error; status.className = 'status err'; }
+      else {
+        status.textContent = '✓ Installed'; status.className = 'status ok';
+        document.getElementById('plugin-install-url').value  = '';
+        document.getElementById('plugin-install-name').value = '';
+        _renderPluginList(d.plugins);
+      }
+    } catch(e) {
+      status.textContent = '✗ ' + e.message; status.className = 'status err';
+    } finally { btn.disabled = false; }
+  });
+
   loadNbWebSettings();
   loadNbSettings();
+  loadPlugins();
 </script>
 </body>
 </html>
