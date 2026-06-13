@@ -157,61 +157,20 @@
         input.focus();
     }
 
-    // ── Import (rendered inline on the plugin page via pluginContent) ─────────
+    // Import UI moved to Settings → Archive section.
 
-    const _ACTION_STYLE = {
-        install: 'color:var(--green,#2ecc71)',
-        upgrade: 'color:var(--yellow,#f39c12)',
-        current: 'color:var(--text-dim)',
-    };
-    const _ACTION_LABEL = { install: '+ install', upgrade: '↑ upgrade', current: '✓ current' };
+    // ── Plugin registration ───────────────────────────────────────────────────
+    // (Import UI lives in Settings → Archive; stub kept so pluginContent renders a pointer)
 
     function _renderImportContent(container) {
-        container.style.cssText = 'padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px';
+        container.style.cssText = 'padding:8px 28px 14px;border-top:1px solid var(--border)';
         container.innerHTML =
-            `<div style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;` +
-            `letter-spacing:.05em;text-transform:uppercase">Import archive</div>` +
-            `<label id="nbarch-imp-drop" style="display:flex;align-items:center;justify-content:center;` +
-            `height:64px;border:2px dashed var(--border);border-radius:6px;cursor:pointer;` +
-            `font-size:12px;color:var(--text-dim);transition:border-color .15s;margin-bottom:10px">` +
-              `<span id="nbarch-imp-drop-label">Drop .nbz here or click to pick</span>` +
-              `<input id="nbarch-imp-file" type="file" accept=".nbz,.zip" style="display:none">` +
-            `</label>` +
-            `<div id="nbarch-imp-preview" style="display:none;font-size:12px;margin-bottom:8px;` +
-            `background:var(--bg-secondary,color-mix(in srgb,var(--border) 50%,var(--bg)));` +
-            `border-radius:6px;padding:8px 10px"></div>` +
-            `<div id="nbarch-imp-extras" style="display:none;font-size:12px;margin-bottom:8px"></div>` +
-            `<div id="nbarch-imp-name-row" style="display:none;flex-direction:column;gap:6px;margin-bottom:8px">` +
-              `<label style="font-size:11px;color:var(--text-dim)">Import as</label>` +
-              `<input id="nbarch-imp-name" class="nb-opt-input">` +
-              `<div id="nbarch-imp-conflict" style="font-size:11px;color:var(--yellow,#f39c12);display:none">` +
-                `⚠ Name already in use — choose another.` +
-              `</div>` +
-            `</div>` +
-            `<div style="display:flex;gap:6px;align-items:center">` +
-              `<button id="nbarch-imp-go" class="nb-tool-btn nb-btn-primary" disabled>Import</button>` +
-              `<span id="nbarch-imp-status" style="font-size:12px"></span>` +
-            `</div>`;
+            `<div style="font-size:12px;color:var(--text-dim);padding-top:8px">` +
+            `Import .nbz archives in <strong>Settings → Archive</strong>.</div>`;
+    }
 
-        let _currentFile = null;
-        let _previewData = null;
-        const drop     = container.querySelector('#nbarch-imp-drop');
-        const fileIn   = container.querySelector('#nbarch-imp-file');
-        const preview  = container.querySelector('#nbarch-imp-preview');
-        const extras   = container.querySelector('#nbarch-imp-extras');
-        const nameRow  = container.querySelector('#nbarch-imp-name-row');
-        const nameIn   = container.querySelector('#nbarch-imp-name');
-        const conflict = container.querySelector('#nbarch-imp-conflict');
-        const goBtn    = container.querySelector('#nbarch-imp-go');
-        const status   = container.querySelector('#nbarch-imp-status');
-        const dropLbl  = container.querySelector('#nbarch-imp-drop-label');
-
-        drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.borderColor = 'var(--accent,var(--text))'; });
-        drop.addEventListener('dragleave', () => { drop.style.borderColor = ''; });
-        drop.addEventListener('drop', e => { e.preventDefault(); drop.style.borderColor = ''; const f = e.dataTransfer.files[0]; if (f) _onFile(f); });
-        fileIn.addEventListener('change', () => { if (fileIn.files[0]) _onFile(fileIn.files[0]); });
-        nameIn.addEventListener('input', () => { conflict.style.display = 'none'; });
-
+    function _DEAD_renderImportContent_REMOVED(container) {
+        // Dead code removed — keeping this tombstone so git blame is clear.
         function _renderExtras(d) {
             let html = '';
 
@@ -349,9 +308,7 @@
                 goBtn.disabled = false; goBtn.textContent = 'Import';
             }
         };
-    }
-
-    // ── Plugin registration ───────────────────────────────────────────────────
+    }  // end _DEAD_renderImportContent_REMOVED
 
     NbWeb.registerModule('archive', {
 
