@@ -1541,17 +1541,133 @@
     // Form 2: "script"          → auto-runs at render; invisible on pass+empty output
 
     async function _loadTestBlock(el) {
-        const raw    = (el.dataset.query || '').trim();
-        const pipe   = raw.indexOf('|');
-        const script = (pipe >= 0 ? raw.slice(0, pipe) : raw).trim();
-        const label  = pipe >= 0 ? raw.slice(pipe + 1).trim() : '';
-        if (!script) { el.remove(); return; }
-        if (label) {
-            _buildTestBtn(el, script, label);
+        const raw   = (el.dataset.query || '').trim();
+        const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+
+        if (lines.length <= 1) {
+            // Single-script — existing behaviour unchanged
+            const line   = lines[0] || '';
+            const pipe   = line.indexOf('|');
+            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+            if (!script) { el.remove(); return; }
+            if (label) { _buildTestBtn(el, script, label); }
+            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, script, null, null); }
+            return;
+        }
+
+        // Multi-script group — parse scripts and optional group label
+        // A line starting with | (no script) sets the group label only.
+        const scripts = [];
+        let groupLabel = '';
+        for (const line of lines) {
+            if (line.startsWith('|')) { groupLabel = groupLabel || line.slice(1).trim(); continue; }
+            const pipe   = line.indexOf('|');
+            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+            if (script) { scripts.push({ script, label }); groupLabel = groupLabel || label; }
+        }
+        if (!scripts.length) { el.remove(); return; }
+
+        if (groupLabel) {
+            _buildGroupBtn(el, scripts, groupLabel);
         } else {
             el.innerHTML = '<span class="nb-spin">⟳</span>';
-            await _runTest(el, script, null, null);
+            await _runGroupTest(el, scripts, null, null);
         }
+    }
+
+    function _buildGroupBtn(el, scripts, label) {
+        el.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'nb-test-btn';
+        btn.textContent = `▶ ${label}`;
+        const out = document.createElement('div');
+        out.className = 'nb-test-out';
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = '⟳ …';
+            out.innerHTML = '';
+            await _runGroupTest(el, scripts, btn, out);
+            btn.disabled = false;
+            btn.textContent = `▶ ${label}`;
+        });
+        el.appendChild(btn);
+        el.appendChild(out);
+    }
+
+    async function _runGroupTest(el, scripts, btn, out) {
+        const selector = NbMain.activeSelector() || '';
+        const results  = await Promise.all(scripts.map(async ({ script }) => {
+            try {
+                const r = await fetch('/api/test/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script, selector }),
+                });
+                return { script, ...(await r.json()) };
+            } catch (e) {
+                return { script, error: String(e), exit_code: 1, stdout: '' };
+            }
+        }));
+
+        const failures = results.filter(r => r.exit_code !== 0 || (r.stdout || '').trim() || r.error);
+        if (!failures.length) { if (!btn) el.remove(); return; }
+
+        const result  = document.createElement('div');
+        result.className = 'nb-test-result';
+
+        const dismiss = document.createElement('button');
+        dismiss.className = 'nb-test-dismiss';
+        dismiss.title = 'Dismiss until next render';
+        dismiss.textContent = '×';
+        dismiss.addEventListener('click', () => { el.innerHTML = ''; });
+        result.appendChild(dismiss);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'nb-rendered nb-group-result';
+
+        const hdr = document.createElement('p');
+        hdr.className = 'nb-group-hdr';
+        hdr.textContent = `${failures.length} of ${scripts.length} check${scripts.length !== 1 ? 's' : ''} failed`;
+        wrap.appendChild(hdr);
+
+        failures.forEach(({ script, stdout, error, exit_code }) => {
+            const entry = scripts.find(s => s.script === script);
+            const label = (entry && entry.label) || script;
+            const text  = (stdout || '').trim() || error || '';
+
+            const row = document.createElement('div');
+            row.className = 'nb-subtest';
+
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className = 'nb-subtest-toggle';
+            toggleBtn.textContent = label;
+
+            const body = document.createElement('div');
+            body.className = 'nb-subtest-body';
+            body.hidden = true;
+
+            const inner = document.createElement('div');
+            inner.className = 'nb-rendered' + (exit_code !== 0 ? ' nb-test-fail' : '');
+            inner.innerHTML = NbMain.renderMarkdown(text, '');
+            NbMain.enrichRendered(inner, null);
+            body.appendChild(inner);
+
+            toggleBtn.addEventListener('click', () => {
+                body.hidden = !body.hidden;
+                if (body.hidden) toggleBtn.removeAttribute('data-open');
+                else toggleBtn.dataset.open = '1';
+            });
+
+            row.appendChild(toggleBtn);
+            row.appendChild(body);
+            wrap.appendChild(row);
+        });
+
+        result.appendChild(wrap);
+        if (out) { out.appendChild(result); }
+        else      { el.innerHTML = ''; el.appendChild(result); }
     }
 
     function _buildTestBtn(el, script, label) {

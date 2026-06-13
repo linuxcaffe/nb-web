@@ -2194,6 +2194,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
   background: var(--bg2);
 }
 
+/* Group test result (multi-script block) */
+.nb-group-result { border-left: 3px solid var(--color-warn, #c0392b); padding-left: 10px; }
+.nb-group-hdr { font-size: 0.85em; color: var(--text-muted); margin: 0 0 6px 0; }
+
 .nb-hl-help-pop {
   position: fixed;
   z-index: 9000;
