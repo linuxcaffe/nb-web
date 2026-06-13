@@ -4139,13 +4139,79 @@ def api_nb_delete_notebook():
 _SKIP_NAMES = frozenset({'.DS_Store', 'Thumbs.db', 'desktop.ini'})
 _SKIP_DIRS  = frozenset({'__pycache__', '.mypy_cache', '.ruff_cache'})
 
+
+def _parse_version(v: str) -> tuple:
+    """Parse 'x.y.z' → (x, y, z) for comparison; missing parts default to 0."""
+    try:
+        return tuple(int(x) for x in str(v).strip().split('.'))
+    except Exception:
+        return (0,)
+
+
+def _read_plugin_meta_from_text(text: str) -> dict:
+    """Like _read_plugin_meta but works on a string instead of a file."""
+    meta = {'name': '', 'version': '', 'type': 'plugin', 'homepage': ''}
+    for line in text.splitlines():
+        if not line.startswith('//'):
+            break
+        m = _RE_PLUGIN_TAG.match(line)
+        if m:
+            tag, val = m.group(1), m.group(2)
+            if tag in meta:
+                meta[tag] = val
+    return meta
+
+
+def _installed_plugin_version(filename: str) -> str:
+    """Return version string of an installed plugin JS file, or ''."""
+    for search_dir in [Path(__file__).parent / 'plugins', WEB_PLUGINS_DIR]:
+        path = search_dir / filename
+        if path.exists():
+            return _read_plugin_meta(path.resolve()).get('version', '') or ''
+    return ''
+
+
+def _gather_plugins_for_archive() -> list:
+    """Return list of dicts: {real_path, meta} for all enabled plugins."""
+    entries = []
+    seen = set()
+    for p in _settings.get('plugins', []):
+        if not p.get('enabled', True):
+            continue
+        url = p.get('url', '')
+        if url.startswith('/plugins/'):
+            js_path = Path(__file__).parent / url.lstrip('/')
+        elif url.startswith('/nb-web-plugins/'):
+            js_path = WEB_PLUGINS_DIR / url.split('/')[-1]
+        else:
+            continue
+        try:
+            real_path = js_path.resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if not real_path.is_file() or real_path in seen:
+            continue
+        seen.add(real_path)
+        entries.append({'real_path': real_path, 'meta': _read_plugin_meta(real_path)})
+    return entries
+
+
 @app.route('/api/nb/archive', methods=['POST'])
 def api_nb_archive():
-    """Create a .nbz notebook archive and stream it as a download."""
-    data         = request.get_json() or {}
-    notebook     = data.get('notebook', '').strip()
-    includes_git = bool(data.get('includes_git', False))
-    description  = str(data.get('description', '')).strip()
+    """Create a .nbz notebook archive (format 2) and stream it as a download.
+
+    Format 2 adds optional sections alongside the notebook directory:
+      plugins/       — JS plugin files for any enabled plugins
+      test_scripts/  — scripts from ~/.nb/.test/
+      templates/     — global templates from ~/.nb/.templates/
+    """
+    data              = request.get_json() or {}
+    notebook          = data.get('notebook', '').strip()
+    includes_git      = bool(data.get('includes_git', False))
+    include_code      = bool(data.get('include_code', False))
+    include_tests     = bool(data.get('include_tests', False))
+    include_templates = bool(data.get('include_templates', False))
+    description       = str(data.get('description', '')).strip()
 
     try:
         _check_notebook(notebook)
@@ -4158,7 +4224,6 @@ def api_nb_archive():
 
     max_bytes = int(_settings.get('archive_max_file_mb', 50)) * 1024 * 1024
 
-    # nb version
     try:
         vr = subprocess.run([NB_BIN, '--version'], capture_output=True, text=True, timeout=5)
         parts = vr.stdout.strip().split()
@@ -4171,15 +4236,36 @@ def api_nb_archive():
         if p.is_file() and '.git' not in p.relative_to(nb_path).parts
     )
 
+    # Gather extra sections before building the zip so they can go in the manifest
+    plugin_entries  = _gather_plugins_for_archive() if include_code else []
+    test_files      = sorted(TEST_DIR.glob('*.sh')) if include_tests and TEST_DIR.is_dir() else []
+    template_files  = sorted(GLOBAL_TEMPLATES_DIR.glob('*.md')) if include_templates and GLOBAL_TEMPLATES_DIR.is_dir() else []
+    # Also include notebook-local templates
+    nb_tmpl_dir = nb_path / '.templates'
+    if include_templates and nb_tmpl_dir.is_dir():
+        seen_tmpl = {f.name for f in template_files}
+        for t in sorted(nb_tmpl_dir.glob('*.md')):
+            if t.name not in seen_tmpl:
+                template_files.append(t)
+
     meta = {
-        'format':       1,
-        'name':         notebook,
-        'archived_at':  datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'nb_version':   nb_version,
-        'note_count':   note_count,
-        'includes_git': includes_git,
-        'encrypted':    False,
-        'description':  description,
+        'format':            2,
+        'name':              notebook,
+        'archived_at':       datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'nb_version':        nb_version,
+        'note_count':        note_count,
+        'includes_git':      includes_git,
+        'include_code':      include_code,
+        'include_tests':     include_tests,
+        'include_templates': include_templates,
+        'encrypted':         False,
+        'description':       description,
+        'plugins': [
+            {'file': f'plugins/{e["real_path"].name}', **e['meta']}
+            for e in plugin_entries
+        ],
+        'test_scripts': [f.name for f in test_files],
+        'templates':    [f.name for f in template_files],
     }
 
     date_str = datetime.now().strftime('%Y%m%d')
@@ -4189,15 +4275,15 @@ def api_nb_archive():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         zf.writestr(f'{notebook}/.nb_archive', json.dumps(meta, indent=2))
+
+        # Notebook files
         for dirpath, dirnames, filenames in os.walk(str(nb_path)):
-            dp   = Path(dirpath)
+            dp      = Path(dirpath)
             rel_dir = dp.relative_to(nb_path)
             parts_d = rel_dir.parts
-            # Prune .git traversal when not requested (modifying dirnames in-place stops descent)
             if not includes_git and parts_d and parts_d[0] == '.git':
                 dirnames.clear()
                 continue
-            # Prune junk dirs
             dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
             for fname in filenames:
                 if fname in _SKIP_NAMES:
@@ -4212,6 +4298,27 @@ def api_nb_archive():
                 except Exception:
                     skipped.append(str(rel))
 
+        # Plugin JS files
+        for entry in plugin_entries:
+            try:
+                zf.write(str(entry['real_path']), f'plugins/{entry["real_path"].name}')
+            except Exception as exc:
+                skipped.append(f'plugins/{entry["real_path"].name}: {exc}')
+
+        # Test scripts
+        for sh in test_files:
+            try:
+                zf.write(str(sh), f'test_scripts/{sh.name}')
+            except Exception as exc:
+                skipped.append(f'test_scripts/{sh.name}: {exc}')
+
+        # Templates
+        for tmpl in template_files:
+            try:
+                zf.write(str(tmpl), f'templates/{tmpl.name}')
+            except Exception as exc:
+                skipped.append(f'templates/{tmpl.name}: {exc}')
+
     buf.seek(0)
     resp = send_file(buf, mimetype='application/zip',
                      as_attachment=True, download_name=filename)
@@ -4225,28 +4332,63 @@ def api_nb_archive():
 
 @app.route('/api/nb/import-preview', methods=['POST'])
 def api_nb_import_preview():
-    """Read .nb_archive metadata from a .nbz upload without extracting."""
+    """Read .nb_archive metadata from a .nbz upload without extracting.
+
+    For format-2 archives, also returns plugin version comparisons,
+    test script list, and template list so the UI can show install options.
+    """
     f = request.files.get('archive')
     if not f:
         return jsonify({'ok': False, 'error': 'No file provided.'}), 400
     try:
         buf = io.BytesIO(f.read())
         with zipfile.ZipFile(buf, 'r') as zf:
+            names = zf.namelist()
             meta_name = next(
-                (n for n in zf.namelist() if n.endswith('/.nb_archive') or n == '.nb_archive'),
+                (n for n in names if n.endswith('/.nb_archive') or n == '.nb_archive'),
                 None,
             )
             if not meta_name:
                 return jsonify({'ok': False, 'error': 'Not a valid .nbz archive (missing .nb_archive).'}), 400
+
             meta     = json.loads(zf.read(meta_name))
             notebook = meta.get('name') or meta_name.split('/')[0]
             conflict = (NB_DIR / notebook).is_dir()
+
+            # Enrich plugin list with installed-version comparison
+            plugins_info = []
+            for p in meta.get('plugins', []):
+                fname     = p.get('file', '').split('/')[-1]
+                inst_ver  = _installed_plugin_version(fname)
+                arch_ver  = p.get('version', '')
+                if not inst_ver:
+                    action = 'install'
+                elif _parse_version(arch_ver) > _parse_version(inst_ver):
+                    action = 'upgrade'
+                else:
+                    action = 'current'
+                plugins_info.append({**p, 'filename': fname,
+                                     'installed_version': inst_ver, 'action': action})
+
+            # Scan zip for sections that may exist even without a format-2 manifest
+            test_scripts = meta.get('test_scripts') or [
+                n.split('/')[-1] for n in names
+                if n.startswith('test_scripts/') and not n.endswith('/')
+            ]
+            templates = meta.get('templates') or [
+                n.split('/')[-1] for n in names
+                if n.startswith('templates/') and not n.endswith('/')
+            ]
+
             return jsonify({
-                'ok':       True,
-                'meta':     meta,
-                'notebook': notebook,
-                'conflict': conflict,
-                'suggested': (notebook + '-import') if conflict else notebook,
+                'ok':          True,
+                'meta':        meta,
+                'notebook':    notebook,
+                'conflict':    conflict,
+                'suggested':   (notebook + '-import') if conflict else notebook,
+                'plugins':     plugins_info,
+                'test_scripts': test_scripts,
+                'templates':   templates,
             })
     except zipfile.BadZipFile:
         return jsonify({'ok': False, 'error': 'Not a valid zip file.'}), 400
@@ -4256,18 +4398,37 @@ def api_nb_import_preview():
 
 @app.route('/api/nb/import', methods=['POST'])
 def api_nb_import():
-    """Extract a .nbz archive into ~/.nb/ as a notebook."""
+    """Extract a .nbz archive into ~/.nb/ as a notebook.
+
+    Format-2 extras (all optional, controlled by form fields):
+      install_plugins   — JSON list of filenames, e.g. '["nbweb-hledger.js"]'
+      install_tests     — 'true' to copy test_scripts/ to ~/.nb/.test/
+      install_templates — 'true' to copy templates/ to ~/.nb/.templates/
+    """
+    global _settings
     f             = request.files.get('archive')
     name_override = request.form.get('name', '').strip()
     if not f:
         return jsonify({'ok': False, 'error': 'No file provided.'}), 400
 
+    try:
+        install_plugins   = json.loads(request.form.get('install_plugins', '[]'))
+    except Exception:
+        install_plugins   = []
+    install_tests     = request.form.get('install_tests', '').lower() in ('1', 'true', 'yes')
+    install_templates = request.form.get('install_templates', '').lower() in ('1', 'true', 'yes')
+
     dest = None
+    installed_plugins  = []
+    copied_tests       = []
+    copied_templates   = []
+
     try:
         buf = io.BytesIO(f.read())
         with zipfile.ZipFile(buf, 'r') as zf:
+            names     = zf.namelist()
             meta_name = next(
-                (n for n in zf.namelist() if n.endswith('/.nb_archive') or n == '.nb_archive'),
+                (n for n in names if n.endswith('/.nb_archive') or n == '.nb_archive'),
                 None,
             )
             if not meta_name:
@@ -4286,19 +4447,77 @@ def api_nb_import():
             if dest.exists():
                 return jsonify({'ok': False, 'error': f'Notebook "{notebook}" already exists.', 'conflict': True}), 409
 
+            # Extract notebook files
             dest.mkdir(parents=True)
             prefix = src_name + '/'
             for item in zf.infolist():
                 if item.is_dir() or item.filename == meta_name:
                     continue
-                rel = (item.filename[len(prefix):]
-                       if item.filename.startswith(prefix)
-                       else item.filename)
+                # Only extract notebook/* (skip plugins/, test_scripts/, templates/)
+                if not item.filename.startswith(prefix):
+                    continue
+                rel = item.filename[len(prefix):]
                 if not rel or rel.startswith('/'):
                     continue
                 target = dest / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(zf.read(item.filename))
+
+            # Install plugins
+            if install_plugins:
+                WEB_PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+                current_plugins = list(_settings.get('plugins', []))
+                for item in zf.infolist():
+                    if item.is_dir() or not item.filename.startswith('plugins/'):
+                        continue
+                    fname = item.filename.split('/')[-1]
+                    if fname not in install_plugins:
+                        continue
+                    content    = zf.read(item.filename)
+                    pmeta      = _read_plugin_meta_from_text(content.decode('utf-8', errors='replace'))
+                    stored_url = f'/nb-web-plugins/{fname}'
+                    dest_file  = WEB_PLUGINS_DIR / fname
+                    dest_file.write_bytes(content)
+                    # Add or update settings entry
+                    existing = next((p for p in current_plugins if p['url'] == stored_url), None)
+                    if existing:
+                        existing.update({'name': pmeta['name'] or fname[:-3], 'version': pmeta['version'],
+                                         'type': pmeta['type'], 'homepage': pmeta['homepage']})
+                    else:
+                        current_plugins.append({
+                            'url':      stored_url,
+                            'name':     pmeta['name'] or fname[:-3],
+                            'enabled':  True,
+                            'type':     pmeta['type'] or 'plugin',
+                            'homepage': pmeta['homepage'],
+                        })
+                    installed_plugins.append(fname)
+                if installed_plugins:
+                    _save_settings({'plugins': current_plugins})
+                    _settings = _load_settings()
+
+            # Copy test scripts
+            if install_tests:
+                TEST_DIR.mkdir(parents=True, exist_ok=True)
+                for item in zf.infolist():
+                    if item.is_dir() or not item.filename.startswith('test_scripts/'):
+                        continue
+                    fname  = item.filename.split('/')[-1]
+                    target = TEST_DIR / fname
+                    target.write_bytes(zf.read(item.filename))
+                    target.chmod(0o755)
+                    copied_tests.append(fname)
+
+            # Copy templates
+            if install_templates:
+                GLOBAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+                for item in zf.infolist():
+                    if item.is_dir() or not item.filename.startswith('templates/'):
+                        continue
+                    fname  = item.filename.split('/')[-1]
+                    target = GLOBAL_TEMPLATES_DIR / fname
+                    target.write_bytes(zf.read(item.filename))
+                    copied_templates.append(fname)
 
     except zipfile.BadZipFile:
         if dest and dest.exists():
@@ -4314,21 +4533,23 @@ def api_nb_import():
                    'imported_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}
     (dest / '.nb_archive').write_text(json.dumps(import_meta, indent=2))
 
-    # Reconcile nb index so notes are visible
     run_nb('index', 'reconcile', f'{notebook}:')
 
-    # Init git if the archive was notes-only
     if not (dest / '.git').exists():
         git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true'}
-        subprocess.run(['git', 'init'],   cwd=str(dest), capture_output=True, env=git_env)
+        subprocess.run(['git', 'init'],      cwd=str(dest), capture_output=True, env=git_env)
         subprocess.run(['git', 'add', '-A'], cwd=str(dest), capture_output=True, env=git_env)
-        subprocess.run(
-            ['git', 'commit', '-m', f'[nb] Import: {notebook}'],
-            cwd=str(dest), capture_output=True, env=git_env,
-        )
+        subprocess.run(['git', 'commit', '-m', f'[nb] Import: {notebook}'],
+                       cwd=str(dest), capture_output=True, env=git_env)
 
-    return jsonify({'ok': True, 'notebook': notebook,
-                    'note_count': meta.get('note_count', '?')})
+    return jsonify({
+        'ok':                True,
+        'notebook':          notebook,
+        'note_count':        meta.get('note_count', '?'),
+        'installed_plugins': installed_plugins,
+        'copied_tests':      copied_tests,
+        'copied_templates':  copied_templates,
+    })
 
 
 # ---------------------------------------------------------------------------
