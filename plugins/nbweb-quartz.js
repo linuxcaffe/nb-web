@@ -1,5 +1,9 @@
 // NbWeb-quartz — nb-web plugin for nb-quartz publishing
 // Activates for any notebook that has a .nb-website.json with a quartz_path.
+// @name     NbWeb Quartz
+// @version  0.1.0
+// @type     core
+// @homepage
 (() => {
 
     const _esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

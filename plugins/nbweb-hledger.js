@@ -1,6 +1,10 @@
 // NbWeb-hledger — plain-text accounting with domain knowledge
 // Chart of accounts wizard, Canadian tax mappings, journal health, account autocomplete.
 // AGPL v3 — https://github.com/linuxcaffe/nbweb-hledger
+// @name     NbWeb hledger
+// @version  0.1.0
+// @type     ecosystem
+// @homepage
 (() => {
 
 // ── Utilities ────────────────────────────────────────────────────────────────

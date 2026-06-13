@@ -6117,6 +6117,34 @@ def serve_web_plugin(filename):
     return send_from_directory(str(WEB_PLUGINS_DIR), filename)
 
 
+_RE_PLUGIN_TAG = re.compile(r'^//\s*@(\w+)\s*(.*?)\s*$')
+
+def _read_plugin_meta(path: Path) -> dict:
+    """Parse @tag comment header from a plugin JS file.
+
+    Reads only the leading comment block (stops at the first non-comment line).
+    Returns a dict with keys: name, version, type, homepage — empty strings for
+    any tag that is absent or has no value.
+    """
+    meta = {'name': '', 'version': '', 'type': 'plugin', 'homepage': ''}
+    try:
+        with path.open(encoding='utf-8', errors='replace') as fh:
+            for line in fh:
+                line = line.rstrip('\n')
+                if not line.startswith('//'):
+                    break
+                m = _RE_PLUGIN_TAG.match(line)
+                if m:
+                    tag, val = m.group(1), m.group(2)
+                    if tag in meta:
+                        meta[tag] = val
+    except OSError:
+        pass
+    if not meta['name']:
+        meta['name'] = path.stem
+    return meta
+
+
 def _plugin_filename_from_url(url: str) -> str:
     """Extract a safe filename from a URL or path."""
     from urllib.parse import urlparse

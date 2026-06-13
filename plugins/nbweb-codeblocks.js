@@ -1,6 +1,10 @@
 // NbWeb-codeblocks — live fenced code block renderers for nb-web
 // Provides: tw (Taskwarrior), hledger, t (timeclock), nb, git block types.
 // Global plugin — no detect(), active for all notebooks.
+// @name     NbWeb Codeblocks
+// @version  0.1.0
+// @type     core
+// @homepage
 (() => {
 
     // ── Utilities ─────────────────────────────────────────────────────────────

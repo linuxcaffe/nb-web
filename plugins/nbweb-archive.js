@@ -1,4 +1,8 @@
 // NbWeb-archive — notebook archive (.nbz) and safe removal
+// @name     NbWeb Archive
+// @version  0.1.0
+// @type     bundled
+// @homepage
 (() => {
 
     const _esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
