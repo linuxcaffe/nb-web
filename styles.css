@@ -2169,6 +2169,31 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-test-dismiss:hover { opacity: 1; color: var(--text); }
 .nb-test-fail { border-left: 3px solid var(--color-warn, #c0392b); padding-left: 10px; }
 
+/* Subtest toggle rows (grouped test type) */
+.nb-subtest { display: block; margin: 2px 0; }
+.nb-subtest-toggle {
+  background: none; border: none; cursor: pointer; padding: 0;
+  color: var(--text); font-size: inherit; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 5px;
+  text-align: left;
+}
+.nb-subtest-toggle::before {
+  content: '▶';
+  color: var(--text-dim); font-size: 0.72em;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.nb-subtest-toggle[data-open="1"]::before { transform: rotate(90deg); }
+.nb-subtest-toggle:hover { color: var(--accent); }
+.nb-subtest-toggle:disabled { opacity: 0.5; }
+.nb-subtest-body {
+  margin: 6px 0 10px 1.2em;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  background: var(--bg2);
+}
+
 .nb-hl-help-pop {
   position: fixed;
   z-index: 9000;

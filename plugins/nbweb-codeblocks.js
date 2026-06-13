@@ -1394,7 +1394,7 @@
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn nb-nav-refresh';
         refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _navRender(el));
+        refBtn.addEventListener('click', () => _loadNavBlock(el));
         acts.appendChild(refBtn);
         hdr.appendChild(acts);
         return hdr;
@@ -1613,12 +1613,78 @@
         NbMain.enrichRendered(wrap, null);
         result.appendChild(wrap);
 
+        _enrichSubtests(wrap);
         if (out) {
             out.appendChild(result);
         } else {
             el.innerHTML = '';
             el.appendChild(result);
         }
+    }
+
+    // Converts [label](subtest:scriptname) links inside a test result into
+    // toggle buttons that run the named script and expand its output inline.
+    function _enrichSubtests(container) {
+        container.querySelectorAll('a[href^="subtest:"]').forEach(a => {
+            const script = a.getAttribute('href').slice('subtest:'.length);
+            const label  = a.textContent;
+
+            const wrap = document.createElement('span');
+            wrap.className = 'nb-subtest';
+
+            const btn = document.createElement('button');
+            btn.className = 'nb-subtest-toggle';
+            btn.textContent = label;
+
+            const body = document.createElement('div');
+            body.className = 'nb-subtest-body';
+            body.hidden = true;
+
+            btn.addEventListener('click', async () => {
+                if (!body.hidden) {
+                    body.hidden = true;
+                    btn.removeAttribute('data-open');
+                    return;
+                }
+                if (body.children.length) {
+                    body.hidden = false;
+                    btn.dataset.open = '1';
+                    return;
+                }
+                btn.disabled = true;
+                const saved = btn.textContent;
+                btn.textContent = '⟳ …';
+
+                const selector = NbMain.activeSelector() || '';
+                let d;
+                try {
+                    const r = await fetch('/api/test/run', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ script, selector }),
+                    });
+                    d = await r.json();
+                } catch (e) {
+                    d = { error: String(e), exit_code: 1, stdout: '' };
+                }
+
+                const text = (d.stdout || '').trim() || d.error || '✓ Check passed.';
+                const inner = document.createElement('div');
+                inner.className = 'nb-rendered' + (d.exit_code !== 0 ? ' nb-test-fail' : '');
+                inner.innerHTML = NbMain.renderMarkdown(text, '');
+                NbMain.enrichRendered(inner, null);
+                body.appendChild(inner);
+                body.hidden = false;
+
+                btn.disabled = false;
+                btn.textContent = saved;
+                btn.dataset.open = '1';
+            });
+
+            wrap.appendChild(btn);
+            wrap.appendChild(body);
+            a.replaceWith(wrap);
+        });
     }
 
     // ── Plugin registration ───────────────────────────────────────────────────
