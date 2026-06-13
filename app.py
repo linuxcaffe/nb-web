@@ -2657,19 +2657,28 @@ def _list_notes(notebook, folder, limit):
 
 
 def _resolve_fname(nb_name, raw_id_or_sel):
-    """Return (fname, fpath) for a note identified by id or selector, or (None, None)."""
+    """Return (fname, fpath) for a note identified by id or selector, or (None, None).
+
+    Handles both flat ids ('42') and subfolder paths ('hledger/32').
+    """
     try:
-        raw_id = str(raw_id_or_sel).split(':')[-1]
+        raw_str = str(raw_id_or_sel).split(':')[-1]  # strip notebook prefix if any
+        folder  = ''
+        raw_id  = raw_str
+        if '/' in raw_str:
+            # Subfolder path like 'hledger/32' — split into folder + id
+            folder, raw_id = raw_str.rsplit('/', 1)
         if not raw_id.isdigit():
             return None, None
-        idx    = read_index(nb_name)
+        idx    = read_index(nb_name, folder)
         id_num = int(raw_id)
         if not (1 <= id_num <= len(idx)):
             return None, None
         fname = idx[id_num - 1]
         if not fname:
             return None, None
-        return fname, NB_DIR / nb_name / fname
+        rel = Path(folder) / fname if folder else Path(fname)
+        return fname, NB_DIR / nb_name / rel
     except Exception:
         return None, None
 

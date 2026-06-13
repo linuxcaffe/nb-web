@@ -1548,7 +1548,12 @@ const NbMain = (() => {
         const cached = _wikilinkCache.get('\x00' + sel)
         if (cached) return cached
         try {
-            const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook
+            // Use the notebook of the note currently displayed, not the list panel's notebook.
+            // When a note from hledger: is open but the list shows docs:, bare [[links]] must
+            // still resolve within hledger — NbNav.notebook would give the wrong scope.
+            const activeSel = NbMain.activeSelector() || ''
+            const activeNb  = activeSel.includes(':') ? activeSel.split(':')[0] : null
+            const nb = activeNb || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook)
             const r  = await fetch(`/api/notes?notebook=${encodeURIComponent(nb)}&q=${encodeURIComponent(sel)}`)
             const d  = await r.json()
             const lower = sel.toLowerCase()
