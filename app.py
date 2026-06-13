@@ -178,6 +178,8 @@ _settings = _load_settings()
 # ---------------------------------------------------------------------------
 
 _weather_cache: dict = {'value': None, 'ts': 0.0}
+_test_cache:    dict = {}   # (script, selector) -> {'result': dict, 'ts': float}
+_TEST_CACHE_TTL = 30        # seconds; force=True bypasses
 
 def _fetch_weather() -> str:
     if _weather_cache['value'] and time.time() - _weather_cache['ts'] < 3600:
@@ -6311,6 +6313,7 @@ def api_test_run():
     data        = request.get_json(force=True) or {}
     script_name = (data.get('script') or '').strip()
     selector    = (data.get('selector') or '').strip()
+    force       = bool(data.get('force', False))
 
     if not script_name:
         return jsonify({'error': 'no script name', 'exit_code': 1}), 400
@@ -6322,6 +6325,14 @@ def api_test_run():
         script_path = TEST_DIR / (script_name + '.sh')
     if not script_path.exists():
         return jsonify({'error': f'script not found: {script_name} (looked in {TEST_DIR})', 'exit_code': 1}), 404
+
+    # Return cached result for auto-runs (force=False) within TTL
+    cache_key = (script_name, selector)
+    now = time.time()
+    if not force:
+        entry = _test_cache.get(cache_key)
+        if entry and (now - entry['ts']) < _TEST_CACHE_TTL:
+            return jsonify(entry['result'])
 
     notebook  = selector.split(':')[0] if ':' in selector else ''
     note_path = _resolve_to_nb_path(selector) if selector else None
@@ -6340,11 +6351,13 @@ def api_test_run():
             capture_output=True, text=True,
             env=env, timeout=30,
         )
-        return jsonify({
+        result_data = {
             'stdout':    result.stdout,
             'stderr':    result.stderr,
             'exit_code': result.returncode,
-        })
+        }
+        _test_cache[cache_key] = {'result': result_data, 'ts': now}
+        return jsonify(result_data)
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'script timed out (30s)', 'exit_code': 1})
     except Exception as e:
@@ -7563,4 +7576,4 @@ if __name__ == '__main__':
     _install_prepush_hooks()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
-    app.run(host=HOST, port=PORT, debug=DEBUG, use_reloader=False)
+    app.run(host=HOST, port=PORT, debug=DEBUG, use_reloader=False, threaded=True)
