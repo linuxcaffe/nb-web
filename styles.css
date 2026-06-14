@@ -978,6 +978,18 @@ body {
 .nb-include-link:hover { text-decoration: underline; opacity: 0.85; }
 .nb-include-missing { opacity: 0.45; cursor: not-allowed; text-decoration: line-through; }
 
+/* ── note-slow rendering notice ───────────────────────────────── */
+.nb-rendering-notice {
+    display: inline-flex; align-items: center; gap: 0.35em;
+    padding: 0.25em 0.8em; margin-bottom: 0.75em;
+    border-radius: 4px;
+    background: rgba(198, 144, 38, 0.12);
+    border: 1px solid rgba(198, 144, 38, 0.38);
+    font-size: 0.85em; line-height: 1.5;
+}
+.nb-rendering-notice .nb-rn-label { color: var(--yellow, #c69026); font-weight: 600; }
+.nb-rendering-notice .nb-rn-rest  { color: var(--text-muted); }
+
 /* ── jspreadsheet + jsuites dark-mode overrides ─────────────────
    Scoped to both standalone sheets and embedded csv blocks        */
 :is(#nb-sheet-host, .nb-csv-block) .jss_worksheet,

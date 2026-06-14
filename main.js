@@ -884,6 +884,7 @@ const NbMain = (() => {
     // prevent recursion.
     async function _resolveInlineInclude(span, rawPath, note) {
         if (span.closest('.nb-inline-content')) { span.remove(); return; }
+        const rendered = span.closest('.nb-rendered');
         const selector = _resolveRelPath(rawPath.trim(), note?.selector || '');
         try {
             const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}`);
@@ -902,6 +903,16 @@ const NbMain = (() => {
             err.textContent = `[inline: ${rawPath}]`;
             err.title = String(e);
             span.replaceWith(err);
+        } finally {
+            // Decrement rendering notice countdown; remove when all includes done
+            const notice = rendered?.querySelector('.nb-rendering-notice');
+            if (notice) {
+                const rem = Math.max(0, (parseInt(notice.dataset.remaining) || 0) - 1);
+                notice.dataset.remaining = rem;
+                const cntEl = notice.querySelector('.nb-rn-count');
+                if (cntEl) cntEl.textContent = rem;
+                if (rem === 0) notice.remove();
+            }
         }
     }
 
@@ -1078,6 +1089,11 @@ const NbMain = (() => {
             _buildToc(container, note);
             _watchInlineTocRebuild(container, note);
         }
+        // Remove rendering notice once tests settle (fallback for size-only case and
+        // any race where the include countdown didn't reach zero)
+        container.addEventListener('nb-tests-settled', () => {
+            container.querySelector('.nb-rendering-notice')?.remove();
+        }, { once: true });
         _appendAnnotation(container, note);
     }
 
