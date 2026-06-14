@@ -1540,7 +1540,54 @@
     // Form 1: "script | Label"  → clickable button; runs on click; resets on pass
     // Form 2: "script"          → auto-runs at render; invisible on pass+empty output
 
-    async function _loadTestBlock(el) {
+    // Collect the names of all scripts that will auto-run (Form 2) across a set
+    // of .nb-test-block elements.  Used to build the batch request.
+    function _collectAutoRunScripts(blocks) {
+        const scripts = new Set();
+        for (const el of blocks) {
+            const raw   = (el.dataset.query || '').trim();
+            const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+            if (lines.length <= 1) {
+                const line   = lines[0] || '';
+                const pipe   = line.indexOf('|');
+                const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+                const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+                if (script && !label) scripts.add(script);
+            } else {
+                // Multi-script: only collect if the group has no label (auto-run mode)
+                let groupLabel = '';
+                const parsed = [];
+                for (const line of lines) {
+                    if (line.startsWith('|')) { groupLabel = groupLabel || line.slice(1).trim(); continue; }
+                    const pipe   = line.indexOf('|');
+                    const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+                    const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+                    if (script) { parsed.push(script); groupLabel = groupLabel || label; }
+                }
+                if (!groupLabel) parsed.forEach(s => scripts.add(s));
+            }
+        }
+        return [...scripts];
+    }
+
+    // POST /api/test/batch — one round trip for N scripts.  Returns a Map of
+    // script → result.  On any error returns an empty Map so callers fall back
+    // to individual /api/test/run fetches transparently.
+    async function _fetchTestBatch(scripts, selector) {
+        try {
+            const r = await fetch('/api/test/batch', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ scripts, selector }),
+            });
+            if (!r.ok) return new Map();
+            return new Map(Object.entries(await r.json()));
+        } catch {
+            return new Map();
+        }
+    }
+
+    async function _loadTestBlock(el, batchMap = new Map()) {
         const raw   = (el.dataset.query || '').trim();
         const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
 
@@ -1552,7 +1599,7 @@
             const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
             if (!script) { el.remove(); return; }
             if (label) { _buildTestBtn(el, script, label); }
-            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, script, null, null); }
+            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, script, null, null, batchMap.get(script) ?? null); }
             return;
         }
 
@@ -1573,7 +1620,7 @@
             _buildGroupBtn(el, scripts, groupLabel);
         } else {
             el.innerHTML = '<span class="nb-spin">⟳</span>';
-            await _runGroupTest(el, scripts, null, null);
+            await _runGroupTest(el, scripts, null, null, batchMap);
         }
     }
 
@@ -1596,10 +1643,13 @@
         el.appendChild(out);
     }
 
-    async function _runGroupTest(el, scripts, btn, out) {
+    async function _runGroupTest(el, scripts, btn, out, batchMap = new Map()) {
         const selector = NbMain.activeSelector() || '';
         const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
         const results  = await Promise.all(scripts.map(async ({ script }) => {
+            if (!force && batchMap.has(script)) {
+                return { script, ...batchMap.get(script) };
+            }
             try {
                 const r = await fetch('/api/test/run', {
                     method: 'POST',
@@ -1690,19 +1740,23 @@
         el.appendChild(out);
     }
 
-    async function _runTest(el, script, btn, out) {
+    async function _runTest(el, script, btn, out, cachedResult = null) {
         const selector = NbMain.activeSelector() || '';
         const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
         let d;
-        try {
-            const r = await fetch('/api/test/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ script, selector, force }),
-            });
-            d = await r.json();
-        } catch (e) {
-            d = { error: String(e), exit_code: 1, stdout: '' };
+        if (cachedResult && !force) {
+            d = cachedResult;
+        } else {
+            try {
+                const r = await fetch('/api/test/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script, selector, force }),
+                });
+                d = await r.json();
+            } catch (e) {
+                d = { error: String(e), exit_code: 1, stdout: '' };
+            }
         }
 
         const stdout = (d.stdout || '').trim();
@@ -1893,8 +1947,21 @@
                 html:   text => `<div class="nb-test-block" data-query="${text.trim().replace(/"/g,'&quot;')}"></div>`,
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-test-block')];
+                    if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    await Promise.all(blocks.map(async el => { await _loadTestBlock(el); NbWeb.statusPill?.tick(); }));
+
+                    // Collect all auto-run scripts across every block, fetch in one
+                    // round trip, then distribute cached results to each block.
+                    const selector   = NbMain.activeSelector() || '';
+                    const autoScripts = _collectAutoRunScripts(blocks);
+                    const batchMap   = autoScripts.length
+                        ? await _fetchTestBatch(autoScripts, selector)
+                        : new Map();
+
+                    await Promise.all(blocks.map(async el => {
+                        await _loadTestBlock(el, batchMap);
+                        NbWeb.statusPill?.tick();
+                    }));
                     container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
                 },
             },

@@ -6373,6 +6373,70 @@ def api_test_run():
         return jsonify({'error': str(e), 'exit_code': 1})
 
 
+@app.route('/api/test/batch', methods=['POST'])
+def api_test_batch():
+    """Run multiple test scripts in parallel with a single round trip.
+
+    Request:  { "scripts": ["hl-ok", "nb-dirty", ...], "selector": "accts:review.md" }
+    Response: { "hl-ok": { "stdout": "", "exit_code": 0 }, ... }
+
+    Scripts are deduplicated before running.  Cache is checked per-script
+    using the same key/TTL as /api/test/run so results are shared.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    data     = request.get_json(force=True) or {}
+    scripts  = [s for s in (data.get('scripts') or []) if isinstance(s, str)]
+    selector = (data.get('selector') or '').strip()
+
+    if not scripts:
+        return jsonify({})
+
+    # Resolve note context once — shared across all script invocations
+    notebook  = selector.split(':')[0] if ':' in selector else ''
+    note_path = _resolve_to_nb_path(selector) if selector else None
+    env = {
+        **os.environ,
+        'NB_DIR':           str(NB_DIR),
+        'NB_NOTE_SELECTOR': selector,
+        'NB_NOTEBOOK':      notebook,
+        'NB_NOTE_PATH':     str(note_path) if note_path else '',
+        'NO_COLOR':         '1',
+    }
+
+    def run_one(script_name):
+        if '/' in script_name or script_name.startswith('.'):
+            return script_name, {'error': 'invalid script name', 'exit_code': 1, 'stdout': ''}
+        cache_key = (script_name, selector)
+        now = time.time()
+        entry = _test_cache.get(cache_key)
+        if entry and (now - entry['ts']) < _TEST_CACHE_TTL:
+            return script_name, entry['result']
+        script_path = TEST_DIR / script_name
+        if not script_path.exists() and not script_name.endswith('.sh'):
+            script_path = TEST_DIR / (script_name + '.sh')
+        if not script_path.exists():
+            return script_name, {'error': f'not found: {script_name}', 'exit_code': 1, 'stdout': ''}
+        try:
+            r = subprocess.run(['bash', str(script_path)],
+                               capture_output=True, text=True, env=env, timeout=30)
+            result = {'stdout': r.stdout, 'stderr': r.stderr, 'exit_code': r.returncode}
+            _test_cache[cache_key] = {'result': result, 'ts': now}
+            return script_name, result
+        except subprocess.TimeoutExpired:
+            return script_name, {'error': 'timed out (30s)', 'exit_code': 1, 'stdout': ''}
+        except Exception as e:
+            return script_name, {'error': str(e), 'exit_code': 1, 'stdout': ''}
+
+    unique = list(dict.fromkeys(scripts))   # deduplicate, preserve order
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(len(unique), 8)) as pool:
+        for name, result in pool.map(run_one, unique):
+            results[name] = result
+
+    return jsonify(results)
+
+
 # ---------------------------------------------------------------------------
 # API: Rename / Move note
 # ---------------------------------------------------------------------------
