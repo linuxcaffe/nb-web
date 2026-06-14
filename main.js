@@ -583,7 +583,7 @@ const NbMain = (() => {
         });
 
         if (pushHistory && _activeSelector && _activeSelector !== selector) {
-            _history.push(_activeSelector);
+            _history.push({ sel: _activeSelector, scrollTop: content?.scrollTop || 0 });
             _future.length = 0;   // new navigation invalidates forward history
         }
         _activeSelector = selector;
@@ -611,6 +611,17 @@ const NbMain = (() => {
             if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
             const d = await r.json();
             renderPreview(d);
+            if (opts.restoreScrollTop) {
+                content.dataset.restoreScrollTop = opts.restoreScrollTop;
+                requestAnimationFrame(() => {
+                    const target = parseInt(content.dataset.restoreScrollTop || '0', 10);
+                    if (target && content.scrollHeight >= target) {
+                        content.scrollTop = target;
+                        delete content.dataset.restoreScrollTop;
+                    }
+                    // else: large-note still loading — leave dataset for its render handler
+                });
+            }
             if (d.meta?.pinned && !_pinnedSelectors.has(selector)) {
                 _pinnedSelectors.add(selector);
                 localStorage.setItem('nb-pinned', JSON.stringify([..._pinnedSelectors]));
@@ -930,6 +941,11 @@ const NbMain = (() => {
                         if (d.error) { content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(d.error)}</div>`; return; }
                         content.innerHTML = `<div class="nb-rendered">${d.html}</div>`;
                         _finishRendered(content, note);
+                        if (content.dataset.restoreScrollTop) {
+                            const top = parseInt(content.dataset.restoreScrollTop, 10);
+                            delete content.dataset.restoreScrollTop;
+                            requestAnimationFrame(() => { content.scrollTop = top; });
+                        }
                     })
                     .catch(e => { if (_activeNote !== note) return; content.innerHTML = `<div style="padding:40px;color:var(--red)">Render error: ${_esc(e.message)}</div>`; });
                 return;
@@ -1944,7 +1960,15 @@ const NbMain = (() => {
         // xref: accepts a string ("hledger:") or list (["hledger:", "accts:tutorial/"])
         const xrefRaw = note.meta?.xref;
         const targets = (Array.isArray(xrefRaw) ? xrefRaw : [xrefRaw])
-            .map(t => String(t || '').trim()).filter(Boolean);
+            .map(t => {
+                // YAML parses 'hledger:' inside a flow list as {hledger: null} — unwrap it
+                if (t && typeof t === 'object' && !Array.isArray(t)) {
+                    const k = Object.keys(t);
+                    if (k.length === 1 && t[k[0]] == null) return `${k[0]}:`;
+                }
+                return String(t || '').trim();
+            })
+            .filter(Boolean);
         if (!targets.length) return;
 
         const ignoreRaw = note.meta?.['xref-ignore'];
@@ -3150,14 +3174,22 @@ const NbMain = (() => {
 
     function _goBack() {
         if (!_history.length) return;
-        _future.push(_activeSelector);
-        openNote(_history.pop(), false);
+        const pane = document.getElementById('nb-preview-content');
+        _future.push({ sel: _activeSelector, scrollTop: pane?.scrollTop || 0 });
+        const entry = _history.pop();
+        const sel = typeof entry === 'object' ? entry.sel : entry;
+        const top = typeof entry === 'object' ? entry.scrollTop : 0;
+        openNote(sel, false, top ? { restoreScrollTop: top } : {});
     }
 
     function _goForward() {
         if (!_future.length) return;
-        _history.push(_activeSelector);
-        openNote(_future.pop(), false);
+        const pane = document.getElementById('nb-preview-content');
+        _history.push({ sel: _activeSelector, scrollTop: pane?.scrollTop || 0 });
+        const entry = _future.pop();
+        const sel = typeof entry === 'object' ? entry.sel : entry;
+        const top = typeof entry === 'object' ? entry.scrollTop : 0;
+        openNote(sel, false, top ? { restoreScrollTop: top } : {});
     }
 
     function _bindPreviewActions() {
