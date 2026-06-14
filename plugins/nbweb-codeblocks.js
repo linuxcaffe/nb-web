@@ -924,6 +924,7 @@
             return;
         }
 
+        const _initCollapsed = el.hasAttribute('data-init-collapsed');
         el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
@@ -950,6 +951,8 @@
             else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q, launch);
         } catch(e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+        } finally {
+            if (_initCollapsed) el.classList.add('nb-collapsed');
         }
     }
 
@@ -2079,7 +2082,11 @@
             },
             {
                 lang:   'hledger',
-                html:   text => `<div class="nb-hl-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:   text => {
+                    const collapsed = /^#\s*collapsed\b/im.test(text);
+                    const q = text.split('\n').filter(l => !/^#\s*collapsed\b/i.test(l.trim())).join('\n').trim();
+                    return `<div class="nb-hl-block${collapsed ? ' nb-collapsed' : ''}" data-query="${q.replace(/"/g,'&quot;')}"${collapsed ? ' data-init-collapsed' : ''}><span class="nb-spin">⟳</span></div>`;
+                },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-hl-block')];
                     if (!blocks.length) return;
