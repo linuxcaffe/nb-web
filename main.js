@@ -33,6 +33,7 @@ const NbMain = (() => {
     let _lastClickedIdx = -1;             // anchor for shift-click range
     let _encPassword    = null;   // session-level openssl password for encrypted notes
     let _encPendingEdit = false;  // open editor immediately after next successful unlock
+    let _renderAbort   = new AbortController(); // aborted on every note navigation
 
     // Chrome-level render progress bar — thin amber strip between toolbar and content.
     // Setting key 'nbRenderBar': 'auto' (default, show when n≥5 inlines), 'always', 'never'.
@@ -129,7 +130,7 @@ const NbMain = (() => {
 
         function add(n) { if (n > 0) { _pending += n; _update(); } }
 
-        function tick() { _pending = Math.max(0, _pending - 1); _update(); }
+        function tick() { if (_pending <= 0) return; _pending--; _update(); }
 
         function registerForce(fn) { _forceCallbacks.push(fn); }
 
@@ -594,10 +595,12 @@ const NbMain = (() => {
         toolbar.hidden = false;
         document.getElementById('nb-preview-title').textContent = selector.split(':').pop();
 
-        // Reset render progress indicators and clear any orphaned lazy-load callbacks
-        // from the previous note before navigating to the new one.
+        // Abort any in-flight render from the previous note, then issue a fresh
+        // AbortController for this navigation so new fetches can be cancelled later.
+        _renderAbort.abort();
+        _renderAbort = new AbortController();
         _StatusPill.reset();
-        _RenderBar.done();
+        _RenderBar.reset();
 
         // Show spinner while loading
         const content = document.getElementById('nb-preview-content');
@@ -952,7 +955,8 @@ const NbMain = (() => {
             textNode.replaceWith(...parts);
         }
 
-        const nb = note?.notebook || NbNav.notebook;
+        const nb     = note?.notebook || NbNav.notebook;
+        const signal = _renderAbort.signal;   // captured now; aborted if user navigates away
         const inlineSpans = [];
         let nonInlineCount = 0;
         for (const span of spans) {
@@ -963,7 +967,7 @@ const NbMain = (() => {
             }
             // Non-inline queries are cheap single-value lookups — fire in parallel
             nonInlineCount++;
-            fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`)
+            fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`, { signal })
                 .then(r => r.json())
                 .then(d => {
                     if (d.error) {
@@ -976,7 +980,8 @@ const NbMain = (() => {
                     }
                     _StatusPill.tick();
                 })
-                .catch(() => {
+                .catch(e => {
+                    if (e.name === 'AbortError') return;
                     span.textContent = `{{${provider}: ${query}}}`;
                     span.classList.add('nb-iq-error');
                     _StatusPill.tick();
@@ -994,14 +999,17 @@ const NbMain = (() => {
             const _pane = document.getElementById('nb-preview-content');
             (async () => {
                 for (const span of inlineSpans) {
+                    if (signal.aborted) break;
                     if (_isNearViewport(span, _pane)) {
-                        await _resolveInlineInclude(span, span.dataset.query, note);
+                        await _resolveInlineInclude(span, span.dataset.query, note, signal);
                     } else {
-                        _deferInlineInclude(span, note, _pane, container);
+                        _deferInlineInclude(span, note, _pane, container, signal);
                     }
                 }
-                container.dispatchEvent(new CustomEvent('nb-inlines-settled', { bubbles: false }));
-                _RenderBar.done();
+                if (!signal.aborted) {
+                    container.dispatchEvent(new CustomEvent('nb-inlines-settled', { bubbles: false }));
+                    _RenderBar.done();
+                }
             })();
         }
     }
@@ -1027,12 +1035,12 @@ const NbMain = (() => {
     // {{inline: path}} — fetch target note body, render markdown inline.
     // Depth-guarded: included content is not processed for further {{inline:}} to
     // prevent recursion.
-    async function _resolveInlineInclude(span, rawPath, note) {
+    async function _resolveInlineInclude(span, rawPath, note, signal) {
         if (span.closest('.nb-inline-content')) { span.remove(); return; }
         const rendered = span.closest('.nb-rendered');
         const selector = _resolveRelPath(rawPath.trim(), note?.selector || '');
         try {
-            const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}`);
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}`, { signal });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
             if (d.error) throw new Error(d.error);
@@ -1043,6 +1051,7 @@ const NbMain = (() => {
             span.replaceWith(wrap);
             _enrichRendered(wrap, d);
         } catch (e) {
+            if (e.name === 'AbortError') return;   // navigation cancelled this render
             const err = document.createElement('span');
             err.className = 'nb-iq-error';
             err.textContent = `[inline: ${rawPath}]`;
@@ -1067,15 +1076,15 @@ const NbMain = (() => {
     // Set up an IntersectionObserver on a lazy inline-include span.  Fires
     // _resolveInlineInclude exactly once when the span scrolls within 500px of the
     // scrollRoot's edge.  The span remains as a ⋯ placeholder until then.
-    function _deferInlineInclude(span, note, scrollRoot, container) {
+    function _deferInlineInclude(span, note, scrollRoot, container, signal) {
         let fired = false;
         let io;
         const load = () => {
-            if (fired) return;
+            if (fired || signal?.aborted) return;
             fired = true;
             io?.disconnect();
-            _resolveInlineInclude(span, span.dataset.query, note).then(() => {
-                if (container) _scheduleTocRebuild(container, note);
+            _resolveInlineInclude(span, span.dataset.query, note, signal).then(() => {
+                if (!signal?.aborted && container) _scheduleTocRebuild(container, note);
             });
         };
         io = new IntersectionObserver((entries, observer) => {
