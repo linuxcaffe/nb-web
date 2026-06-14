@@ -1830,9 +1830,18 @@ const NbMain = (() => {
     async function _resolveWikilinks(container) {
         const spans = [...container.querySelectorAll('.nb-wiki-link[data-autolabel]')];
         if (!spans.length) return;
+        // Only count spans whose label needs a network fetch — cached hits are instant
+        const uncached = spans.filter(s => {
+            const raw = s.dataset.selector;
+            if (!raw) return false;
+            // selector is cached if either the raw key or a resolved selector key exists
+            return !_wikilinkCache.has(raw) && !_wikilinkCache.has('\x00' + raw);
+        });
+        if (uncached.length) _StatusPill.add(uncached.length);
         await Promise.all(spans.map(async span => {
             const raw = span.dataset.selector;
             if (!raw) return;
+            const needsTick = uncached.includes(span);
             try {
                 // Resolve plain titles to full selectors first
                 const sel = await _resolveWikilinkSelector(raw)
@@ -1848,6 +1857,7 @@ const NbMain = (() => {
                 }
                 if (title && title !== raw) span.textContent = title;
             } catch(e) { /* leave as-is */ }
+            finally { if (needsTick) _StatusPill.tick(); }
         }));
     }
 
