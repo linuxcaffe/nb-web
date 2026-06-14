@@ -33,7 +33,6 @@ const NbMain = (() => {
     let _lastClickedIdx = -1;             // anchor for shift-click range
     let _encPassword    = null;   // session-level openssl password for encrypted notes
     let _encPendingEdit = false;  // open editor immediately after next successful unlock
-    const _bookCache    = new Map(); // selector:mtime → rendered innerHTML (book render cache)
 
     function _setKbPane(pane) {
         _kbPane = pane;
@@ -790,17 +789,6 @@ const NbMain = (() => {
             html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         }
 
-        // Book render cache — skip chapter fetches on repeat visits within a session
-        if (note.meta?.type === 'book' && note.mtime) {
-            const _ck = `${note.selector}:${note.mtime}`;
-            const _ch = _bookCache.get(_ck);
-            if (_ch) {
-                content.innerHTML = `<div class="nb-rendered">${_ch}</div>`;
-                _finishRendered(content, note);
-                return;
-            }
-        }
-
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
         _finishRendered(content, note);
     }
@@ -1101,17 +1089,13 @@ const NbMain = (() => {
             // sub-headings (h2/h3/h4) indented beneath; h1s inside chapters
             // are covered by the chapter label so are skipped.
             // Headings before the first chapter (intro content) are shown normally.
-            // No :scope > — chapters may be grandchildren (markdown wraps inline spans in <p>)
-            // Depth guard in _resolveInlineInclude prevents nesting, so all are top-level.
-            const chapters = [...rendered.querySelectorAll('.nb-inline-content')];
+            const chapters = [...rendered.querySelectorAll(':scope > .nb-inline-content')];
             const firstChapter = chapters[0];
 
-            // Intro headings before first chapter — skip H1 (it's the book title,
-            // already visible as the page heading; no need to repeat it in TOC)
+            // Intro headings — anything in rendered before the first chapter
             for (const h of headings) {
                 if (firstChapter && firstChapter.contains(h)) break;
                 if (h.closest('.nb-inline-content')) break;
-                if (h.tagName === 'H1') continue;
                 ul.appendChild(_makeLi(h, ''));
             }
 
@@ -1178,33 +1162,23 @@ const NbMain = (() => {
         const rendered = container.querySelector('.nb-rendered');
         if (!rendered) return;
 
-        // obs declared here so rebuild() can always disconnect it before mutating
-        // the DOM — any path through rebuild() that changes rendered would otherwise
-        // re-trigger the MO and create a loop.
-        let obs;
         const rebuild = () => {
-            obs?.disconnect();
             container.querySelector('.nb-toc')?.remove();
             _buildToc(container, note);
-            // Snapshot settled book DOM (strip TOC so it rebuilds cleanly on restore)
-            if (note.meta?.type === 'book' && note.mtime) {
-                const clone = rendered.cloneNode(true);
-                clone.querySelector('.nb-toc')?.remove();
-                _bookCache.set(`${note.selector}:${note.mtime}`, clone.innerHTML);
-            }
         };
 
         // Signal from test renderer — fires exactly once when all auto-run tests settle
         container.addEventListener('nb-tests-settled', rebuild, { once: true });
 
-        // MutationObserver for {{inline:}} blocks
+        // MutationObserver for {{inline:}} blocks (fire-and-forget, DOM-visible)
         if (!rendered.querySelector('.nb-inline-query[data-provider="inline"]')) return;
         let tid;
-        obs = new MutationObserver(() => {
+        const obs = new MutationObserver(() => {
             clearTimeout(tid);
             tid = setTimeout(rebuild, 500);
         });
         obs.observe(rendered, { childList: true, subtree: true });
+        setTimeout(() => obs.disconnect(), 15000);
     }
 
     // ── Encrypted note decrypt/render ──────────────────────────────────────
