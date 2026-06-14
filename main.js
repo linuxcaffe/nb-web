@@ -785,7 +785,7 @@ const NbMain = (() => {
             _editBtn.insertAdjacentElement('beforebegin', relockBtn);
         }
 
-        // ── Directory lock (.nb-lock file in folder or notebook) ───────────────
+        // ── Directory lock (.nb-unlock file in folder or notebook) ───────────────
         document.getElementById('nb-dir-lock-indicator')?.remove();
         if (note.locked) {
             const editBtn   = document.getElementById('nb-edit-btn');

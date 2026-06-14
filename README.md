@@ -142,7 +142,7 @@ Each nb notebook is its own git repo under `~/.nb/`. The Notebooks panel shows n
 
 ### Folder and notebook locks
 
-Place an `.nb-lock` file in any folder (or at the notebook root) to make it read-only. Locked notes hide the Edit and Delete buttons and show a 🔒 indicator in the toolbar. The lock is **hierarchical**: a notebook-level lock covers all folders inside it; a folder-level lock covers all notes inside it without affecting sibling folders.
+Place an `.nb-unlock` file in any folder (or at the notebook root) to make it read-only. Locked notes hide the Edit and Delete buttons and show a 🔒 indicator in the toolbar. The lock is **hierarchical**: a notebook-level lock covers all folders inside it; a folder-level lock covers all notes inside it without affecting sibling folders.
 
 The lock file may contain a plain-text reason that appears as a tooltip on the 🔒 indicator.
 
@@ -150,10 +150,10 @@ The lock file may contain a plain-text reason that appears as a tooltip on the �
 - **Folder** — click `⋯` on any folder in the list → 🔒 Lock tab → Lock folder (with optional reason)
 - **Notebook** — Menu → Notebooks → select a notebook → "🔒 Lock notebook"
 
-**Or manually** — drop an `.nb-lock` file anywhere in `~/.nb/`:
+**Or manually** — drop an `.nb-unlock` file anywhere in `~/.nb/`:
 
 ```bash
-echo "Reference only — do not edit" > ~/.nb/home/tutorial/.nb-lock
+echo "Reference only — do not edit" > ~/.nb/home/tutorial/.nb-unlock
 ```
 
 Remove it (or click Unlock) to restore full write access.
