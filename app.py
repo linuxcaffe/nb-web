@@ -1088,7 +1088,7 @@ def api_xref():
         matches: list = []
         for idx_stem, entries in index.items():
             plen = min(len(qs), len(idx_stem))
-            if plen >= 5 and (idx_stem.startswith(qs) or qs.startswith(idx_stem)):
+            if idx_stem == qs or (plen >= 5 and (idx_stem.startswith(qs) or qs.startswith(idx_stem))):
                 for e in entries:
                     if e['selector'] not in seen:
                         seen.add(e['selector'])

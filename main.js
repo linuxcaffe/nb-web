@@ -1952,6 +1952,14 @@ const NbMain = (() => {
         );
 
         const rendered  = container.querySelector('.nb-rendered') ?? container;
+
+        // Inline includes (book chapters, {{inline:}}) load asynchronously.
+        // Wait for them to settle before scanning headings or they won't be in the DOM yet.
+        if (rendered.querySelector('.nb-inline-query[data-provider="inline"]')) {
+            await new Promise(resolve =>
+                container.addEventListener('nb-inlines-settled', resolve, { once: true }));
+        }
+
         const headings  = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6')];
         if (!headings.length) return;
 
