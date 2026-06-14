@@ -1527,8 +1527,8 @@ NbWeb.registerModule('hledger', {
                 if (!blocks.length) return;
                 NbWeb.statusPill?.add(blocks.length);
                 for (const el of blocks) {
-                    await _loadChartBlock(el);
-                    NbWeb.statusPill?.tick();
+                    try { await _loadChartBlock(el); }
+                    finally { NbWeb.statusPill?.tick(); }
                 }
             },
         },

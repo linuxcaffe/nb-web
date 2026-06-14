@@ -2064,8 +2064,8 @@
                     NbWeb.statusPill?.add(blocks.length);
                     const w = await NbWeb.checkWhich('task');
                     await Promise.all(blocks.map(async el => {
-                        await (w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md'));
-                        NbWeb.statusPill?.tick();
+                        try { await (w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md')); }
+                        finally { NbWeb.statusPill?.tick(); }
                     }));
                 },
             },
@@ -2078,8 +2078,8 @@
                     NbWeb.statusPill?.add(blocks.length);
                     const w = await NbWeb.checkWhich('hledger');
                     await Promise.all(blocks.map(async el => {
-                        await (w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md'));
-                        NbWeb.statusPill?.tick();
+                        try { await (w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md')); }
+                        finally { NbWeb.statusPill?.tick(); }
                     }));
                 },
             },
@@ -2088,8 +2088,9 @@
                 html:   text => `<div class="nb-nav-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-nav-block')];
+                    if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    await Promise.all(blocks.map(async el => { await _loadNavBlock(el); NbWeb.statusPill?.tick(); }));
+                    await Promise.all(blocks.map(async el => { try { await _loadNavBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
@@ -2097,8 +2098,9 @@
                 html:   text => `<div class="nb-front-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-front-block')];
+                    if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    await Promise.all(blocks.map(async el => { await _loadFrontBlock(el); NbWeb.statusPill?.tick(); }));
+                    await Promise.all(blocks.map(async el => { try { await _loadFrontBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
@@ -2106,8 +2108,9 @@
                 html:   text => `<div class="nb-t-block" data-period="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-t-block')];
+                    if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    await Promise.all(blocks.map(async el => { await _loadTBlock(el); NbWeb.statusPill?.tick(); }));
+                    await Promise.all(blocks.map(async el => { try { await _loadTBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
@@ -2115,8 +2118,9 @@
                 html:   text => `<div class="nb-nb-block" data-cmd="${text.trim().toLowerCase().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-nb-block')];
+                    if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    await Promise.all(blocks.map(async el => { await _loadNbBlock(el); NbWeb.statusPill?.tick(); }));
+                    await Promise.all(blocks.map(async el => { try { await _loadNbBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
@@ -2124,8 +2128,9 @@
                 html:   text => `<div class="nb-git-block" data-cmd="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-git-block')];
+                    if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    await Promise.all(blocks.map(async el => { await _loadGitBlock(el); NbWeb.statusPill?.tick(); }));
+                    await Promise.all(blocks.map(async el => { try { await _loadGitBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
@@ -2146,8 +2151,9 @@
                         } catch (e) {
                             console.error('[tui] _createInlineTerm threw:', e);
                             el.innerHTML = `<div style="padding:8px;color:var(--red,#ef4444);font-size:12px">⚠ tui error: ${_esc(String(e))}</div>`;
+                        } finally {
+                            NbWeb.statusPill?.tick();
                         }
-                        NbWeb.statusPill?.tick();
                     }
                 },
             },
@@ -2168,8 +2174,8 @@
                         : new Map();
 
                     await Promise.all(blocks.map(async el => {
-                        await _loadTestBlock(el, batchMap);
-                        NbWeb.statusPill?.tick();
+                        try { await _loadTestBlock(el, batchMap); }
+                        finally { NbWeb.statusPill?.tick(); }
                     }));
                     container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
                 },
