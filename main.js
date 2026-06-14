@@ -6275,7 +6275,7 @@ const NbDialog = (() => {
         reasonInput.className = 'nb-rename-input';
         reasonInput.style.flex = '1';
         reasonInput.placeholder = 'Reason (optional)…';
-        reasonInput.value = isLocked ? lockReason : '';
+        reasonInput.value = lockReason;  // preserved across lock/unlock cycles
         const reasonRow = _row('Reason:', reasonInput);
 
         const lockBtn = document.createElement('button');

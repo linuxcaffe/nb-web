@@ -2768,7 +2768,7 @@ def _list_notes(notebook, folder, limit):
                 'id': '', 'filename': fname, 'title': fname,
                 'selector': f"{notebook}:{folder + '/' if folder else ''}{fname}/",
                 'excerpt': '', 'updated': '',
-                'locked': (fpath / '.nb-unlock').exists(),
+                'locked': (fpath / '.nb-lock').exists(),
             })
             continue
         itype = classify(fname, notebook)
@@ -3322,7 +3322,7 @@ def _read_annotation(note_path: str) -> str | None:
     return None
 
 def _find_nb_lock(path) -> 'Path | None':
-    """Walk up from path (file or dir) to notebook root; return first .nb-unlock found, or None."""
+    """Walk up from path (file or dir) to notebook root; return first .nb-lock found, or None."""
     p = Path(path)
     if p.is_file():
         p = p.parent
@@ -3335,7 +3335,7 @@ def _find_nb_lock(path) -> 'Path | None':
         return None
     cur = p
     while True:
-        lk = cur / '.nb-unlock'
+        lk = cur / '.nb-lock'
         if lk.exists():
             return lk
         if cur == nb_root:
@@ -5262,7 +5262,7 @@ def api_nb_notebooks():
                 'website': website,
                 'cine': cine,
                 'hledger': hledger,
-                'locked': (entry / '.nb-unlock').exists(),
+                'locked': (entry / '.nb-lock').exists(),
             })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
@@ -5653,7 +5653,7 @@ def api_nb_notebook_detail():
     nb_prefs = cfg.get('notebook_prefs', {}).get(notebook, {})
     default_remote = cfg.get('default_git_remote', '').strip()
 
-    lk_path = nb_path / '.nb-unlock'
+    lk_path = nb_path / '.nb-lock'
     nb_locked = lk_path.exists()
     nb_lock_reason = lk_path.read_text(errors='replace').strip() or None if nb_locked else None
 
@@ -6810,10 +6810,12 @@ def api_folder_lock():
         folder_path = _folder_selector_to_dir(selector)
         if not folder_path:
             return jsonify({'error': 'folder not found'}), 404
-        lk = folder_path / '.nb-unlock'
+        lk = folder_path / '.nb-lock'
+        ul = folder_path / '.nb-unlock'
         if lk.exists():
-            reason = lk.read_text(errors='replace').strip()
-            return jsonify({'locked': True, 'reason': reason or None})
+            return jsonify({'locked': True,  'reason': lk.read_text(errors='replace').strip() or None})
+        if ul.exists():
+            return jsonify({'locked': False, 'reason': ul.read_text(errors='replace').strip() or None})
         return jsonify({'locked': False, 'reason': None})
 
     data     = request.get_json() or {}
@@ -6823,14 +6825,21 @@ def api_folder_lock():
     folder_path = _folder_selector_to_dir(selector)
     if not folder_path:
         return jsonify({'error': 'folder not found'}), 404
-    lk = folder_path / '.nb-unlock'
+    lk = folder_path / '.nb-lock'
+    ul = folder_path / '.nb-unlock'
     if request.method == 'POST':
         reason = data.get('reason', '').strip()
-        lk.write_text(reason + '\n' if reason else '')
+        content = reason + '\n' if reason else ''
+        if ul.exists():
+            ul.rename(lk)          # .nb-unlock → .nb-lock (preserve existing content)
+            if reason:             # only overwrite if a new reason was supplied
+                lk.write_text(content)
+        else:
+            lk.write_text(content)
         return jsonify({'ok': True})
     else:
         if lk.exists():
-            lk.unlink()
+            lk.rename(ul)          # .nb-lock → .nb-unlock (preserve reason for next time)
         return jsonify({'ok': True})
 
 
@@ -6840,24 +6849,33 @@ def api_nb_lock():
         notebook = request.args.get('notebook', '').strip()
         if not notebook or not _safe_notebook(notebook):
             return jsonify({'error': 'notebook required'}), 400
-        lk = nb_dir_for(notebook) / '.nb-unlock'
+        lk = nb_dir_for(notebook) / '.nb-lock'
+        ul = nb_dir_for(notebook) / '.nb-unlock'
         if lk.exists():
-            reason = lk.read_text(errors='replace').strip()
-            return jsonify({'locked': True, 'reason': reason or None})
+            return jsonify({'locked': True,  'reason': lk.read_text(errors='replace').strip() or None})
+        if ul.exists():
+            return jsonify({'locked': False, 'reason': ul.read_text(errors='replace').strip() or None})
         return jsonify({'locked': False, 'reason': None})
 
     data     = request.get_json() or {}
     notebook = data.get('notebook', '').strip()
     if not notebook or not _safe_notebook(notebook):
         return jsonify({'error': 'notebook required'}), 400
-    lk = nb_dir_for(notebook) / '.nb-unlock'
+    lk = nb_dir_for(notebook) / '.nb-lock'
+    ul = nb_dir_for(notebook) / '.nb-unlock'
     if request.method == 'POST':
         reason = data.get('reason', '').strip()
-        lk.write_text(reason + '\n' if reason else '')
+        content = reason + '\n' if reason else ''
+        if ul.exists():
+            ul.rename(lk)
+            if reason:
+                lk.write_text(content)
+        else:
+            lk.write_text(content)
         return jsonify({'ok': True})
     else:
         if lk.exists():
-            lk.unlink()
+            lk.rename(ul)
         return jsonify({'ok': True})
 
 
