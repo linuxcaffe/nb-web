@@ -1524,8 +1524,13 @@ NbWeb.registerModule('hledger', {
             lang: 'chart',
             html: text => `<div class="nb-chart-block" data-query="${text.trim().replace(/"/g, '&quot;')}"><div class="nb-chart-loading">Loading chart…</div></div>`,
             render: async container => {
-                const blocks = container.querySelectorAll('.nb-chart-block[data-query]');
-                for (const el of blocks) await _loadChartBlock(el);
+                const blocks = [...container.querySelectorAll('.nb-chart-block[data-query]')];
+                if (!blocks.length) return;
+                NbWeb.statusPill?.add(blocks.length);
+                for (const el of blocks) {
+                    await _loadChartBlock(el);
+                    NbWeb.statusPill?.tick();
+                }
             },
         },
     ],
