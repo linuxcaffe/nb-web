@@ -1941,8 +1941,11 @@ const NbMain = (() => {
     }
 
     async function _enrichXref(container, note) {
-        const targetNb = String(note.meta?.xref || '').trim();
-        if (!targetNb) return;
+        // xref: accepts a string ("hledger:") or list (["hledger:", "accts:tutorial/"])
+        const xrefRaw = note.meta?.xref;
+        const targets = (Array.isArray(xrefRaw) ? xrefRaw : [xrefRaw])
+            .map(t => String(t || '').trim()).filter(Boolean);
+        if (!targets.length) return;
 
         const ignoreRaw = note.meta?.['xref-ignore'];
         const ignoreSet = new Set(
@@ -1975,14 +1978,25 @@ const NbMain = (() => {
         }
         if (!wordToStem.size) return;
 
-        const stems = [...new Set(wordToStem.values())];
-        let matchMap;
-        try {
-            const r = await fetch(`/api/xref?notebook=${encodeURIComponent(targetNb)}&stems=${encodeURIComponent(stems.join(','))}`);
-            if (!r.ok) return;
-            matchMap = await r.json();
-            if (matchMap.error) return;
-        } catch { return; }
+        const stems    = [...new Set(wordToStem.values())];
+        const stemsEnc = encodeURIComponent(stems.join(','));
+        // Parallel-fetch all targets, merge into one matchMap keyed by stem
+        const matchMap = {};
+        await Promise.all(targets.map(async target => {
+            try {
+                const r = await fetch(`/api/xref?target=${encodeURIComponent(target)}&stems=${stemsEnc}`);
+                if (!r.ok) return;
+                const d = await r.json();
+                if (d.error) return;
+                for (const [stem, refs] of Object.entries(d)) {
+                    if (!matchMap[stem]) matchMap[stem] = [];
+                    for (const ref of refs) {
+                        if (!matchMap[stem].some(x => x.selector === ref.selector))
+                            matchMap[stem].push(ref);
+                    }
+                }
+            } catch { /* skip failed target */ }
+        }));
         if (!Object.keys(matchMap).length) return;
 
         // Assign sequential reference numbers per unique target selector

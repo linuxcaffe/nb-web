@@ -1027,11 +1027,10 @@ def _stem_xref(word: str) -> str:
             return w[:-len(suf)] + rep
     return w
 
-def _build_xref_index(notebook: str) -> dict:
+def _build_xref_index(scan_dir: Path, notebook: str) -> dict:
     """Build inverted index: stem → [{selector, title}] from titles + annotation free text."""
-    nb_dir = NB_DIR / notebook
     index: dict = {}
-    for fpath in sorted(nb_dir.glob('*.md')):
+    for fpath in sorted(scan_dir.glob('*.md')):
         if fpath.name.startswith('.'):
             continue
         try:
@@ -1042,7 +1041,7 @@ def _build_xref_index(notebook: str) -> dict:
         title = meta.get('title') or note_title(fpath.name, body)
         if not title:
             continue
-        sel   = f'{notebook}:{fpath.name}'
+        sel   = f'{notebook}:{fpath.relative_to(NB_DIR / notebook)}'
         entry = {'selector': sel, 'title': title}
         texts = [title]
         ann   = _annotation_path(str(fpath))
@@ -1064,23 +1063,29 @@ def _build_xref_index(notebook: str) -> dict:
 
 @app.route('/api/xref')
 def api_xref():
-    """Cross-reference lookup: for a set of stems, return matching notes in target notebook.
+    """Cross-reference lookup: for a set of stems, return matching notes in a target.
+    target param: 'hledger:' (whole notebook) or 'accts:tutorial/' (folder).
     Uses prefix matching (min 5 chars) for fuzzy plural/conjugation handling."""
-    notebook  = request.args.get('notebook', '').strip()
+    target    = request.args.get('target', '').strip()
     stems_raw = request.args.get('stems', '').strip()
-    if not notebook or not stems_raw:
-        return jsonify({'error': 'notebook and stems required'}), 400
-    nb_dir = NB_DIR / notebook
-    if not nb_dir.is_dir():
-        return jsonify({'error': 'notebook not found'}), 404
+    if not target or not stems_raw:
+        return jsonify({'error': 'target and stems required'}), 400
+    # Parse "notebook:" or "notebook:folder/" or "notebook:/folder/"
+    notebook, _, folder = target.partition(':')
+    notebook = notebook.strip()
+    folder   = folder.strip().lstrip('/')
+    nb_dir   = NB_DIR / notebook
+    scan_dir = (nb_dir / folder) if folder else nb_dir
+    if not scan_dir.is_dir():
+        return jsonify({'error': f'target {target!r} not found'}), 404
     try:
-        dir_mtime = nb_dir.stat().st_mtime
+        dir_mtime = scan_dir.stat().st_mtime
     except OSError:
         dir_mtime = 0.0
-    cached = _xref_cache.get(notebook)
+    cached = _xref_cache.get(target)
     if not cached or cached['mtime'] != dir_mtime:
-        _xref_cache[notebook] = {'mtime': dir_mtime, 'index': _build_xref_index(notebook)}
-    index = _xref_cache[notebook]['index']
+        _xref_cache[target] = {'mtime': dir_mtime, 'index': _build_xref_index(scan_dir, notebook)}
+    index = _xref_cache[target]['index']
     query_stems = [s for s in stems_raw.split(',') if s]
     result = {}
     for qs in query_stems:
