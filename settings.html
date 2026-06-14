@@ -272,6 +272,15 @@
     </label>
     <p class="hint">Show folders above notes in the list. Default: on.</p>
   </div>
+  <div class="field">
+    <label>Render progress bar</label>
+    <div class="row" style="gap:6px;flex-wrap:wrap">
+      <button class="theme-btn" id="rb-auto">Auto</button>
+      <button class="theme-btn" id="rb-always">Always</button>
+      <button class="theme-btn" id="rb-never">Never</button>
+    </div>
+    <p class="hint">Amber progress strip shown above the preview while inline includes are fetching. <strong>Auto</strong> shows it only when 5+ includes are pending. <strong>Always</strong> shows it for any render. <strong>Never</strong> disables it.</p>
+  </div>
 </section>
 
 <!-- ── Codeblocks ────────────────────────────────────────────────── -->
@@ -519,6 +528,30 @@
       try { window.parent.NbMain?.setFoldersFirst(val); } catch {}
       localStorage.setItem('nb-folders-first', val);
     });
+  })();
+
+  // ── Render bar ────────────────────────────────────────────────
+  (function() {
+    const KEY = 'nbRenderBar';
+    const btns = { auto: document.getElementById('rb-auto'),
+                   always: document.getElementById('rb-always'),
+                   never:  document.getElementById('rb-never') };
+    function _getRB() {
+      try { return window.parent.localStorage.getItem(KEY) || 'auto'; }
+      catch { return localStorage.getItem(KEY) || 'auto'; }
+    }
+    function _setRB(val) {
+      try { window.parent.localStorage.setItem(KEY, val); } catch {}
+      localStorage.setItem(KEY, val);
+      _updateRBBtns(val);
+    }
+    function _updateRBBtns(val) {
+      Object.entries(btns).forEach(([k, el]) => el.classList.toggle('active', k === val));
+    }
+    _updateRBBtns(_getRB());
+    btns.auto.addEventListener('click',   () => _setRB('auto'));
+    btns.always.addEventListener('click', () => _setRB('always'));
+    btns.never.addEventListener('click',  () => _setRB('never'));
   })();
 
   // ── Load nb-web settings ──────────────────────────────────────

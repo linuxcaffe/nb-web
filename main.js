@@ -34,6 +34,106 @@ const NbMain = (() => {
     let _encPassword    = null;   // session-level openssl password for encrypted notes
     let _encPendingEdit = false;  // open editor immediately after next successful unlock
 
+    // Chrome-level render progress bar — thin amber strip between toolbar and content.
+    // Setting key 'nbRenderBar': 'auto' (default, show when n≥5 inlines), 'always', 'never'.
+    const _RenderBar = (() => {
+        let _total = 0, _pending = 0, _el = null, _fill = null, _fadeTimer = null;
+
+        function _getEl() {
+            if (_el) return _el;
+            _el   = document.createElement('div');
+            _el.id = 'nb-render-bar';
+            _fill = document.createElement('div');
+            _fill.id = 'nb-render-bar-fill';
+            _el.appendChild(_fill);
+            document.getElementById('nb-preview-toolbar')?.after(_el);
+            return _el;
+        }
+
+        function _setting() { return localStorage.getItem('nbRenderBar') || 'auto'; }
+
+        function start(n) {
+            const s = _setting();
+            if (s === 'never') return;
+            if (s === 'auto' && n < 5) return;
+            clearTimeout(_fadeTimer);
+            _total = n; _pending = n;
+            const bar = _getEl();
+            bar.classList.remove('nb-rb-fading', 'nb-rb-done');
+            bar.classList.add('nb-rb-active');
+            if (_fill) _fill.style.width = '0%';
+        }
+
+        function tick() {
+            if (!_el?.classList.contains('nb-rb-active')) return;
+            _pending = Math.max(0, _pending - 1);
+            if (_fill) _fill.style.width =
+                (_total > 0 ? ((_total - _pending) / _total) * 100 : 100) + '%';
+        }
+
+        function done() {
+            if (!_el?.classList.contains('nb-rb-active')) return;
+            if (_fill) _fill.style.width = '100%';
+            _el.classList.add('nb-rb-done');
+            _fadeTimer = setTimeout(() => {
+                _el?.classList.add('nb-rb-fading');
+                setTimeout(() => {
+                    _el?.classList.remove('nb-rb-active', 'nb-rb-done', 'nb-rb-fading');
+                }, 500);
+            }, 400);
+        }
+
+        return { start, tick, done };
+    })();
+
+    // Generic async-work counter — every render path calls add(n) to register work
+    // and tick() as each item completes, regardless of type (inline includes, test
+    // blocks, codeblock renderers, etc.).  Pill shows ⟳ N while anything is pending,
+    // flashes ✓ on completion, then hides.  Click forces all pending lazy spans to load.
+    const _StatusPill = (() => {
+        let _pending = 0, _el = null, _doneTimer = null;
+        const _forceCallbacks = [];
+
+        function _getEl() {
+            if (_el) return _el;
+            _el = document.createElement('span');
+            _el.id = 'nb-render-pill';
+            _el.hidden = true;
+            _el.title = 'Rendering in progress — click to load everything now';
+            _el.style.cursor = 'pointer';
+            _el.addEventListener('click', () => { _forceCallbacks.splice(0).forEach(fn => fn()); });
+            document.querySelector('.nb-toolbar-left')?.append(_el);
+            return _el;
+        }
+
+        function _update() {
+            const el = _getEl();
+            clearTimeout(_doneTimer);
+            if (_pending > 0) {
+                el.className = '';
+                el.textContent = `⟳ ${_pending}`;
+                el.hidden = false;
+            } else {
+                el.textContent = '✓';
+                el.className = 'nb-rp-done';
+                _doneTimer = setTimeout(() => {
+                    if (_el) { _el.hidden = true; _el.className = ''; }
+                }, 1400);
+            }
+        }
+
+        function add(n) { if (n > 0) { _pending += n; _update(); } }
+
+        function tick() { _pending = Math.max(0, _pending - 1); _update(); }
+
+        function registerForce(fn) { _forceCallbacks.push(fn); }
+
+        return { add, tick, registerForce };
+    })();
+
+    // Expose so codeblock renderers (loaded after this module) can call add/tick
+    NbWeb.statusPill = _StatusPill;
+
     function _setKbPane(pane) {
         _kbPane = pane;
         document.getElementById('nb-list-pane')?.classList.toggle('kb-focus',    pane === 'list');
@@ -837,6 +937,7 @@ const NbMain = (() => {
 
         const nb = note?.notebook || NbNav.notebook;
         const inlineSpans = [];
+        let nonInlineCount = 0;
         for (const span of spans) {
             const { provider, query } = span.dataset;
             if (provider === 'inline') {
@@ -844,6 +945,7 @@ const NbMain = (() => {
                 continue;
             }
             // Non-inline queries are cheap single-value lookups — fire in parallel
+            nonInlineCount++;
             fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`)
                 .then(r => r.json())
                 .then(d => {
@@ -855,28 +957,34 @@ const NbMain = (() => {
                         span.textContent = d.result;
                         span.classList.add('nb-iq-done');
                     }
+                    _StatusPill.tick();
                 })
                 .catch(() => {
                     span.textContent = `{{${provider}: ${query}}}`;
                     span.classList.add('nb-iq-error');
+                    _StatusPill.tick();
                 });
         }
+        if (nonInlineCount > 0) _StatusPill.add(nonInlineCount);
 
         // Inline includes: eager ones (near viewport) resolve sequentially top-to-bottom;
         // lazy ones (below fold) are deferred to an IntersectionObserver and resolve
         // independently as the user scrolls.  nb-inlines-settled fires after the eager
         // sequence so the TOC builds from above-fold content without waiting for the rest.
         if (inlineSpans.length) {
+            _RenderBar.start(inlineSpans.length);
+            _StatusPill.add(inlineSpans.length);
             const _pane = document.getElementById('nb-preview-content');
             (async () => {
                 for (const span of inlineSpans) {
                     if (_isNearViewport(span, _pane)) {
                         await _resolveInlineInclude(span, span.dataset.query, note);
                     } else {
-                        _deferInlineInclude(span, note, _pane);
+                        _deferInlineInclude(span, note, _pane, container);
                     }
                 }
                 container.dispatchEvent(new CustomEvent('nb-inlines-settled', { bubbles: false }));
+                _RenderBar.done();
             })();
         }
     }
@@ -924,16 +1032,8 @@ const NbMain = (() => {
             err.title = String(e);
             span.replaceWith(err);
         } finally {
-            // Update rendering notice with actual remaining span count (accurate
-            // regardless of order — spans are replaced as each include resolves)
-            const notice = rendered?.querySelector('.nb-rendering-notice');
-            if (notice) {
-                const rem = rendered.querySelectorAll(
-                    '.nb-inline-query[data-provider="inline"]').length;
-                const cntEl = notice.querySelector('.nb-rn-count');
-                if (cntEl) cntEl.textContent = rem;
-                if (rem === 0) notice.remove();
-            }
+            _RenderBar.tick();
+            _StatusPill.tick();
         }
     }
 
@@ -950,13 +1050,24 @@ const NbMain = (() => {
     // Set up an IntersectionObserver on a lazy inline-include span.  Fires
     // _resolveInlineInclude exactly once when the span scrolls within 500px of the
     // scrollRoot's edge.  The span remains as a ⋯ placeholder until then.
-    function _deferInlineInclude(span, note, scrollRoot) {
-        const io = new IntersectionObserver((entries, observer) => {
+    function _deferInlineInclude(span, note, scrollRoot, container) {
+        let fired = false;
+        let io;
+        const load = () => {
+            if (fired) return;
+            fired = true;
+            io?.disconnect();
+            _resolveInlineInclude(span, span.dataset.query, note).then(() => {
+                if (container) _scheduleTocRebuild(container, note);
+            });
+        };
+        io = new IntersectionObserver((entries, observer) => {
             if (!entries[0]?.isIntersecting) return;
             observer.disconnect();
-            _resolveInlineInclude(span, span.dataset.query, note);
+            load();
         }, { root: scrollRoot ?? null, rootMargin: '500px' });
         io.observe(span);
+        _StatusPill.registerForce(load);
     }
 
     // Synchronously prepend a rendering notice when a note has many inline includes
@@ -985,7 +1096,6 @@ const NbMain = (() => {
 
     function _enrichRendered(container, note) {
         _resolveInlineQueries(container, note);
-        _injectRenderingNotice(container, note);   // sync, spans exist, no fetch yet
         _renderCsvBlocks(container);
         NbWeb.renderCodeblocks(container);
         if (typeof Prism !== 'undefined') {
@@ -1157,41 +1267,40 @@ const NbMain = (() => {
             _buildToc(container, note);
             _watchInlineTocRebuild(container, note);
         }
-        // Remove rendering notice once tests settle (fallback for size-only case and
-        // any race where the include countdown didn't reach zero)
-        container.addEventListener('nb-tests-settled', () => {
-            container.querySelector('.nb-rendering-notice')?.remove();
-        }, { once: true });
         _appendAnnotation(container, note);
     }
 
-    // Rebuild the TOC once all async content has landed.
+    // Debounced TOC rebuild — safe to call multiple times (lazy chapter loads call it
+    // repeatedly; the 400 ms window collapses bursts into a single rebuild).
+    function _scheduleTocRebuild(container, note) {
+        clearTimeout(container._tocRebuildTimer);
+        container._tocRebuildTimer = setTimeout(() => {
+            if (!container.querySelector('.nb-rendered')) return;
+            container.querySelector('.nb-toc')?.remove();
+            _buildToc(container, note);
+        }, 400);
+    }
+
+    // Listen for the completion signals and schedule a TOC rebuild.
     //
-    // Two signals, only one fires the rebuild (rebuilt flag prevents double):
-    //   nb-inlines-settled — dispatched by _resolveInlineQueries after the last
-    //     sequential inline include completes; used when the note has inline includes
-    //   nb-tests-settled   — dispatched by the test renderer; used for toc:true notes
-    //     that have no inline includes (test headings are the only dynamic content)
+    //   nb-inlines-settled — fired by _resolveInlineQueries after the eager sequential
+    //     loop finishes; lazy chapters each call _scheduleTocRebuild directly via
+    //     _deferInlineInclude so the TOC stays current as the user scrolls.
+    //   nb-tests-settled   — fallback for toc:true notes with no inline includes.
     //
-    // The MutationObserver approach was replaced because it debounced 500 ms on every
-    // DOM mutation, fired multiple times per render, and required fragile disconnection.
+    // The MutationObserver approach was replaced because it debounced on every DOM
+    // mutation, fired multiple times per render, and caused a CPU-loop bug.
     function _watchInlineTocRebuild(container, note) {
         if (!container.querySelector('.nb-rendered')) return;
 
-        let rebuilt = false;
-        const rebuild = () => {
-            if (rebuilt) return;
-            rebuilt = true;
-            container.querySelector('.nb-toc')?.remove();
-            _buildToc(container, note);
-        };
-
         if (container.querySelector('.nb-inline-query[data-provider="inline"]')) {
-            // Inline includes present — rebuild after all chapters land
-            container.addEventListener('nb-inlines-settled', rebuild, { once: true });
+            container.addEventListener('nb-inlines-settled', () => {
+                _scheduleTocRebuild(container, note);
+            }, { once: true });
         } else {
-            // No inlines — rebuild when test blocks settle
-            container.addEventListener('nb-tests-settled', rebuild, { once: true });
+            container.addEventListener('nb-tests-settled', () => {
+                _scheduleTocRebuild(container, note);
+            }, { once: true });
         }
     }
 

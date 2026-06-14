@@ -1821,10 +1821,12 @@
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-tw-block')];
                     if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
                     const w = await NbWeb.checkWhich('task');
-                    await Promise.all(blocks.map(el =>
-                        w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md')
-                    ));
+                    await Promise.all(blocks.map(async el => {
+                        await (w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md'));
+                        NbWeb.statusPill?.tick();
+                    }));
                 },
             },
             {
@@ -1833,42 +1835,66 @@
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-hl-block')];
                     if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
                     const w = await NbWeb.checkWhich('hledger');
-                    await Promise.all(blocks.map(el =>
-                        w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md')
-                    ));
+                    await Promise.all(blocks.map(async el => {
+                        await (w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md'));
+                        NbWeb.statusPill?.tick();
+                    }));
                 },
             },
             {
                 lang:   'nav',
                 html:   text => `<div class="nb-nav-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { await Promise.all([...container.querySelectorAll('.nb-nav-block')].map(el => _loadNavBlock(el))); },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-nav-block')];
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { await _loadNavBlock(el); NbWeb.statusPill?.tick(); }));
+                },
             },
             {
                 lang:   'front',
                 html:   text => `<div class="nb-front-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { await Promise.all([...container.querySelectorAll('.nb-front-block')].map(el => _loadFrontBlock(el))); },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-front-block')];
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { await _loadFrontBlock(el); NbWeb.statusPill?.tick(); }));
+                },
             },
             {
                 lang:   't',
                 html:   text => `<div class="nb-t-block" data-period="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { await Promise.all([...container.querySelectorAll('.nb-t-block')].map(el => _loadTBlock(el))); },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-t-block')];
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { await _loadTBlock(el); NbWeb.statusPill?.tick(); }));
+                },
             },
             {
                 lang:   'nb',
                 html:   text => `<div class="nb-nb-block" data-cmd="${text.trim().toLowerCase().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { await Promise.all([...container.querySelectorAll('.nb-nb-block')].map(el => _loadNbBlock(el))); },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-nb-block')];
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { await _loadNbBlock(el); NbWeb.statusPill?.tick(); }));
+                },
             },
             {
                 lang:   'git',
                 html:   text => `<div class="nb-git-block" data-cmd="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                render: async container => { await Promise.all([...container.querySelectorAll('.nb-git-block')].map(el => _loadGitBlock(el))); },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-git-block')];
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { await _loadGitBlock(el); NbWeb.statusPill?.tick(); }));
+                },
             },
             {
                 lang:   'test',
                 html:   text => `<div class="nb-test-block" data-query="${text.trim().replace(/"/g,'&quot;')}"></div>`,
                 render: async container => {
-                    await Promise.all([...container.querySelectorAll('.nb-test-block')].map(el => _loadTestBlock(el)));
+                    const blocks = [...container.querySelectorAll('.nb-test-block')];
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { await _loadTestBlock(el); NbWeb.statusPill?.tick(); }));
                     container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
                 },
             },

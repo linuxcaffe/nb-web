@@ -981,17 +981,46 @@ body {
 .nb-include-link:hover { text-decoration: underline; opacity: 0.85; }
 .nb-include-missing { opacity: 0.45; cursor: not-allowed; text-decoration: line-through; }
 
-/* ── note-slow rendering notice ───────────────────────────────── */
-.nb-rendering-notice {
-    display: inline-flex; align-items: center; gap: 0.35em;
-    padding: 0.25em 0.8em; margin-bottom: 0.75em;
-    border-radius: 4px;
+/* ── chrome render progress bar ────────────────────────────────── */
+#nb-render-bar {
+    display: none;
+    height: 3px;
+    background: var(--alert-bg);
+    position: relative;
+    flex-shrink: 0;
+}
+#nb-render-bar.nb-rb-active { display: block; }
+#nb-render-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--alert);
+    transition: width 0.25s ease-out;
+    border-radius: 0 2px 2px 0;
+}
+#nb-render-bar.nb-rb-done #nb-render-bar-fill { background: var(--green, #4caf50); }
+#nb-render-bar.nb-rb-fading { opacity: 0; transition: opacity 0.5s ease-out; }
+
+/* ── toolbar render-status pill ──────────────────────────────────
+   Counts down all pending inline includes (eager + lazy).         */
+#nb-render-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 0.75em;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
     background: var(--alert-bg);
     border: 1px solid var(--alert-border);
-    font-size: 0.85em; line-height: 1.5;
+    color: var(--alert);
+    white-space: nowrap;
+    transition: opacity 0.4s;
 }
-.nb-rendering-notice .nb-rn-label { color: var(--alert); font-weight: 600; }
-.nb-rendering-notice .nb-rn-rest  { color: var(--text-muted); }
+#nb-render-pill.nb-rp-done {
+    color: var(--green, #4caf50);
+    background: rgba(76, 175, 80, 0.12);
+    border-color: rgba(76, 175, 80, 0.38);
+}
 
 /* ── jspreadsheet + jsuites dark-mode overrides ─────────────────
    Scoped to both standalone sheets and embedded csv blocks        */
