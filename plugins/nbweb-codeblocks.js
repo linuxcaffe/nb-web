@@ -2062,11 +2062,13 @@
                     const blocks = [...container.querySelectorAll('.nb-tw-block')];
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    const w = await NbWeb.checkWhich('task');
-                    await Promise.all(blocks.map(async el => {
-                        try { await (w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md')); }
-                        finally { NbWeb.statusPill?.tick(); }
-                    }));
+                    try {
+                        const w = await NbWeb.checkWhich('task');
+                        await Promise.all(blocks.map(async el => {
+                            try { await (w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md')); }
+                            finally { NbWeb.statusPill?.tick(); }
+                        }));
+                    } catch { blocks.forEach(() => NbWeb.statusPill?.tick()); }
                 },
             },
             {
@@ -2076,11 +2078,13 @@
                     const blocks = [...container.querySelectorAll('.nb-hl-block')];
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
-                    const w = await NbWeb.checkWhich('hledger');
-                    await Promise.all(blocks.map(async el => {
-                        try { await (w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md')); }
-                        finally { NbWeb.statusPill?.tick(); }
-                    }));
+                    try {
+                        const w = await NbWeb.checkWhich('hledger');
+                        await Promise.all(blocks.map(async el => {
+                            try { await (w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md')); }
+                            finally { NbWeb.statusPill?.tick(); }
+                        }));
+                    } catch { blocks.forEach(() => NbWeb.statusPill?.tick()); }
                 },
             },
             {
