@@ -978,6 +978,13 @@ body {
     opacity: 0.45;
 }
 
+.nb-xref-ref {
+    font-size: 0.6em; font-weight: normal; font-family: var(--font-mono, monospace);
+    color: var(--link); opacity: 0.5; cursor: pointer;
+    margin-left: 1px; vertical-align: super; line-height: 1; user-select: none;
+}
+.nb-xref-ref:hover { opacity: 1; }
+
 .nb-inline-query { font-variant-numeric: tabular-nums;
                    color: var(--text-muted); font-style: italic; }
 .nb-iq-done  { color: inherit; font-style: normal; }

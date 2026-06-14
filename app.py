@@ -994,6 +994,110 @@ def api_render():
     return jsonify({'html': html})
 
 
+# ── Cross-reference infrastructure ───────────────────────────────────────────
+_xref_cache: dict = {}  # {notebook: {'mtime': float, 'index': dict}}
+
+_XREF_STOP = frozenset({
+    'a','an','the','and','or','but','in','on','at','to','for','of',
+    'with','by','from','as','is','was','are','were','be','been','being',
+    'have','has','had','do','does','did','will','would','could','should',
+    'may','might','shall','can','into','through','during','before',
+    'after','above','below','between','each','all','both','few','more',
+    'most','other','some','such','no','not','only','same','so','than',
+    'too','very','just','also','that','this','these','those','its','it',
+    'we','you','he','she','they','them','their','our','your','his','her',
+    'what','which','who','when','where','why','how','if','then',
+    'use','using','used','file','files','note','notes','see','about',
+})
+
+_STEM_RULES_XREF = [
+    ('ations',''), ('ation',''), ('ings',''),  ('ing',''),
+    ('ions',''),   ('ion',''),   ('ments',''), ('ment',''),
+    ('ness',''),   ('ities',''), ('ity',''),   ('ies','y'),
+    ('ves','f'),   ('ed',''),    ('ly',''),    ('er',''),
+    ('es',''),     ('s',''),
+]
+
+def _stem_xref(word: str) -> str:
+    w = re.sub(r'[^a-z0-9]', '', word.lower())
+    if len(w) < 4:
+        return w
+    for suf, rep in _STEM_RULES_XREF:
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[:-len(suf)] + rep
+    return w
+
+def _build_xref_index(notebook: str) -> dict:
+    """Build inverted index: stem → [{selector, title}] from titles + annotation free text."""
+    nb_dir = NB_DIR / notebook
+    index: dict = {}
+    for fpath in sorted(nb_dir.glob('*.md')):
+        if fpath.name.startswith('.'):
+            continue
+        try:
+            raw = fpath.read_text(errors='replace')
+        except OSError:
+            continue
+        meta, body = parse_frontmatter(raw)
+        title = meta.get('title') or note_title(fpath.name, body)
+        if not title:
+            continue
+        sel   = f'{notebook}:{fpath.name}'
+        entry = {'selector': sel, 'title': title}
+        texts = [title]
+        ann   = _annotation_path(str(fpath))
+        if ann.exists():
+            try:
+                texts.append(ann.read_text(errors='replace'))
+            except OSError:
+                pass
+        stems_seen: set = set()
+        for text in texts:
+            for word in re.findall(r'[a-zA-Z][a-zA-Z0-9-]*', text):
+                stem = _stem_xref(word)
+                if not stem or len(stem) < 3 or stem in _XREF_STOP or stem in stems_seen:
+                    continue
+                stems_seen.add(stem)
+                index.setdefault(stem, []).append(entry)
+    return index
+
+
+@app.route('/api/xref')
+def api_xref():
+    """Cross-reference lookup: for a set of stems, return matching notes in target notebook.
+    Uses prefix matching (min 5 chars) for fuzzy plural/conjugation handling."""
+    notebook  = request.args.get('notebook', '').strip()
+    stems_raw = request.args.get('stems', '').strip()
+    if not notebook or not stems_raw:
+        return jsonify({'error': 'notebook and stems required'}), 400
+    nb_dir = NB_DIR / notebook
+    if not nb_dir.is_dir():
+        return jsonify({'error': 'notebook not found'}), 404
+    try:
+        dir_mtime = nb_dir.stat().st_mtime
+    except OSError:
+        dir_mtime = 0.0
+    cached = _xref_cache.get(notebook)
+    if not cached or cached['mtime'] != dir_mtime:
+        _xref_cache[notebook] = {'mtime': dir_mtime, 'index': _build_xref_index(notebook)}
+    index = _xref_cache[notebook]['index']
+    query_stems = [s for s in stems_raw.split(',') if s]
+    result = {}
+    for qs in query_stems:
+        seen:    set  = set()
+        matches: list = []
+        for idx_stem, entries in index.items():
+            plen = min(len(qs), len(idx_stem))
+            if plen >= 5 and (idx_stem.startswith(qs) or qs.startswith(idx_stem)):
+                for e in entries:
+                    if e['selector'] not in seen:
+                        seen.add(e['selector'])
+                        matches.append(e)
+        if matches:
+            result[qs] = matches
+    return jsonify(result)
+
+
 @app.route('/api/open', methods=['POST'])
 def api_open():
     """Open a file in the system's default desktop application (xdg-open)."""

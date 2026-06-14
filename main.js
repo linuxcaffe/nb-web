@@ -1371,6 +1371,7 @@ const NbMain = (() => {
             _watchInlineTocRebuild(container, note);
         }
         _appendAnnotation(container, note);
+        if (note?.meta?.xref) _enrichXref(container, note);
     }
 
     // If unloaded inline spans remain after a TOC build, mark the TOC as partial
@@ -1901,6 +1902,120 @@ const NbMain = (() => {
             } catch(e) { /* leave as-is */ }
             finally { if (needsTick) _StatusPill.tick(); }
         }));
+    }
+
+    // ── Cross-reference enrichment ────────────────────────────────────────────
+    // Triggered by frontmatter `xref: <notebook>`. Searches heading words against
+    // note titles (+ annotation free text) in the target notebook and injects
+    // small [N] reference indicators after matching words.
+    // Suppress specific words with `xref-ignore: [word, word]` in frontmatter.
+
+    const _XREF_STOP = new Set([
+        'a','an','the','and','or','but','in','on','at','to','for','of',
+        'with','by','from','as','is','was','are','were','be','been','being',
+        'have','has','had','do','does','did','will','would','could','should',
+        'may','might','shall','can','into','through','during','before',
+        'after','above','below','between','each','all','both','few','more',
+        'most','other','some','such','no','not','only','same','so','than',
+        'too','very','just','also','that','this','these','those','its','it',
+        'we','you','he','she','they','them','their','our','your','his','her',
+        'what','which','who','when','where','why','how','if','then',
+        'use','using','used','file','files','note','notes','see','about',
+    ]);
+
+    function _stemXref(word) {
+        let w = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (w.length < 4) return w;
+        const rules = [
+            ['ations',''],['ation',''],['ings',''], ['ing',''],
+            ['ions',''], ['ion',''], ['ments',''],['ment',''],
+            ['ness',''], ['ities',''],['ity',''], ['ies','y'],
+            ['ves','f'], ['ed',''],  ['ly',''],  ['er',''],
+            ['es',''],   ['s',''],
+        ];
+        for (const [suf, rep] of rules) {
+            if (w.endsWith(suf) && w.length - suf.length >= 3)
+                return w.slice(0, w.length - suf.length) + rep;
+        }
+        return w;
+    }
+
+    async function _enrichXref(container, note) {
+        const targetNb = String(note.meta?.xref || '').trim();
+        if (!targetNb) return;
+
+        const ignoreRaw = note.meta?.['xref-ignore'];
+        const ignoreSet = new Set(
+            (Array.isArray(ignoreRaw) ? ignoreRaw
+                : String(ignoreRaw || '').split(/[\s,]+/))
+                .map(w => w.toLowerCase().trim()).filter(Boolean)
+        );
+
+        const rendered  = container.querySelector('.nb-rendered') ?? container;
+        const headings  = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6')];
+        if (!headings.length) return;
+
+        // Build word → stem map from all heading text (skip stop/ignore/short words)
+        const wordToStem = new Map();
+        for (const h of headings) {
+            for (const raw of h.textContent.match(/[a-zA-Z][a-zA-Z0-9-]*/g) ?? []) {
+                const clean = raw.toLowerCase();
+                if (clean.length < 3 || _XREF_STOP.has(clean) || ignoreSet.has(clean)) continue;
+                const stem = _stemXref(clean);
+                if (stem && stem.length >= 3) wordToStem.set(clean, stem);
+            }
+        }
+        if (!wordToStem.size) return;
+
+        const stems = [...new Set(wordToStem.values())];
+        let matchMap;
+        try {
+            const r = await fetch(`/api/xref?notebook=${encodeURIComponent(targetNb)}&stems=${encodeURIComponent(stems.join(','))}`);
+            if (!r.ok) return;
+            matchMap = await r.json();
+            if (matchMap.error) return;
+        } catch { return; }
+        if (!Object.keys(matchMap).length) return;
+
+        // Assign sequential reference numbers per unique target selector
+        const refNums = new Map();
+        let refN = 0;
+        const getRef = sel => { if (!refNums.has(sel)) refNums.set(sel, ++refN); return refNums.get(sel); };
+
+        for (const h of headings) {
+            const walker = document.createTreeWalker(h, NodeFilter.SHOW_TEXT);
+            const textNodes = [];
+            let tn;
+            while ((tn = walker.nextNode())) {
+                if (!tn.parentElement?.closest('code,script')) textNodes.push(tn);
+            }
+            for (const textNode of textNodes) {
+                const text = textNode.textContent;
+                const frag = document.createDocumentFragment();
+                let lastIdx = 0, hasRef = false;
+                for (const m of text.matchAll(/[a-zA-Z][a-zA-Z0-9-]*/g)) {
+                    const stem = wordToStem.get(m[0].toLowerCase());
+                    const refs = stem ? matchMap[stem] : null;
+                    if (m.index > lastIdx) frag.appendChild(document.createTextNode(text.slice(lastIdx, m.index)));
+                    frag.appendChild(document.createTextNode(m[0]));
+                    if (refs?.length) {
+                        for (const ref of refs) {
+                            const sup = document.createElement('sup');
+                            sup.className       = 'nb-xref-ref';
+                            sup.title           = ref.title;
+                            sup.textContent     = `[${getRef(ref.selector)}]`;
+                            sup.dataset.xrefSel = ref.selector;
+                            sup.addEventListener('click', e => { e.stopPropagation(); NbMain.openNote(ref.selector); });
+                            frag.appendChild(sup);
+                            hasRef = true;
+                        }
+                    }
+                    lastIdx = m.index + m[0].length;
+                }
+                if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+                if (hasRef) textNode.replaceWith(frag);
+            }
+        }
     }
 
     // ── codeblock renderer dispatch — delegates to NbWeb plugin system ────────
