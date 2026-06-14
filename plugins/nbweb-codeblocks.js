@@ -1004,7 +1004,7 @@
         const nameTitle = !launch                ? 'Configure launch in Settings → Codeblocks'
                         : launch.terminal        ? 'Run in terminal'
                         :                          'Open in hledger-web';
-        hdr.innerHTML = `<span class="nb-hl-meta"><span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}</span>`;
+        hdr.innerHTML = `<span class="nb-hl-meta nb-collapse-zone"><span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}</span>`;
 
         const nameEl = hdr.querySelector('.nb-hl-name');
         nameEl.addEventListener('click', async () => {

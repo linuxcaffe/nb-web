@@ -34,6 +34,17 @@ Any `task` filter expression. Results render as an interactive table; click a ta
 
 Any hledger subcommand: `bal`, `reg`, `is`, `bs`, `cf`. Positive and negative amounts are coloured. The **+** button opens an inline journal entry form.
 
+Add `# collapsed` anywhere in the block content to render it folded by default — useful for embedding contextual blocks without dominating the page:
+
+````markdown
+```hledger
+balance expenses -p thismonth
+# collapsed
+```
+````
+
+> **Tip:** Click the **label/query area** (left side of the header bar) to toggle collapse — preferred over the small ▼ button.
+
 ### `t` — timeclock
 
 Shows clocked-in account, elapsed time, and a period report. Argument is a period expression (`today`, `thisweek`, `lastmonth`). The **⎋** button opens the full timeclock UI.
@@ -51,6 +62,55 @@ First word is a repo alias configured in `nb-settings.json` under `git_repos`. R
 ```json
 { "git_repos": { "nb-web": "~/dev/nb-web" } }
 ```
+
+### `tui` — inline terminal
+
+Spawns a full PTY terminal embedded in the note. The command runs immediately; click the terminal area to give it keyboard focus. Use `# height:N` to set pixel height (default 400).
+
+````markdown
+```tui
+htop
+# height:300
+```
+
+```tui
+hledger-ui
+```
+````
+
+The ↺ button in the terminal bar restarts the process. Navigating away closes the WebSocket and cleans up the process.
+
+### `test` — health checks and diagnostics
+
+Runs a script from `~/.nb/.test/` and displays its output as rendered markdown. Scripts follow two forms:
+
+- **Form 1 (button):** `script | Label` — renders a ▶ button; script runs on click
+- **Form 2 (auto-run):** `script` — runs automatically; silent on exit 0, shows output on exit 1
+
+````markdown
+```test
+hl-ok
+```
+
+```test
+hl-balances | Account balances
+```
+````
+
+#### Embedding live blocks in test output
+
+Because test output is passed through `NbMain.enrichRendered`, any fenced block in the script's stdout renders as a live codeblock — not static text. This enables coaching scripts that surface a ready-to-use widget alongside the warning:
+
+```bash
+# In a test script (exit 1 path):
+echo "No entries today — hit **+** to add a receipt:"
+echo '```hledger'
+echo "balance expenses -p thismonth"
+echo "# collapsed"
+echo '```'
+```
+
+The rendered output shows the warning text and a collapsed live hledger block with a working **+** button. The `# collapsed` directive keeps it tidy.
 
 ---
 
