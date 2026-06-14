@@ -855,17 +855,23 @@
             }
         }
 
-        // Clean up when the element leaves the DOM (note navigation)
+        // Clean up when the element leaves the DOM (note navigation).
+        // Observe #nb-preview-content directly — its innerHTML is replaced on
+        // every navigation, firing exactly one childList event. subtree:true on
+        // document.body would fire on every DOM mutation and lock up the browser.
         if (window.MutationObserver) {
-            const mo = new MutationObserver(() => {
-                if (!el.isConnected) {
-                    mo.disconnect();
-                    ro?.disconnect();
-                    try { ws?.close(); } catch(_) {}
-                    term?.dispose();
-                }
-            });
-            mo.observe(document.body, { childList: true, subtree: true });
+            const _watch = document.getElementById('nb-preview-content') || el.parentNode;
+            if (_watch) {
+                const mo = new MutationObserver(() => {
+                    if (!el.isConnected) {
+                        mo.disconnect();
+                        ro?.disconnect();
+                        try { ws?.close(); } catch(_) {}
+                        term?.dispose();
+                    }
+                });
+                mo.observe(_watch, { childList: true });
+            }
         }
 
         restartBtn.addEventListener('click', connect);
