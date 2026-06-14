@@ -969,6 +969,14 @@ body {
 .nb-toc li.nb-toc-h2 { padding-left: 0; }
 .nb-toc li.nb-toc-h3 { padding-left: 1.2em; }
 .nb-toc li.nb-toc-h4 { padding-left: 2.4em; }
+.nb-toc.nb-toc-partial::after {
+    content: '';
+    display: block;
+    height: 3px;
+    background: var(--alert);
+    border-radius: 0 0 3px 3px;
+    opacity: 0.45;
+}
 
 .nb-inline-query { font-variant-numeric: tabular-nums;
                    color: var(--text-muted); font-style: italic; }

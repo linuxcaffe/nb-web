@@ -1291,9 +1291,19 @@ const NbMain = (() => {
         _enrichRendered(container, note);
         if (note?.meta?.toc || note?.meta?.type === 'book') {
             _buildToc(container, note);
+            _markTocPartial(container);
             _watchInlineTocRebuild(container, note);
         }
         _appendAnnotation(container, note);
+    }
+
+    // If unloaded inline spans remain after a TOC build, mark the TOC as partial
+    // so the user knows more entries will appear as lazy chapters load.
+    function _markTocPartial(container) {
+        const toc = container.querySelector('.nb-toc');
+        if (!toc) return;
+        const pending = container.querySelectorAll('.nb-inline-query[data-provider="inline"]').length;
+        toc.classList.toggle('nb-toc-partial', pending > 0);
     }
 
     // Debounced TOC rebuild — safe to call multiple times (lazy chapter loads call it
@@ -1304,6 +1314,7 @@ const NbMain = (() => {
             if (!container.querySelector('.nb-rendered')) return;
             container.querySelector('.nb-toc')?.remove();
             _buildToc(container, note);
+            _markTocPartial(container);
         }, 400);
     }
 
