@@ -33,6 +33,7 @@ const NbMain = (() => {
     let _lastClickedIdx = -1;             // anchor for shift-click range
     let _encPassword    = null;   // session-level openssl password for encrypted notes
     let _encPendingEdit = false;  // open editor immediately after next successful unlock
+    const _bookCache    = new Map(); // selector:mtime → rendered innerHTML (book render cache)
 
     function _setKbPane(pane) {
         _kbPane = pane;
@@ -789,6 +790,17 @@ const NbMain = (() => {
             html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
         }
 
+        // Book render cache — skip chapter fetches on repeat visits within a session
+        if (note.meta?.type === 'book' && note.mtime) {
+            const _ck = `${note.selector}:${note.mtime}`;
+            const _ch = _bookCache.get(_ck);
+            if (_ch) {
+                content.innerHTML = `<div class="nb-rendered">${_ch}</div>`;
+                _finishRendered(content, note);
+                return;
+            }
+        }
+
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
         _finishRendered(content, note);
     }
@@ -1174,6 +1186,12 @@ const NbMain = (() => {
             obs?.disconnect();
             container.querySelector('.nb-toc')?.remove();
             _buildToc(container, note);
+            // Snapshot settled book DOM (strip TOC so it rebuilds cleanly on restore)
+            if (note.meta?.type === 'book' && note.mtime) {
+                const clone = rendered.cloneNode(true);
+                clone.querySelector('.nb-toc')?.remove();
+                _bookCache.set(`${note.selector}:${note.mtime}`, clone.innerHTML);
+            }
         };
 
         // Signal from test renderer — fires exactly once when all auto-run tests settle
