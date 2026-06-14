@@ -862,13 +862,19 @@ const NbMain = (() => {
                 });
         }
 
-        // Inline includes resolve sequentially top-to-bottom — each chapter renders
-        // before the next fetch begins, giving progressive visibility.
-        // Dispatches nb-inlines-settled when the last one completes.
+        // Inline includes: eager ones (near viewport) resolve sequentially top-to-bottom;
+        // lazy ones (below fold) are deferred to an IntersectionObserver and resolve
+        // independently as the user scrolls.  nb-inlines-settled fires after the eager
+        // sequence so the TOC builds from above-fold content without waiting for the rest.
         if (inlineSpans.length) {
+            const _pane = document.getElementById('nb-preview-content');
             (async () => {
                 for (const span of inlineSpans) {
-                    await _resolveInlineInclude(span, span.dataset.query, note);
+                    if (_isNearViewport(span, _pane)) {
+                        await _resolveInlineInclude(span, span.dataset.query, note);
+                    } else {
+                        _deferInlineInclude(span, note, _pane);
+                    }
                 }
                 container.dispatchEvent(new CustomEvent('nb-inlines-settled', { bubbles: false }));
             })();
@@ -929,6 +935,28 @@ const NbMain = (() => {
                 if (rem === 0) notice.remove();
             }
         }
+    }
+
+    // Returns true if el is within 500px below the visible bottom of scrollRoot
+    // (or the window if scrollRoot is null).  Used to classify inline includes as
+    // eager (fetch immediately) vs lazy (defer to IntersectionObserver).
+    function _isNearViewport(el, scrollRoot) {
+        const bottom = scrollRoot
+            ? scrollRoot.getBoundingClientRect().bottom
+            : window.innerHeight;
+        return el.getBoundingClientRect().top < bottom + 500;
+    }
+
+    // Set up an IntersectionObserver on a lazy inline-include span.  Fires
+    // _resolveInlineInclude exactly once when the span scrolls within 500px of the
+    // scrollRoot's edge.  The span remains as a ⋯ placeholder until then.
+    function _deferInlineInclude(span, note, scrollRoot) {
+        const io = new IntersectionObserver((entries, observer) => {
+            if (!entries[0]?.isIntersecting) return;
+            observer.disconnect();
+            _resolveInlineInclude(span, span.dataset.query, note);
+        }, { root: scrollRoot ?? null, rootMargin: '500px' });
+        io.observe(span);
     }
 
     // Synchronously prepend a rendering notice when a note has many inline includes
