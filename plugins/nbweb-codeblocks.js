@@ -745,7 +745,8 @@
         _xtermReady = new Promise(resolve => {
             const s = document.createElement('script');
             s.src = '/xterm.js';
-            s.onload = resolve;
+            s.onload  = resolve;
+            s.onerror = resolve;  // never deadlock the render pipeline
             document.head.appendChild(s);
         });
         return _xtermReady;
@@ -769,6 +770,10 @@
             </div>`;
 
         await _loadXterm();
+        if (!window.Terminal) {
+            el.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load — cannot render terminal</div>`;
+            return;
+        }
 
         // Inject focus styles once
         if (!document.getElementById('nb-tui-style')) {
@@ -2158,8 +2163,11 @@
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-tui-block[data-cmd]')];
                     if (!blocks.length) return;
-                    for (const el of blocks)
+                    NbWeb.statusPill?.add(blocks.length);
+                    for (const el of blocks) {
                         await _createInlineTerm(el, el.dataset.cmd, parseInt(el.dataset.height) || 400);
+                        NbWeb.statusPill?.tick();
+                    }
                 },
             },
         ],
