@@ -592,9 +592,10 @@ const NbMain = (() => {
         _updateNavBtns();
         document.getElementById('nb-pin-indicator').hidden = !_pinnedSelectors.has(selector);
 
-        // Show toolbar
+        // Show toolbar, reset TOC bar until note is rendered
         const toolbar = document.getElementById('nb-preview-toolbar');
         toolbar.hidden = false;
+        document.getElementById('nb-toc-bar').hidden = true;
         document.getElementById('nb-preview-title').textContent = selector.split(':').pop();
 
         // Abort any in-flight render from the previous note, then issue a fresh
@@ -1345,29 +1346,14 @@ const NbMain = (() => {
             }
         }
 
-        // Header bar: "TOC  ~/…/path/file.md  4.2 KB  2026-06-11"
-        const home = note?.path?.match(/^(\/home\/[^/]+)/)?.[1] ?? '';
-        const shortPath = note?.path
-            ? note.path.replace(home, '~')
-            : (note?.selector ?? '');
-        const size = note?.size != null
-            ? (note.size < 1024 ? `${note.size} B`
-             : note.size < 1024*1024 ? `${(note.size/1024).toFixed(1)} KB`
-             : `${(note.size/1024/1024).toFixed(1)} MB`)
-            : '';
-        const mtime = note?.mtime ?? '';
+        const tocBar = document.getElementById('nb-toc-bar');
+        if (!tocBar) return;
 
-        const details = document.createElement('details');
-        details.className = 'nb-toc';
-        details.open = false;
         const summary = document.createElement('summary');
         summary.className = 'nb-toc-header';
-        summary.innerHTML =
-            `<span class="nb-toc-label">TOC</span>` +
-            `<span class="nb-toc-path">${_esc(shortPath)}</span>` +
-            (size  ? `<span class="nb-toc-meta">${_esc(size)}</span>`  : '') +
-            (mtime ? `<span class="nb-toc-meta">${_esc(mtime)}</span>` : '');
-        details.appendChild(summary);
+        summary.innerHTML = `<span class="nb-toc-label">TOC</span>`;
+        tocBar.innerHTML = '';
+        tocBar.appendChild(summary);
 
         const ul = document.createElement('ul');
         const pane = document.getElementById('nb-preview-content');
@@ -1381,16 +1367,19 @@ const NbMain = (() => {
                 e.preventDefault();
                 pane?.querySelector(`#${CSS.escape(h.id)}`)
                     ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                tocBar.open = false;
             });
             li.appendChild(a);
             ul.appendChild(li);
         }
-        details.appendChild(ul);
-        rendered.prepend(details);
+        tocBar.appendChild(ul);
+        tocBar.hidden = false;
     }
 
     function _finishRendered(container, note) {
         _enrichRendered(container, note);
+        const tocBar = document.getElementById('nb-toc-bar');
+        if (tocBar) tocBar.hidden = true;
         if (note?.meta?.toc || note?.meta?.type === 'book') {
             _buildToc(container, note);
             _markTocPartial(container);
@@ -1403,7 +1392,7 @@ const NbMain = (() => {
     // If unloaded inline spans remain after a TOC build, mark the TOC as partial
     // so the user knows more entries will appear as lazy chapters load.
     function _markTocPartial(container) {
-        const toc = container.querySelector('.nb-toc');
+        const toc = document.getElementById('nb-toc-bar');
         if (!toc) return;
         const pending = container.querySelectorAll('.nb-inline-query[data-provider="inline"]').length;
         toc.classList.toggle('nb-toc-partial', pending > 0);
@@ -1415,7 +1404,6 @@ const NbMain = (() => {
         clearTimeout(container._tocRebuildTimer);
         container._tocRebuildTimer = setTimeout(() => {
             if (!container.querySelector('.nb-rendered')) return;
-            container.querySelector('.nb-toc')?.remove();
             _buildToc(container, note);
             _markTocPartial(container);
         }, 400);

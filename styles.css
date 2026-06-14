@@ -949,6 +949,21 @@ body {
           background: var(--bg2, rgba(255,255,255,0.03));
           border: 1px solid var(--border-dim, #333); border-radius: 6px;
           overflow: hidden; }
+
+/* TOC bar — sibling of toolbar, stays above the scroll area */
+#nb-toc-bar {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0;
+  border-left: none; border-right: none; border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+#nb-toc-bar ul {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+/* Hide automatically whenever the toolbar is hidden (editor, PDF, spreadsheet…) */
+#nb-preview-toolbar[hidden] ~ #nb-toc-bar { display: none !important; }
 .nb-toc-header { display: flex; align-items: center; gap: 0.75em;
                  padding: 0.4em 0.75em; cursor: pointer;
                  font-size: 0.8em; font-family: var(--font-mono, monospace);
