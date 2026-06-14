@@ -1089,7 +1089,9 @@ const NbMain = (() => {
             // sub-headings (h2/h3/h4) indented beneath; h1s inside chapters
             // are covered by the chapter label so are skipped.
             // Headings before the first chapter (intro content) are shown normally.
-            const chapters = [...rendered.querySelectorAll(':scope > .nb-inline-content')];
+            // No :scope > — chapters may be grandchildren (markdown wraps inline spans in <p>)
+            // Depth guard in _resolveInlineInclude prevents nesting, so all are top-level.
+            const chapters = [...rendered.querySelectorAll('.nb-inline-content')];
             const firstChapter = chapters[0];
 
             // Intro headings before first chapter — skip H1 (it's the book title,
@@ -1164,7 +1166,12 @@ const NbMain = (() => {
         const rendered = container.querySelector('.nb-rendered');
         if (!rendered) return;
 
+        // obs declared here so rebuild() can always disconnect it before mutating
+        // the DOM — any path through rebuild() that changes rendered would otherwise
+        // re-trigger the MO and create a loop.
+        let obs;
         const rebuild = () => {
+            obs?.disconnect();
             container.querySelector('.nb-toc')?.remove();
             _buildToc(container, note);
         };
@@ -1172,14 +1179,12 @@ const NbMain = (() => {
         // Signal from test renderer — fires exactly once when all auto-run tests settle
         container.addEventListener('nb-tests-settled', rebuild, { once: true });
 
-        // MutationObserver for {{inline:}} blocks.
-        // Disconnect BEFORE rebuilding — _buildToc mutates rendered (prepend/remove
-        // .nb-toc) which would re-trigger the observer and create an infinite loop.
+        // MutationObserver for {{inline:}} blocks
         if (!rendered.querySelector('.nb-inline-query[data-provider="inline"]')) return;
         let tid;
-        const obs = new MutationObserver(() => {
+        obs = new MutationObserver(() => {
             clearTimeout(tid);
-            tid = setTimeout(() => { obs.disconnect(); rebuild(); }, 500);
+            tid = setTimeout(rebuild, 500);
         });
         obs.observe(rendered, { childList: true, subtree: true });
     }
