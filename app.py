@@ -971,6 +971,29 @@ def api_preview():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/render')
+def api_render():
+    """Server-side markdown render for large/plain notes (large: true frontmatter or >100 KB).
+    Returns clean HTML without custom codeblock widgets or wikilink spans."""
+    selector = request.args.get('selector', '')
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': 'not found'}), 404
+    try:
+        raw = fpath.read_text(errors='replace')
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
+    _, body = parse_frontmatter(raw)
+    try:
+        import markdown as _md
+        html = _md.markdown(body, extensions=['fenced_code', 'tables'])
+    except Exception as e:
+        return jsonify({'error': f'render failed: {e}'}), 500
+    return jsonify({'html': html})
+
+
 @app.route('/api/open', methods=['POST'])
 def api_open():
     """Open a file in the system's default desktop application (xdg-open)."""

@@ -806,11 +806,25 @@ const NbMain = (() => {
                 toml:'toml',
             };
             const lang = _langMap[ext] || 'plaintext';
-            const grammar = Prism.languages[lang] || Prism.languages.plaintext;
-            const highlighted = Prism.highlight(note.body || '', grammar, lang);
-            content.innerHTML = `<div class="nb-rendered"><pre class="nb-code-preview language-${lang}"><code class="language-${lang}">${highlighted}</code></pre></div>`;
+            // Show plain text immediately so the file is readable without waiting for Prism
+            content.innerHTML = `<div class="nb-rendered"><pre class="nb-code-preview language-${lang}"><code class="language-${lang}">${_esc(note.body || '')}</code></pre></div>`;
             if (lang === 'ledger') _addIncludeLinks(content, note);
             _appendAnnotation(content, note);
+            if (typeof Prism !== 'undefined') {
+                const codeEl = content.querySelector('code');
+                _StatusPill.add(1);
+                const _sched = typeof requestIdleCallback !== 'undefined'
+                    ? cb => requestIdleCallback(cb, { timeout: 2000 })
+                    : cb => setTimeout(cb, 0);
+                _sched(() => {
+                    if (codeEl) {
+                        const grammar = Prism.languages[lang] || Prism.languages.plaintext;
+                        codeEl.innerHTML = Prism.highlight(note.body || '', grammar, lang);
+                        if (lang === 'ledger') _addIncludeLinks(content, note);
+                    }
+                    _StatusPill.tick();
+                });
+            }
             return;
         } else if (_pluginHtml !== null) {
             html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
@@ -904,6 +918,22 @@ const NbMain = (() => {
             }
             return;
         } else {
+            // Large or plain notes: render server-side to avoid freezing on marked.parse + innerHTML.
+            // Triggered by frontmatter `large: true` or body > 100 KB.
+            // Custom codeblocks and wikilinks are not processed in this path.
+            if ((note.meta?.large || (note.body || '').length > 100000) && note.meta?.large !== false) {
+                content.innerHTML = `<div class="nb-rendered" style="padding:40px;color:var(--text-muted)"><span class="nb-spin">⟳</span> Rendering…</div>`;
+                fetch(`/api/render?selector=${encodeURIComponent(note.selector)}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        if (_activeNote !== note) return;
+                        if (d.error) { content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(d.error)}</div>`; return; }
+                        content.innerHTML = `<div class="nb-rendered">${d.html}</div>`;
+                        _finishRendered(content, note);
+                    })
+                    .catch(e => { if (_activeNote !== note) return; content.innerHTML = `<div style="padding:40px;color:var(--red)">Render error: ${_esc(e.message)}</div>`; });
+                return;
+            }
             // Unknown types (plugin types like 'account', 'contact', etc.) render as markdown.
             // Only raw-display if there's genuinely no body to render.
             html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
@@ -1128,9 +1158,21 @@ const NbMain = (() => {
         _renderCsvBlocks(container);
 
         if (typeof Prism !== 'undefined') {
-            container.querySelectorAll('pre > code[class*="language-"]').forEach(el => {
-                if (!el.querySelector('.token')) Prism.highlightElement(el);
-            });
+            const toHighlight = [...container.querySelectorAll('pre > code[class*="language-"]')]
+                .filter(el => !el.querySelector('.token'));
+            if (toHighlight.length > 20 && typeof IntersectionObserver !== 'undefined') {
+                // Many blocks: lazy-highlight only as they scroll into view
+                const _obs = new IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (!entry.isIntersecting) return;
+                        observer.unobserve(entry.target);
+                        Prism.highlightElement(entry.target);
+                    });
+                }, { rootMargin: '400px' });
+                toHighlight.forEach(el => _obs.observe(el));
+            } else {
+                toHighlight.forEach(el => Prism.highlightElement(el));
+            }
         }
 
         container.querySelectorAll('pre:not(.nb-copy-added)').forEach(pre => {
