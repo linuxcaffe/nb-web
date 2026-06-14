@@ -1120,10 +1120,13 @@ const NbMain = (() => {
         rendered.prepend(el);
     }
 
-    function _enrichRendered(container, note) {
-        _resolveInlineQueries(container, note);
+    // ── Synchronous wiring ─────────────────────────────────────────────────────
+    // Pure DOM work: event handlers, Prism, copy buttons, CSV → spreadsheet.
+    // No network calls.  Safe to call multiple times (copy buttons are guarded
+    // by nb-copy-added; Prism guards with .token check).
+    function _wireContainer(container, note) {
         _renderCsvBlocks(container);
-        NbWeb.renderCodeblocks(container);
+
         if (typeof Prism !== 'undefined') {
             container.querySelectorAll('pre > code[class*="language-"]').forEach(el => {
                 if (!el.querySelector('.token')) Prism.highlightElement(el);
@@ -1154,21 +1157,21 @@ const NbMain = (() => {
 
         container.querySelectorAll('.nb-wiki-link').forEach(el => {
             el.addEventListener('click', async () => {
-                const sel  = el.dataset.selector
-                const frag = el.dataset.fragment || ''
-                if (sel) await openNote(await _resolveWikilinkSelector(sel))
+                const sel  = el.dataset.selector;
+                const frag = el.dataset.fragment || '';
+                if (sel) await openNote(await _resolveWikilinkSelector(sel));
                 if (frag) {
-                    const pane   = document.getElementById('nb-preview-content')
-                    const fragLc = frag.toLowerCase().trim()
-                    const slug   = fragLc.replace(/\s+/g, '-').replace(/[^\w-]/g, '')
+                    const pane   = document.getElementById('nb-preview-content');
+                    const fragLc = frag.toLowerCase().trim();
+                    const slug   = fragLc.replace(/\s+/g, '-').replace(/[^\w-]/g, '');
                     const target = pane?.querySelector(`[id="${CSS.escape(slug)}"]`)
                         ?? [...(pane?.querySelectorAll('h1,h2,h3,h4,h5,h6') ?? [])]
-                            .find(h => h.textContent.trim().toLowerCase() === fragLc)
-                    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                            .find(h => h.textContent.trim().toLowerCase() === fragLc);
+                    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             });
         });
-        _resolveWikilinks(container);
+
         container.querySelectorAll('.nb-tag-link').forEach(el => {
             el.addEventListener('click', () => {
                 const tag      = el.textContent.trim();
@@ -1222,8 +1225,24 @@ const NbMain = (() => {
             el.addEventListener('click', e => _showInfoPopover(e, el.dataset.uuid)));
 
         container.querySelectorAll('.nb-todo-check').forEach(cb => {
-            cb.addEventListener('change', () => _toggleTask(note.selector, cb.dataset.task, cb.checked));
+            cb.addEventListener('change', () => _toggleTask(note?.selector, cb.dataset.task, cb.checked));
         });
+    }
+
+    // ── Async fetching ─────────────────────────────────────────────────────────
+    // Fires all network-bound render work: inline includes, codeblock renderers,
+    // wikilink label resolution.  Does not repeat sync wiring.
+    function _fetchContainer(container, note) {
+        _resolveInlineQueries(container, note);
+        NbWeb.renderCodeblocks(container);
+        _resolveWikilinks(container);
+    }
+
+    // Combined entry point — wire then fetch.  Used for the main note body,
+    // chapter inclusions, and the annotation foot.
+    function _enrichRendered(container, note) {
+        _wireContainer(container, note);
+        _fetchContainer(container, note);
     }
 
     function _buildToc(container, note) {
@@ -5572,7 +5591,9 @@ const NbMain = (() => {
              deselect: sel => { _selectedSelectors.delete(sel); _updateSelectionUI(); },
              renderNoteHtml: _renderNoteHtml,
              renderMarkdown:  (body, sel)       => _renderMarkdown(body, sel),
-             enrichRendered:  (container, note) => _enrichRendered(container, note) };
+             enrichRendered:  (container, note) => _enrichRendered(container, note),
+             wireContainer:   (container, note) => _wireContainer(container, note),
+             fetchContainer:  (container, note) => _fetchContainer(container, note) };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────
