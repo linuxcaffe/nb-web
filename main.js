@@ -83,7 +83,12 @@ const NbMain = (() => {
             }, 400);
         }
 
-        return { start, tick, done };
+        function reset() {
+            clearTimeout(_fadeTimer);
+            if (_el) _el.classList.remove('nb-rb-active', 'nb-rb-done', 'nb-rb-fading');
+        }
+
+        return { start, tick, done, reset };
     })();
 
     // Generic async-work counter — every render path calls add(n) to register work
@@ -128,7 +133,14 @@ const NbMain = (() => {
 
         function registerForce(fn) { _forceCallbacks.push(fn); }
 
-        return { add, tick, registerForce };
+        function reset() {
+            clearTimeout(_doneTimer);
+            _pending = 0;
+            _forceCallbacks.length = 0;
+            if (_el) { _el.hidden = true; _el.className = ''; }
+        }
+
+        return { add, tick, registerForce, reset };
     })();
 
     // Expose so codeblock renderers (loaded after this module) can call add/tick
@@ -581,6 +593,11 @@ const NbMain = (() => {
         const toolbar = document.getElementById('nb-preview-toolbar');
         toolbar.hidden = false;
         document.getElementById('nb-preview-title').textContent = selector.split(':').pop();
+
+        // Reset render progress indicators and clear any orphaned lazy-load callbacks
+        // from the previous note before navigating to the new one.
+        _StatusPill.reset();
+        _RenderBar.done();
 
         // Show spinner while loading
         const content = document.getElementById('nb-preview-content');
