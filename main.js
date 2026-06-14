@@ -134,6 +134,8 @@ const NbMain = (() => {
 
         function registerForce(fn) { _forceCallbacks.push(fn); }
 
+        function forceAll() { _forceCallbacks.splice(0).forEach(fn => fn()); }
+
         function reset() {
             clearTimeout(_doneTimer);
             _pending = 0;
@@ -141,7 +143,7 @@ const NbMain = (() => {
             if (_el) { _el.hidden = true; _el.className = ''; }
         }
 
-        return { add, tick, registerForce, reset };
+        return { add, tick, registerForce, forceAll, reset };
     })();
 
     // Expose so codeblock renderers (loaded after this module) can call add/tick
@@ -1043,13 +1045,20 @@ const NbMain = (() => {
             _RenderBar.start(inlineSpans.length);
             _StatusPill.add(inlineSpans.length);
             const _pane = document.getElementById('nb-preview-content');
+            let _remaining = inlineSpans.length;
+            const _oneDone = () => {
+                if (signal.aborted) return;
+                if (--_remaining <= 0)
+                    container.dispatchEvent(new CustomEvent('nb-inlines-complete', { bubbles: false }));
+            };
             (async () => {
                 for (const span of inlineSpans) {
                     if (signal.aborted) break;
                     if (_isNearViewport(span, _pane)) {
                         await _resolveInlineInclude(span, span.dataset.query, note, signal);
+                        _oneDone();
                     } else {
-                        _deferInlineInclude(span, note, _pane, container, signal);
+                        _deferInlineInclude(span, note, _pane, container, signal, _oneDone);
                     }
                 }
                 if (!signal.aborted) {
@@ -1122,7 +1131,7 @@ const NbMain = (() => {
     // Set up an IntersectionObserver on a lazy inline-include span.  Fires
     // _resolveInlineInclude exactly once when the span scrolls within 500px of the
     // scrollRoot's edge.  The span remains as a ⋯ placeholder until then.
-    function _deferInlineInclude(span, note, scrollRoot, container, signal) {
+    function _deferInlineInclude(span, note, scrollRoot, container, signal, onComplete) {
         let fired = false;
         let io;
         const load = () => {
@@ -1131,6 +1140,7 @@ const NbMain = (() => {
             io?.disconnect();
             _resolveInlineInclude(span, span.dataset.query, note, signal).then(() => {
                 if (!signal?.aborted && container) _scheduleTocRebuild(container, note);
+                onComplete?.();
             });
         };
         io = new IntersectionObserver((entries, observer) => {
@@ -1981,10 +1991,17 @@ const NbMain = (() => {
         const rendered  = container.querySelector('.nb-rendered') ?? container;
 
         // Inline includes (book chapters, {{inline:}}) load asynchronously.
-        // Wait for them to settle before scanning headings or they won't be in the DOM yet.
+        // Wait for eager inlines (nb-inlines-settled), then force any deferred ones and
+        // wait for all of them (nb-inlines-complete) so every chapter's headings are in the DOM.
         if (rendered.querySelector('.nb-inline-query[data-provider="inline"]')) {
             await new Promise(resolve =>
                 container.addEventListener('nb-inlines-settled', resolve, { once: true }));
+            if (rendered.querySelector('.nb-inline-query[data-provider="inline"]')) {
+                // Deferred inlines remain — force them all, then wait for complete
+                _StatusPill.forceAll();
+                await new Promise(resolve =>
+                    container.addEventListener('nb-inlines-complete', resolve, { once: true }));
+            }
         }
 
         const headings  = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6')];
