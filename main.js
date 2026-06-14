@@ -836,12 +836,14 @@ const NbMain = (() => {
         }
 
         const nb = note?.notebook || NbNav.notebook;
+        const inlineSpans = [];
         for (const span of spans) {
             const { provider, query } = span.dataset;
             if (provider === 'inline') {
-                _resolveInlineInclude(span, query, note);
+                inlineSpans.push(span);
                 continue;
             }
+            // Non-inline queries are cheap single-value lookups — fire in parallel
             fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`)
                 .then(r => r.json())
                 .then(d => {
@@ -858,6 +860,18 @@ const NbMain = (() => {
                     span.textContent = `{{${provider}: ${query}}}`;
                     span.classList.add('nb-iq-error');
                 });
+        }
+
+        // Inline includes resolve sequentially top-to-bottom — each chapter renders
+        // before the next fetch begins, giving progressive visibility.
+        // Dispatches nb-inlines-settled when the last one completes.
+        if (inlineSpans.length) {
+            (async () => {
+                for (const span of inlineSpans) {
+                    await _resolveInlineInclude(span, span.dataset.query, note);
+                }
+                container.dispatchEvent(new CustomEvent('nb-inlines-settled', { bubbles: false }));
+            })();
         }
     }
 
@@ -904,11 +918,12 @@ const NbMain = (() => {
             err.title = String(e);
             span.replaceWith(err);
         } finally {
-            // Decrement rendering notice countdown; remove when all includes done
+            // Update rendering notice with actual remaining span count (accurate
+            // regardless of order — spans are replaced as each include resolves)
             const notice = rendered?.querySelector('.nb-rendering-notice');
             if (notice) {
-                const rem = Math.max(0, (parseInt(notice.dataset.remaining) || 0) - 1);
-                notice.dataset.remaining = rem;
+                const rem = rendered.querySelectorAll(
+                    '.nb-inline-query[data-provider="inline"]').length;
                 const cntEl = notice.querySelector('.nb-rn-count');
                 if (cntEl) cntEl.textContent = rem;
                 if (rem === 0) notice.remove();
@@ -916,8 +931,33 @@ const NbMain = (() => {
         }
     }
 
+    // Synchronously prepend a rendering notice when a note has many inline includes
+    // or a very large body — injected before any async fetch begins so the countdown
+    // is accurate from the first include resolution.  Skipped for chapter containers.
+    function _injectRenderingNotice(container, note) {
+        const rendered = container.querySelector('.nb-rendered') ?? container;
+        if (rendered.closest('.nb-inline-content')) return;
+        if (rendered.querySelector('.nb-rendering-notice')) return;
+        const n = rendered.querySelectorAll(
+            '.nb-inline-query[data-provider="inline"]').length;
+        const bodyKb = Math.round((note?.body?.length || 0) / 1024);
+        if (n < 5 && bodyKb < 50) return;
+        const el = document.createElement('div');
+        el.className = 'nb-rendering-notice';
+        if (n >= 5) {
+            el.innerHTML = `⏳ <span class="nb-rn-label">Rendering</span>` +
+                `<span class="nb-rn-rest"> — ` +
+                `<span class="nb-rn-count">${n}</span> includes to fetch</span>`;
+        } else {
+            el.innerHTML = `⏳ <span class="nb-rn-label">Rendering</span>` +
+                `<span class="nb-rn-rest"> — ${bodyKb} KB file</span>`;
+        }
+        rendered.prepend(el);
+    }
+
     function _enrichRendered(container, note) {
         _resolveInlineQueries(container, note);
+        _injectRenderingNotice(container, note);   // sync, spans exist, no fetch yet
         _renderCsvBlocks(container);
         NbWeb.renderCodeblocks(container);
         if (typeof Prism !== 'undefined') {
@@ -1097,37 +1137,34 @@ const NbMain = (() => {
         _appendAnnotation(container, note);
     }
 
-    // If the note has {{inline:}} includes or test blocks, watch for async content
-    // to land and rebuild the TOC from the fully-expanded DOM.
+    // Rebuild the TOC once all async content has landed.
     //
-    // Two signals are used:
-    //   1. MutationObserver (inline includes) — debounces 500 ms after DOM quiets
-    //   2. 'nb-tests-settled' custom event — fired once by the test renderer after
-    //      all Form 2 test blocks in the current render pass have resolved
+    // Two signals, only one fires the rebuild (rebuilt flag prevents double):
+    //   nb-inlines-settled — dispatched by _resolveInlineQueries after the last
+    //     sequential inline include completes; used when the note has inline includes
+    //   nb-tests-settled   — dispatched by the test renderer; used for toc:true notes
+    //     that have no inline includes (test headings are the only dynamic content)
     //
-    // This avoids relying solely on debounce timing for test blocks, which can
-    // take >500 ms to return from /api/test/run.
+    // The MutationObserver approach was replaced because it debounced 500 ms on every
+    // DOM mutation, fired multiple times per render, and required fragile disconnection.
     function _watchInlineTocRebuild(container, note) {
-        const rendered = container.querySelector('.nb-rendered');
-        if (!rendered) return;
+        if (!container.querySelector('.nb-rendered')) return;
 
+        let rebuilt = false;
         const rebuild = () => {
+            if (rebuilt) return;
+            rebuilt = true;
             container.querySelector('.nb-toc')?.remove();
             _buildToc(container, note);
         };
 
-        // Signal from test renderer — fires exactly once when all auto-run tests settle
-        container.addEventListener('nb-tests-settled', rebuild, { once: true });
-
-        // MutationObserver for {{inline:}} blocks (fire-and-forget, DOM-visible)
-        if (!rendered.querySelector('.nb-inline-query[data-provider="inline"]')) return;
-        let tid;
-        const obs = new MutationObserver(() => {
-            clearTimeout(tid);
-            tid = setTimeout(rebuild, 500);
-        });
-        obs.observe(rendered, { childList: true, subtree: true });
-        setTimeout(() => obs.disconnect(), 15000);
+        if (container.querySelector('.nb-inline-query[data-provider="inline"]')) {
+            // Inline includes present — rebuild after all chapters land
+            container.addEventListener('nb-inlines-settled', rebuild, { once: true });
+        } else {
+            // No inlines — rebuild when test blocks settle
+            container.addEventListener('nb-tests-settled', rebuild, { once: true });
+        }
     }
 
     // ── Encrypted note decrypt/render ──────────────────────────────────────

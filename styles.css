@@ -15,6 +15,9 @@
   --green:       #57ab5a;
   --red:         #e5534b;
   --yellow:      #c69026;
+  --alert:       #c69026;                   /* amber — informational, non-error warnings */
+  --alert-bg:    rgba(198, 144, 38, 0.12);
+  --alert-border:rgba(198, 144, 38, 0.38);
   --header-h:    48px;
   --tabbar-h:    36px;
   --filterbar-h: 32px;
@@ -983,11 +986,11 @@ body {
     display: inline-flex; align-items: center; gap: 0.35em;
     padding: 0.25em 0.8em; margin-bottom: 0.75em;
     border-radius: 4px;
-    background: rgba(198, 144, 38, 0.12);
-    border: 1px solid rgba(198, 144, 38, 0.38);
+    background: var(--alert-bg);
+    border: 1px solid var(--alert-border);
     font-size: 0.85em; line-height: 1.5;
 }
-.nb-rendering-notice .nb-rn-label { color: var(--yellow, #c69026); font-weight: 600; }
+.nb-rendering-notice .nb-rn-label { color: var(--alert); font-weight: 600; }
 .nb-rendering-notice .nb-rn-rest  { color: var(--text-muted); }
 
 /* ── jspreadsheet + jsuites dark-mode overrides ─────────────────
