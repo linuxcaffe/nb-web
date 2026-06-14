@@ -142,22 +142,27 @@ Each nb notebook is its own git repo under `~/.nb/`. The Notebooks panel shows n
 
 ### Folder and notebook locks
 
-Place an `.nb-lock` file in any folder (or at the notebook root) to make it read-only. Locked notes hide the Edit and Delete buttons and show a 🔒 indicator in the toolbar. The lock is **hierarchical**: a notebook-level lock covers all folders inside it; a folder-level lock covers all notes inside it without affecting sibling folders.
+Any folder or notebook can be made read-only by placing an `.nb-lock` file inside it. Locked notes hide the **Edit** and **Delete** buttons and show a 🔒 indicator in the toolbar. Hovering the indicator shows the reason, if one was given.
 
-The file may contain a plain-text reason that appears as a tooltip on the 🔒 indicator.
+The lock is **hierarchical**: a notebook-level `.nb-lock` covers every folder inside it; a folder-level lock covers every note in that folder without affecting sibling folders.
 
-**Set a lock via the UI:**
-- **Folder** — click `⋯` on any folder in the list → 🔒 Lock tab → Lock folder (with optional reason)
-- **Notebook** — Menu → Notebooks → select a notebook → "🔒 Lock notebook"
+**Via the UI:**
+- **Folder** — click `⋯` on any folder → 🔒 Lock tab → *Lock folder* (add an optional reason)
+- **Notebook** — Menu → Notebooks → select a notebook → *🔒 Lock notebook*
 
-Toggling lock/unlock **renames** the file between `.nb-lock` and `.nb-unlock` — the reason text is preserved across cycles so you don't have to retype it.
+Toggling lock/unlock **renames** the file between `.nb-lock` (locked) and `.nb-unlock` (unlocked) rather than deleting it, so the reason text is preserved across cycles.
 
-**Or manually** — drop an `.nb-lock` file anywhere in `~/.nb/`:
+**Manually:**
 
 ```bash
-echo "Reference only — do not edit" > ~/.nb/home/tutorial/.nb-lock
-# Unlock by renaming:
+# Lock a folder:
+echo "Tutorial — read only" > ~/.nb/home/tutorial/.nb-lock
+
+# Unlock (preserves the reason for next time):
 mv ~/.nb/home/tutorial/.nb-lock ~/.nb/home/tutorial/.nb-unlock
+
+# Re-lock:
+mv ~/.nb/home/tutorial/.nb-unlock ~/.nb/home/tutorial/.nb-lock
 ```
 
 ---
