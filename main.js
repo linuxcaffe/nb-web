@@ -1234,8 +1234,23 @@ const NbMain = (() => {
     // wikilink label resolution.  Does not repeat sync wiring.
     function _fetchContainer(container, note) {
         _resolveInlineQueries(container, note);
-        NbWeb.renderCodeblocks(container);
-        _resolveWikilinks(container);
+
+        // Phase gate: wait for eager inline includes before firing codeblocks and
+        // wikilinks.  Inline includes load sequentially and dispatch nb-inlines-settled
+        // when the eager sequence is done; if there are no inlines (or all are lazy)
+        // the event fires immediately, so non-book notes see no delay.
+        (async () => {
+            const signal  = _renderAbort.signal;
+            const inlines = container.querySelectorAll('.nb-inline-query[data-provider="inline"]');
+            if (inlines.length) {
+                await new Promise(resolve =>
+                    container.addEventListener('nb-inlines-settled', resolve, { once: true }));
+            }
+            if (signal.aborted) return;
+            await NbWeb.renderCodeblocks(container);
+            if (signal.aborted) return;
+            _resolveWikilinks(container);
+        })();
     }
 
     // Combined entry point — wire then fetch.  Used for the main note body,
