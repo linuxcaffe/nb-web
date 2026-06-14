@@ -1092,10 +1092,12 @@ const NbMain = (() => {
             const chapters = [...rendered.querySelectorAll(':scope > .nb-inline-content')];
             const firstChapter = chapters[0];
 
-            // Intro headings — anything in rendered before the first chapter
+            // Intro headings before first chapter — skip H1 (it's the book title,
+            // already visible as the page heading; no need to repeat it in TOC)
             for (const h of headings) {
                 if (firstChapter && firstChapter.contains(h)) break;
                 if (h.closest('.nb-inline-content')) break;
+                if (h.tagName === 'H1') continue;
                 ul.appendChild(_makeLi(h, ''));
             }
 
@@ -1170,15 +1172,16 @@ const NbMain = (() => {
         // Signal from test renderer — fires exactly once when all auto-run tests settle
         container.addEventListener('nb-tests-settled', rebuild, { once: true });
 
-        // MutationObserver for {{inline:}} blocks (fire-and-forget, DOM-visible)
+        // MutationObserver for {{inline:}} blocks.
+        // Disconnect BEFORE rebuilding — _buildToc mutates rendered (prepend/remove
+        // .nb-toc) which would re-trigger the observer and create an infinite loop.
         if (!rendered.querySelector('.nb-inline-query[data-provider="inline"]')) return;
         let tid;
         const obs = new MutationObserver(() => {
             clearTimeout(tid);
-            tid = setTimeout(rebuild, 500);
+            tid = setTimeout(() => { obs.disconnect(); rebuild(); }, 500);
         });
         obs.observe(rendered, { childList: true, subtree: true });
-        setTimeout(() => obs.disconnect(), 15000);
     }
 
     // ── Encrypted note decrypt/render ──────────────────────────────────────
