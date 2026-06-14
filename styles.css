@@ -753,6 +753,17 @@ body {
 .nb-list-item.folder:hover .nb-folder-more-btn { opacity: 1; }
 .nb-folder-more-btn:hover { background: var(--bg4, var(--border)); color: var(--text); }
 
+.nb-folder-lock-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  align-self: center;
+  opacity: 0.75;
+  margin-right: 2px;
+  cursor: default;
+  user-select: none;
+}
+
 /* Grep context block inside a list item */
 .nb-list-grep-ctx {
   margin-top: 4px;

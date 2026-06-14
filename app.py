@@ -2768,6 +2768,7 @@ def _list_notes(notebook, folder, limit):
                 'id': '', 'filename': fname, 'title': fname,
                 'selector': f"{notebook}:{folder + '/' if folder else ''}{fname}/",
                 'excerpt': '', 'updated': '',
+                'locked': (fpath / '.nb-lock').exists(),
             })
             continue
         itype = classify(fname, notebook)
@@ -3278,6 +3279,10 @@ def api_note():
         first = body.lstrip().splitlines()[0] if body.strip() else ''
         todo_status = 'closed' if first.startswith('# [x]') else 'open'
 
+    lk          = _find_nb_lock(fpath)
+    locked      = lk is not None
+    lock_reason = lk.read_text(errors='replace').strip() or None if locked else None
+
     return jsonify({
         'selector': selector,
         'notebook': note_notebook or '',
@@ -3295,6 +3300,8 @@ def api_note():
         'annotation': annotation_text,
         'size':     Path(fpath).stat().st_size,
         'mtime':    datetime.fromtimestamp(Path(fpath).stat().st_mtime).strftime('%Y-%m-%d'),
+        'locked':   locked,
+        'lock_reason': lock_reason,
     })
 
 
@@ -3313,6 +3320,45 @@ def _read_annotation(note_path: str) -> str | None:
     if ap.exists():
         return ap.read_text(errors='replace').strip() or None
     return None
+
+def _find_nb_lock(path) -> 'Path | None':
+    """Walk up from path (file or dir) to notebook root; return first .nb-lock found, or None."""
+    p = Path(path)
+    if p.is_file():
+        p = p.parent
+    try:
+        rel = p.relative_to(NB_DIR)
+        if not rel.parts:
+            return None
+        nb_root = NB_DIR / rel.parts[0]
+    except ValueError:
+        return None
+    cur = p
+    while True:
+        lk = cur / '.nb-lock'
+        if lk.exists():
+            return lk
+        if cur == nb_root:
+            break
+        cur = cur.parent
+    return None
+
+
+def _folder_selector_to_dir(selector: str) -> 'Path | None':
+    """Convert folder selector (e.g. 'home:tutorial/') to filesystem Path, or None."""
+    if ':' not in selector:
+        return None
+    nb_name, rel = selector.split(':', 1)
+    if not _safe_notebook(nb_name):
+        return None
+    rel = rel.strip('/')
+    p = NB_DIR / nb_name / rel if rel else NB_DIR / nb_name
+    try:
+        p.relative_to(NB_DIR)
+    except ValueError:
+        return None
+    return p if p.is_dir() else None
+
 
 def _sidecar_parent(fname: str) -> str | None:
     """If fname is an annotation sidecar, return the parent filename. Otherwise None."""
@@ -5216,6 +5262,7 @@ def api_nb_notebooks():
                 'website': website,
                 'cine': cine,
                 'hledger': hledger,
+                'locked': (entry / '.nb-lock').exists(),
             })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
@@ -5606,12 +5653,18 @@ def api_nb_notebook_detail():
     nb_prefs = cfg.get('notebook_prefs', {}).get(notebook, {})
     default_remote = cfg.get('default_git_remote', '').strip()
 
+    lk_path = nb_path / '.nb-lock'
+    nb_locked = lk_path.exists()
+    nb_lock_reason = lk_path.read_text(errors='replace').strip() or None if nb_locked else None
+
     return jsonify({
         'name': notebook, 'count': count, 'mtime': mtime,
         'path': str(nb_path),
         'git': git_info,
         'prefs': nb_prefs,
         'default_remote': default_remote,
+        'locked': nb_locked,
+        'lock_reason': nb_lock_reason,
     })
 
 
@@ -6746,6 +6799,66 @@ def api_folder_delete():
         return jsonify({'error': 'selector required'}), 400
     r = run_nb('folders', 'delete', selector, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+@app.route('/api/folder/lock', methods=['GET', 'POST', 'DELETE'])
+def api_folder_lock():
+    if request.method == 'GET':
+        selector = request.args.get('selector', '').strip()
+        if not selector:
+            return jsonify({'error': 'selector required'}), 400
+        folder_path = _folder_selector_to_dir(selector)
+        if not folder_path:
+            return jsonify({'error': 'folder not found'}), 404
+        lk = folder_path / '.nb-lock'
+        if lk.exists():
+            reason = lk.read_text(errors='replace').strip()
+            return jsonify({'locked': True, 'reason': reason or None})
+        return jsonify({'locked': False, 'reason': None})
+
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    folder_path = _folder_selector_to_dir(selector)
+    if not folder_path:
+        return jsonify({'error': 'folder not found'}), 404
+    lk = folder_path / '.nb-lock'
+    if request.method == 'POST':
+        reason = data.get('reason', '').strip()
+        lk.write_text(reason + '\n' if reason else '')
+        return jsonify({'ok': True})
+    else:
+        if lk.exists():
+            lk.unlink()
+        return jsonify({'ok': True})
+
+
+@app.route('/api/nb/lock', methods=['GET', 'POST', 'DELETE'])
+def api_nb_lock():
+    if request.method == 'GET':
+        notebook = request.args.get('notebook', '').strip()
+        if not notebook or not _safe_notebook(notebook):
+            return jsonify({'error': 'notebook required'}), 400
+        lk = nb_dir_for(notebook) / '.nb-lock'
+        if lk.exists():
+            reason = lk.read_text(errors='replace').strip()
+            return jsonify({'locked': True, 'reason': reason or None})
+        return jsonify({'locked': False, 'reason': None})
+
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '').strip()
+    if not notebook or not _safe_notebook(notebook):
+        return jsonify({'error': 'notebook required'}), 400
+    lk = nb_dir_for(notebook) / '.nb-lock'
+    if request.method == 'POST':
+        reason = data.get('reason', '').strip()
+        lk.write_text(reason + '\n' if reason else '')
+        return jsonify({'ok': True})
+    else:
+        if lk.exists():
+            lk.unlink()
+        return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------------

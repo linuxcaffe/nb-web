@@ -522,13 +522,20 @@ const NbMain = (() => {
             li.appendChild(body);
 
             if (note.type === 'folder') {
+                if (note.locked) {
+                    const lockBadge = document.createElement('span');
+                    lockBadge.className = 'nb-folder-lock-badge';
+                    lockBadge.textContent = '🔒';
+                    lockBadge.title = 'Folder locked';
+                    li.appendChild(lockBadge);
+                }
                 const moreBtn = document.createElement('button');
                 moreBtn.className = 'nb-folder-more-btn';
                 moreBtn.textContent = '⋯';
                 moreBtn.title = 'Folder options';
                 moreBtn.addEventListener('click', e => {
                     e.stopPropagation();
-                    NbDialog.openFolder(note.selector, note.filename);
+                    NbDialog.openFolder(note.selector, note.filename, note.locked);
                 });
                 li.appendChild(moreBtn);
 
@@ -776,6 +783,25 @@ const NbMain = (() => {
                 }
             });
             _editBtn.insertAdjacentElement('beforebegin', relockBtn);
+        }
+
+        // ── Directory lock (.nb-lock file in folder or notebook) ───────────────
+        document.getElementById('nb-dir-lock-indicator')?.remove();
+        if (note.locked) {
+            const editBtn   = document.getElementById('nb-edit-btn');
+            const deleteBtn = document.getElementById('nb-delete-btn');
+            if (editBtn)   editBtn.hidden   = true;
+            if (deleteBtn) deleteBtn.hidden = true;
+            const lockInd = document.createElement('span');
+            lockInd.id = 'nb-dir-lock-indicator';
+            lockInd.textContent = '🔒';
+            lockInd.style.cssText = 'font-size:13px;cursor:default;opacity:0.75;user-select:none';
+            lockInd.title = note.lock_reason
+                ? `Locked: ${note.lock_reason}`
+                : 'Read-only — locked by folder or notebook lock';
+            const pinInd = document.getElementById('nb-pin-indicator');
+            if (pinInd) pinInd.insertAdjacentElement('beforebegin', lockInd);
+            else document.getElementById('nb-preview-actions')?.prepend(lockInd);
         }
 
         if (note.type === 'image') {
@@ -4685,6 +4711,14 @@ const NbMain = (() => {
             countBadge.title = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
             titleRow.appendChild(countBadge);
 
+            if (nb.locked) {
+                const lockBadge = document.createElement('span');
+                lockBadge.textContent = '🔒';
+                lockBadge.title = 'Notebook locked';
+                lockBadge.style.cssText = 'font-size:10px;opacity:0.8;';
+                titleRow.appendChild(lockBadge);
+            }
+
             body.appendChild(titleRow);
 
             if (nb.unpushed > 0) {
@@ -4912,6 +4946,10 @@ const NbMain = (() => {
                     <button id="nb-nb-use" class="nb-tool-btn">Use this notebook</button>
                     <span style="font-size:11px;color:var(--text-dim)">Set as the active scope for List, Add, and other commands.</span>
                 </div>
+                <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <button id="nb-nb-lock-btn" class="nb-tool-btn${d.locked ? ' nb-btn-danger' : ''}">${d.locked ? '🔒 Unlock notebook' : '🔒 Lock notebook'}</button>
+                    <span style="font-size:11px;color:var(--text-dim)">${d.locked ? (d.lock_reason ? _esc(d.lock_reason) : 'Notebook is read-only — all notes locked.') : 'Prevent edits to all notes in this notebook.'}</span>
+                </div>
                 <div style="padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px">
                     <div style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;
                                 letter-spacing:0.05em;text-transform:uppercase">Defaults</div>
@@ -5061,6 +5099,21 @@ const NbMain = (() => {
                     }
                 });
             }
+
+            // Notebook lock toggle
+            document.getElementById('nb-nb-lock-btn').addEventListener('click', async () => {
+                const btn = document.getElementById('nb-nb-lock-btn');
+                const wasLocked = d.locked;
+                btn.textContent = '…'; btn.disabled = true;
+                try {
+                    await fetch('/api/nb/lock', {
+                        method: wasLocked ? 'DELETE' : 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ notebook: name }),
+                    });
+                    await _openNbNotebook(name);
+                } catch(_) { btn.textContent = wasLocked ? '🔒 Unlock notebook' : '🔒 Lock notebook'; btn.disabled = false; }
+            });
 
             // Use this notebook — calls `nb use <name>` to set nb's current notebook
             document.getElementById('nb-nb-use').addEventListener('click', async () => {
@@ -5950,6 +6003,10 @@ const NbDialog = (() => {
     let _folderSelector = null; // non-null = folder mode
     let _folderName     = '';   // display name for folder being operated on
 
+    function _esc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
     function _panel() { return document.getElementById('nb-action-panel'); }
     function _body()  { return _panel()?.querySelector('.nb-dlg-body'); }
 
@@ -6012,14 +6069,15 @@ const NbDialog = (() => {
         else if (_tab === 'f-rename')   _renderFolderRename();
         else if (_tab === 'f-move')     _renderFolderMove();
         else if (_tab === 'f-delete')   _renderFolderDelete();
+        else if (_tab === 'f-lock')     _renderFolderLock();
     }
 
     // ── Folder dialog ──────────────────────────────────────────
-    function openFolder(selector, name) {
+    function openFolder(selector, name, initialLocked) {
         _folderSelector = selector;
         _folderName     = name || selector;
         _bulkSelectors  = null;
-        _tab = 'f-rename';
+        _tab = initialLocked ? 'f-lock' : 'f-rename';
         _panel()?.remove();
 
         const toolbar = document.getElementById('nb-preview-toolbar');
@@ -6033,7 +6091,7 @@ const NbDialog = (() => {
         header.className = 'nb-dlg-header';
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
-        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-delete','🗑 Delete']].forEach(([id, label]) => {
+        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-delete','🗑 Delete'], ['f-lock','🔒 Lock']].forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
             btn.dataset.tab = id; btn.textContent = label;
@@ -6188,6 +6246,62 @@ const NbDialog = (() => {
 
         body.append(warn, btnRow);
         delBtn.focus();
+    }
+
+    async function _renderFolderLock() {
+        const body = _body();
+        body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
+
+        let isLocked = false, lockReason = '';
+        try {
+            const r = await fetch('/api/folder/lock?selector=' + encodeURIComponent(_folderSelector));
+            if (r.ok) {
+                const d = await r.json();
+                isLocked   = d.locked || false;
+                lockReason = d.reason || '';
+            }
+        } catch(_) {}
+
+        body.innerHTML = '';
+
+        const statusEl = document.createElement('p');
+        statusEl.className = 'nb-dlg-info';
+        statusEl.innerHTML = isLocked
+            ? `<strong>🔒 Locked</strong> — notes in this folder are read-only.${lockReason ? `<br><em>${_esc(lockReason)}</em>` : ''}`
+            : `Unlocked — notes in this folder are editable.`;
+
+        const reasonInput = document.createElement('input');
+        reasonInput.type = 'text';
+        reasonInput.className = 'nb-rename-input';
+        reasonInput.style.flex = '1';
+        reasonInput.placeholder = 'Reason (optional)…';
+        reasonInput.value = isLocked ? lockReason : '';
+        const reasonRow = _row('Reason:', reasonInput);
+
+        const lockBtn = document.createElement('button');
+        lockBtn.className = isLocked ? 'nb-tool-btn nb-btn-danger' : 'nb-tool-btn nb-btn-primary';
+        lockBtn.textContent = isLocked ? 'Unlock folder' : 'Lock folder';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', close);
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(lockBtn, cancelBtn);
+
+        lockBtn.addEventListener('click', async () => {
+            lockBtn.disabled = true; lockBtn.textContent = '…';
+            try {
+                await fetch('/api/folder/lock', {
+                    method: isLocked ? 'DELETE' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: _folderSelector, reason: reasonInput.value.trim() }),
+                });
+                close();
+                NbNav.reexecute();
+            } catch(_) { lockBtn.disabled = false; lockBtn.textContent = isLocked ? 'Unlock folder' : 'Lock folder'; }
+        });
+
+        body.append(statusEl, ...(!isLocked ? [reasonRow] : []), btnRow);
     }
 
     // ── Shared pickers ─────────────────────────────────────────
