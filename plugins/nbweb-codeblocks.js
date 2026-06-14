@@ -830,7 +830,6 @@
                 convertEol: true, scrollback: 2000,
             });
             term.open(container);
-            term.focus();
 
             const proto = location.protocol === 'https:' ? 'wss' : 'ws';
             ws = new WebSocket(`${proto}://${location.host}/ws/pty`);
@@ -2130,6 +2129,29 @@
                 },
             },
             {
+                lang: 'tui',
+                html: text => {
+                    const lines  = text.trim().split('\n');
+                    const cmd    = lines.filter(l => !l.startsWith('#')).join(' ').trim();
+                    const height = (text.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
+                    return `<div class="nb-tui-block" data-cmd="${cmd.replace(/"/g,'&quot;')}" data-height="${height}"></div>`;
+                },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-tui-block[data-cmd]')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    for (const el of blocks) {
+                        try {
+                            await _createInlineTerm(el, el.dataset.cmd, parseInt(el.dataset.height) || 400);
+                        } catch (e) {
+                            console.error('[tui] _createInlineTerm threw:', e);
+                            el.innerHTML = `<div style="padding:8px;color:var(--red,#ef4444);font-size:12px">⚠ tui error: ${_esc(String(e))}</div>`;
+                        }
+                        NbWeb.statusPill?.tick();
+                    }
+                },
+            },
+            {
                 lang:   'test',
                 html:   text => `<div class="nb-test-block" data-query="${text.trim().replace(/"/g,'&quot;')}"></div>`,
                 render: async container => {
@@ -2150,24 +2172,6 @@
                         NbWeb.statusPill?.tick();
                     }));
                     container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
-                },
-            },
-            {
-                lang: 'tui',
-                html: text => {
-                    const lines  = text.trim().split('\n');
-                    const cmd    = lines.filter(l => !l.startsWith('#')).join(' ').trim();
-                    const height = (text.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
-                    return `<div class="nb-tui-block" data-cmd="${cmd.replace(/"/g,'&quot;')}" data-height="${height}"></div>`;
-                },
-                render: async container => {
-                    const blocks = [...container.querySelectorAll('.nb-tui-block[data-cmd]')];
-                    if (!blocks.length) return;
-                    NbWeb.statusPill?.add(blocks.length);
-                    for (const el of blocks) {
-                        await _createInlineTerm(el, el.dataset.cmd, parseInt(el.dataset.height) || 400);
-                        NbWeb.statusPill?.tick();
-                    }
                 },
             },
         ],
