@@ -728,10 +728,192 @@
         el.appendChild(pre);
     }
 
+    // ── tui — inline terminal widget ─────────────────────────────────────────
+
+    let _xtermReady = null;
+
+    function _loadXterm() {
+        if (window.Terminal) return Promise.resolve();
+        if (_xtermReady)     return _xtermReady;
+        // CSS: inject fire-and-forget — link.onload is unreliable and must never
+        // block the render pipeline; xterm works without CSS for a moment anyway.
+        if (!document.querySelector('link[href="/xterm.css"]')) {
+            const l = document.createElement('link');
+            l.rel = 'stylesheet'; l.href = '/xterm.css';
+            document.head.appendChild(l);
+        }
+        _xtermReady = new Promise(resolve => {
+            const s = document.createElement('script');
+            s.src = '/xterm.js';
+            s.onload = resolve;
+            document.head.appendChild(s);
+        });
+        return _xtermReady;
+    }
+
+    async function _createInlineTerm(el, cmd, heightPx = 400) {
+        el.innerHTML = `
+            <div class="nb-tui-wrap" style="display:flex;flex-direction:column;
+                 height:${heightPx}px;background:#0a0a0a;border-radius:4px;
+                 overflow:hidden;border:1px solid var(--border,#333)">
+                <div class="nb-tui-bar" style="display:flex;align-items:center;
+                     justify-content:space-between;padding:3px 10px;background:#111;
+                     flex-shrink:0;font-size:11px;color:#888;user-select:none">
+                    <code style="color:#bbb;font-size:11px">${_esc(cmd)}</code>
+                    <button class="nb-tui-restart" title="Restart"
+                            style="background:none;border:none;color:#666;cursor:pointer;
+                                   font-size:13px;padding:1px 4px;line-height:1">↺</button>
+                </div>
+                <div class="nb-tui-container" style="flex:1;overflow:hidden;
+                     padding:2px 4px;box-sizing:border-box"></div>
+            </div>`;
+
+        await _loadXterm();
+
+        // Inject focus styles once
+        if (!document.getElementById('nb-tui-style')) {
+            const st = document.createElement('style');
+            st.id = 'nb-tui-style';
+            st.textContent = `
+                .nb-tui-wrap:focus-within {
+                    border-color: #4a9eff !important;
+                    box-shadow: 0 0 0 2px rgba(74,158,255,0.25);
+                }
+                .nb-tui-wrap:focus-within .nb-tui-bar { color: #bbb !important; }
+                .nb-tui-wrap:focus-within .nb-tui-restart { color: #999 !important; }
+            `;
+            document.head.appendChild(st);
+        }
+
+        const wrap       = el.querySelector('.nb-tui-wrap');
+        const container  = el.querySelector('.nb-tui-container');
+        const restartBtn = el.querySelector('.nb-tui-restart');
+        let term = null, ws = null, ro = null;
+
+        // Stop all keyboard events from bubbling past the wrap — prevents the
+        // global keydown handler (which intercepts Escape on textareas and blurs
+        // them, and handles arrow keys for list navigation) from stealing input
+        // while the terminal has focus. xterm sees events in target phase first.
+        wrap.addEventListener('keydown', e => e.stopPropagation());
+        // Re-focus xterm on any click within the wrap
+        wrap.addEventListener('click',   () => term?.focus());
+
+        function _fit() {
+            if (!term || !container.clientWidth) return;
+            const dims = term._core?._renderService?.dimensions;
+            const cw   = dims?.actualCellWidth  || 7.8;
+            const ch   = dims?.actualCellHeight || 20;
+            const cols = Math.max(10, Math.floor(container.clientWidth  / cw));
+            const rows = Math.max(3,  Math.floor(container.clientHeight / ch));
+            if (cols !== term.cols || rows !== term.rows) {
+                term.resize(cols, rows);
+                if (ws?.readyState === WebSocket.OPEN) ws.send(`\x00resize:${cols},${rows}`);
+            }
+        }
+
+        function connect() {
+            if (ws)   { try { ws.close(); } catch(_) {} ws = null; }
+            if (term) { term.dispose(); term = null; }
+            if (ro)   { ro.disconnect(); ro = null; }
+            container.innerHTML = '';
+
+            term = new window.Terminal({
+                rows: 24, cols: 80,
+                fontSize: 13,
+                fontFamily: "'JetBrains Mono','Fira Code',monospace",
+                theme: { background: '#0a0a0a', foreground: '#d4d4d8' },
+                convertEol: true, scrollback: 2000,
+            });
+            term.open(container);
+            term.focus();
+
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            ws = new WebSocket(`${proto}://${location.host}/ws/pty`);
+
+            ws.onopen = () => {
+                requestAnimationFrame(() => {
+                    _fit();
+                    ws.send(JSON.stringify({ cmd, cols: term.cols, rows: term.rows }));
+                });
+            };
+            ws.onmessage = e => term?.write(e.data);
+            ws.onclose   = () => term?.write('\r\n\x1b[2m[exited — ↺ to restart]\x1b[0m\r\n');
+            ws.onerror   = () => term?.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
+
+            term.onData(data => { if (ws?.readyState === WebSocket.OPEN) ws.send(data); });
+            term.onResize(({ cols, rows }) => {
+                if (ws?.readyState === WebSocket.OPEN) ws.send(`\x00resize:${cols},${rows}`);
+            });
+
+            if (window.ResizeObserver) {
+                ro = new ResizeObserver(_fit);
+                ro.observe(container);
+            }
+        }
+
+        // Clean up when the element leaves the DOM (note navigation)
+        if (window.MutationObserver) {
+            const mo = new MutationObserver(() => {
+                if (!el.isConnected) {
+                    mo.disconnect();
+                    ro?.disconnect();
+                    try { ws?.close(); } catch(_) {}
+                    term?.dispose();
+                }
+            });
+            mo.observe(document.body, { childList: true, subtree: true });
+        }
+
+        restartBtn.addEventListener('click', connect);
+        connect();
+    }
+
     // ── hledger ───────────────────────────────────────────────────────────────
+
+    function _buildHledgerLaunch(el, filePath, cmd) {
+        const termCmd = `hledger-${cmd}${filePath ? ' -f ' + filePath : ''}`;
+        el.classList.remove('nb-collapsed');
+        el.innerHTML = `
+            <div class="nb-hl-header">
+                <span class="nb-hl-meta">
+                    <span class="nb-hl-name" title="${_esc(termCmd)}">hledger</span>
+                    <code style="margin-left:4px;opacity:0.7">${_esc(cmd)}</code>
+                </span>
+            </div>
+            <div style="padding:6px 10px">
+                <button class="nb-tw-btn nb-hl-launch-btn" style="font-size:13px;padding:4px 12px">
+                    ▶ hledger-${_esc(cmd)}
+                </button>
+            </div>`;
+        el.querySelector('.nb-hl-launch-btn').addEventListener('click', () => {
+            if (cmd === 'web') {
+                fetch('/api/hledger/launch', {method: 'POST'})
+                    .then(r => r.json())
+                    .then(d => { if (d.url) window.open(d.url, 'hledger-web'); })
+                    .catch(() => {});
+            } else {
+                NbTerminal.run(termCmd);
+            }
+        });
+    }
 
     async function _loadHledgerBlock(el) {
         const q = el.dataset.query || '';
+
+        // Detect launch-mode commands before hitting the backend
+        const tokens = q.trim().split(/\s+/);
+        const hasPath = tokens[0] && (tokens[0].startsWith('~') || tokens[0].startsWith('/'));
+        const cmdToken = (hasPath ? tokens[1] : tokens[0] || '').toLowerCase();
+        if (cmdToken === 'ui') {
+            const filePath = hasPath ? tokens[0] : '';
+            await _createInlineTerm(el, `hledger-ui${filePath ? ' -f ' + filePath : ''}`);
+            return;
+        }
+        if (cmdToken === 'web') {
+            _buildHledgerLaunch(el, hasPath ? tokens[0] : '', 'web');
+            return;
+        }
+
         el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
@@ -1963,6 +2145,21 @@
                         NbWeb.statusPill?.tick();
                     }));
                     container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
+                },
+            },
+            {
+                lang: 'tui',
+                html: text => {
+                    const lines  = text.trim().split('\n');
+                    const cmd    = lines.filter(l => !l.startsWith('#')).join(' ').trim();
+                    const height = (text.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
+                    return `<div class="nb-tui-block" data-cmd="${cmd.replace(/"/g,'&quot;')}" data-height="${height}"></div>`;
+                },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-tui-block[data-cmd]')];
+                    if (!blocks.length) return;
+                    for (const el of blocks)
+                        await _createInlineTerm(el, el.dataset.cmd, parseInt(el.dataset.height) || 400);
                 },
             },
         ],

@@ -2393,11 +2393,12 @@ def ws_pty(ws):
     try:
         payload  = json.loads(first)
         cwd_str  = payload.get('cwd',  '').strip()
-        init_str = payload.get('init', '').strip()
+        cmd_str  = payload.get('cmd',  '').strip()   # direct spawn — no shell wrapper
+        init_str = payload.get('init', '').strip()   # shell mode — typed into shell
         cols     = int(payload.get('cols', 80))
         rows     = int(payload.get('rows', 24))
     except Exception:
-        cwd_str = init_str = ''
+        cwd_str = cmd_str = init_str = ''
         cols, rows = 80, 24
 
     cwd = None
@@ -2409,32 +2410,52 @@ def ws_pty(ws):
     winsize = struct.pack('HHHH', rows, cols, 0, 0)
     fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
 
-    shell_bin = os.environ.get('SHELL') or shutil.which('bash') or 'sh'
-
     def _preexec():
         os.setsid()
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
-    try:
-        proc = subprocess.Popen(
-            [shell_bin],
-            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-            close_fds=True, cwd=cwd,
-            env={**os.environ, 'TERM': 'xterm-256color'},
-            preexec_fn=_preexec,
-        )
-    except Exception as e:
-        os.close(master_fd); os.close(slave_fd)
-        ws.send(f'\r\n[pty] Failed to start shell: {e}\r\n')
-        return
-
-    if init_str:
-        time.sleep(0.15)
-        for line in init_str.splitlines():
-            line = line.strip()
-            if line:
-                os.write(master_fd, (line + '\n').encode())
-                time.sleep(0.05)
+    if cmd_str:
+        # Direct spawn: run the command itself as the PTY process (no shell, no race)
+        try:
+            args = shlex.split(cmd_str)
+            # Expand ~ in the first path-like argument
+            args = [os.path.expanduser(a) for a in args]
+        except ValueError:
+            args = cmd_str.split()
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+                close_fds=True, cwd=cwd,
+                env={**os.environ, 'TERM': 'xterm-256color'},
+                preexec_fn=_preexec,
+            )
+        except Exception as e:
+            os.close(master_fd); os.close(slave_fd)
+            ws.send(f'\r\n[pty] Failed to start {args[0]!r}: {e}\r\n')
+            return
+    else:
+        # Shell mode: spawn a shell and optionally type an init command into it
+        shell_bin = os.environ.get('SHELL') or shutil.which('bash') or 'sh'
+        try:
+            proc = subprocess.Popen(
+                [shell_bin],
+                stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+                close_fds=True, cwd=cwd,
+                env={**os.environ, 'TERM': 'xterm-256color'},
+                preexec_fn=_preexec,
+            )
+        except Exception as e:
+            os.close(master_fd); os.close(slave_fd)
+            ws.send(f'\r\n[pty] Failed to start shell: {e}\r\n')
+            return
+        if init_str:
+            time.sleep(0.15)
+            for line in init_str.splitlines():
+                line = line.strip()
+                if line:
+                    os.write(master_fd, (line + '\n').encode())
+                    time.sleep(0.05)
 
     os.close(slave_fd)
     try:
