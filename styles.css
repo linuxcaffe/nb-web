@@ -967,6 +967,28 @@ body {
 .nb-toc li.nb-toc-h3 { padding-left: 1.2em; }
 .nb-toc li.nb-toc-h4 { padding-left: 2.4em; }
 
+/* Book mode — chapter labels and indented sub-headings */
+.nb-toc li.nb-toc-chapter {
+    padding-left: 0;
+    margin-top: 0.5em;
+    border-top: 1px solid var(--border);
+    padding-top: 0.35em;
+    line-height: 1.6;
+}
+.nb-toc li.nb-toc-chapter:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+.nb-toc li.nb-toc-chapter a,
+.nb-toc li.nb-toc-chapter { font-size: 0.95em; font-weight: 600; color: var(--text); }
+.nb-toc li.nb-toc-chapter a:hover { color: var(--accent); }
+.nb-toc li.nb-toc-chapter-item.nb-toc-h2 { padding-left: 0.9em; }
+.nb-toc li.nb-toc-chapter-item.nb-toc-h3 { padding-left: 1.8em; }
+.nb-toc li.nb-toc-chapter-item.nb-toc-h4 { padding-left: 2.7em; }
+
+/* Leading-icon colouring — warn (⚠) uses error red, others use yellow */
+.nb-toc li.nb-toc-icon-warn a { color: var(--red, #e5534b); }
+.nb-toc li.nb-toc-icon-warn   { color: var(--red, #e5534b); }
+.nb-toc li.nb-toc-icon a      { color: var(--yellow, #c69026); }
+.nb-toc li.nb-toc-icon        { color: var(--yellow, #c69026); }
+
 .nb-inline-query { font-variant-numeric: tabular-nums;
                    color: var(--text-muted); font-style: italic; }
 .nb-iq-done  { color: inherit; font-style: normal; }

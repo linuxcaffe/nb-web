@@ -893,6 +893,7 @@ const NbMain = (() => {
             const html = _renderMarkdown(d.body || '', d.selector || selector);
             const wrap = document.createElement('div');
             wrap.className = 'nb-inline-content';
+            wrap.dataset.chapterTitle = d.title || d.filename || rawPath.trim();
             wrap.innerHTML = `<div class="nb-rendered">${html}</div>`;
             span.replaceWith(wrap);
             _enrichRendered(wrap, d);
@@ -1016,6 +1017,8 @@ const NbMain = (() => {
         if (!rendered) return;
         const headings = [...rendered.querySelectorAll('h1, h2, h3, h4')];
         if (headings.length < 2) return;
+
+        // Assign IDs to any heading that lacks one
         const slugCount = {};
         for (const h of headings) {
             if (!h.id) {
@@ -1054,9 +1057,21 @@ const NbMain = (() => {
 
         const ul = document.createElement('ul');
         const pane = document.getElementById('nb-preview-content');
-        for (const h of headings) {
+        const isBook = note?.meta?.type === 'book';
+
+        // Detect a leading non-ASCII symbol (emoji, ⚠, etc.) in heading text
+        function _iconClass(text) {
+            const first = [...text.trim()][0];
+            if (!first || first.codePointAt(0) <= 127) return '';
+            return first === '⚠' ? 'nb-toc-icon-warn' : 'nb-toc-icon';
+        }
+
+        function _makeLi(h, extraClass) {
             const li = document.createElement('li');
-            li.className = `nb-toc-${h.tagName.toLowerCase()}`;
+            li.className = `nb-toc-${h.tagName.toLowerCase()}` +
+                (extraClass ? ` ${extraClass}` : '');
+            const ic = _iconClass(h.textContent);
+            if (ic) li.classList.add(ic);
             const a = document.createElement('a');
             a.href = '#' + h.id;
             a.textContent = h.textContent;
@@ -1066,8 +1081,60 @@ const NbMain = (() => {
                     ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
             li.appendChild(a);
-            ul.appendChild(li);
+            return li;
         }
+
+        if (isBook) {
+            // Book mode: emit chapter labels (from .nb-inline-content) with
+            // sub-headings (h2/h3/h4) indented beneath; h1s inside chapters
+            // are covered by the chapter label so are skipped.
+            // Headings before the first chapter (intro content) are shown normally.
+            const chapters = [...rendered.querySelectorAll(':scope > .nb-inline-content')];
+            const firstChapter = chapters[0];
+
+            // Intro headings — anything in rendered before the first chapter
+            for (const h of headings) {
+                if (firstChapter && firstChapter.contains(h)) break;
+                if (h.closest('.nb-inline-content')) break;
+                ul.appendChild(_makeLi(h, ''));
+            }
+
+            for (const chapter of chapters) {
+                const title = chapter.dataset.chapterTitle || '';
+                const firstH = chapter.querySelector('h1, h2, h3, h4');
+
+                // Chapter label — links to the chapter's first heading
+                const cli = document.createElement('li');
+                cli.className = 'nb-toc-chapter';
+                const ic = _iconClass(title);
+                if (ic) cli.classList.add(ic);
+                if (firstH) {
+                    const ca = document.createElement('a');
+                    ca.href = '#' + firstH.id;
+                    ca.textContent = title;
+                    ca.addEventListener('click', e => {
+                        e.preventDefault();
+                        pane?.querySelector(`#${CSS.escape(firstH.id)}`)
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                    cli.appendChild(ca);
+                } else {
+                    cli.textContent = title;
+                }
+                ul.appendChild(cli);
+
+                // Sub-headings within the chapter (skip h1 — covered by label)
+                for (const h of chapter.querySelectorAll('h2, h3, h4')) {
+                    ul.appendChild(_makeLi(h, 'nb-toc-chapter-item'));
+                }
+            }
+        } else {
+            // Standard mode — flat list of all headings
+            for (const h of headings) {
+                ul.appendChild(_makeLi(h, ''));
+            }
+        }
+
         details.appendChild(ul);
         rendered.prepend(details);
     }
