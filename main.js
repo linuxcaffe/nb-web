@@ -583,7 +583,7 @@ const NbMain = (() => {
         });
 
         if (pushHistory && _activeSelector && _activeSelector !== selector) {
-            _history.push({ sel: _activeSelector, scrollTop: content?.scrollTop || 0 });
+            _history.push({ sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 });
             _future.length = 0;   // new navigation invalidates forward history
         }
         _activeSelector = selector;
