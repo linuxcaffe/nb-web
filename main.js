@@ -25,6 +25,7 @@ const NbMain = (() => {
     const _history      = [];       // back-stack
     const _future       = [];       // forward-stack (cleared on any new navigation)
     const _wikilinkCache = new Map(); // selector → resolved title
+    const _noteCache     = new Map(); // selector → cached note API response (cache: true frontmatter)
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
     let _listDisplayMode = 'title';  // 'title' | 'filename' — resets on every new fetch
     let _kbPane         = 'list';   // 'list' | 'preview'
@@ -612,14 +613,19 @@ const NbMain = (() => {
         _StatusPill.reset();
         _RenderBar.reset();
 
-        // Show spinner while loading
+        // Show spinner while loading (skipped for cached notes)
         const content = document.getElementById('nb-preview-content');
-        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+        const _cached = _noteCache.get(selector);
+        if (!_cached) content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
 
         try {
-            const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
-            if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
-            const d = await r.json();
+            let d = _cached;
+            if (!d) {
+                const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
+                if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
+                d = await r.json();
+                if (d.meta?.cache) _noteCache.set(selector, d);
+            }
             renderPreview(d);
             if (opts.restoreScrollTop) {
                 content.dataset.restoreScrollTop = opts.restoreScrollTop;
@@ -1576,7 +1582,7 @@ const NbMain = (() => {
                     body: JSON.stringify({ content: body }),
                 });
                 const d = await r.json();
-                if (d.ok) _close(d.annotation);
+                if (d.ok) { _noteCache.delete(note.selector); _close(d.annotation); }
                 else { sb.textContent = 'Save'; alert('✗ ' + (d.error || 'failed')); }
             } catch(e) { sb.textContent = 'Save'; alert('✗ ' + e.message); }
         };
@@ -1587,6 +1593,7 @@ const NbMain = (() => {
         try {
             await fetch(`/api/note/annotate?selector=${encodeURIComponent(note.selector)}`,
                 { method: 'DELETE' });
+            _noteCache.delete(note.selector);
             _renderAnnotationFoot(foot, note, null);
         } catch(e) { /* silent */ }
     }
@@ -1802,6 +1809,7 @@ const NbMain = (() => {
             });
             const wd = await wr.json();
             if (wd.success) {
+                _noteCache.delete(_activeSelector);
                 btn.textContent = '✓ Saved';
                 setTimeout(() => { btn.textContent = 'Save'; }, 1200);
             } else {
@@ -1871,6 +1879,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
+                _noteCache.delete(_activeSelector);
                 btn.textContent = '✓ Saved';
                 setTimeout(() => { btn.textContent = 'Save'; }, 1200);
             } else {
@@ -2445,6 +2454,7 @@ const NbMain = (() => {
         });
         const d = await r.json();
         if (d.success) {
+            _noteCache.delete(_activeSelector);
             delete _undoBuffer[_activeSelector];
             NbNav.reexecute();
             openNote(_activeSelector);
@@ -2742,6 +2752,7 @@ const NbMain = (() => {
                 const d = await r.json();
                 if (!d.success) failed++;
                 else {
+                    _noteCache.delete(sel);
                     _pendingDeletes.add(sel);
                     // Remove from DOM immediately — don't wait for reexecute
                     document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
@@ -3345,9 +3356,12 @@ const NbMain = (() => {
 
         _editing = true;
         _setPaneMode('edit');
+        const _saveBtn = document.getElementById('nb-save-btn');
+        if (_saveBtn) _saveBtn.disabled = true;
         fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
-            .then(d => _populateEditor(sel, d.raw || d.body || '', _saveNote, d));
+            .then(d => { if (_saveBtn) _saveBtn.disabled = false; _populateEditor(sel, d.raw || d.body || '', _saveNote, d); })
+            .catch(() => { if (_saveBtn) _saveBtn.disabled = false; });
     }
 
     async function _saveEncryptedNote() {
@@ -3363,6 +3377,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
+                _noteCache.delete(_activeSelector);
                 const savedSel = _activeSelector;
                 _closeEditor();
                 _noAutoSelect = true;
@@ -3390,6 +3405,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
+                _noteCache.delete(_activeSelector);
                 const savedSel = _activeSelector;
                 delete _toolbarCache[NbNav.notebook];  // bust so toolbar: changes show immediately
                 _closeEditor();
@@ -3407,6 +3423,7 @@ const NbMain = (() => {
     function _closeEditor() {
         _editing = false;
         _setPaneMode('preview');
+        document.getElementById('nb-editor').value = '';  // never let stale content survive into next edit session
     }
 
     function _applyFmt(fmt, ta) {
@@ -5887,7 +5904,8 @@ const NbMain = (() => {
              renderMarkdown:  (body, sel)       => _renderMarkdown(body, sel),
              enrichRendered:  (container, note) => _enrichRendered(container, note),
              wireContainer:   (container, note) => _wireContainer(container, note),
-             fetchContainer:  (container, note) => _fetchContainer(container, note) };
+             fetchContainer:  (container, note) => _fetchContainer(container, note),
+             bustNoteCache:   sel => { if (sel) _noteCache.delete(sel); else _noteCache.clear(); } };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────
@@ -6889,7 +6907,10 @@ const NbDialog = (() => {
                     });
                     const rd = await resp.json();
                     if (!rd.success) failed++;
-                    else document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
+                    else {
+                        _noteCache.delete(sel);
+                        document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
+                    }
                 } catch { failed++; }
             }
             if (failed) {
@@ -6951,6 +6972,7 @@ const NbDialog = (() => {
                 });
                 const d = await r.json();
                 if (d.success) {
+                    _noteCache.delete(selector);
                     close();
                     NbNav.reexecute();
                 } else {

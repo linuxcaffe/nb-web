@@ -1,6 +1,7 @@
 ---
 draft: true
 toc: true
+xref: docs:
 ---
 
 - Project: https://github.com/linuxcaffe/nb-web
