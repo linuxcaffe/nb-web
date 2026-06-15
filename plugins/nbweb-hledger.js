@@ -1182,7 +1182,7 @@ function _loadChartJs(cb) {
     if (_chartJsLoading) return;
     _chartJsLoading = true;
     const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+    s.src = '/chart.min.js';
     s.onload = () => {
         _chartJsReady = true;
         _chartJsCallbacks.splice(0).forEach(fn => fn());

@@ -752,70 +752,38 @@
         return _xtermReady;
     }
 
-    // label='': Form 2 — auto-run immediately.  label set: Form 1 — click-to-launch.
-    async function _createInlineTerm(el, cmd, heightPx = 400, label = '') {
+    // CSS lives in styles.css; this is a no-op kept for call-site compatibility.
+    function _tuiInjectStyle() {}
+
+    // Returns the inner HTML for a tui widget. Stored cmd in data-tui-cmd for wiring.
+    // label='': Form 2 (auto-run).  label set: Form 1 (click-to-launch, pending).
+    function _tuiBuildHtml(cmd, label, heightPx) {
         const isForm1 = Boolean(label);
+        return `<div class="nb-tui-outer${isForm1 ? ' nb-tui-pending' : ''}" data-tui-cmd="${_esc(cmd)}">
+            <div class="nb-tui-header" title="${isForm1 ? 'Click to launch' : 'Click to collapse'}">
+                <span class="nb-tui-toggle">${isForm1 ? '▶' : '▾'}</span>
+                <code class="nb-tui-cmd">${_esc(label || cmd)}</code>
+                <button class="nb-tui-restart" title="Restart" tabindex="-1"
+                        style="opacity:${isForm1 ? '0' : '1'};pointer-events:${isForm1 ? 'none' : 'auto'}">↺</button>
+            </div>
+            <div class="nb-tui-wrap" style="height:${heightPx}px;${isForm1 ? 'display:none' : ''}">
+                <div class="nb-tui-container"></div>
+            </div>
+        </div>`;
+    }
 
-        el.innerHTML = `
-            <div class="nb-tui-outer${isForm1 ? ' nb-tui-pending' : ''}">
-                <div class="nb-tui-header" title="${isForm1 ? 'Click to launch' : 'Click to collapse'}">
-                    <span class="nb-tui-toggle">${isForm1 ? '▶' : '▾'}</span>
-                    <code class="nb-tui-cmd">${_esc(label || cmd)}</code>
-                    <button class="nb-tui-restart" title="Restart" tabindex="-1"
-                            style="opacity:${isForm1 ? '0' : '1'};pointer-events:${isForm1 ? 'none' : 'auto'}">↺</button>
-                </div>
-                <div class="nb-tui-wrap" style="height:${heightPx}px;${isForm1 ? 'display:none' : ''}">
-                    <div class="nb-tui-container"></div>
-                </div>
-            </div>`;
-
-        await _loadXterm();
-        if (!window.Terminal) {
-            el.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load — cannot render terminal</div>`;
-            return;
-        }
-
-        // Inject styles once — header is a sibling of .nb-tui-wrap so focus-within
-        // never bleeds onto it; clicking the header can't steal terminal focus.
-        if (!document.getElementById('nb-tui-style')) {
-            const st = document.createElement('style');
-            st.id = 'nb-tui-style';
-            st.textContent = `
-                .nb-tui-outer { display:flex;flex-direction:column;border-radius:4px; }
-                .nb-tui-header {
-                    display:flex;align-items:center;gap:6px;padding:3px 10px;
-                    background:#111;border:1px solid var(--border,#333);
-                    border-radius:4px 4px 0 0;font-size:11px;color:#888;
-                    cursor:pointer;user-select:none;flex-shrink:0;
-                }
-                .nb-tui-outer.nb-tui-collapsed .nb-tui-header,
-                .nb-tui-outer.nb-tui-pending   .nb-tui-header { border-radius:4px; }
-                .nb-tui-header:hover { background:#1a1a1a;color:#aaa; }
-                .nb-tui-toggle { flex-shrink:0;font-size:10px;opacity:0.65; }
-                .nb-tui-cmd    { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#bbb; }
-                .nb-tui-restart { background:none;border:none;color:#666;cursor:pointer;font-size:13px;padding:1px 4px;line-height:1;flex-shrink:0; }
-                .nb-tui-restart:hover { color:#aaa; }
-                .nb-tui-wrap {
-                    background:#0a0a0a;border:1px solid var(--border,#333);border-top:none;
-                    border-radius:0 0 4px 4px;display:flex;flex-direction:column;
-                }
-                .nb-tui-wrap:focus-within { border-color:#4a9eff !important;box-shadow:0 0 0 2px rgba(74,158,255,0.25); }
-                .nb-tui-container { flex:1;overflow:hidden;padding:2px 4px;box-sizing:border-box;height:100%; }
-            `;
-            document.head.appendChild(st);
-        }
-
-        const outer      = el.querySelector('.nb-tui-outer');
-        const header     = el.querySelector('.nb-tui-header');
-        const wrap       = el.querySelector('.nb-tui-wrap');
-        const container  = el.querySelector('.nb-tui-container');
-        const toggle     = el.querySelector('.nb-tui-toggle');
-        const restartBtn = el.querySelector('.nb-tui-restart');
+    // Wire all interactive behavior onto a .nb-tui-outer element.
+    // window.Terminal must be loaded before calling this.
+    function _tuiWire(outer) {
+        const cmd        = outer.dataset.tuiCmd;
+        const header     = outer.querySelector('.nb-tui-header');
+        const wrap       = outer.querySelector('.nb-tui-wrap');
+        const container  = outer.querySelector('.nb-tui-container');
+        const toggle     = outer.querySelector('.nb-tui-toggle');
+        const restartBtn = outer.querySelector('.nb-tui-restart');
         let term = null, ws = null, ro = null, launched = false;
 
-        // Stop keyboard events reaching global handlers while terminal has focus.
         wrap.addEventListener('keydown', e => e.stopPropagation());
-        // Re-focus terminal on click anywhere inside the terminal area.
         wrap.addEventListener('click', () => term?.focus());
 
         function _fit() {
@@ -873,10 +841,8 @@
             }
         }
 
-        // Header click: collapse/expand, or launch on first click for Form 1.
         header.addEventListener('click', () => {
             if (outer.classList.contains('nb-tui-pending')) {
-                // Form 1 — first click: launch + expand
                 outer.classList.remove('nb-tui-pending');
                 wrap.style.display = '';
                 toggle.textContent = '▾';
@@ -896,12 +862,11 @@
             }
         });
 
-        // Clean up when the element leaves the DOM (note navigation).
         if (window.MutationObserver) {
-            const _watch = document.getElementById('nb-preview-content') || el.parentNode;
+            const _watch = document.getElementById('nb-preview-content') || outer.parentNode;
             if (_watch) {
                 const mo = new MutationObserver(() => {
-                    if (!el.isConnected) {
+                    if (!outer.isConnected) {
                         mo.disconnect();
                         ro?.disconnect();
                         try { ws?.close(); } catch(_) {}
@@ -913,7 +878,20 @@
         }
 
         restartBtn.addEventListener('click', e => { e.stopPropagation(); connect(); });
-        if (!isForm1) connect();  // Form 2: auto-run
+        if (!outer.classList.contains('nb-tui-pending')) connect();  // Form 2: auto-run
+    }
+
+    // For hledger (and other callers): set el.innerHTML and wire in one step.
+    async function _createInlineTerm(el, cmd, heightPx = 400, label = '') {
+        el.innerHTML = _tuiBuildHtml(cmd, label, heightPx);
+        _tuiInjectStyle();
+        await _loadXterm();
+        if (!window.Terminal) {
+            el.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load — cannot render terminal</div>`;
+            return;
+        }
+        const outer = el.querySelector('.nb-tui-outer');
+        if (outer) _tuiWire(outer);
     }
 
     // ── hledger ───────────────────────────────────────────────────────────────
@@ -2192,6 +2170,8 @@
             },
             {
                 lang: 'tui',
+                // html() emits the full structure immediately so the header is visible
+                // before any slow codeblock renderers (hledger queries etc.) run.
                 html: text => {
                     const lines  = text.trim().split('\n');
                     const height = (text.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
@@ -2199,18 +2179,28 @@
                     const pipe   = body.indexOf('|');
                     const cmd    = (pipe >= 0 ? body.slice(0, pipe) : body).trim();
                     const label  = pipe >= 0 ? body.slice(pipe + 1).trim() : '';
-                    return `<div class="nb-tui-block" data-cmd="${cmd.replace(/"/g,'&quot;')}" data-height="${height}"${label ? ` data-label="${label.replace(/"/g,'&quot;')}"` : ''}></div>`;
+                    return `<div class="nb-tui-block">${_tuiBuildHtml(cmd, label, parseInt(height) || 400)}</div>`;
                 },
+                // render() just wires event handlers — the HTML is already in the DOM.
                 render: async container => {
-                    const blocks = [...container.querySelectorAll('.nb-tui-block[data-cmd]')];
-                    if (!blocks.length) return;
-                    NbWeb.statusPill?.add(blocks.length);
-                    for (const el of blocks) {
-                        try {
-                            await _createInlineTerm(el, el.dataset.cmd, parseInt(el.dataset.height) || 400, el.dataset.label || '');
-                        } catch (e) {
-                            console.error('[tui] _createInlineTerm threw:', e);
-                            el.innerHTML = `<div style="padding:8px;color:var(--red,#ef4444);font-size:12px">⚠ tui error: ${_esc(String(e))}</div>`;
+                    const outers = [...container.querySelectorAll('.nb-tui-block > .nb-tui-outer:not([data-tui-wired])')];
+                    if (!outers.length) return;
+                    NbWeb.statusPill?.add(outers.length);
+                    _tuiInjectStyle();
+                    await _loadXterm();
+                    if (!window.Terminal) {
+                        outers.forEach(outer => {
+                            outer.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load</div>`;
+                            NbWeb.statusPill?.tick();
+                        });
+                        return;
+                    }
+                    for (const outer of outers) {
+                        outer.dataset.tuiWired = '1';
+                        try { _tuiWire(outer); }
+                        catch (e) {
+                            console.error('[tui] wire error:', e);
+                            outer.innerHTML = `<div style="padding:8px;color:var(--red,#ef4444);font-size:12px">⚠ tui error: ${_esc(String(e))}</div>`;
                         } finally {
                             NbWeb.statusPill?.tick();
                         }

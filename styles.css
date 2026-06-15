@@ -2132,6 +2132,28 @@ body.nb-fullscreen #nb-cmd-bar::after {
   padding: 8px 10px; border-radius: 4px; margin: 0; color: var(--text);
 }
 
+/* ── tui inline terminal widget ─────────────────────────────── */
+.nb-tui-outer { display:flex;flex-direction:column;border-radius:4px;margin:.5em 0; }
+.nb-tui-header {
+  display:flex;align-items:center;gap:6px;padding:3px 10px;
+  background:#111;border:1px solid var(--border,#333);
+  border-radius:4px 4px 0 0;font-size:11px;color:#888;
+  cursor:pointer;user-select:none;flex-shrink:0;
+}
+.nb-tui-outer.nb-tui-collapsed .nb-tui-header,
+.nb-tui-outer.nb-tui-pending   .nb-tui-header { border-radius:4px; }
+.nb-tui-header:hover { background:#1a1a1a;color:#aaa; }
+.nb-tui-toggle { flex-shrink:0;font-size:10px;opacity:0.65; }
+.nb-tui-cmd    { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#bbb; }
+.nb-tui-restart { background:none;border:none;color:#666;cursor:pointer;font-size:13px;padding:1px 4px;line-height:1;flex-shrink:0; }
+.nb-tui-restart:hover { color:#aaa; }
+.nb-tui-wrap {
+  background:#0a0a0a;border:1px solid var(--border,#333);border-top:none;
+  border-radius:0 0 4px 4px;display:flex;flex-direction:column;
+}
+.nb-tui-wrap:focus-within { border-color:#4a9eff !important;box-shadow:0 0 0 2px rgba(74,158,255,0.25); }
+.nb-tui-container { flex:1;overflow:hidden;padding:2px 4px;box-sizing:border-box;height:100%; }
+
 /* ── hledger codeblock ───────────────────────────────────────── */
 .nb-hl-block  { margin: 1em 0; }
 .nb-hl-error  { color: var(--red); font-size: 0.88em; }
