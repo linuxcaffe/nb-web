@@ -752,21 +752,21 @@
         return _xtermReady;
     }
 
-    async function _createInlineTerm(el, cmd, heightPx = 400) {
+    // label='': Form 2 — auto-run immediately.  label set: Form 1 — click-to-launch.
+    async function _createInlineTerm(el, cmd, heightPx = 400, label = '') {
+        const isForm1 = Boolean(label);
+
         el.innerHTML = `
-            <div class="nb-tui-wrap" style="display:flex;flex-direction:column;
-                 height:${heightPx}px;background:#0a0a0a;border-radius:4px;
-                 overflow:hidden;border:1px solid var(--border,#333)">
-                <div class="nb-tui-bar" style="display:flex;align-items:center;
-                     justify-content:space-between;padding:3px 10px;background:#111;
-                     flex-shrink:0;font-size:11px;color:#888;user-select:none">
-                    <code style="color:#bbb;font-size:11px">${_esc(cmd)}</code>
-                    <button class="nb-tui-restart" title="Restart"
-                            style="background:none;border:none;color:#666;cursor:pointer;
-                                   font-size:13px;padding:1px 4px;line-height:1">↺</button>
+            <div class="nb-tui-outer${isForm1 ? ' nb-tui-pending' : ''}">
+                <div class="nb-tui-header" title="${isForm1 ? 'Click to launch' : 'Click to collapse'}">
+                    <span class="nb-tui-toggle">${isForm1 ? '▶' : '▾'}</span>
+                    <code class="nb-tui-cmd">${_esc(label || cmd)}</code>
+                    <button class="nb-tui-restart" title="Restart" tabindex="-1"
+                            style="opacity:${isForm1 ? '0' : '1'};pointer-events:${isForm1 ? 'none' : 'auto'}">↺</button>
                 </div>
-                <div class="nb-tui-container" style="flex:1;overflow:hidden;
-                     padding:2px 4px;box-sizing:border-box"></div>
+                <div class="nb-tui-wrap" style="height:${heightPx}px;${isForm1 ? 'display:none' : ''}">
+                    <div class="nb-tui-container"></div>
+                </div>
             </div>`;
 
         await _loadXterm();
@@ -775,33 +775,48 @@
             return;
         }
 
-        // Inject focus styles once
+        // Inject styles once — header is a sibling of .nb-tui-wrap so focus-within
+        // never bleeds onto it; clicking the header can't steal terminal focus.
         if (!document.getElementById('nb-tui-style')) {
             const st = document.createElement('style');
             st.id = 'nb-tui-style';
             st.textContent = `
-                .nb-tui-wrap:focus-within {
-                    border-color: #4a9eff !important;
-                    box-shadow: 0 0 0 2px rgba(74,158,255,0.25);
+                .nb-tui-outer { display:flex;flex-direction:column;border-radius:4px; }
+                .nb-tui-header {
+                    display:flex;align-items:center;gap:6px;padding:3px 10px;
+                    background:#111;border:1px solid var(--border,#333);
+                    border-radius:4px 4px 0 0;font-size:11px;color:#888;
+                    cursor:pointer;user-select:none;flex-shrink:0;
                 }
-                .nb-tui-wrap:focus-within .nb-tui-bar { color: #bbb !important; }
-                .nb-tui-wrap:focus-within .nb-tui-restart { color: #999 !important; }
+                .nb-tui-outer.nb-tui-collapsed .nb-tui-header,
+                .nb-tui-outer.nb-tui-pending   .nb-tui-header { border-radius:4px; }
+                .nb-tui-header:hover { background:#1a1a1a;color:#aaa; }
+                .nb-tui-toggle { flex-shrink:0;font-size:10px;opacity:0.65; }
+                .nb-tui-cmd    { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#bbb; }
+                .nb-tui-restart { background:none;border:none;color:#666;cursor:pointer;font-size:13px;padding:1px 4px;line-height:1;flex-shrink:0; }
+                .nb-tui-restart:hover { color:#aaa; }
+                .nb-tui-wrap {
+                    background:#0a0a0a;border:1px solid var(--border,#333);border-top:none;
+                    border-radius:0 0 4px 4px;display:flex;flex-direction:column;
+                }
+                .nb-tui-wrap:focus-within { border-color:#4a9eff !important;box-shadow:0 0 0 2px rgba(74,158,255,0.25); }
+                .nb-tui-container { flex:1;overflow:hidden;padding:2px 4px;box-sizing:border-box;height:100%; }
             `;
             document.head.appendChild(st);
         }
 
+        const outer      = el.querySelector('.nb-tui-outer');
+        const header     = el.querySelector('.nb-tui-header');
         const wrap       = el.querySelector('.nb-tui-wrap');
         const container  = el.querySelector('.nb-tui-container');
+        const toggle     = el.querySelector('.nb-tui-toggle');
         const restartBtn = el.querySelector('.nb-tui-restart');
-        let term = null, ws = null, ro = null;
+        let term = null, ws = null, ro = null, launched = false;
 
-        // Stop all keyboard events from bubbling past the wrap — prevents the
-        // global keydown handler (which intercepts Escape on textareas and blurs
-        // them, and handles arrow keys for list navigation) from stealing input
-        // while the terminal has focus. xterm sees events in target phase first.
+        // Stop keyboard events reaching global handlers while terminal has focus.
         wrap.addEventListener('keydown', e => e.stopPropagation());
-        // Re-focus xterm on any click within the wrap
-        wrap.addEventListener('click',   () => term?.focus());
+        // Re-focus terminal on click anywhere inside the terminal area.
+        wrap.addEventListener('click', () => term?.focus());
 
         function _fit() {
             if (!term || !container.clientWidth) return;
@@ -821,6 +836,9 @@
             if (term) { term.dispose(); term = null; }
             if (ro)   { ro.disconnect(); ro = null; }
             container.innerHTML = '';
+            launched = true;
+            restartBtn.style.opacity = '';
+            restartBtn.style.pointerEvents = '';
 
             term = new window.Terminal({
                 rows: 24, cols: 80,
@@ -855,10 +873,30 @@
             }
         }
 
+        // Header click: collapse/expand, or launch on first click for Form 1.
+        header.addEventListener('click', () => {
+            if (outer.classList.contains('nb-tui-pending')) {
+                // Form 1 — first click: launch + expand
+                outer.classList.remove('nb-tui-pending');
+                wrap.style.display = '';
+                toggle.textContent = '▾';
+                header.title = 'Click to collapse';
+                connect();
+            } else if (outer.classList.contains('nb-tui-collapsed')) {
+                outer.classList.remove('nb-tui-collapsed');
+                wrap.style.display = '';
+                toggle.textContent = '▾';
+                header.title = 'Click to collapse';
+                requestAnimationFrame(_fit);
+            } else {
+                outer.classList.add('nb-tui-collapsed');
+                wrap.style.display = 'none';
+                toggle.textContent = '▶';
+                header.title = launched ? 'Click to expand' : 'Click to launch';
+            }
+        });
+
         // Clean up when the element leaves the DOM (note navigation).
-        // Observe #nb-preview-content directly — its innerHTML is replaced on
-        // every navigation, firing exactly one childList event. subtree:true on
-        // document.body would fire on every DOM mutation and lock up the browser.
         if (window.MutationObserver) {
             const _watch = document.getElementById('nb-preview-content') || el.parentNode;
             if (_watch) {
@@ -874,8 +912,8 @@
             }
         }
 
-        restartBtn.addEventListener('click', connect);
-        connect();
+        restartBtn.addEventListener('click', e => { e.stopPropagation(); connect(); });
+        if (!isForm1) connect();  // Form 2: auto-run
     }
 
     // ── hledger ───────────────────────────────────────────────────────────────
@@ -916,7 +954,9 @@
         const cmdToken = (hasPath ? tokens[1] : tokens[0] || '').toLowerCase();
         if (cmdToken === 'ui') {
             const filePath = hasPath ? tokens[0] : '';
-            await _createInlineTerm(el, `hledger-ui${filePath ? ' -f ' + filePath : ''}`);
+            const pipeIdx  = q.indexOf('|');
+            const label    = pipeIdx >= 0 ? q.slice(pipeIdx + 1).trim() : '';
+            await _createInlineTerm(el, `hledger-ui${filePath ? ' -f ' + filePath : ''}`, 400, label);
             return;
         }
         if (cmdToken === 'web') {
@@ -2154,9 +2194,12 @@
                 lang: 'tui',
                 html: text => {
                     const lines  = text.trim().split('\n');
-                    const cmd    = lines.filter(l => !l.startsWith('#')).join(' ').trim();
                     const height = (text.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
-                    return `<div class="nb-tui-block" data-cmd="${cmd.replace(/"/g,'&quot;')}" data-height="${height}"></div>`;
+                    const body   = lines.filter(l => !l.startsWith('#')).join(' ').trim();
+                    const pipe   = body.indexOf('|');
+                    const cmd    = (pipe >= 0 ? body.slice(0, pipe) : body).trim();
+                    const label  = pipe >= 0 ? body.slice(pipe + 1).trim() : '';
+                    return `<div class="nb-tui-block" data-cmd="${cmd.replace(/"/g,'&quot;')}" data-height="${height}"${label ? ` data-label="${label.replace(/"/g,'&quot;')}"` : ''}></div>`;
                 },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-tui-block[data-cmd]')];
@@ -2164,7 +2207,7 @@
                     NbWeb.statusPill?.add(blocks.length);
                     for (const el of blocks) {
                         try {
-                            await _createInlineTerm(el, el.dataset.cmd, parseInt(el.dataset.height) || 400);
+                            await _createInlineTerm(el, el.dataset.cmd, parseInt(el.dataset.height) || 400, el.dataset.label || '');
                         } catch (e) {
                             console.error('[tui] _createInlineTerm threw:', e);
                             el.innerHTML = `<div style="padding:8px;color:var(--red,#ef4444);font-size:12px">⚠ tui error: ${_esc(String(e))}</div>`;
