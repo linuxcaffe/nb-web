@@ -3442,6 +3442,15 @@ def api_note():
         dot_nb = selector.partition(':')[0]
         if dot_nb not in _DOT_OPEN and not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
+        # .lib files: filename suffix declares required level — e.g. user-mgmt-admin.html
+        # serves empty body (silent) if user doesn't qualify; no error, no 403.
+        if dot_nb == '.lib':
+            stem = Path(dot_path.name).stem
+            for lvl in LEVELS:
+                if stem.endswith(f'-{lvl}'):
+                    if not _level_gte(user.get('level', ''), lvl):
+                        return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
+                    break
         if not dot_path.exists():
             return jsonify({'error': 'not found'}), 404
         note_notebook = selector.partition(':')[0]
@@ -3508,6 +3517,8 @@ def api_note():
     nb_meta = _notebook_config(note_notebook) if note_notebook else {}
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), _effective_access(meta, nb_meta)):
+        if request.args.get('inline'):
+            return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
         return jsonify({'error': 'Access denied'}), 403
 
     title = meta.get('title') or meta.get('name') or note_title(filename, body)

@@ -1128,7 +1128,7 @@ const NbMain = (() => {
         const rendered = span.closest('.nb-rendered');
         const selector = _resolveRelPath(rawPath.trim(), note?.selector || '');
         try {
-            const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}`, { signal });
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}&inline=1`, { signal });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
             if (d.error) throw new Error(d.error);
