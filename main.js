@@ -394,7 +394,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -873,7 +873,7 @@ const NbMain = (() => {
             }
             return;
         } else if (_pluginHtml !== null) {
-            html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
+            html = (!_activeRend?.fullCard && note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
@@ -4967,6 +4967,22 @@ const NbMain = (() => {
                     <button id="nb-nb-lock-btn" class="nb-tool-btn${d.locked ? ' nb-btn-danger' : ''}">${d.locked ? '🔒 Unlock notebook' : '🔒 Lock notebook'}</button>
                     <span style="font-size:11px;color:var(--text-dim)">${d.locked ? (d.lock_reason ? _esc(d.lock_reason) : 'Notebook is read-only — all notes locked.') : 'Prevent edits to all notes in this notebook.'}</span>
                 </div>
+                ${!name.startsWith('.') ? `
+                <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <button id="nb-nb-config-btn" class="nb-tool-btn">⚙ Configure notebook</button>
+                    <span style="font-size:11px;color:var(--text-dim)">Set notebook-wide access level and other config (<code style="font-size:10px">.${name}.md</code>).</span>
+                </div>
+                <div id="nb-nb-config-area" style="display:none;padding:8px 28px 14px;border-top:1px solid var(--border)">
+                    <textarea id="nb-nb-config-text" class="nb-opt-input"
+                              style="width:100%;min-height:80px;font-family:var(--font-mono);font-size:12px;resize:vertical;box-sizing:border-box"></textarea>
+                    <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+                        <button id="nb-nb-config-save" class="nb-tool-btn nb-btn-primary">Save</button>
+                        <span id="nb-nb-config-status" style="font-size:11px;color:var(--text-dim)"></span>
+                    </div>
+                    <div style="font-size:10px;color:var(--text-dim);margin-top:6px">
+                        Changes take effect immediately — no restart needed.
+                    </div>
+                </div>` : ''}
                 <div style="padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px">
                     <div style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;
                                 letter-spacing:0.05em;text-transform:uppercase">Defaults</div>
@@ -5131,6 +5147,40 @@ const NbMain = (() => {
                     await _openNbNotebook(name);
                 } catch(_) { btn.textContent = wasLocked ? '🔒 Unlock notebook' : '🔒 Lock notebook'; btn.disabled = false; }
             });
+
+            // Configure notebook — edit .<name>.md config file inline
+            const _cfgBtn    = document.getElementById('nb-nb-config-btn');
+            const _cfgArea   = document.getElementById('nb-nb-config-area');
+            const _cfgText   = document.getElementById('nb-nb-config-text');
+            const _cfgSave   = document.getElementById('nb-nb-config-save');
+            const _cfgStatus = document.getElementById('nb-nb-config-status');
+            if (_cfgBtn) {
+                _cfgBtn.addEventListener('click', async () => {
+                    const open = _cfgArea.style.display !== 'none';
+                    _cfgArea.style.display = open ? 'none' : 'block';
+                    _cfgBtn.textContent = open ? '⚙ Configure notebook' : '⚙ Configure notebook ▲';
+                    if (!open && !_cfgText.value) {
+                        try {
+                            const r = await fetch('/api/nb/notebook-config?notebook=' + encodeURIComponent(name));
+                            const cd = await r.json();
+                            _cfgText.value = cd.content || '';
+                        } catch(_) {}
+                    }
+                });
+                _cfgSave.addEventListener('click', async () => {
+                    _cfgStatus.textContent = 'Saving…';
+                    try {
+                        const r = await fetch('/api/nb/notebook-config', {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ notebook: name, content: _cfgText.value }),
+                        });
+                        const sd = await r.json();
+                        _cfgStatus.textContent = sd.ok ? 'Saved.' : (sd.error || 'Error saving');
+                        setTimeout(() => { _cfgStatus.textContent = ''; }, 2000);
+                    } catch(e) { _cfgStatus.textContent = 'Error'; }
+                });
+            }
 
             // Use this notebook — calls `nb use <name>` to set nb's current notebook
             document.getElementById('nb-nb-use').addEventListener('click', async () => {

@@ -236,6 +236,7 @@
     .nbz-action-current   { color: var(--text-dim); }
     .nbz-action-skipped   { color: var(--text-dim); }
   </style>
+  <script src="/nb-auth.js"></script>
 </head>
 <body>
 
@@ -470,6 +471,36 @@
   <p class="hint" style="margin-top:.8em">
     Change with <code>nb settings set &lt;key&gt; &lt;value&gt;</code> in your terminal.
   </p>
+</section>
+
+<!-- ── Config repo (admin+) ──────────────────────────────────────── -->
+<section id="sec-config-repo" hidden data-min-level="admin">
+  <h2>Config repo</h2>
+  <p class="hint">Git repo at <code>~/.nb/</code> — tracks dotfolders (.users, .tools, .changes, .images, .rules) and global templates.</p>
+
+  <div class="row" style="margin-bottom:.6em">
+    <label style="min-width:80px">Remote</label>
+    <input type="text" id="config-remote-url" placeholder="git@github.com:you/nb-config.git" autocomplete="off" style="flex:1">
+    <button class="tool-btn" id="btn-config-remote-save">Save</button>
+    <span class="status" id="status-config-remote"></span>
+  </div>
+
+  <div class="row" style="margin-bottom:.6em">
+    <input type="text" id="config-commit-msg" placeholder="Commit message (optional)" autocomplete="off" style="flex:1">
+    <button class="tool-btn" id="btn-config-commit">Commit</button>
+    <button class="tool-btn" id="btn-config-sync">Sync</button>
+    <span class="status" id="status-config-sync"></span>
+  </div>
+
+  <div id="config-status-wrap" style="margin-bottom:.4em">
+    <span id="config-status-summary" style="font-size:.85em;color:var(--text-dim)">Loading…</span>
+  </div>
+
+  <pre id="config-output" class="tool-output" hidden></pre>
+  <pre id="config-log" class="tool-output" hidden></pre>
+  <div class="row" style="margin-top:.4em">
+    <button class="tool-btn" id="btn-config-log">Show log</button>
+  </div>
 </section>
 
 <!-- ── Server ────────────────────────────────────────────────────── -->
@@ -1104,6 +1135,84 @@
   loadNbWebSettings();
   loadNbSettings();
   loadPlugins();
+
+  // ── Config repo (admin+) ─────────────────────────────────────────
+  document.addEventListener('nb-auth-ready', () => {
+    NbAuth.applyVisibility();
+    if (!NbAuth.is('admin')) return;
+
+    const sec     = document.getElementById('sec-config-repo');
+    const output  = document.getElementById('config-output');
+    const logEl   = document.getElementById('config-log');
+    const summary = document.getElementById('config-status-summary');
+    const syncSt  = document.getElementById('status-config-sync');
+    const remoteSt = document.getElementById('status-config-remote');
+    sec.hidden = false;
+
+    async function loadConfigStatus() {
+      try {
+        const d = await fetch('/api/nb-config/status').then(r => r.json());
+        document.getElementById('config-remote-url').value = d.remote || '';
+        const parts = [];
+        if (d.files.length)  parts.push(`${d.files.length} changed`);
+        if (d.unpushed)      parts.push(`${d.unpushed} unpushed`);
+        if (!d.has_remote)   parts.push('no remote');
+        summary.textContent = parts.length ? parts.join(', ') : (d.last_commit || 'Up to date');
+      } catch { summary.textContent = 'Could not load status'; }
+    }
+
+    document.getElementById('btn-config-remote-save').addEventListener('click', async () => {
+      const url = document.getElementById('config-remote-url').value.trim();
+      remoteSt.textContent = 'Saving…'; remoteSt.className = 'status';
+      try {
+        const r = await fetch('/api/nb-config/remote', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({url}),
+        }).then(r => r.json());
+        remoteSt.textContent = r.success ? '✓ Saved' : ('✗ ' + (r.error || r.output));
+        remoteSt.className = 'status ' + (r.success ? 'ok' : 'err');
+        loadConfigStatus();
+      } catch(e) { remoteSt.textContent = '✗ ' + e.message; remoteSt.className = 'status err'; }
+    });
+
+    document.getElementById('btn-config-commit').addEventListener('click', async () => {
+      const msg = document.getElementById('config-commit-msg').value.trim();
+      syncSt.textContent = 'Committing…'; syncSt.className = 'status';
+      output.hidden = true;
+      try {
+        const r = await fetch('/api/nb-config/commit', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: msg}),
+        }).then(r => r.json());
+        output.textContent = r.output; output.hidden = !r.output;
+        syncSt.textContent = r.success ? '✓ Committed' : '✗ Nothing to commit';
+        syncSt.className = 'status ' + (r.success ? 'ok' : '');
+        loadConfigStatus();
+      } catch(e) { syncSt.textContent = '✗ ' + e.message; syncSt.className = 'status err'; }
+    });
+
+    document.getElementById('btn-config-sync').addEventListener('click', async () => {
+      syncSt.textContent = 'Syncing…'; syncSt.className = 'status';
+      output.hidden = true;
+      try {
+        const r = await fetch('/api/nb-config/sync', {method: 'POST'}).then(r => r.json());
+        output.textContent = r.output || r.error; output.hidden = !output.textContent;
+        syncSt.textContent = r.success ? '✓ Synced' : ('✗ ' + (r.error || 'Failed'));
+        syncSt.className = 'status ' + (r.success ? 'ok' : 'err');
+        loadConfigStatus();
+      } catch(e) { syncSt.textContent = '✗ ' + e.message; syncSt.className = 'status err'; }
+    });
+
+    document.getElementById('btn-config-log').addEventListener('click', async () => {
+      if (!logEl.hidden) { logEl.hidden = true; return; }
+      try {
+        const r = await fetch('/api/nb-config/log').then(r => r.json());
+        logEl.textContent = r.log || '(no commits)'; logEl.hidden = false;
+      } catch(e) { logEl.textContent = e.message; logEl.hidden = false; }
+    });
+
+    loadConfigStatus();
+  });
 </script>
 </body>
 </html>

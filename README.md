@@ -2,6 +2,7 @@
 draft: true
 toc: true
 xref: docs:
+processed: true
 ---
 
 - Project: https://github.com/linuxcaffe/nb-web
@@ -297,6 +298,10 @@ The full documentation lives in the `docs` notebook — importable as `docs.nbz`
 | [[Import / Export]] | .nbz archive format, import workflow |
 | [[PLUGINS]] | Plugin architecture and development |
 | [[KEYBOARD]] | All keyboard shortcuts |
+
+### Security
+
+nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with YAML frontmatter (`name`, `level`, `password_hash`, `notebooks`). Four access levels: `user`, `office`, `admin`, `tech`. Admin and tech users see five dotfolder notebooks (`.users`, `.tools`, `.changes`, `.images`, `.rules`) in the notebook selector. See [[dev/SECURITY]] for full details.
 
 ---
 

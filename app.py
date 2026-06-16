@@ -27,7 +27,7 @@ import shutil
 import socket
 import zipfile
 
-from flask import Flask, Response, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, redirect, request, send_file, send_from_directory, session
 from flask_sock import Sock
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -341,6 +341,199 @@ def parse_frontmatter(text):
     return meta, text
 
 
+# ---------------------------------------------------------------------------
+# Auth — session login; users are .md files in ~/.nb/.users/
+# ---------------------------------------------------------------------------
+
+from werkzeug.security import check_password_hash
+
+USERS_DIR  = NB_DIR / '.users'
+LEVELS     = ['guest', 'user', 'office', 'admin', 'tech']
+DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules']
+
+_SECRET_FILE = Path(__file__).parent / '.flask_secret'
+
+def _get_secret_key():
+    if _SECRET_FILE.exists():
+        return _SECRET_FILE.read_text().strip()
+    import secrets as _secrets
+    key = _secrets.token_hex(32)
+    _SECRET_FILE.write_text(key + '\n')
+    _SECRET_FILE.chmod(0o600)
+    return key
+
+app.secret_key = _get_secret_key()
+
+_RE_USERNAME = re.compile(r'^[a-zA-Z0-9_.-]+$')
+
+def _load_user(username):
+    """Return user dict from ~/.nb/.users/<username>.md frontmatter, or None."""
+    if not username or not _RE_USERNAME.match(username):
+        return None
+    path = USERS_DIR / f'{username}.md'
+    if not path.exists():
+        return None
+    try:
+        meta, _ = parse_frontmatter(path.read_text())
+        nbs = meta.get('notebooks')
+        return {
+            'username':      username,
+            'name':          str(meta.get('name', username)),
+            'level':         str(meta.get('level', 'user')),
+            'notebooks':     list(nbs) if isinstance(nbs, (list, tuple)) else [],
+            'password_hash': str(meta.get('password_hash', '')),
+        }
+    except Exception:
+        return None
+
+def _level_gte(have, need):
+    try:
+        return LEVELS.index(have) >= LEVELS.index(need)
+    except ValueError:
+        return False
+
+def _notebook_config(notebook):
+    """Read ~/<notebook>/.<notebook>.md and return its frontmatter dict."""
+    cfg = NB_DIR / notebook / f'.{notebook}.md'
+    if not cfg.exists():
+        return {}
+    try:
+        meta, _ = parse_frontmatter(cfg.read_text())
+        return meta
+    except Exception:
+        return {}
+
+def _effective_access(note_meta, nb_meta):
+    """Return the minimum level required to view a note.
+
+    Note-level access: overrides notebook default.
+    Notebook config access: default for all notes in that notebook.
+    System default: 'user' (guests see nothing unless explicitly granted).
+    """
+    return str(note_meta.get('access') or nb_meta.get('access') or 'user')
+
+@app.before_request
+def _check_auth():
+    if request.path in ('/login', '/logout', '/setup'):
+        return
+    if not session.get('user'):
+        if request.path.startswith('/api/') or request.path.startswith('/ws'):
+            return jsonify(error='Authentication required'), 401
+        return redirect('/login')
+
+_LOGIN_HTML = '''<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>nb-web</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; }}
+    body {{ font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0;
+            display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }}
+    form {{ background: #16213e; padding: 2rem; border-radius: 8px; width: 100%; max-width: 300px; }}
+    h2   {{ margin: 0 0 1.5rem; color: #a0c4ff; font-size: 1.2rem; }}
+    label {{ display: block; margin-bottom: .3rem; font-size: .8rem; color: #aaa;
+             text-transform: uppercase; letter-spacing: .05em; }}
+    input {{ display: block; width: 100%; padding: .5rem .6rem; margin-bottom: 1rem;
+             background: #0f3460; border: 1px solid #2a4a8a; border-radius: 4px;
+             color: #e0e0e0; font-size: 1rem; }}
+    input:focus {{ outline: none; border-color: #5588cc; }}
+    button {{ width: 100%; padding: .6rem; background: #3a7bd5; border: none;
+              border-radius: 4px; color: #fff; font-size: 1rem; cursor: pointer; }}
+    button:hover {{ background: #2d63b8; }}
+    .err {{ color: #ff8080; margin-bottom: 1rem; font-size: .9rem; }}
+  </style>
+</head>
+<body>
+  <form method="POST" action="/login">
+    <h2>nb-web</h2>
+    {error}
+    <label>Username</label>
+    <input name="username" type="text" autocomplete="username" autofocus>
+    <label>Password</label>
+    <input name="password" type="password" autocomplete="current-password">
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>'''
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if not USERS_DIR.exists() or not any(USERS_DIR.glob('*.md')):
+        return redirect('/setup')
+    if request.method == 'GET':
+        return _LOGIN_HTML.format(error=''), 200, {'Content-Type': 'text/html; charset=utf-8'}
+    username = request.form.get('username', '').strip().lower()
+    password = request.form.get('password', '')
+    user = _load_user(username)
+    if user and user['password_hash'] and check_password_hash(user['password_hash'], password):
+        session['user'] = {k: user[k] for k in ('username', 'name', 'level', 'notebooks')}
+        return redirect('/')
+    err = '<p class="err">Invalid username or password.</p>'
+    return _LOGIN_HTML.format(error=err), 401, {'Content-Type': 'text/html; charset=utf-8'}
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/login')
+
+@app.route('/api/me')
+def api_me():
+    user = session.get('user')
+    if not user:
+        return jsonify(error='Not authenticated'), 401
+    return jsonify(user)
+
+
+def _is_dot_notebook(name):
+    return name in DOTFOLDERS
+
+def _dot_selector_to_path(selector):
+    """Parse '.dotfolder:filename' → Path, or None if not a dotfolder selector."""
+    if ':' not in selector:
+        return None
+    nb, _, filename = selector.partition(':')
+    if nb not in DOTFOLDERS or not filename or '/' in filename or filename.startswith('.'):
+        return None
+    return NB_DIR / nb / filename
+
+def _list_dotfolder_notes(dotfolder, limit=200):
+    folder_path = NB_DIR / dotfolder
+    items = []
+    if not folder_path.is_dir():
+        return jsonify({'notes': [], 'total': 0})
+    entries = sorted(folder_path.iterdir(), key=lambda p: -p.stat().st_mtime)
+    for fpath in entries:
+        if fpath.name.startswith('.') or not fpath.is_file():
+            continue
+        itype = classify(fpath.name, None)
+        if itype in BINARY_TYPES:
+            meta, body = {}, ''
+        else:
+            try:
+                raw = fpath.read_text(errors='replace')
+            except OSError:
+                continue
+            meta, body = parse_frontmatter(raw)
+            itype = _apply_meta_type(itype, meta)
+        title   = meta.get('title') or meta.get('name') or note_title(fpath.name, body)
+        excerpt = _first_excerpt_line(body, meta)
+        items.append({
+            'type':      itype,
+            'indicator': _indicator(itype, None),
+            'id':        '',
+            'mtime':     fpath.stat().st_mtime,
+            'filename':  fpath.name,
+            'title':     title,
+            'selector':  f'{dotfolder}:{fpath.name}',
+            'excerpt':   excerpt,
+            'updated':   '',
+        })
+        if len(items) >= limit:
+            break
+    return jsonify({'notes': items, 'total': len(items)})
+
+
 def note_title(filename, body):
     """Extract title from first H1 or filename stem."""
     for line in body.splitlines():
@@ -416,9 +609,12 @@ INDICATORS = {
     'html':        '🌐',
     'archive':     '📦',
     'strip':       '🎞️',
+    'shot':        '🎬',
     'scene':       '📜',
     'storyline':   '🧵',
     'story':       '🃏',
+    'actor':       '🧑',
+    'location':    '📍',
     'note':        '',
     'code':        '📋',
     'file':        '',
@@ -439,12 +635,14 @@ INDICATORS = {
 #      to compute a custom display title from note.meta.
 #
 # Currently registered frontmatter types:
-#   strip  — film production stripboard note  🎞️  (NbWeb-cine plugin)
-#   shot   — individual camera shot           🎬  (NbWeb-cine plugin)
-#   scene     — screenplay scene document        📜  (NbWeb-cine plugin)
-#   storyline — named lane in the storylines board 🧵  (NbWeb-cine plugin)
-#   story     — card on the storylines board      🃏  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story'})
+#   strip     — film production stripboard note      🎞️  (NbWeb-cine plugin)
+#   shot      — individual camera shot               🎬  (NbWeb-cine plugin)
+#   scene     — screenplay scene document            📜  (NbWeb-cine plugin)
+#   storyline — named lane in the storylines board   🧵  (NbWeb-cine plugin)
+#   story     — card on the storylines board         🃏  (NbWeb-cine plugin)
+#   actor     — cast member / talent card            🧑  (NbWeb-cine plugin)
+#   location  — shooting location card               📍  (NbWeb-cine plugin)
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story', 'actor', 'location'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -2514,6 +2712,12 @@ def api_notebooks():
     except Exception:
         pass
     notebook_prefs = _load_settings().get('notebook_prefs', {})
+    user = session.get('user', {})
+    user_level = user.get('level', '')
+    names = [n for n in names
+             if _level_gte(user_level, _effective_access({}, _notebook_config(n)))]
+    if _level_gte(user_level, 'admin'):
+        names += [d for d in DOTFOLDERS if (NB_DIR / d).is_dir()]
     return jsonify({'notebooks': names, 'current_notebook': current_nb,
                     'notebook_prefs': notebook_prefs})
 
@@ -2551,6 +2755,12 @@ def api_notes():
     folder   = request.args.get('folder', '')
     query    = request.args.get('q', '').strip()
     limit    = int(request.args.get('limit', 200))
+    if _is_dot_notebook(notebook):
+        user = session.get('user', {})
+        if not _level_gte(user.get('level', ''), 'admin'):
+            return jsonify({'error': 'forbidden'}), 403
+        return _list_dotfolder_notes(notebook, limit)
+
     if notebook != '_all' and not _safe_notebook(notebook):
         return jsonify({'error': 'invalid notebook'}), 400
 
@@ -2754,6 +2964,9 @@ def _list_notes(notebook, folder, limit):
     index = read_index(notebook, folder)
     total = len(index)   # position in index = ID (1-based)
 
+    user    = session.get('user', {})
+    nb_meta = _notebook_config(notebook)
+
     items = []
     for pos, fname in enumerate(reversed(index)):   # newest first
         item_id = total - pos                        # ID: last entry = total
@@ -2781,6 +2994,8 @@ def _list_notes(notebook, folder, limit):
                 continue
             meta, body = parse_frontmatter(raw)
             itype = _apply_meta_type(itype, meta)
+        if not _level_gte(user.get('level', ''), _effective_access(meta, nb_meta)):
+            continue
         title = meta.get('title') or meta.get('name') or note_title(fname, body)
         excerpt = _first_excerpt_line(body, meta)
         todo_status = None
@@ -3209,8 +3424,18 @@ def api_note():
     note_notebook = None
     note_id       = None
 
+    # Dotfolder selector — .users:djp.md etc.
+    dot_path = _dot_selector_to_path(selector)
+    if dot_path is not None:
+        user = session.get('user', {})
+        if not _level_gte(user.get('level', ''), 'admin'):
+            return jsonify({'error': 'forbidden'}), 403
+        if not dot_path.exists():
+            return jsonify({'error': 'not found'}), 404
+        note_notebook = selector.partition(':')[0]
+        fpath = str(dot_path)
     # Absolute path selector — any readable file on the local system
-    if selector.startswith('/'):
+    elif selector.startswith('/'):
         fpath = selector
         if not Path(fpath).exists():
             return jsonify({'error': 'not found'}), 404
@@ -3267,6 +3492,12 @@ def api_note():
 
     meta, body = parse_frontmatter(raw)
     itype = _apply_meta_type(itype, meta)
+
+    nb_meta = _notebook_config(note_notebook) if note_notebook else {}
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), _effective_access(meta, nb_meta)):
+        return jsonify({'error': 'Access denied'}), 403
+
     title = meta.get('title') or meta.get('name') or note_title(filename, body)
 
     tags = re.findall(r'#([\w/-]+)', body)
@@ -3477,6 +3708,18 @@ def api_create_note():
     tags     = data.get('tags', [])
     ntype    = data.get('type', 'note')   # note | bookmark | todo
 
+    if _is_dot_notebook(notebook):
+        user = session.get('user', {})
+        if not _level_gte(user.get('level', ''), 'admin'):
+            return jsonify({'error': 'forbidden'}), 403
+        filename = re.sub(r'[^\w\-.]', '_', title or 'note').strip('_') + '.md'
+        fpath = NB_DIR / notebook / filename
+        try:
+            fpath.write_text(content or '')
+        except OSError as e:
+            return jsonify({'error': str(e)}), 500
+        return jsonify({'success': True, 'selector': f'{notebook}:{filename}'})
+
     target = f"{notebook}:" + (f"{folder}/" if folder else '')
 
     template_path = data.get('template_path', '').strip()
@@ -3604,6 +3847,14 @@ def api_edit_note():
 
     if not selector:
         return jsonify({'error': 'selector required'}), 400
+
+    # Resolve dotfolder selectors to absolute paths so the existing path-write code handles them
+    dot_path = _dot_selector_to_path(selector)
+    if dot_path is not None:
+        user = session.get('user', {})
+        if not _level_gte(user.get('level', ''), 'admin'):
+            return jsonify({'error': 'forbidden'}), 403
+        selector = str(dot_path)
 
     if append is not None:
         if selector.startswith('/'):
@@ -3804,6 +4055,16 @@ def api_delete_note():
     selector = request.args.get('selector', '')
     if not selector:
         return jsonify({'error': 'selector required'}), 400
+    dot_path = _dot_selector_to_path(selector)
+    if dot_path is not None:
+        user = session.get('user', {})
+        if not _level_gte(user.get('level', ''), 'admin'):
+            return jsonify({'error': 'forbidden'}), 403
+        try:
+            dot_path.unlink()
+            return jsonify({'success': True, 'stderr': ''})
+        except OSError as e:
+            return jsonify({'error': str(e)}), 500
     r = run_nb('delete', selector, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
 
@@ -5186,6 +5447,89 @@ def api_grep():
 
 
 # ---------------------------------------------------------------------------
+# API: nb-config — git repo at ~/.nb/ tracking dotfolders + global templates
+# ---------------------------------------------------------------------------
+
+_NB_CONFIG_ENV = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true',
+                  'GIT_PAGER': 'cat', 'NO_COLOR': '1'}
+
+def _nb_config_git(*args, timeout=10):
+    return subprocess.run(['git', *args], cwd=str(NB_DIR), capture_output=True,
+                          text=True, timeout=timeout, env=_NB_CONFIG_ENV)
+
+def _nb_config_level_check():
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'error': 'Admin access required'}), 403
+    return None
+
+@app.route('/api/nb-config/status')
+def api_nb_config_status():
+    err = _nb_config_level_check()
+    if err: return err
+    status_r  = _nb_config_git('status', '--porcelain')
+    remote_r  = _nb_config_git('remote', 'get-url', 'origin')
+    log_r     = _nb_config_git('log', '--oneline', '-1')
+    unpushed_r = _nb_config_git('rev-list', 'origin/master..HEAD', '--count')
+    files = []
+    for line in status_r.stdout.splitlines():
+        if line.strip():
+            files.append({'status': line[:2].strip(), 'path': line[3:]})
+    return jsonify({
+        'files':      files,
+        'has_remote': remote_r.returncode == 0,
+        'remote':     remote_r.stdout.strip() if remote_r.returncode == 0 else '',
+        'last_commit': log_r.stdout.strip(),
+        'unpushed':   int(unpushed_r.stdout.strip()) if unpushed_r.returncode == 0 else 0,
+    })
+
+@app.route('/api/nb-config/commit', methods=['POST'])
+def api_nb_config_commit():
+    err = _nb_config_level_check()
+    if err: return err
+    msg = (request.get_json() or {}).get('message', '').strip() or '[nb-config] Update'
+    _nb_config_git('add', '.users', '.tools', '.changes', '.images', '.rules', '.templates')
+    r = _nb_config_git('commit', '-m', msg)
+    return jsonify({'success': r.returncode == 0, 'output': r.stdout + r.stderr})
+
+@app.route('/api/nb-config/sync', methods=['POST'])
+def api_nb_config_sync():
+    err = _nb_config_level_check()
+    if err: return err
+    remote_r = _nb_config_git('remote', 'get-url', 'origin')
+    if remote_r.returncode != 0:
+        return jsonify({'error': 'No remote configured'}), 400
+    pull_r = _nb_config_git('pull', '--no-edit', 'origin', 'master', timeout=30)
+    push_r = _nb_config_git('push', 'origin', 'HEAD:master', timeout=30)
+    return jsonify({
+        'success': push_r.returncode == 0,
+        'output':  pull_r.stdout + pull_r.stderr + push_r.stdout + push_r.stderr,
+    })
+
+@app.route('/api/nb-config/remote', methods=['GET', 'POST'])
+def api_nb_config_remote():
+    err = _nb_config_level_check()
+    if err: return err
+    if request.method == 'GET':
+        r = _nb_config_git('remote', 'get-url', 'origin')
+        return jsonify({'remote': r.stdout.strip() if r.returncode == 0 else ''})
+    url = (request.get_json() or {}).get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'url required'}), 400
+    # Replace or add remote
+    _nb_config_git('remote', 'remove', 'origin')
+    r = _nb_config_git('remote', 'add', 'origin', url)
+    return jsonify({'success': r.returncode == 0, 'output': r.stderr})
+
+@app.route('/api/nb-config/log')
+def api_nb_config_log():
+    err = _nb_config_level_check()
+    if err: return err
+    r = _nb_config_git('log', '--oneline', '-20')
+    return jsonify({'log': r.stdout.strip()})
+
+
+# ---------------------------------------------------------------------------
 # API: Cal — return structured dated-note entries for a date range
 # ---------------------------------------------------------------------------
 
@@ -5267,6 +5611,25 @@ def api_nb_notebooks():
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
     notebooks.sort(key=lambda n: n['mtime'], reverse=True)
+    user = session.get('user', {})
+    user_level = user.get('level', '')
+    notebooks = [n for n in notebooks
+                 if _level_gte(user_level, _effective_access({}, _notebook_config(n['name'])))]
+    if _level_gte(user_level, 'admin'):
+        for df in DOTFOLDERS:
+            df_path = NB_DIR / df
+            if not df_path.is_dir():
+                continue
+            count = sum(1 for f in df_path.iterdir()
+                        if f.is_file() and not f.name.startswith('.'))
+            mtime = df_path.stat().st_mtime
+            notebooks.append({
+                'name': df, 'count': count, 'mtime': mtime,
+                'virtual': True, 'dot': True,
+                'has_remote': False, 'unpushed': 0, 'folder_count': 0,
+                'is_current': False, 'website': None, 'cine': None,
+                'hledger': None, 'locked': False,
+            })
     return jsonify({'notebooks': notebooks, 'current_notebook': current_nb})
 
 
@@ -5666,6 +6029,32 @@ def api_nb_notebook_detail():
         'locked': nb_locked,
         'lock_reason': nb_lock_reason,
     })
+
+
+@app.route('/api/nb/notebook-config', methods=['GET', 'PUT'])
+def api_nb_notebook_config():
+    """Read or write .<notebook>.md — the per-notebook config file."""
+    if request.method == 'GET':
+        notebook = request.args.get('notebook', '').strip()
+    else:
+        notebook = (request.get_json() or {}).get('notebook', '').strip()
+    if not notebook or not _safe_notebook(notebook):
+        return jsonify(error='invalid notebook'), 400
+    config_path = NB_DIR / notebook / f'.{notebook}.md'
+    if request.method == 'GET':
+        if config_path.exists():
+            return jsonify(content=config_path.read_text(errors='replace'), exists=True)
+        return jsonify(content='---\n# access: guest\n---\n', exists=False)
+    # PUT — admin+ only
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify(error='forbidden'), 403
+    content = (request.get_json() or {}).get('content', '')
+    try:
+        config_path.write_text(content)
+        return jsonify(ok=True)
+    except OSError as e:
+        return jsonify(error=str(e)), 500
 
 
 @app.route('/api/nb/notebook-prefs', methods=['POST'])
