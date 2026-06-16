@@ -349,7 +349,7 @@ from werkzeug.security import check_password_hash
 
 USERS_DIR  = NB_DIR / '.users'
 LEVELS     = ['guest', 'user', 'office', 'admin', 'tech']
-DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules']
+DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules', '.lib']
 
 _SECRET_FILE = Path(__file__).parent / '.flask_secret'
 
@@ -492,6 +492,9 @@ def api_me():
         return jsonify(error='Not authenticated'), 401
     return jsonify(user)
 
+
+# Dotfolders readable by all authenticated users (client-side data-min-level handles tiering)
+_DOT_OPEN = {'.lib', '.images'}
 
 def _is_dot_notebook(name):
     return name in DOTFOLDERS
@@ -3436,7 +3439,8 @@ def api_note():
     dot_path = _dot_selector_to_path(selector)
     if dot_path is not None:
         user = session.get('user', {})
-        if not _level_gte(user.get('level', ''), 'admin'):
+        dot_nb = selector.partition(':')[0]
+        if dot_nb not in _DOT_OPEN and not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
         if not dot_path.exists():
             return jsonify({'error': 'not found'}), 404

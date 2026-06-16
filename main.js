@@ -1106,7 +1106,7 @@ const NbMain = (() => {
     // baseSelector: e.g. "accts:tutorial/07_first_commands.md"
     function _resolveRelPath(rawPath, baseSelector) {
         if (!rawPath) return '';
-        if (/^[\w-]+:/.test(rawPath)) return rawPath;   // already a full selector
+        if (/^\.?[\w-]+:/.test(rawPath)) return rawPath;  // already a full selector (inc. .lib:file)
         const ci     = (baseSelector || '').indexOf(':');
         const nb     = ci >= 0 ? baseSelector.slice(0, ci) : '';
         const rest   = ci >= 0 ? baseSelector.slice(ci + 1) : baseSelector;
@@ -1138,6 +1138,7 @@ const NbMain = (() => {
             wrap.innerHTML = `<div class="nb-rendered">${html}</div>`;
             span.replaceWith(wrap);
             _enrichRendered(wrap, d);
+            window.NbAuth?.applyVisibility();
         } catch (e) {
             if (e.name === 'AbortError') return;   // navigation cancelled this render
             const err = document.createElement('span');
