@@ -406,11 +406,19 @@ def _notebook_config(notebook):
 def _effective_access(note_meta, nb_meta):
     """Return the minimum level required to view a note.
 
-    Note-level access: overrides notebook default.
-    Notebook config access: default for all notes in that notebook.
-    System default: 'user' (guests see nothing unless explicitly granted).
+    Resolution order:
+      note access:    → explicit override, always wins
+      note user:      → inherits that user's level from their card
+      notebook config → access: in .<notebook>.md
+      system default  → 'user' (guests see nothing unless explicitly granted)
     """
-    return str(note_meta.get('access') or nb_meta.get('access') or 'user')
+    if note_meta.get('access'):
+        return str(note_meta['access'])
+    if note_meta.get('user'):
+        card = _load_user(str(note_meta['user']))
+        if card:
+            return card.get('level', 'user')
+    return str(nb_meta.get('access') or 'user')
 
 @app.before_request
 def _check_auth():
