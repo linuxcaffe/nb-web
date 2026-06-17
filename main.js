@@ -5950,7 +5950,7 @@ const NbMain = (() => {
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, addEncryptedNote, encPassword: () => _encPassword,
              runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, loadTemplatesForAdd,
-             doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor,
+             doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor, saveNote: _saveNote,
              isEditing: () => _editing,
              setFoldersFirst,
              importFiles: (files, nb, folder) => _importFiles(files, nb, folder),
