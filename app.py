@@ -7742,6 +7742,7 @@ def api_cine_data():
                     'seq':       _cine_int(meta.get('seq'), 999),
                     'scene':     str(meta.get('scene', '')),
                     'shot':      str(meta.get('shot', '')),
+                    'alias':     str(meta.get('alias', '')),
                     'day_night': str(meta.get('day_night', '')).upper()[:1],
                     'int_ext':   str(meta.get('int_ext', '')).upper()[:1],
                     'desc':      str(meta.get('desc', '')).strip(),
