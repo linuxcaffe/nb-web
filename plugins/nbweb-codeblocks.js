@@ -2535,4 +2535,8 @@
 
     });
 
+    // Export FM utilities so main.js can use them in the card-footer Changes button
+    // without duplicating the helpers.
+    NbWeb.fmUtils = { parseFields: _fmParseFields, patch: _fmPatch, widget: _fmWidget };
+
 })();
