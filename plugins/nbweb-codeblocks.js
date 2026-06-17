@@ -1477,7 +1477,9 @@
         el.innerHTML     = '<span class="nb-spin">⟳</span>';
         try {
             const params = new URLSearchParams({ notebooks, filters: JSON.stringify(filters) });
-            const notes  = await fetch(`/api/front-query?${params}`).then(r => r.json());
+            const _fr    = await fetch(`/api/front-query?${params}`);
+            if (_fr.status === 403) { _cbDenyRead(el); return; }
+            const notes  = await _fr.json();
             if (notes.error) throw new Error(notes.error);
 
             // Determine which notebooks appear in results
@@ -1628,7 +1630,8 @@
         try {
             if (rawPath) {
                 const _r = await fetch(`/api/fs/list?path=${encodeURIComponent(rawPath)}`);
-                if (!_r.ok) throw new Error(`HTTP ${_r.status} — try restarting nb-web`);
+                if (_r.status === 403) { _cbDenyRead(el); return; }
+                if (!_r.ok) throw new Error(`HTTP ${_r.status}`);
                 const d = await _r.json();
                 if (d.error) throw new Error(d.error);
                 _navBuildFs(el, d.entries || [], d.path || rawPath);
@@ -1639,7 +1642,9 @@
             } else {
                 const params = new URLSearchParams({ notebook, limit: 200 });
                 if (folder) params.set('folder', folder);
-                const d = await fetch(`/api/notes?${params}`).then(r => r.json());
+                const r = await fetch(`/api/notes?${params}`);
+                if (r.status === 403) { _cbDenyRead(el); return; }
+                const d = await r.json();
                 const notes = Array.isArray(d) ? d : (d.notes || []);
                 _navBuildNotes(el, notes, notebook, folder);
             }
