@@ -3891,7 +3891,7 @@ def api_create_note():
 
         # When content starts with YAML frontmatter, nb CLI's --content corrupts
         # it (strips <a href= tags, reorders blocks). Write directly to disk instead.
-        if using_template and note_content.lstrip().startswith('---'):
+        if note_content.lstrip().startswith('---'):
             nb_root = NB_DIR / notebook
             note_dir = nb_root / folder if folder else nb_root
             note_dir.mkdir(parents=True, exist_ok=True)
