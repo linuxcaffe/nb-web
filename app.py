@@ -3873,13 +3873,20 @@ def api_create_note():
             )
 
         using_template = bool(template_path or template_content)
-        slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
-        # Clean slug when: subfolder note (items/ etc.) OR template-driven note.
-        # Template = intentional structured content that needs a predictable URL.
-        # Timestamp prefix reserved for casual root-level notes (no template).
-        if folder or using_template:
-            note_filename = f"{slug}.md"
+        explicit_filename = data.get('filename', '').strip()
+        if explicit_filename:
+            # Caller supplies exact filename (e.g. cine Ctrl+[ shot creation)
+            if not explicit_filename.endswith('.md'):
+                explicit_filename += '.md'
+            note_filename = explicit_filename
         else:
+            slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
+            # Clean slug when: subfolder note (items/ etc.) OR template-driven note.
+            # Template = intentional structured content that needs a predictable URL.
+            # Timestamp prefix reserved for casual root-level notes (no template).
+            if folder or using_template:
+                note_filename = f"{slug}.md"
+        if not explicit_filename and not (folder or using_template):
             note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
 
         # When content starts with YAML frontmatter, nb CLI's --content corrupts
