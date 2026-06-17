@@ -626,6 +626,17 @@ const NbMain = (() => {
                 d = await r.json();
                 if (d.meta?.cache) _noteCache.set(selector, d);
             }
+            // reload: true — run all regen blocks before rendering so blocks show fresh data
+            if (d.meta?.reload) {
+                const regenCmds = [...(d.body || '').matchAll(/```hledger\s*\nregen\s+(\S+)/gm)];
+                for (const m of regenCmds) {
+                    await fetch('/api/hledger/regen', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({notebook: NbNav.notebook, script: m[1]})
+                    }).catch(() => null);
+                }
+            }
             renderPreview(d);
             if (opts.restoreScrollTop) {
                 content.dataset.restoreScrollTop = opts.restoreScrollTop;
