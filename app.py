@@ -7773,14 +7773,19 @@ def api_cine_data():
                 pass
     shots.sort(key=lambda s: (s['day'] if s['day'] is not None else 0, s['seq']))
 
-    def _scan_dir(subdir, code_field):
+    def _scan_dir(subdir, code_field=None):
+        """Scan a subfolder of .md files into a lookup dict.
+
+        code_field=None keys by filename stem; otherwise by that frontmatter field.
+        """
         out = {}
         d = nb_path / subdir
         if d.is_dir():
             for f in (x for x in d.glob('*.md') if not x.name.startswith('.')):
                 try:
                     meta, _ = parse_frontmatter(f.read_text(errors='replace'))
-                    code = str(meta.get(code_field, '')).strip()
+                    code = f.stem if code_field is None \
+                           else str(meta.get(code_field, '')).strip()
                     if code:
                         out[code] = {
                             'selector': f'{notebook}:{subdir}/{f.name}',
@@ -7791,9 +7796,11 @@ def api_cine_data():
                     pass
         return out
 
-    actors    = _scan_dir('cast', 'code')
-    locations = _scan_dir('locations', 'loc_code')
-    resources = _scan_dir('resources', 'code')
+    # characters/ keyed by stem (BILL, AMY…); cast/ keyed by stem (jim_dandy…)
+    characters = _scan_dir('characters')
+    cast       = _scan_dir('cast')
+    locations  = _scan_dir('locations', 'loc_code')
+    resources  = _scan_dir('resources', 'code')
 
     scenes = []
     script_dir = nb_path / 'script'
@@ -7901,7 +7908,8 @@ def api_cine_data():
     return jsonify({
         'shots':         shots,
         'scenes':        scenes,
-        'actors':        actors,
+        'characters':    characters,
+        'cast':          cast,
         'locations':     locations,
         'resources':     resources,
         'config':        config,
