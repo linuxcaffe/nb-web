@@ -1931,12 +1931,21 @@ def api_fs_list():
         rel = p.relative_to(NB_DIR)
     except ValueError:
         return jsonify({'error': 'path outside NB_DIR'}), 403
-    # Gate dotfolder listings to admin+ (except _DOT_OPEN which are world-readable)
+    # Gate by destination — same logic as notebook/note access elsewhere
     parts = rel.parts
-    if parts and parts[0].startswith('.') and parts[0] not in _DOT_OPEN:
-        user = session.get('user', {})
-        if not _level_gte(user.get('level', ''), 'admin'):
-            return jsonify({'error': 'forbidden'}), 403
+    user = session.get('user', {})
+    if parts:
+        top = parts[0]
+        if top.startswith('.'):
+            # Dotfolder: open set is world-readable; everything else is admin+
+            if top not in _DOT_OPEN and not _level_gte(user.get('level', ''), 'admin'):
+                return jsonify({'error': 'forbidden'}), 403
+        elif _safe_notebook(top):
+            # Regular notebook: check notebook config access:
+            nb_meta = _notebook_config(top)
+            required = str(nb_meta.get('access') or 'user')
+            if not _level_gte(user.get('level', ''), required):
+                return jsonify({'error': 'forbidden'}), 403
     if not p.is_dir():
         return jsonify({'error': 'not a directory'}), 404
     entries = sorted(
