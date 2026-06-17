@@ -138,6 +138,8 @@ _SETTINGS_SCHEMA = {
                                 }
                                 for p in v if isinstance(p, dict) and p.get('url')
                             ] if isinstance(v, list) else []},
+    'codeblock_access':   {'type': dict, 'default': {},
+                            'coerce': lambda v: v if isinstance(v, dict) else {}},
 }
 
 def _load_settings():
@@ -172,6 +174,16 @@ def _save_settings(patch):
         raise
 
 _settings = _load_settings()
+
+
+def _cb_write_allowed(block_type):
+    """Return True if the current session user meets the write level for block_type."""
+    level = (_settings.get('codeblock_access') or {}).get(block_type, {}).get('write')
+    if not level:
+        return True
+    user = session.get('user', {})
+    return _level_gte(user.get('level', ''), level)
+
 
 # ---------------------------------------------------------------------------
 # Template variable resolution
@@ -1382,6 +1394,8 @@ def api_task_query():
 @app.route('/api/task-action', methods=['POST'])
 def api_task_action():
     """Perform a single-task action: done, start, or stop."""
+    if not _cb_write_allowed('tw'):
+        return jsonify({'error': 'Write access denied'}), 403
     data   = request.get_json(silent=True) or {}
     uuid   = data.get('uuid', '').strip()
     action = data.get('action', '').strip()
@@ -1404,6 +1418,8 @@ def api_task_action():
 @app.route('/api/task-add', methods=['POST'])
 def api_task_add():
     """Add a new task."""
+    if not _cb_write_allowed('tw'):
+        return jsonify({'error': 'Write access denied'}), 403
     data = request.get_json(silent=True) or {}
     desc = data.get('description', '').strip()
     if not desc:
@@ -1748,6 +1764,8 @@ def api_tw_launch():
 @app.route('/api/hledger-add', methods=['POST'])
 def api_hledger_add():
     """Append a new transaction to the ledger file; validates and rolls back on error."""
+    if not _cb_write_allowed('hledger'):
+        return jsonify({'error': 'Write access denied'}), 403
     data      = request.get_json(silent=True) or {}
     date      = data.get('date', '').strip()
     desc      = data.get('description', '').strip()

@@ -11,6 +11,45 @@
 
     const _esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
+    // ── Access gates ──────────────────────────────────────────────────────────
+
+    let _cbAccess = {};
+    fetch('/api/nb-settings').then(r => r.json()).then(s => { _cbAccess = s.codeblock_access || {}; }).catch(() => {});
+
+    function _cbParseGates(text) {
+        let readLevel = null, writeLevel = null;
+        const lines = text.split('\n').filter(l => {
+            const m = l.match(/^\s*(read|write)\s*:\s*(\S+)\s*$/i);
+            if (!m) return true;
+            if (m[1].toLowerCase() === 'read') readLevel  = m[2].toLowerCase();
+            else                               writeLevel = m[2].toLowerCase();
+            return false;
+        });
+        return { readLevel, writeLevel, query: lines.join('\n').trim() };
+    }
+
+    function _cbLevel(el, blockType, mode) {
+        const attr = mode === 'read' ? el.dataset.cbRead : el.dataset.cbWrite;
+        if (attr) return attr;
+        return (_cbAccess[blockType] || {})[mode] || null;
+    }
+
+    function _cbCan(el, blockType, mode) {
+        const level = _cbLevel(el, blockType, mode);
+        if (!level) return true;
+        return window.NbAuth?.is(level) ?? true;
+    }
+
+    function _cbDenyRead(el, blockType) {
+        const level = _cbLevel(el, blockType, 'read');
+        el.innerHTML = `<div class="nb-cb-gate"><span class="nb-cb-gate-icon">🔒</span> <b>${_esc(blockType)}</b> — requires <b>${_esc(level)}</b></div>`;
+    }
+
+    function _cbGateAttrs(readLevel, writeLevel) {
+        return (readLevel  ? ` data-cb-read="${readLevel}"`  : '')
+             + (writeLevel ? ` data-cb-write="${writeLevel}"` : '');
+    }
+
     function _localDateStr(daysAhead = 0) {
         const d = new Date(Date.now() + daysAhead * 86400000);
         return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -85,6 +124,7 @@
     }
 
     async function _loadTBlock(el) {
+        if (!_cbCan(el, 't', 'read')) { _cbDenyRead(el, 't'); return; }
         const id = _tTimers.get(el);
         if (id) { clearInterval(id); _tTimers.delete(el); }
         el.classList.remove('nb-collapsed');
@@ -259,6 +299,7 @@
     // ── tw Taskwarrior ────────────────────────────────────────────────────────
 
     async function _loadTwBlock(el) {
+        if (!_cbCan(el, 'tw', 'read')) { _cbDenyRead(el, 'tw'); return; }
         const rawQ     = el.dataset.query || '';
         const colMatch = rawQ.match(/\bcolumns:(\S+)/i);
         const colSpec  = colMatch ? colMatch[1].split(',').map(s => s.trim().toLowerCase()) : null;
@@ -335,11 +376,13 @@
         const acts = document.createElement('span');
         acts.className = 'nb-tw-header-acts';
 
-        const addBtn = document.createElement('button');
-        addBtn.className = 'nb-tw-btn nb-tw-add-btn';
-        addBtn.title = 'Add task'; addBtn.textContent = '+';
-        addBtn.addEventListener('click', () => _showTwAddForm(el, q, addBtn));
-        acts.appendChild(addBtn);
+        if (_cbCan(el, 'tw', 'write')) {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'nb-tw-btn nb-tw-add-btn';
+            addBtn.title = 'Add task'; addBtn.textContent = '+';
+            addBtn.addEventListener('click', () => _showTwAddForm(el, q, addBtn));
+            acts.appendChild(addBtn);
+        }
 
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn nb-tw-refresh';
@@ -550,6 +593,7 @@
     // ── nb ────────────────────────────────────────────────────────────────────
 
     async function _loadNbBlock(el) {
+        if (!_cbCan(el, 'nb', 'read')) { _cbDenyRead(el, 'nb'); return; }
         const parts = (el.dataset.cmd || '').trim().split(/\s+/);
         const cmd   = parts[0];
         const limit = parseInt(parts[1]) || 20;
@@ -675,6 +719,7 @@
     // ── git ───────────────────────────────────────────────────────────────────
 
     async function _loadGitBlock(el) {
+        if (!_cbCan(el, 'git', 'read')) { _cbDenyRead(el, 'git'); return; }
         const line  = (el.dataset.cmd || '').trim();
         const space = line.indexOf(' ');
         const repo  = space === -1 ? line : line.slice(0, space);
@@ -924,6 +969,7 @@
     }
 
     async function _loadHledgerBlock(el) {
+        if (!_cbCan(el, 'hledger', 'read')) { _cbDenyRead(el, 'hledger'); return; }
         const q = el.dataset.query || '';
 
         // Detect launch-mode commands before hitting the backend
@@ -1044,23 +1090,25 @@
         const acts = document.createElement('span');
         acts.className = 'nb-hl-actions';
 
-        const editBtn = document.createElement('button');
-        editBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-edit-btn';
-        editBtn.title = 'Edit journal';
-        editBtn.textContent = '✎';
-        editBtn.addEventListener('click', () => {
-            const sel  = el.dataset.hlJournalSel;
-            const path = el.dataset.hlJournal;
-            NbMain.openNote(sel || path);
-        });
-        acts.appendChild(editBtn);
+        if (_cbCan(el, 'hledger', 'write')) {
+            const editBtn = document.createElement('button');
+            editBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-edit-btn';
+            editBtn.title = 'Edit journal';
+            editBtn.textContent = '✎';
+            editBtn.addEventListener('click', () => {
+                const sel  = el.dataset.hlJournalSel;
+                const path = el.dataset.hlJournal;
+                NbMain.openNote(sel || path);
+            });
+            acts.appendChild(editBtn);
 
-        const addBtn = document.createElement('button');
-        addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
-        addBtn.title = 'Add transaction';
-        addBtn.textContent = '+';
-        addBtn.addEventListener('click', () => _showHledgerAddForm(el, q, addBtn));
-        acts.appendChild(addBtn);
+            const addBtn = document.createElement('button');
+            addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
+            addBtn.title = 'Add transaction';
+            addBtn.textContent = '+';
+            addBtn.addEventListener('click', () => _showHledgerAddForm(el, q, addBtn));
+            acts.appendChild(addBtn);
+        }
 
         const helpBtn = document.createElement('button');
         helpBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-help-btn';
@@ -1414,6 +1462,7 @@
     }
 
     async function _loadFrontBlock(el) {
+        if (!_cbCan(el, 'front', 'read')) { _cbDenyRead(el, 'front'); return; }
         const parsed = _frontParseQuery(el.dataset.query || '');
         el.dataset.frontNotebooks = parsed.notebooks.join(',');
         el.dataset.frontFilters   = JSON.stringify(parsed.filters);
@@ -1540,6 +1589,7 @@
 
     // Entry point — called on first render and on refresh
     async function _loadNavBlock(el) {
+        if (!_cbCan(el, 'nav', 'read')) { _cbDenyRead(el, 'nav'); return; }
         if (!el.dataset.navReady) {
             const parsed = _navParseQuery(el.dataset.query || '');
             if (parsed.rawPath !== undefined) {
@@ -1801,6 +1851,7 @@
     }
 
     async function _loadTestBlock(el, batchMap = new Map()) {
+        if (!_cbCan(el, 'test', 'read')) { _cbDenyRead(el, 'test'); return; }
         const raw   = (el.dataset.query || '').trim();
         const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
 
@@ -2084,7 +2135,7 @@
         codeblockRenderers: [
             {
                 lang:   'tw',
-                html:   text => `<div class="nb-tw-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-tw-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-tw-block')];
                     if (!blocks.length) return;
@@ -2102,8 +2153,8 @@
                 lang:   'hledger',
                 html:   text => {
                     const collapsed = /^#\s*collapsed\b/im.test(text);
-                    const q = text.split('\n').filter(l => !/^#\s*collapsed\b/i.test(l.trim())).join('\n').trim();
-                    return `<div class="nb-hl-block${collapsed ? ' nb-collapsed' : ''}" data-query="${q.replace(/"/g,'&quot;')}"${collapsed ? ' data-init-collapsed' : ''}><span class="nb-spin">⟳</span></div>`;
+                    const {readLevel, writeLevel, query} = _cbParseGates(text.split('\n').filter(l => !/^#\s*collapsed\b/i.test(l.trim())).join('\n'));
+                    return `<div class="nb-hl-block${collapsed ? ' nb-collapsed' : ''}"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"${collapsed ? ' data-init-collapsed' : ''}><span class="nb-spin">⟳</span></div>`;
                 },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-hl-block')];
@@ -2120,7 +2171,7 @@
             },
             {
                 lang:   'nav',
-                html:   text => `<div class="nb-nav-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-nav-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-nav-block')];
                     if (!blocks.length) return;
@@ -2130,7 +2181,7 @@
             },
             {
                 lang:   'front',
-                html:   text => `<div class="nb-front-block" data-query="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-front-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-front-block')];
                     if (!blocks.length) return;
@@ -2140,7 +2191,7 @@
             },
             {
                 lang:   't',
-                html:   text => `<div class="nb-t-block" data-period="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-t-block"${_cbGateAttrs(readLevel,writeLevel)} data-period="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-t-block')];
                     if (!blocks.length) return;
@@ -2150,7 +2201,7 @@
             },
             {
                 lang:   'nb',
-                html:   text => `<div class="nb-nb-block" data-cmd="${text.trim().toLowerCase().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-nb-block"${_cbGateAttrs(readLevel,writeLevel)} data-cmd="${query.toLowerCase().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-nb-block')];
                     if (!blocks.length) return;
@@ -2160,7 +2211,7 @@
             },
             {
                 lang:   'git',
-                html:   text => `<div class="nb-git-block" data-cmd="${text.trim().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-git-block"${_cbGateAttrs(readLevel,writeLevel)} data-cmd="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-git-block')];
                     if (!blocks.length) return;
@@ -2173,13 +2224,14 @@
                 // html() emits the full structure immediately so the header is visible
                 // before any slow codeblock renderers (hledger queries etc.) run.
                 html: text => {
-                    const lines  = text.trim().split('\n');
-                    const height = (text.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
+                    const {readLevel, writeLevel, query} = _cbParseGates(text);
+                    const lines  = query.trim().split('\n');
+                    const height = (query.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
                     const body   = lines.filter(l => !l.startsWith('#')).join(' ').trim();
                     const pipe   = body.indexOf('|');
                     const cmd    = (pipe >= 0 ? body.slice(0, pipe) : body).trim();
                     const label  = pipe >= 0 ? body.slice(pipe + 1).trim() : '';
-                    return `<div class="nb-tui-block">${_tuiBuildHtml(cmd, label, parseInt(height) || 400)}</div>`;
+                    return `<div class="nb-tui-block"${_cbGateAttrs(readLevel,writeLevel)}>${_tuiBuildHtml(cmd, label, parseInt(height) || 400)}</div>`;
                 },
                 // render() just wires event handlers — the HTML is already in the DOM.
                 render: async container => {
@@ -2196,6 +2248,12 @@
                         return;
                     }
                     for (const outer of outers) {
+                        const block = outer.closest('.nb-tui-block');
+                        if (block && !_cbCan(block, 'tui', 'read')) {
+                            _cbDenyRead(block, 'tui');
+                            NbWeb.statusPill?.tick();
+                            continue;
+                        }
                         outer.dataset.tuiWired = '1';
                         try { _tuiWire(outer); }
                         catch (e) {
@@ -2209,7 +2267,7 @@
             },
             {
                 lang:   'test',
-                html:   text => `<div class="nb-test-block" data-query="${text.trim().replace(/"/g,'&quot;')}"></div>`,
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-test-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-test-block')];
                     if (!blocks.length) return;
