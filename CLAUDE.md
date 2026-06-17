@@ -60,7 +60,49 @@ Hidden files at `~/.nb/` root: `.users`, `.tools`, `.changes`, `.images`, `.rule
 
 `NbWeb.registerModule(id, { detect, label, codeblockRenderers, previewRenderer, listButtons, notebookSection, listDefaults, sortOptions, navButtons })` — IIFE pattern, loaded from plugin list in `nb-settings.json`. Core plugins in `plugins/`; external in `~/dev/nbweb-*/`.
 
-FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyline`, `story`, `actor`, `location` (cine); add new types here + `INDICATORS` dict.
+FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyline`, `story`, `actor`, `location`, `character` (cine); add new types here + `INDICATORS` dict.
+
+## NbWeb-cine plugin
+
+Plugin: `~/dev/nbweb-cine/nbweb-cine.js`. Activated when notebook has `.nb-cine.json`.
+
+**Three-identifier scheme** — every production note type carries:
+- `filename stem` — stable wikilink anchor, never changes
+- `alias:` — compact display code (stripboard cell, list label)
+- `title:` — human-readable name (tooltip, full display)
+
+Display order: `alias → title → filename`. List title format: `alias — title` (shots: `scene.alias — title`). Linking: always `[[filename-stem]]`, never `[[alias]]`.
+
+**Folder layout:**
+
+| Folder | Type | `alias:` meaning |
+|--------|------|-----------------|
+| `script/` | `scene` | scene number (`2`) |
+| `shots/` | `shot` | shot code (`4f`) |
+| `characters/` | `character` | actor filename stem (`jim_dandy`) — the casting link |
+| `cast/` | `actor` | callsheet code (`JD`) |
+| `locations/` | `location` | location code (`LG`) |
+
+**CHARACTER/actor resolution chain:**
+```
+shot cast.actors: BILL
+  → characters/BILL.md  alias: jim_dandy  title: Bill — Head Waiter
+    → cast/jim_dandy.md  alias: JD  title: Jim Dandy
+```
+Shots list CHARACTER codes (ALLCAPS filename stems). Recasting = change `alias:` on one character file. Zero shot files touched.
+
+**`api_cine_data` response shape:**
+- `shots` — list, sorted by day+seq
+- `characters` — dict keyed by stem (`BILL`, `AMY`…)
+- `cast` — dict keyed by stem (`jim_dandy`, `alice_ming`…)
+- `locations` — dict keyed by `alias:` field (`LG`, `AL`…)
+- `scenes`, `lanes`, `stories`, `orphan_scenes`, `config`
+
+**`_scan_dir(subdir, code_field=None)`** — `code_field=None` keys by filename stem; otherwise by that frontmatter field.
+
+**Scene detection:** `type: scene` only — `scene_no:` field removed (was redundant with `alias:`).
+
+**Ctrl+[** in scene editor: dialog → `[[filename]]` inserted → scene saved → shot created → shot opened. Shot inherits scene meta (`loc`, `day_night`, `int_ext`, `scene`).
 
 ## Render pipeline (main.js)
 
