@@ -896,7 +896,7 @@ const NbMain = (() => {
             }
             return;
         } else if (_pluginHtml !== null) {
-            html = (!_activeRend?.fullCard && note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
+            html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
