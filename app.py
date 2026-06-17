@@ -1586,7 +1586,8 @@ def api_inline_query():
 @app.route('/api/hledger-query')
 def api_hledger_query():
     """Run a read-only hledger report and return JSON or plain text."""
-    q    = request.args.get('q', '').strip()
+    q        = request.args.get('q', '').strip()
+    notebook = request.args.get('notebook', '').strip()
     args = shlex.split(q) if q else ['balance']
 
     # Positional file path: first token starting with ~ or / is the ledger file.
@@ -1597,6 +1598,11 @@ def api_hledger_query():
         except ValueError as e:
             return jsonify({'error': str(e)}), 403
         args = args[1:] or ['balance']
+
+    # Notebook-scoped default: use .nb-hledger.json journal when no explicit file.
+    if not file_path and notebook:
+        cfg = _hledger_config_for_notebook(notebook)
+        file_path = _hledger_journal_path(cfg) or file_path
 
     cmd = args[0].lower()
     if cmd not in _HLEDGER_READ_CMDS:

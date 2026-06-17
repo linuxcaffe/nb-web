@@ -991,7 +991,7 @@
         el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
-            const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}`);
+            const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}&notebook=${encodeURIComponent(NbNav.notebook || '')}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
             el.dataset.hlFile         = d.file            || '';
