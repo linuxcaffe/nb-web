@@ -1926,8 +1926,7 @@ const NbMain = (() => {
             const lower = sel.toLowerCase()
             const match = (d.notes || []).find(n =>
                 (n.title || '').toLowerCase() === lower ||
-                (n.filename || '').replace(/\.[^.]+$/, '').toLowerCase() === lower ||
-                (n.meta?.alias || '').toLowerCase() === lower
+                (n.filename || '').replace(/\.[^.]+$/, '').toLowerCase() === lower
             )
             if (match) { _wikilinkCache.set('\x00' + sel, match.selector); return match.selector }
         } catch(e) { /* fall through */ }
