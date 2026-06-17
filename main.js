@@ -676,11 +676,21 @@ const NbMain = (() => {
         document.getElementById('nb-done-bar')?.remove();
         document.getElementById('nb-preview-actions').hidden = false;
 
-        const doneBtn   = document.getElementById('nb-done-btn');
-        const editBtn   = document.getElementById('nb-edit-btn');
+        const doneBtn    = document.getElementById('nb-done-btn');
+        const editBtn    = document.getElementById('nb-edit-btn');
+        const changesBtn = document.getElementById('nb-changes-btn');
         const openExtBtn = document.getElementById('nb-open-ext-btn');
         if (doneBtn) doneBtn.hidden = !(note.type === 'todo' && note.status === 'open');
         if (editBtn) editBtn.hidden = ['sheet','image','audio','video','pdf','ebook','document','archive'].includes(note.type);
+        if (changesBtn) {
+            const hasMeta = note.meta && Object.keys(note.meta).length > 0;
+            changesBtn.hidden   = !hasMeta || !!note.locked;
+            changesBtn.classList.remove('nb-active');
+            changesBtn.onclick  = () => _toggleFmChangesPanel(note, changesBtn);
+            // Close panel when navigating to a new note
+            const panel = document.getElementById('nb-changes-panel');
+            if (panel) panel.hidden = true;
+        }
 
         // "Open externally" button — shown for types that benefit from a desktop app
         const _mediaTypes = new Set(['image','audio','video','pdf','ebook','document','archive','html','file','encrypted']);
@@ -1645,106 +1655,98 @@ const NbMain = (() => {
         } catch(e) { /* silent */ }
     }
 
-    // ── Frontmatter Changes button (card footer) ───────────────────────────────
+    // ── Frontmatter Changes panel (toolbar button → panel below toolbar) ──────
+    // Footer placement code preserved below but dormant — see _appendFmChangesBtn.
 
-    function _appendFmChangesBtn(bar, note) {
-        const hasMeta = note.meta && Object.keys(note.meta).length > 0;
-        if (!hasMeta || note.locked) return;
+    async function _toggleFmChangesPanel(note, btn) {
+        const panel = document.getElementById('nb-changes-panel');
+        if (!panel) return;
+        if (!panel.hidden) {
+            panel.hidden = true; btn.classList.remove('nb-active'); return;
+        }
+        btn.disabled = true;
+        try {
+            const fu = NbWeb.fmUtils;
+            if (!fu) throw new Error('fmUtils not loaded — codeblocks plugin missing?');
 
-        const btn = document.createElement('button');
-        btn.className   = 'nb-fm-changes-btn nb-tw-btn';
-        btn.textContent = 'Changes';
-        bar.appendChild(btn);
+            const [noteD, conD] = await Promise.all([
+                fetch(`/api/note?selector=${encodeURIComponent(note.selector)}`).then(r => r.json()),
+                fetch(`/api/note/constraints?selector=${encodeURIComponent(note.selector)}`).then(r => r.json()),
+            ]);
+            if (noteD.error) throw new Error(noteD.error);
 
-        // Panel inserted right after the annotation foot
-        const panel = document.createElement('div');
-        panel.className = 'nb-front-changes-panel';
-        panel.hidden    = true;
-        bar.closest('.nb-annotation-foot').after(panel);
+            const noteRaw     = noteD.raw || '';
+            const constraints = conD.error ? {} : conD;
+            const fields      = fu.parseFields(noteRaw);
 
-        btn.addEventListener('click', async () => {
-            if (!panel.hidden) { panel.hidden = true; btn.classList.remove('nb-active'); return; }
-            btn.disabled = true; btn.textContent = '⟳';
-            try {
-                const fu = NbWeb.fmUtils;
-                if (!fu) throw new Error('fmUtils not loaded');
+            panel.innerHTML = '';
+            const form = document.createElement('div');
+            form.className = 'nb-front-changes-form';
 
-                const [noteD, conD] = await Promise.all([
-                    fetch(`/api/note?selector=${encodeURIComponent(note.selector)}`).then(r => r.json()),
-                    fetch(`/api/note/constraints?selector=${encodeURIComponent(note.selector)}`).then(r => r.json()),
-                ]);
-                if (noteD.error) throw new Error(noteD.error);
-
-                const noteRaw    = noteD.raw || '';
-                const constraints = conD.error ? {} : conD;
-                const fields      = fu.parseFields(noteRaw);
-
-                panel.innerHTML = '';
-                const form = document.createElement('div');
-                form.className = 'nb-front-changes-form';
-
-                for (const { key, value } of fields) {
-                    const row = document.createElement('div');
-                    row.className = 'nb-front-changes-row';
-                    const lbl = document.createElement('label');
-                    lbl.className   = 'nb-front-changes-label';
-                    lbl.textContent = key;
-                    row.appendChild(lbl);
-                    row.appendChild(fu.widget(key, value, constraints[key]));
-                    form.appendChild(row);
-                }
-
-                const actions = document.createElement('div');
-                actions.className = 'nb-front-changes-actions';
-
-                const saveBtn = document.createElement('button');
-                saveBtn.className   = 'nb-tw-btn';
-                saveBtn.textContent = 'Save';
-                saveBtn.addEventListener('click', async () => {
-                    const updates = {};
-                    for (const w of form.querySelectorAll('[data-fm-key]')) {
-                        updates[w.dataset.fmKey] = w.type === 'checkbox' ? String(w.checked) : w.value;
-                    }
-                    saveBtn.disabled = true; saveBtn.textContent = '⟳';
-                    try {
-                        const r = await fetch('/api/note', {
-                            method:  'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body:    JSON.stringify({ selector: note.selector, content: fu.patch(noteRaw, updates) }),
-                        }).then(r => r.json());
-                        if (r.error) throw new Error(r.error);
-                        _noteCache.delete(note.selector);
-                        panel.hidden = true;
-                        btn.classList.remove('nb-active');
-                        NbMain.openNote(note.selector);
-                    } catch(e) {
-                        saveBtn.textContent = `⚠ ${e.message}`;
-                        saveBtn.disabled = false;
-                    }
-                });
-
-                const cancelBtn = document.createElement('button');
-                cancelBtn.className   = 'nb-tw-btn';
-                cancelBtn.textContent = 'Cancel';
-                cancelBtn.addEventListener('click', () => {
-                    panel.hidden = true; btn.classList.remove('nb-active');
-                });
-
-                actions.appendChild(saveBtn);
-                actions.appendChild(cancelBtn);
-                panel.appendChild(form);
-                panel.appendChild(actions);
-                panel.hidden = false;
-                btn.classList.add('nb-active');
-            } catch(e) {
-                panel.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
-                panel.hidden = false;
-            } finally {
-                btn.disabled    = false;
-                btn.textContent = 'Changes';
+            for (const { key, value } of fields) {
+                const row = document.createElement('div');
+                row.className = 'nb-front-changes-row';
+                const lbl = document.createElement('label');
+                lbl.className   = 'nb-front-changes-label';
+                lbl.textContent = key;
+                row.appendChild(lbl);
+                row.appendChild(fu.widget(key, value, constraints[key]));
+                form.appendChild(row);
             }
-        });
+
+            const actions = document.createElement('div');
+            actions.className = 'nb-front-changes-actions';
+
+            const saveBtn = document.createElement('button');
+            saveBtn.className   = 'nb-tw-btn';
+            saveBtn.textContent = 'Save';
+            saveBtn.addEventListener('click', async () => {
+                const updates = {};
+                for (const w of form.querySelectorAll('[data-fm-key]')) {
+                    updates[w.dataset.fmKey] = w.type === 'checkbox' ? String(w.checked) : w.value;
+                }
+                saveBtn.disabled = true; saveBtn.textContent = '⟳';
+                try {
+                    const r = await fetch('/api/note', {
+                        method:  'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body:    JSON.stringify({ selector: note.selector, content: fu.patch(noteRaw, updates) }),
+                    }).then(r => r.json());
+                    if (r.error) throw new Error(r.error);
+                    _noteCache.delete(note.selector);
+                    panel.hidden = true;
+                    btn.classList.remove('nb-active');
+                    NbMain.openNote(note.selector);
+                } catch(e) {
+                    saveBtn.textContent = `⚠ ${e.message}`;
+                    saveBtn.disabled = false;
+                }
+            });
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className   = 'nb-tw-btn';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.addEventListener('click', () => {
+                panel.hidden = true; btn.classList.remove('nb-active');
+            });
+
+            actions.appendChild(saveBtn);
+            actions.appendChild(cancelBtn);
+            panel.appendChild(form);
+            panel.appendChild(actions);
+            panel.hidden = false;
+            btn.classList.add('nb-active');
+        } catch(e) {
+            panel.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+            panel.hidden = false;
+        } finally {
+            btn.disabled = false;
+        }
     }
+
+    // DORMANT — footer placement; kept for reference.
+    // Call _appendFmChangesBtn(barEl, note) to re-enable per-note footer buttons.
+    function _appendFmChangesBtn(/*bar, note*/) { /* dormant */ }
 
     // Walk text nodes in `root` and wrap 7-8-hex-char tokens as clickable uuid refs.
     // Skips code BLOCKS (pre) and links, but intentionally walks inline <code> spans

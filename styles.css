@@ -1990,7 +1990,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-front-changes { margin: 0.5em 0; }
 .nb-front-changes-btn { font-size: 0.85em; }
 .nb-front-changes-btn.nb-active { background: var(--accent, #4a9eff); color: #fff; }
-.nb-front-changes-panel { margin-top: 0.4em; border: 1px solid var(--border); border-radius: 4px; padding: 0.6em; }
+/* inline codeblock panel */
+.nb-front-changes .nb-front-changes-panel { margin-top: 0.4em; border: 1px solid var(--border); border-radius: 4px; padding: 0.6em; }
+/* toolbar panel — flush under the grey toolbar bar */
+#nb-changes-panel { padding: 0.6em 1em; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .nb-front-changes-form { display: grid; grid-template-columns: minmax(6em, 10em) 1fr; gap: 0.3em 0.6em; align-items: center; margin-bottom: 0.6em; }
 .nb-front-changes-row { display: contents; }
 .nb-front-changes-label { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted); }
