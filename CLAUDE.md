@@ -38,7 +38,7 @@ External plugins live in `~/dev/nbweb-*/` and are wired via `nb-settings.json`.
 
 `~/.nb/` — one subdirectory per notebook, each its own git repo. Key notebooks: `home`, `docs`, `claude`, `accts`, `contacts`, `pfinds`, `Takeout`, `hledger`, `tw`, `tasks`, `work`, `friends`, `exp`, `bkmk`, `openfilmmaker`, `preciousfinds.ca`, `tutorial`, `nb`.
 
-Hidden files at `~/.nb/` root: `.users`, `.tools`, `.changes`, `.images`, `.rules` — global stubs (not indexed by nb).
+Hidden files at `~/.nb/` root: `.users`, `.tools`, `.changes`, `.images`, `.rules`, `.lib` — global stubs (not indexed by nb).
 
 ## Plugin architecture
 
