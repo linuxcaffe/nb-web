@@ -967,6 +967,18 @@
         });
     }
 
+    function _hlNotebook() {
+        // Prefer the active note's notebook so hledger blocks resolve the right
+        // journal when the nav scope is '_all' or a different notebook.
+        const sel = window.NbMain?.activeSelector?.();
+        if (sel) {
+            const colon = sel.indexOf(':');
+            if (colon > 0) return sel.slice(0, colon);
+        }
+        const nb = NbNav.notebook;
+        return (nb && nb !== '_all') ? nb : 'home';
+    }
+
     async function _loadHledgerBlock(el) {
         if (!_cbCan(el, 'hledger', 'read')) { _cbDenyRead(el); return; }
         const q = el.dataset.query || '';
@@ -995,7 +1007,7 @@
                 const r = await fetch('/api/hledger/regen', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({notebook: NbNav.notebook, script})
+                    body: JSON.stringify({notebook: _hlNotebook(), script})
                 });
                 if (!r.ok) { el.innerHTML = `<span class="nb-hl-error">⚠ ${r.status} ${r.statusText}</span>`; return; }
                 const d = await r.json();
@@ -1013,7 +1025,7 @@
         el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
-            const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}&notebook=${encodeURIComponent(NbNav.notebook || '')}`);
+            const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}&notebook=${encodeURIComponent(_hlNotebook())}`);
             const d = await r.json();
             if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
             el.dataset.hlFile         = d.file            || '';
