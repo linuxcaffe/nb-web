@@ -7723,7 +7723,7 @@ def api_cine_data():
     shots = []
     shots_dir = nb_path / 'shots'
     if shots_dir.is_dir():
-        for f in sorted(shots_dir.glob('*.md')):
+        for f in sorted(f for f in shots_dir.glob('*.md') if not f.name.startswith('.')):
             try:
                 meta, _ = parse_frontmatter(f.read_text(errors='replace'))
                 expanded  = _expand_subfields(meta)
@@ -7749,7 +7749,10 @@ def api_cine_data():
                     'cameras':   str(meta.get('cameras', '')),
                     'lens':      str(meta.get('lens', '')),
                     'platform':  str(meta.get('platform', '')),
-                    'actors':    _cine_csv(meta.get('actors', '')),
+                    'actors':    _cine_csv(
+                                     meta.get('actors') or
+                                     (expanded.get('cast') or {}).get('actors', '')
+                                 ),
                     'resources': resources,
                     # expanded sub-block dicts
                     'tech':      expanded.get('tech', {}),
@@ -7766,7 +7769,7 @@ def api_cine_data():
         out = {}
         d = nb_path / subdir
         if d.is_dir():
-            for f in d.glob('*.md'):
+            for f in (x for x in d.glob('*.md') if not x.name.startswith('.')):
                 try:
                     meta, _ = parse_frontmatter(f.read_text(errors='replace'))
                     code = str(meta.get(code_field, '')).strip()
