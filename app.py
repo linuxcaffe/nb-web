@@ -1730,13 +1730,14 @@ def api_hledger_regen():
         return jsonify({'error': f'{script} not found in {notebook}'}), 404
 
     try:
+        _hledger_cache.clear()   # clear before run so stale entries can't be served
         r = subprocess.run(
             ['python3', str(full_script)],
             capture_output=True, text=True, timeout=30
         )
         if r.returncode != 0:
             return jsonify({'error': r.stderr.strip() or 'script error'}), 500
-        _hledger_cache.clear()
+        _hledger_cache.clear()   # clear again after run to drop any entries added during script
         return jsonify({'message': r.stdout.strip().splitlines()[-1] if r.stdout.strip() else 'done'})
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'script timed out'}), 500

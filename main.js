@@ -1514,7 +1514,9 @@ const NbMain = (() => {
 
     // ── Annotation footnote ────────────────────────────────────────────────
 
+    const _NO_ANNOTATION_TYPES = new Set(['shot', 'scene', 'strip', 'storyline']);
     function _appendAnnotation(container, note) {
+        if (_NO_ANNOTATION_TYPES.has(note.meta?.type)) return;
         const foot = document.createElement('div');
         foot.className = 'nb-annotation-foot';
         container.appendChild(foot);
