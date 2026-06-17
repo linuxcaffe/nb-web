@@ -1542,7 +1542,11 @@ def api_inline_query():
             )
             if returncode != 0:
                 return jsonify({'error': stderr or 'hledger error'}), 500
-            return jsonify({'result': _iq_strip(stdout)})
+            resp = {'result': _iq_strip(stdout)}
+            regen = config.get('regen_script', '').strip()
+            if regen and notebook:
+                resp['regen'] = {'notebook': notebook, 'script': regen}
+            return jsonify(resp)
 
         elif provider == 'tw':
             safe_cmds = {'count', 'ids', 'uuids'}

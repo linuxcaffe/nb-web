@@ -1067,8 +1067,38 @@ const NbMain = (() => {
                         span.classList.add('nb-iq-error');
                         span.title = d.error;
                     } else {
-                        span.textContent = d.result;
                         span.classList.add('nb-iq-done');
+                        if (d.regen) {
+                            span.textContent = '';
+                            const val = document.createElement('span');
+                            val.textContent = d.result;
+                            const btn = document.createElement('button');
+                            btn.className = 'nb-iq-refresh';
+                            btn.textContent = '↻';
+                            btn.title = 'Regenerate budget and refresh';
+                            btn.onclick = async () => {
+                                btn.disabled = true;
+                                val.textContent = '⋯';
+                                try {
+                                    await fetch('/api/hledger/regen', {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify(d.regen)
+                                    });
+                                } catch (_) {}
+                                try {
+                                    const r2 = await fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`);
+                                    const d2 = await r2.json();
+                                    val.textContent = d2.error ? `{{${provider}: ${query}}}` : d2.result;
+                                } catch (_) {
+                                    val.textContent = `{{${provider}: ${query}}}`;
+                                }
+                                btn.disabled = false;
+                            };
+                            span.append(val, btn);
+                        } else {
+                            span.textContent = d.result;
+                        }
                     }
                     _StatusPill.tick();
                 })

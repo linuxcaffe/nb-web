@@ -2,6 +2,15 @@
 const NbWeb = (() => {
     const _modules = new Map(); // name → { spec, enabled, activeNotebooks, error }
 
+    // Flat renderer registry — populated by registerRenderer() and auto-populated
+    // by registerModule() from previewRenderers[]/previewRenderer entries.
+    // id → { id, label, icon, types, detect, render, pluginName }
+    //   types:  string[] of note type values this renderer handles, or null for
+    //           detect-only renderers (quartz items, path-based detection, etc.)
+    //   detect: note → bool predicate kept for backward compat; used by
+    //           getPreviewRenderers() runtime filtering.  Not used by getRenderers().
+    const _rendererRegistry = new Map();
+
     // ── Plugin loading ─────────────────────────────────────────────────────────
 
     async function _loadScript(url) {
@@ -34,6 +43,17 @@ const NbWeb = (() => {
 
     // ── Registration ───────────────────────────────────────────────────────────
 
+    // Explicit renderer registration — plugins may call this directly instead of
+    // embedding renderers inside registerModule().  Auto-registration from
+    // registerModule() calls this internally, so duplicate IDs are silently skipped.
+    function registerRenderer(id, spec) {
+        if (_rendererRegistry.has(id)) {
+            console.warn(`NbWeb: renderer "${id}" already registered — skipping`);
+            return;
+        }
+        _rendererRegistry.set(id, { id, ...spec });
+    }
+
     function registerModule(name, spec) {
         if (_modules.has(name)) {
             console.warn(`NbWeb: module "${name}" already registered — skipping`);
@@ -45,6 +65,23 @@ const NbWeb = (() => {
             style.dataset.nbModule = name;
             style.textContent = spec.hideExtrasCSS;
             document.head.appendChild(style);
+        }
+        // Auto-register named previewRenderers into the flat registry.
+        for (const r of spec.previewRenderers ?? []) {
+            if (r.id) registerRenderer(r.id, { pluginName: name, ...r });
+        }
+        // Auto-register single previewRenderer as '<module>-preview'.
+        // Module spec may declare previewTypes: ['account'] to make the type
+        // association queryable; otherwise the renderer is detect-only.
+        if (spec.previewRenderer && !spec.previewRenderers?.length) {
+            registerRenderer(`${name}-preview`, {
+                label:      spec.label ?? name,
+                icon:       spec.icon  ?? null,
+                pluginName: name,
+                types:      spec.previewTypes ?? null,
+                detect:     spec.previewRendererDetect ?? null,
+                render:     spec.previewRenderer,
+            });
         }
     }
 
@@ -109,6 +146,27 @@ const NbWeb = (() => {
         const spec = _activeFor(notebook).find(m => m.previewRenderers?.length);
         if (!spec) return [];
         return spec.previewRenderers.filter(r => !r.detect || r.detect(note));
+    }
+
+    // Returns registered renderers from the flat registry, optionally filtered by
+    // note type.  type=undefined → all renderers.  type='shot' → renderers whose
+    // types[] includes 'shot' (detect-only renderers with types:null are excluded
+    // from typed queries but appear in the full list).
+    // Used by the Configure Notebook UI to populate type→renderer dropdowns.
+    function getRenderers(type) {
+        const all = [..._rendererRegistry.values()];
+        if (type === undefined) return all;
+        return all.filter(r => Array.isArray(r.types) && r.types.includes(type));
+    }
+
+    // Returns every type string declared across all registered renderers.
+    // Useful for building the full type list in the config UI.
+    function getRendererTypes() {
+        const types = new Set();
+        for (const r of _rendererRegistry.values()) {
+            if (Array.isArray(r.types)) r.types.forEach(t => types.add(t));
+        }
+        return [...types].sort();
     }
 
     // Returns all custom sort options from plugins active for this notebook.
@@ -435,12 +493,15 @@ const NbWeb = (() => {
 
     return {
         registerModule,
+        registerRenderer,
         publishWebsite,
         notebooks,
         _loadPlugins,
         _init,
         getPreviewRenderer,
         getPreviewRenderers,
+        getRenderers,
+        getRendererTypes,
         getSortOptions,
         getListExcerpt,
         getListItemIcon,

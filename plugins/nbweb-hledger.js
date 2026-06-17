@@ -1513,6 +1513,7 @@ NbWeb.registerModule('hledger', {
         return acct + lbl || null;
     },
 
+    previewTypes:    ['account'],
     previewRenderer: note => {
         if (note.type === 'account') return _renderAccountNote(note);
         return null;

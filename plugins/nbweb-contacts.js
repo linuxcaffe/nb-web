@@ -301,6 +301,7 @@
             },
         ],
 
+        previewTypes:    ['contact'],
         previewRenderer: (note) => {
             if (note.type !== 'contact') return null;
             return _renderContact(note);

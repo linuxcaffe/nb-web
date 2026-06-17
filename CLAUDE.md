@@ -113,6 +113,14 @@ Stage 2 `_enrichRendered`: wire links, resolve wikilinks, UUID detect, hydrate c
 → `_resolveInlineQueries`: {{provider: query}} spans.
 → `_finishRendered` = `_enrichRendered` + `_appendAnnotation` (main note only).
 
+### Inline queries — `{{provider: query}}`
+
+Text spans matching `{{provider: query}}` are replaced with `.nb-inline-query` spans during `_resolveInlineQueries`. Non-`inline` providers (hledger, tw, nb, date) resolve in parallel via `/api/inline-query`.
+
+**Regen button:** when `/api/inline-query` returns a `regen: {notebook, script}` field, the span gets a `↻` button (`.nb-iq-refresh`) appended. On click: POSTs `{notebook, script}` to `/api/hledger/regen` (runs the script, clears hledger cache), then re-fetches the inline query and updates the result in place.
+
+**Wiring regen:** set `"regen_script": ".tools/gen-budget.py"` in the notebook's `.nb-hledger.json`. The `api_inline_query` endpoint reads this and includes `regen` in the response only when both `regen_script` and `notebook` are present. Script must live in `.tools/` and be a `.py` file (enforced by `/api/hledger/regen`).
+
 ## Active claude: notes
 
 Key reference: `claude:nb_plugin_development_—_hard-won_patterns.md` (nb plugin dev patterns).
