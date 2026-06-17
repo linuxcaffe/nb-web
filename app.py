@@ -3722,6 +3722,46 @@ def api_annotation_template():
     return jsonify({'content': _resolve_template_vars(raw, title=title)})
 
 
+def _load_constraints(note_path: Path) -> dict:
+    """Walk from note's folder up to its notebook root, merging .constraints.md files.
+
+    Processes root-first so folder-level entries override notebook-level entries.
+    Constraint values are always returned as strings (e.g. 'select a,b,c', 'bool').
+    """
+    dirs = []
+    p = note_path.parent
+    while True:
+        dirs.append(p)
+        try:
+            rel = p.relative_to(NB_DIR)
+            if len(rel.parts) <= 1:   # reached the notebook root
+                break
+        except ValueError:
+            break
+        p = p.parent
+
+    merged = {}
+    for d in reversed(dirs):   # root → folder; deeper entries win
+        cf = d / '.constraints.md'
+        if not cf.exists():
+            continue
+        meta, _ = parse_frontmatter(cf.read_text(errors='replace'))
+        merged.update({k: str(v) for k, v in meta.items() if k and v is not None})
+    return merged
+
+
+@app.route('/api/note/constraints')
+def api_note_constraints():
+    selector = request.args.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    path_r = run_nb('show', selector, '--path')
+    if not nb_ok(path_r):
+        return jsonify({'error': 'not found'}), 404
+    fpath = Path(path_r['stdout'].strip())
+    return jsonify(_load_constraints(fpath))
+
+
 @app.route('/api/note/annotate', methods=['POST', 'DELETE'])
 def api_note_annotate():
     selector = request.args.get('selector', '').strip()
