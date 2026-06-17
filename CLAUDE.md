@@ -25,6 +25,22 @@ External plugins live in `~/dev/nbweb-*/` and are wired via `nb-settings.json`.
 - **Dev docs:** `~/.nb/docs/dev/` — 11 files; index at `docs:DEVELOPERS.md`
 - **AI meta-index:** `~/.claude/projects/-home-djp/memory/reference_nb_web_index.md` — "where is X?" for any topic
 
+## Wikilink convention
+
+**Embed filename stems, display alias.** The stable link target is always the filename stem:
+
+```
+[[WH-captive-cu-4f]]   ← in a script note
+```
+
+If `WH-captive-cu-4f.md` has `alias: 4f`, it renders inline as `4f` automatically
+via `data-autolabel` → `meta.alias || title`. The `title:` frontmatter appears as tooltip.
+
+Never embed bare aliases (`[[4f]]`) — the resolver matches title and filename stem only,
+not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
+
+**NbMain.saveNote** is exported — call it before navigating away from an editor in plugins.
+
 ## Critical invariants — read before touching rendering or sync
 
 1. **Annotation foot:** calls `_enrichRendered` directly, never `_finishRendered` → infinite recursion
