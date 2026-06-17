@@ -7702,7 +7702,7 @@ def _cine_csv(val):
 def api_cine_data():
     """Return all shots + lookup maps + project config for a cine notebook.
 
-    Response: { shots, actors, locations, resources, config }
+    Response: { shots, actors (from cast/), locations, resources, config }
     Shots are sorted by day then seq.
     """
     notebook = request.args.get('notebook', '').strip()
@@ -7783,10 +7783,9 @@ def api_cine_data():
                     pass
         return out
 
-    actors    = _scan_dir('actors', 'code')
+    actors    = _scan_dir('cast', 'code')
     locations = _scan_dir('locations', 'loc_code')
-    resources = _scan_dir('resouces', 'code')      # handle the notebook's typo
-    resources.update(_scan_dir('resources', 'code'))  # and the correct spelling
+    resources = _scan_dir('resources', 'code')
 
     scenes = []
     script_dir = nb_path / 'script'
