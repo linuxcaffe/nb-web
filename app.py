@@ -1707,6 +1707,41 @@ def _hledger_web_parse_host_port(cmd_str):
     return _parse_web_host_port(cmd_str, default_port=5000)
 
 
+@app.route('/api/hledger/regen', methods=['POST'])
+def api_hledger_regen():
+    """Run a .tools/*.py script in a notebook to regenerate a derived journal."""
+    if not _cb_write_allowed('hledger'):
+        return jsonify({'error': 'hledger write not permitted'}), 403
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '').strip()
+    script   = data.get('script', '').strip()
+
+    if not notebook or not script:
+        return jsonify({'error': 'notebook and script required'}), 400
+
+    # Script must live inside .tools/ and be a .py file — no path traversal.
+    script_path = Path(script)
+    if script_path.parent.name != '.tools' or script_path.suffix != '.py':
+        return jsonify({'error': 'script must be a .tools/*.py file'}), 400
+
+    nb_path     = NB_DIR / notebook
+    full_script = nb_path / script_path
+    if not full_script.exists():
+        return jsonify({'error': f'{script} not found in {notebook}'}), 404
+
+    try:
+        r = subprocess.run(
+            ['python3', str(full_script)],
+            capture_output=True, text=True, timeout=30
+        )
+        if r.returncode != 0:
+            return jsonify({'error': r.stderr.strip() or 'script error'}), 500
+        _hledger_cache.clear()
+        return jsonify({'message': r.stdout.strip().splitlines()[-1] if r.stdout.strip() else 'done'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'script timed out'}), 500
+
+
 @app.route('/api/hledger/launch', methods=['POST'])
 def api_hledger_launch():
     """Start hledger-web if not running, return its URL."""

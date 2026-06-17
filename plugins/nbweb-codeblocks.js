@@ -986,6 +986,27 @@
             _buildHledgerLaunch(el, hasPath ? tokens[0] : '', 'web');
             return;
         }
+        if (cmdToken === 'regen') {
+            const script = tokens[1] || '';
+            const label  = q.includes('|') ? q.slice(q.indexOf('|') + 1).trim() : `Regenerate (${script})`;
+            el.innerHTML = `<button class="nb-hl-regen-btn nb-tool-btn">↻ ${_esc(label)}</button>`;
+            el.querySelector('.nb-hl-regen-btn').addEventListener('click', async () => {
+                el.innerHTML = '<span class="nb-spin">⟳</span>';
+                const r = await fetch('/api/hledger/regen', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({notebook: NbNav.notebook, script})
+                });
+                const d = await r.json();
+                if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
+                el.innerHTML = `<span style="color:var(--green,#4caf50)">✓ ${_esc(d.message || 'done')}</span>`;
+                // Refresh all other hledger blocks on the page
+                document.querySelectorAll('.nb-codeblock-hledger').forEach(b => {
+                    if (b !== el) _loadHledgerBlock(b);
+                });
+            });
+            return;
+        }
 
         const _initCollapsed = el.hasAttribute('data-init-collapsed');
         el.classList.remove('nb-collapsed');
