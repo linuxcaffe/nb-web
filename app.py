@@ -7799,7 +7799,7 @@ def api_cine_data():
     # characters/ keyed by stem (BILL, AMY…); cast/ keyed by stem (jim_dandy…)
     characters = _scan_dir('characters')
     cast       = _scan_dir('cast')
-    locations  = _scan_dir('locations', 'loc_code')
+    locations  = _scan_dir('locations', 'alias')
     resources  = _scan_dir('resources', 'code')
 
     scenes = []
