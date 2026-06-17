@@ -661,7 +661,7 @@ const NbMain = (() => {
         }
     }
 
-    function renderPreview(note) {
+    async function renderPreview(note) {
         _activeNote     = note;
         _activeType     = note.type;
         _activeFilename = note.filename;
