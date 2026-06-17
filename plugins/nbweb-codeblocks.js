@@ -1497,25 +1497,33 @@
     // ── front changes mode — frontmatter editor ───────────────────────────────
 
     function _fmParseFields(raw) {
-        const m = raw.match(/^---\n([\s\S]*?)\n---/);
-        if (!m) return [];
+        if (!raw.startsWith('---\n')) return [];
+        const end = raw.indexOf('\n---', 3);
+        if (end === -1) return [];
         const fields = [];
-        for (const line of m[1].split('\n')) {
+        for (const line of raw.slice(4, end).split('\n')) {
             const cm = line.match(/^([\w/-]+):([ \t]*)(.*)$/);
-            if (cm) fields.push({ key: cm[1], value: cm[3].trim() });
+            if (!cm) continue;
+            const value = cm[3].trim();
+            if (value === '|' || value === '>') continue;  // skip block scalars
+            fields.push({ key: cm[1], value });
         }
         return fields;
     }
 
     function _fmPatch(raw, updates) {
-        const m = raw.match(/^(---\n)([\s\S]*?)(\n---)([\s\S]*)$/);
-        if (!m) return raw;
-        let fm = m[2];
+        if (!raw.startsWith('---\n')) return raw;
+        const boundary = raw.indexOf('\n---', 3);
+        if (boundary === -1) return raw;
+        // head = opening --- + FM content (without the closing \n---)
+        // tail = \n--- + everything after (body preserved exactly)
+        let head = raw.slice(0, boundary);
+        const tail = raw.slice(boundary);
         for (const [key, val] of Object.entries(updates)) {
-            const re = new RegExp(`^([ \\t]*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:[ \\t]*).*$`, 'm');
-            fm = fm.replace(re, `$1${val}`);
+            const re = new RegExp(`^([ \\t]*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}):[ \\t]*.*$`, 'm');
+            head = head.replace(re, `$1: ${val}`);
         }
-        return m[1] + fm + m[3] + m[4];
+        return head + tail;
     }
 
     function _fmWidget(key, value, constraint) {
