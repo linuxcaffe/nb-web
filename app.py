@@ -638,6 +638,8 @@ INDICATORS = {
     'story':       '🃏',
     'actor':       '🧑',
     'location':    '📍',
+    'day':         '📅',
+    'resource':    '🎁',
     'note':        '',
     'code':        '📋',
     'file':        '',
@@ -665,7 +667,9 @@ INDICATORS = {
 #   story     — card on the storylines board         🃏  (NbWeb-cine plugin)
 #   actor     — cast member / talent card            🧑  (NbWeb-cine plugin)
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story', 'actor', 'location'})
+#   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
+#   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story', 'actor', 'location', 'day', 'resource'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()

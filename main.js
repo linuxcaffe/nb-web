@@ -394,7 +394,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -1545,7 +1545,7 @@ const NbMain = (() => {
 
     // ── Annotation footnote ────────────────────────────────────────────────
 
-    const _NO_ANNOTATION_TYPES = new Set(['shot', 'scene', 'strip', 'storyline']);
+    const _NO_ANNOTATION_TYPES = new Set();
     function _appendAnnotation(container, note) {
         if (_NO_ANNOTATION_TYPES.has(note.meta?.type)) return;
         const foot = document.createElement('div');
