@@ -40,9 +40,8 @@
         return window.NbAuth?.is(level) ?? true;
     }
 
-    function _cbDenyRead(el, blockType) {
-        const level = _cbLevel(el, blockType, 'read');
-        el.innerHTML = `<div class="nb-cb-gate"><span class="nb-cb-gate-icon">🔒</span> <b>${_esc(blockType)}</b> — requires <b>${_esc(level)}</b></div>`;
+    function _cbDenyRead(el) {
+        el.remove();
     }
 
     function _cbGateAttrs(readLevel, writeLevel) {
@@ -124,7 +123,7 @@
     }
 
     async function _loadTBlock(el) {
-        if (!_cbCan(el, 't', 'read')) { _cbDenyRead(el, 't'); return; }
+        if (!_cbCan(el, 't', 'read')) { _cbDenyRead(el); return; }
         const id = _tTimers.get(el);
         if (id) { clearInterval(id); _tTimers.delete(el); }
         el.classList.remove('nb-collapsed');
@@ -299,7 +298,7 @@
     // ── tw Taskwarrior ────────────────────────────────────────────────────────
 
     async function _loadTwBlock(el) {
-        if (!_cbCan(el, 'tw', 'read')) { _cbDenyRead(el, 'tw'); return; }
+        if (!_cbCan(el, 'tw', 'read')) { _cbDenyRead(el); return; }
         const rawQ     = el.dataset.query || '';
         const colMatch = rawQ.match(/\bcolumns:(\S+)/i);
         const colSpec  = colMatch ? colMatch[1].split(',').map(s => s.trim().toLowerCase()) : null;
@@ -593,7 +592,7 @@
     // ── nb ────────────────────────────────────────────────────────────────────
 
     async function _loadNbBlock(el) {
-        if (!_cbCan(el, 'nb', 'read')) { _cbDenyRead(el, 'nb'); return; }
+        if (!_cbCan(el, 'nb', 'read')) { _cbDenyRead(el); return; }
         const parts = (el.dataset.cmd || '').trim().split(/\s+/);
         const cmd   = parts[0];
         const limit = parseInt(parts[1]) || 20;
@@ -719,7 +718,7 @@
     // ── git ───────────────────────────────────────────────────────────────────
 
     async function _loadGitBlock(el) {
-        if (!_cbCan(el, 'git', 'read')) { _cbDenyRead(el, 'git'); return; }
+        if (!_cbCan(el, 'git', 'read')) { _cbDenyRead(el); return; }
         const line  = (el.dataset.cmd || '').trim();
         const space = line.indexOf(' ');
         const repo  = space === -1 ? line : line.slice(0, space);
@@ -969,7 +968,7 @@
     }
 
     async function _loadHledgerBlock(el) {
-        if (!_cbCan(el, 'hledger', 'read')) { _cbDenyRead(el, 'hledger'); return; }
+        if (!_cbCan(el, 'hledger', 'read')) { _cbDenyRead(el); return; }
         const q = el.dataset.query || '';
 
         // Detect launch-mode commands before hitting the backend
@@ -1462,7 +1461,7 @@
     }
 
     async function _loadFrontBlock(el) {
-        if (!_cbCan(el, 'front', 'read')) { _cbDenyRead(el, 'front'); return; }
+        if (!_cbCan(el, 'front', 'read')) { _cbDenyRead(el); return; }
         const parsed = _frontParseQuery(el.dataset.query || '');
         el.dataset.frontNotebooks = parsed.notebooks.join(',');
         el.dataset.frontFilters   = JSON.stringify(parsed.filters);
@@ -1589,7 +1588,7 @@
 
     // Entry point — called on first render and on refresh
     async function _loadNavBlock(el) {
-        if (!_cbCan(el, 'nav', 'read')) { _cbDenyRead(el, 'nav'); return; }
+        if (!_cbCan(el, 'nav', 'read')) { _cbDenyRead(el); return; }
         if (!el.dataset.navReady) {
             const parsed = _navParseQuery(el.dataset.query || '');
             if (parsed.rawPath !== undefined) {
@@ -1851,7 +1850,6 @@
     }
 
     async function _loadTestBlock(el, batchMap = new Map()) {
-        if (!_cbCan(el, 'test', 'read')) { _cbDenyRead(el, 'test'); return; }
         const raw   = (el.dataset.query || '').trim();
         const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
 
@@ -1862,6 +1860,11 @@
             const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
             const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
             if (!script) { el.remove(); return; }
+            if (!_cbCan(el, 'test', 'read')) {
+                if (label) _buildTestDenied(el, label, _cbLevel(el, 'test', 'read'));
+                else       el.remove();
+                return;
+            }
             if (label) { _buildTestBtn(el, script, label); }
             else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, script, null, null, batchMap.get(script) ?? null); }
             return;
@@ -1880,12 +1883,32 @@
         }
         if (!scripts.length) { el.remove(); return; }
 
+        if (!_cbCan(el, 'test', 'read')) {
+            if (groupLabel) _buildTestDenied(el, groupLabel, _cbLevel(el, 'test', 'read'));
+            else            el.remove();
+            return;
+        }
+
         if (groupLabel) {
             _buildGroupBtn(el, scripts, groupLabel);
         } else {
             el.innerHTML = '<span class="nb-spin">⟳</span>';
             await _runGroupTest(el, scripts, null, null, batchMap);
         }
+    }
+
+    function _buildTestDenied(el, label, level) {
+        el.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'nb-test-btn';
+        btn.textContent = `▶ ${label}`;
+        const out = document.createElement('div');
+        out.className = 'nb-test-out';
+        btn.addEventListener('click', () => {
+            out.textContent = `🔒 Requires ${level} access`;
+        });
+        el.appendChild(btn);
+        el.appendChild(out);
     }
 
     function _buildGroupBtn(el, scripts, label) {
@@ -2250,7 +2273,7 @@
                     for (const outer of outers) {
                         const block = outer.closest('.nb-tui-block');
                         if (block && !_cbCan(block, 'tui', 'read')) {
-                            _cbDenyRead(block, 'tui');
+                            _cbDenyRead(block);
                             NbWeb.statusPill?.tick();
                             continue;
                         }

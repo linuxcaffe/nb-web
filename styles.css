@@ -2686,14 +2686,6 @@ body.nb-fullscreen #nb-cmd-bar::after {
 /* ── Utility ──────────────────────────────────────────────────── */
 [hidden] { display: none !important; }
 .nb-spin { animation: spin 1s linear infinite; display: inline-block; }
-
-/* ── Codeblock access gate ────────────────────────────────────── */
-.nb-cb-gate {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 4px;
-  font-size: 0.85em; color: var(--muted, #768390);
-  background: var(--bg2, #22272e);
-}
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Website panel (Notebooks block) ─────────────────────────── */
