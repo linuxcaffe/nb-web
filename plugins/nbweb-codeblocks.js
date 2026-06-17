@@ -997,6 +997,7 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({notebook: NbNav.notebook, script})
                 });
+                if (!r.ok) { el.innerHTML = `<span class="nb-hl-error">⚠ ${r.status} ${r.statusText}</span>`; return; }
                 const d = await r.json();
                 if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
                 el.innerHTML = `<span style="color:var(--green,#4caf50)">✓ ${_esc(d.message || 'done')}</span>`;
