@@ -725,6 +725,7 @@ const NbMain = (() => {
         // ── Renderer style toggle ──────────────────────────────────────────
         const _rEl     = document.getElementById('nb-preview-renderers');
         if (_rEl) _rEl.innerHTML = '';
+        await NbWeb.loadNotebookConfig(note.notebook);   // prime cache; no-op on hit
         const _renderers  = NbWeb.getPreviewRenderers(note.notebook, note);
         const _modeKey    = `nb-render-mode:${note.notebook}`;
         const _activeId   = _renderers.length > 1
@@ -5279,6 +5280,7 @@ const NbMain = (() => {
                             body: JSON.stringify({ notebook: name, content: newContent }),
                         });
                         const sd = await sr.json();
+                        if (sd.ok) NbWeb.bustNotebookConfigCache(name);
                         _typesStatus.textContent = sd.ok ? 'Saved.' : (sd.error || 'Error saving');
                         setTimeout(() => { _typesStatus.textContent = ''; }, 2000);
                     } catch(e) { _typesStatus.textContent = 'Error'; }
