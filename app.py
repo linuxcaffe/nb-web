@@ -6152,8 +6152,13 @@ def api_nb_notebook_config():
     config_path = NB_DIR / notebook / f'.{notebook}.md'
     if request.method == 'GET':
         if config_path.exists():
-            return jsonify(content=config_path.read_text(errors='replace'), exists=True)
-        return jsonify(content='---\n# access: guest\n---\n', exists=False)
+            raw = config_path.read_text(errors='replace')
+            try:
+                meta, _ = parse_frontmatter(raw)
+            except Exception:
+                meta = {}
+            return jsonify(content=raw, exists=True, meta=meta)
+        return jsonify(content='---\n# access: guest\n---\n', exists=False, meta={})
     # PUT — admin+ only
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'admin'):
