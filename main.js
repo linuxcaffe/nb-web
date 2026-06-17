@@ -168,6 +168,7 @@ const NbMain = (() => {
         _bindSortBtn();
         _bindPreviewMenu();
         _bindExtrasToggle();
+        _bindFmEmptyToggle();
         _bindKeyboard();
         _bindDropImport();
         initDragHandle();
@@ -2315,15 +2316,18 @@ const NbMain = (() => {
     // Fallback frontmatter display — shown above body for any note with meta fields
     // that aren't handled by a plugin previewRenderer or specialised renderer.
     // Skips `title` and `tags` which are already shown in the toolbar.
-    const _FM_SKIP = new Set(['title', 'tags']);
+    const _FM_SKIP    = new Set(['title', 'tags']);
+    const _FM_EMPTY_KEY = 'nb-fm-show-empty';
+
     function _renderFmFallback(meta) {
         if (!meta || typeof meta !== 'object') return '';
         const rows = Object.entries(meta)
             .filter(([k]) => !_FM_SKIP.has(k))
             .map(([k, v]) => {
+                const empty = v === null || v === undefined || v === '';
                 let display;
-                if (v === null || v === undefined || v === '') {
-                    display = '<em style="opacity:0.35">—</em>';
+                if (empty) {
+                    display = '<em class="nb-fm-dash">—</em>';
                 } else if (typeof v === 'object') {
                     display = _esc(JSON.stringify(v));
                 } else {
@@ -2332,13 +2336,18 @@ const NbMain = (() => {
                         ? `<pre style="margin:0;white-space:pre-wrap;font-size:0.9em">${_esc(s.trim())}</pre>`
                         : _esc(s);
                 }
-                return `<div class="nb-contact-row">` +
+                return `<div class="nb-contact-row${empty ? ' nb-fm-empty-row' : ''}">` +
                     `<span class="nb-contact-label">${_esc(k)}</span>` +
                     `<span class="nb-contact-value">${display}</span>` +
                     `</div>`;
             });
         if (!rows.length) return '';
-        return `<div class="nb-contact-fields nb-fm-fallback">${rows.join('')}</div>`;
+        const showEmpty = localStorage.getItem(_FM_EMPTY_KEY) === '1';
+        return `<div class="nb-contact-fields nb-fm-fallback${showEmpty ? ' nb-fm-show-empty' : ''}" data-fm-fallback>` +
+            rows.join('') +
+            `<button class="nb-fm-empty-toggle nb-tw-btn" title="Toggle empty fields">` +
+            `${showEmpty ? 'Hide empty' : 'Show empty'}</button>` +
+            `</div>`;
     }
 
     function _renderBookmark(note) {
@@ -2550,12 +2559,19 @@ const NbMain = (() => {
     function _bindExtrasToggle() {
         const btn     = document.getElementById('nb-extras-btn');
         const content = document.getElementById('nb-preview-content');
+        const pane    = document.getElementById('nb-preview-pane');
         if (!btn || !content) return;
 
         const _apply = hidden => {
             content.classList.toggle('nb-extras-hidden', hidden);
+            pane?.classList.toggle('nb-extras-hidden', hidden);
             btn.classList.toggle('nb-active', hidden);
             btn.textContent = hidden ? '○' : '◉';
+            if (hidden) {
+                const panel = document.getElementById('nb-changes-panel');
+                if (panel) panel.hidden = true;
+                document.getElementById('nb-changes-btn')?.classList.remove('nb-active');
+            }
         };
         _apply(localStorage.getItem(_EXTRAS_KEY) === '1');
 
@@ -2563,6 +2579,21 @@ const NbMain = (() => {
             const hidden = !content.classList.contains('nb-extras-hidden');
             localStorage.setItem(_EXTRAS_KEY, hidden ? '1' : '0');
             _apply(hidden);
+        });
+    }
+
+    function _bindFmEmptyToggle() {
+        const content = document.getElementById('nb-preview-content');
+        if (!content) return;
+        content.addEventListener('click', e => {
+            const btn = e.target.closest('.nb-fm-empty-toggle');
+            if (!btn) return;
+            const block  = btn.closest('[data-fm-fallback]');
+            if (!block) return;
+            const show   = !block.classList.contains('nb-fm-show-empty');
+            block.classList.toggle('nb-fm-show-empty', show);
+            btn.textContent = show ? 'Hide empty' : 'Show empty';
+            localStorage.setItem(_FM_EMPTY_KEY, show ? '1' : '0');
         });
     }
 

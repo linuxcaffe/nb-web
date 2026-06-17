@@ -1127,6 +1127,20 @@ body {
 #nb-preview-content.nb-extras-hidden .nb-fm-fallback { display: none; }
 /* Hide annotation foot only when it has content; spare the empty "Add annotation" button */
 #nb-preview-content.nb-extras-hidden .nb-annotation-foot:not(:has(.nb-ann-empty)) { display: none; }
+/* Changes button and panel mirror extras visibility */
+#nb-preview-pane.nb-extras-hidden #nb-changes-btn   { display: none !important; }
+#nb-preview-pane.nb-extras-hidden #nb-changes-panel { display: none !important; }
+
+/* Empty-field toggle in fm fallback — hide empty rows by default */
+.nb-fm-fallback .nb-fm-empty-row { display: none; }
+.nb-fm-fallback.nb-fm-show-empty .nb-fm-empty-row { display: flex; }
+.nb-fm-empty-toggle {
+  width: 100%; margin-top: 6px; font-size: 0.8em;
+  color: var(--text-dim); background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 3px 0; cursor: pointer; text-align: center;
+}
+.nb-fm-empty-toggle:hover { color: var(--text); background: var(--bg2); }
 
 .nb-contact-row       { display: flex; gap: 12px; align-items: baseline; font-size: 0.9em; }
 .nb-contact-label     { min-width: 72px; text-align: right; color: var(--text-muted); font-size: 0.82em; flex-shrink: 0; }
