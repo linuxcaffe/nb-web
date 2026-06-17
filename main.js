@@ -394,7 +394,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -661,7 +661,7 @@ const NbMain = (() => {
         }
     }
 
-    function renderPreview(note) {
+    async function renderPreview(note) {
         _activeNote     = note;
         _activeType     = note.type;
         _activeFilename = note.filename;
@@ -725,6 +725,7 @@ const NbMain = (() => {
         // ── Renderer style toggle ──────────────────────────────────────────
         const _rEl     = document.getElementById('nb-preview-renderers');
         if (_rEl) _rEl.innerHTML = '';
+        await NbWeb.loadNotebookConfig(note.notebook);   // prime cache; no-op on hit
         const _renderers  = NbWeb.getPreviewRenderers(note.notebook, note);
         const _modeKey    = `nb-render-mode:${note.notebook}`;
         const _activeId   = _renderers.length > 1
@@ -1544,7 +1545,7 @@ const NbMain = (() => {
 
     // ── Annotation footnote ────────────────────────────────────────────────
 
-    const _NO_ANNOTATION_TYPES = new Set(['shot', 'scene', 'strip', 'storyline']);
+    const _NO_ANNOTATION_TYPES = new Set();
     function _appendAnnotation(container, note) {
         if (_NO_ANNOTATION_TYPES.has(note.meta?.type)) return;
         const foot = document.createElement('div');
@@ -5026,6 +5027,15 @@ const NbMain = (() => {
                     <div style="font-size:10px;color:var(--text-dim);margin-top:6px">
                         Changes take effect immediately — no restart needed.
                     </div>
+                </div>
+                <div style="padding:6px 28px 14px;border-top:1px solid var(--border)">
+                    <div style="font-size:11px;color:var(--text-dim);margin:8px 0 6px;font-weight:600;
+                                letter-spacing:0.05em;text-transform:uppercase">Type renderers & access</div>
+                    <div id="nb-nb-types-wrap" style="font-size:11px;color:var(--text-dim)">Loading…</div>
+                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+                        <button id="nb-nb-types-save" class="nb-tool-btn nb-btn-primary">Save type config</button>
+                        <span id="nb-nb-types-status" style="font-size:11px;color:var(--text-dim)"></span>
+                    </div>
                 </div>` : ''}
                 <div style="padding:0 28px 14px;border-top:1px solid var(--border);margin-top:4px">
                     <div style="font-size:11px;color:var(--text-dim);margin:12px 0 8px;font-weight:600;
@@ -5174,6 +5184,106 @@ const NbMain = (() => {
                     } catch(e) {
                         syncBtn.textContent = 'Sync'; syncBtn.disabled = false;
                     }
+                });
+            }
+
+            // ── Type renderers & access ────────────────────────────────────────
+            const _typesWrap   = document.getElementById('nb-nb-types-wrap');
+            const _typesSave   = document.getElementById('nb-nb-types-save');
+            const _typesStatus = document.getElementById('nb-nb-types-status');
+
+            function _buildTypesYaml(typesObj) {
+                const entries = Object.entries(typesObj).filter(([, v]) => v.renderer || v.access);
+                if (!entries.length) return '';
+                return ['types:', ...entries.flatMap(([t, cfg]) => {
+                    const lines = [`  ${t}:`];
+                    if (cfg.renderer) lines.push(`    renderer: ${cfg.renderer}`);
+                    if (cfg.access)   lines.push(`    access: ${cfg.access}`);
+                    return lines;
+                })].join('\n') + '\n';
+            }
+
+            function _mergeTypesIntoConfig(content, typesObj) {
+                const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+                if (!fmMatch) return `---\n${_buildTypesYaml(typesObj)}---\n${content}`;
+                const filtered = [];
+                let inTypes = false;
+                for (const line of fmMatch[1].split('\n')) {
+                    if (/^types:/.test(line)) { inTypes = true; continue; }
+                    if (inTypes && /^\s/.test(line)) continue;
+                    inTypes = false;
+                    filtered.push(line);
+                }
+                const typesYaml = _buildTypesYaml(typesObj);
+                const newFm = [...filtered, ...(typesYaml ? typesYaml.trimEnd().split('\n') : [])].join('\n');
+                return `---\n${newFm}\n---${content.slice(fmMatch[0].length)}`;
+            }
+
+            function _renderTypesTable(typeCfg) {
+                const types = NbWeb.getRendererTypes();
+                if (!types.length) {
+                    if (_typesWrap) _typesWrap.innerHTML =
+                        '<span style="color:var(--text-dim)">No typed renderers registered.</span>';
+                    return;
+                }
+                const LEVELS = ['', 'guest', 'user', 'office', 'admin'];
+                const rows = types.map(t => {
+                    const renderers  = NbWeb.getRenderers(t);
+                    const curRenderer = typeCfg[t]?.renderer || '';
+                    const curAccess   = typeCfg[t]?.access   || '';
+                    const rendOpts = `<option value="">— default —</option>` +
+                        renderers.map(r =>
+                            `<option value="${_esc(r.id)}"${r.id === curRenderer ? ' selected' : ''}>${_esc(r.label || r.id)}</option>`
+                        ).join('');
+                    const accOpts = LEVELS.map(l =>
+                        `<option value="${l}"${l === curAccess ? ' selected' : ''}>${l || '— inherit —'}</option>`
+                    ).join('');
+                    return `<tr data-type="${_esc(t)}">
+                        <td style="padding:3px 12px 3px 0;white-space:nowrap;color:var(--text-dim)">${_esc(t)}</td>
+                        <td style="padding:3px 6px 3px 0"><select class="nb-scope-select nb-nt-renderer" style="font-size:11px">${rendOpts}</select></td>
+                        <td style="padding:3px 0"><select class="nb-scope-select nb-nt-access" style="font-size:11px">${accOpts}</select></td>
+                    </tr>`;
+                });
+                if (_typesWrap) _typesWrap.innerHTML =
+                    `<table style="border-collapse:collapse;width:100%;font-size:12px">
+                        <thead><tr>
+                            <th style="text-align:left;font-size:10px;color:var(--text-dim);font-weight:normal;padding-bottom:4px">Type</th>
+                            <th style="text-align:left;font-size:10px;color:var(--text-dim);font-weight:normal;padding-bottom:4px">Renderer</th>
+                            <th style="text-align:left;font-size:10px;color:var(--text-dim);font-weight:normal;padding-bottom:4px">Access</th>
+                        </tr></thead>
+                        <tbody>${rows.join('')}</tbody>
+                    </table>`;
+            }
+
+            fetch('/api/nb/notebook-config?notebook=' + encodeURIComponent(name))
+                .then(r => r.json())
+                .then(d => _renderTypesTable(d.meta?.types || {}))
+                .catch(() => { if (_typesWrap) _typesWrap.textContent = 'Could not load config.'; });
+
+            if (_typesSave) {
+                _typesSave.addEventListener('click', async () => {
+                    _typesStatus.textContent = 'Saving…';
+                    const typesObj = {};
+                    _typesWrap.querySelectorAll('tr[data-type]').forEach(row => {
+                        const t = row.dataset.type;
+                        const r = row.querySelector('.nb-nt-renderer')?.value || '';
+                        const a = row.querySelector('.nb-nt-access')?.value   || '';
+                        if (r || a) { typesObj[t] = {}; if (r) typesObj[t].renderer = r; if (a) typesObj[t].access = a; }
+                    });
+                    try {
+                        const cr = await fetch('/api/nb/notebook-config?notebook=' + encodeURIComponent(name));
+                        const cd = await cr.json();
+                        const newContent = _mergeTypesIntoConfig(cd.content || '---\n---\n', typesObj);
+                        const sr = await fetch('/api/nb/notebook-config', {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ notebook: name, content: newContent }),
+                        });
+                        const sd = await sr.json();
+                        if (sd.ok) NbWeb.bustNotebookConfigCache(name);
+                        _typesStatus.textContent = sd.ok ? 'Saved.' : (sd.error || 'Error saving');
+                        setTimeout(() => { _typesStatus.textContent = ''; }, 2000);
+                    } catch(e) { _typesStatus.textContent = 'Error'; }
                 });
             }
 

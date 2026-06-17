@@ -2,6 +2,10 @@
 const NbWeb = (() => {
     const _modules = new Map(); // name → { spec, enabled, activeNotebooks, error }
 
+    // Per-notebook config cache: notebook → parsed meta dict from .<notebook>.md.
+    // Populated lazily by loadNotebookConfig(); stays warm until explicitly busted.
+    const _notebookTypeConfigs = new Map();
+
     // Flat renderer registry — populated by registerRenderer() and auto-populated
     // by registerModule() from previewRenderers[]/previewRenderer entries.
     // id → { id, label, icon, types, detect, render, pluginName }
@@ -140,12 +144,47 @@ const NbWeb = (() => {
         return active.find(m => m.previewRenderer)?.previewRenderer ?? null;
     }
 
+    // Fetch and cache the parsed meta from .<notebook>.md.
+    // Safe to call every render — resolves immediately on cache hit.
+    async function loadNotebookConfig(notebook) {
+        if (!notebook || _notebookTypeConfigs.has(notebook))
+            return _notebookTypeConfigs.get(notebook) || {};
+        try {
+            const r = await fetch(`/api/nb/notebook-config?notebook=${encodeURIComponent(notebook)}`);
+            const d = await r.json();
+            const cfg = d.meta || {};
+            _notebookTypeConfigs.set(notebook, cfg);
+            return cfg;
+        } catch (_) {
+            _notebookTypeConfigs.set(notebook, {});
+            return {};
+        }
+    }
+
+    // Bust the cache for a notebook — call after saving type config so the next
+    // render re-fetches.
+    function bustNotebookConfigCache(notebook) {
+        _notebookTypeConfigs.delete(notebook);
+    }
+
     // Returns all renderers from the first active module that has previewRenderers,
     // filtered to those whose detect(note) returns true.
+    // If the notebook config has a types[note.type].renderer preference, that
+    // renderer is promoted to first (becoming the toggle default) without hiding
+    // the others — the user can still switch per-session via the toolbar toggle.
     function getPreviewRenderers(notebook, note) {
         const spec = _activeFor(notebook).find(m => m.previewRenderers?.length);
         if (!spec) return [];
-        return spec.previewRenderers.filter(r => !r.detect || r.detect(note));
+        const renderers = spec.previewRenderers.filter(r => !r.detect || r.detect(note));
+        if (!renderers.length) return renderers;
+
+        const preferredId = _notebookTypeConfigs.get(notebook)?.types?.[note?.type]?.renderer;
+        if (preferredId) {
+            const preferred = renderers.find(r => r.id === preferredId);
+            if (preferred)
+                return [preferred, ...renderers.filter(r => r.id !== preferredId)];
+        }
+        return renderers;
     }
 
     // Returns registered renderers from the flat registry, optionally filtered by
@@ -500,6 +539,8 @@ const NbWeb = (() => {
         _init,
         getPreviewRenderer,
         getPreviewRenderers,
+        loadNotebookConfig,
+        bustNotebookConfigCache,
         getRenderers,
         getRendererTypes,
         getSortOptions,

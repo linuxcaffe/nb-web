@@ -1139,6 +1139,35 @@ body {
 
 .nb-contact-notes     { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 
+/* ── Generic card — frontmatter display block ──────────────────────── */
+/* All nb-web "card" renderers share this base. Custom card types add their */
+/* own classes on top. The card has a distinct background that separates    */
+/* the structured frontmatter block from free-form body content below.      */
+.nb-card              { background: var(--bg3); border-radius: 8px; padding: 20px 24px; max-width: 680px; }
+.nb-card-header       { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.nb-card-avatar       {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; color: #fff; flex-shrink: 0;
+  letter-spacing: 0.04em;
+}
+.nb-card-title        { font-size: 1.2em; font-weight: 600; color: var(--text); line-height: 1.25; }
+.nb-card-sub          { font-size: 0.84em; color: var(--text-muted); margin-top: 3px; }
+.nb-card-fields       { display: flex; flex-direction: column; gap: 5px; }
+.nb-card-row          { display: flex; gap: 12px; align-items: baseline; font-size: 0.9em; }
+.nb-card-label        { min-width: 78px; text-align: right; color: var(--text-muted); font-size: 0.82em; flex-shrink: 0; }
+.nb-card-value        { color: var(--text); word-break: break-word; }
+.nb-card-value a      { color: var(--accent); text-decoration: none; }
+.nb-card-value a:hover { text-decoration: underline; }
+.nb-card-block        { margin-top: 8px; }
+.nb-card-block-key    { font-size: 0.74em; text-transform: uppercase; letter-spacing: 0.07em;
+                        color: var(--text-muted); margin-bottom: 4px; margin-left: 90px; opacity: 0.7; }
+.nb-card-block-fields { display: flex; flex-direction: column; gap: 4px; }
+.nb-card-sep          { border: none; border-top: 1px solid var(--border); margin: 16px 0 0; }
+.nb-card-body         { padding: 20px 0 0; }
+.nb-card + .nb-card-body { padding-top: 20px; }     /* body flows below the card box */
+.nb-cine-shot-card > .nb-card-body { padding: 12px 12px 20px; }
+
 /* Item card (preciousfinds-style item notes in items/ subfolder) */
 .nb-item-card         { max-width: 640px; }
 .nb-item-imgs         { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }

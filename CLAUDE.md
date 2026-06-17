@@ -49,6 +49,7 @@ not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
 4. **StatusPill:** `?.add(n)` before work, `?.tick()` in success AND error paths; spread NodeList to `[...]` first
 5. **Template schema:** change generator functions AND seeded templates together — one without the other breaks notes
 6. **nb subprocess stdin:** `input=''` not `input=None` in `run_nb()` — prevents Flask hangs on interactive prompts
+7. **`renderPreview` must be `async`:** it calls `await NbWeb.loadNotebookConfig(...)`. Making it non-async is a parse-time SyntaxError that kills the entire NbMain IIFE — nothing displays, nothing is clickable. Check `async function renderPreview` before editing near it.
 
 ## nb notebook layout
 
@@ -59,6 +60,57 @@ Hidden files at `~/.nb/` root: `.users`, `.tools`, `.changes`, `.images`, `.rule
 ## Plugin architecture
 
 `NbWeb.registerModule(id, { detect, label, codeblockRenderers, previewRenderer, listButtons, notebookSection, listDefaults, sortOptions, navButtons })` — IIFE pattern, loaded from plugin list in `nb-settings.json`. Core plugins in `plugins/`; external in `~/dev/nbweb-*/`.
+
+### Renderer registry
+
+Flat registry populated at load time by `registerRenderer(id, spec)`. `registerModule()` auto-populates it from `previewRenderers[]` and the single `previewRenderer` + `previewTypes` shorthand.
+
+**Registry shape** (`id → spec`):
+```
+{ id, label, icon, types, detect, render, pluginName }
+  types:   string[] — note type values this renderer handles; null for detect-only renderers
+  detect:  note → bool — runtime predicate kept for backward compat; not used by getRenderers()
+```
+
+**Declaring types** — add `types: ['shot']` to a renderer spec, or `previewTypes: ['contact']` on the module spec (for single-renderer modules). This makes the type association statically queryable without running `detect()`.
+
+**API (`NbWeb.*`):**
+
+| Function | Description |
+|----------|-------------|
+| `registerRenderer(id, spec)` | Explicit registration; duplicate IDs silently skipped |
+| `getRenderers(type?)` | All renderers, or filtered by `types[]` — detect-only (types:null) excluded from typed queries |
+| `getRendererTypes()` | Sorted list of all type strings declared across all renderers |
+| `loadNotebookConfig(notebook)` | Async: fetch + cache per-notebook config from `.notebook` frontmatter |
+| `bustNotebookConfigCache(notebook)` | Delete notebook from cache — call after saving Types config |
+| `getPreviewRenderers(notebook, note)` | Active module's renderers filtered by `detect()`; preferred renderer promoted to first |
+
+**Notebook config cache** — `_notebookTypeConfigs: Map<notebook, meta>`. Primed by `await NbWeb.loadNotebookConfig()` once per render; cache hit is synchronous. Bust with `bustNotebookConfigCache()` after any Types save. On fetch failure, caches `{}` (silent fallback).
+
+**`getPreviewRenderers` promotion** — if the notebook's `types[note.type].renderer` preference is set, that renderer is moved to index 0 (becomes the toggle default) without removing the others. The user can still switch per-session via toolbar toggle.
+
+### Configure Notebook — Types tab
+
+Located in the Notebooks panel (Configure Notebook dialog), "Type renderers & access" tab.
+
+**Data flow:**
+1. Panel open → `GET /api/nb/notebook-config?notebook=<name>` → `d.meta.types`
+2. `_renderTypesTable(typeCfg)` — calls `NbWeb.getRendererTypes()` for the row list; `NbWeb.getRenderers(type)` for each type's renderer dropdown
+3. Save → read existing `.notebook` content → `_mergeTypesIntoConfig(content, typesObj)` → `PUT /api/nb/notebook-config` → `NbWeb.bustNotebookConfigCache(name)`
+
+**YAML round-trip** (`_mergeTypesIntoConfig`): strips existing `types:` block (by indentation), appends new `types:` block, preserves all other frontmatter. Result is written to `.notebook` config file.
+
+**Config YAML format** (written to `.notebook` frontmatter):
+```yaml
+types:
+  shot:
+    renderer: cine-shot-card
+    access: user
+  scene:
+    renderer: cine-screenplay
+```
+
+Access levels: `guest` / `user` / `office` / `admin` / empty (inherit notebook default).
 
 FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyline`, `story`, `actor`, `location`, `character` (cine); add new types here + `INDICATORS` dict.
 

@@ -638,6 +638,8 @@ INDICATORS = {
     'story':       '🃏',
     'actor':       '🧑',
     'location':    '📍',
+    'day':         '📅',
+    'resource':    '🎁',
     'note':        '',
     'code':        '📋',
     'file':        '',
@@ -665,7 +667,9 @@ INDICATORS = {
 #   story     — card on the storylines board         🃏  (NbWeb-cine plugin)
 #   actor     — cast member / talent card            🧑  (NbWeb-cine plugin)
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story', 'actor', 'location'})
+#   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
+#   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story', 'actor', 'location', 'day', 'resource'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -6152,8 +6156,13 @@ def api_nb_notebook_config():
     config_path = NB_DIR / notebook / f'.{notebook}.md'
     if request.method == 'GET':
         if config_path.exists():
-            return jsonify(content=config_path.read_text(errors='replace'), exists=True)
-        return jsonify(content='---\n# access: guest\n---\n', exists=False)
+            raw = config_path.read_text(errors='replace')
+            try:
+                meta, _ = parse_frontmatter(raw)
+            except Exception:
+                meta = {}
+            return jsonify(content=raw, exists=True, meta=meta)
+        return jsonify(content='---\n# access: guest\n---\n', exists=False, meta={})
     # PUT — admin+ only
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'admin'):
