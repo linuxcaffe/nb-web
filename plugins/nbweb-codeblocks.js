@@ -1494,8 +1494,181 @@
         return { notebooks, filters, label };
     }
 
+    // ── front changes mode — frontmatter editor ───────────────────────────────
+
+    function _fmParseFields(raw) {
+        const m = raw.match(/^---\n([\s\S]*?)\n---/);
+        if (!m) return [];
+        const fields = [];
+        for (const line of m[1].split('\n')) {
+            const cm = line.match(/^([\w/-]+):([ \t]*)(.*)$/);
+            if (cm) fields.push({ key: cm[1], value: cm[3].trim() });
+        }
+        return fields;
+    }
+
+    function _fmPatch(raw, updates) {
+        const m = raw.match(/^(---\n)([\s\S]*?)(\n---)([\s\S]*)$/);
+        if (!m) return raw;
+        let fm = m[2];
+        for (const [key, val] of Object.entries(updates)) {
+            const re = new RegExp(`^([ \\t]*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:[ \\t]*).*$`, 'm');
+            fm = fm.replace(re, `$1${val}`);
+        }
+        return m[1] + fm + m[3] + m[4];
+    }
+
+    function _fmWidget(key, value, constraint) {
+        const c = (constraint || '').trim();
+        if (c.startsWith('select ')) {
+            const options = c.slice(7).split(',').map(s => s.trim());
+            const sel = document.createElement('select');
+            sel.dataset.fmKey = key;
+            if (value && !options.includes(value)) {
+                const o = document.createElement('option');
+                o.value = value; o.textContent = value;
+                sel.appendChild(o);
+            }
+            for (const opt of options) {
+                const o = document.createElement('option');
+                o.value = opt; o.textContent = opt || '—';
+                if (opt === value) o.selected = true;
+                sel.appendChild(o);
+            }
+            return sel;
+        }
+        if (c === 'bool') {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox'; cb.dataset.fmKey = key;
+            cb.checked = value === 'true';
+            return cb;
+        }
+        if (c === 'date') {
+            const inp = document.createElement('input');
+            inp.type = 'date'; inp.dataset.fmKey = key; inp.value = value;
+            return inp;
+        }
+        if (c === 'area') {
+            const ta = document.createElement('textarea');
+            ta.dataset.fmKey = key; ta.value = value;
+            return ta;
+        }
+        const inp = document.createElement('input');
+        inp.type = 'text'; inp.dataset.fmKey = key; inp.value = value;
+        return inp;
+    }
+
+    async function _loadFrontChanges(el) {
+        const firstLine = (el.dataset.query || '').trim().split('\n')[0];
+        const pipeIdx   = firstLine.indexOf('|');
+        const label     = pipeIdx >= 0 ? firstLine.slice(pipeIdx + 1).trim() : 'Changes';
+
+        el.innerHTML = '';
+        el.classList.add('nb-front-changes');
+
+        const btn = document.createElement('button');
+        btn.className  = 'nb-front-changes-btn nb-tw-btn';
+        btn.textContent = label;
+        el.appendChild(btn);
+
+        const panel = document.createElement('div');
+        panel.className = 'nb-front-changes-panel';
+        panel.hidden = true;
+        el.appendChild(panel);
+
+        btn.addEventListener('click', async () => {
+            if (!panel.hidden) {
+                panel.hidden = true; btn.classList.remove('nb-active'); return;
+            }
+            btn.disabled = true; btn.textContent = '⟳';
+            try {
+                const selector = NbMain.activeSelector?.();
+                if (!selector) throw new Error('no active note');
+
+                const [noteD, conD] = await Promise.all([
+                    fetch(`/api/note?selector=${encodeURIComponent(selector)}`).then(r => r.json()),
+                    fetch(`/api/note/constraints?selector=${encodeURIComponent(selector)}`).then(r => r.json()),
+                ]);
+                if (noteD.error) throw new Error(noteD.error);
+
+                const noteRaw    = noteD.raw || '';
+                const constraints = conD.error ? {} : conD;
+                const fields      = _fmParseFields(noteRaw);
+
+                panel.innerHTML = '';
+                const form = document.createElement('div');
+                form.className = 'nb-front-changes-form';
+
+                for (const { key, value } of fields) {
+                    const row = document.createElement('div');
+                    row.className = 'nb-front-changes-row';
+                    const lbl = document.createElement('label');
+                    lbl.className   = 'nb-front-changes-label';
+                    lbl.textContent = key;
+                    row.appendChild(lbl);
+                    row.appendChild(_fmWidget(key, value, constraints[key]));
+                    form.appendChild(row);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'nb-front-changes-actions';
+
+                const saveBtn = document.createElement('button');
+                saveBtn.className   = 'nb-tw-btn';
+                saveBtn.textContent = 'Save';
+                saveBtn.addEventListener('click', async () => {
+                    const updates = {};
+                    for (const w of form.querySelectorAll('[data-fm-key]')) {
+                        updates[w.dataset.fmKey] = w.type === 'checkbox' ? String(w.checked) : w.value;
+                    }
+                    saveBtn.disabled = true; saveBtn.textContent = '⟳';
+                    try {
+                        const r = await fetch('/api/note', {
+                            method:  'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body:    JSON.stringify({ selector, content: _fmPatch(noteRaw, updates) }),
+                        }).then(r => r.json());
+                        if (r.error) throw new Error(r.error);
+                        panel.hidden = true;
+                        btn.classList.remove('nb-active');
+                        NbMain.openNote(selector);
+                    } catch (e) {
+                        saveBtn.textContent = `⚠ ${e.message}`;
+                        saveBtn.disabled = false;
+                    }
+                });
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className   = 'nb-tw-btn';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', () => {
+                    panel.hidden = true; btn.classList.remove('nb-active');
+                });
+
+                actions.appendChild(saveBtn);
+                actions.appendChild(cancelBtn);
+                panel.appendChild(form);
+                panel.appendChild(actions);
+                panel.hidden = false;
+                btn.classList.add('nb-active');
+            } catch (e) {
+                panel.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+                panel.hidden = false;
+            } finally {
+                btn.disabled    = false;
+                btn.textContent = label;
+            }
+        });
+    }
+
+    // ── front block dispatcher ─────────────────────────────────────────────────
+
     async function _loadFrontBlock(el) {
         if (!_cbCan(el, 'front', 'read')) { _cbDenyRead(el); return; }
+        if ((el.dataset.query || '').trim().startsWith('changes')) {
+            await _loadFrontChanges(el);
+            return;
+        }
         const parsed = _frontParseQuery(el.dataset.query || '');
         el.dataset.frontNotebooks = parsed.notebooks.join(',');
         el.dataset.frontFilters   = JSON.stringify(parsed.filters);

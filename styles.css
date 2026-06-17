@@ -1986,6 +1986,21 @@ body.nb-fullscreen #nb-cmd-bar::after {
   padding: 1px 4px; border-radius: 3px; background: var(--bg3); border: 1px solid var(--border-dim, var(--border));
 }
 
+/* front changes — frontmatter editor */
+.nb-front-changes { margin: 0.5em 0; }
+.nb-front-changes-btn { font-size: 0.85em; }
+.nb-front-changes-btn.nb-active { background: var(--accent, #4a9eff); color: #fff; }
+.nb-front-changes-panel { margin-top: 0.4em; border: 1px solid var(--border); border-radius: 4px; padding: 0.6em; }
+.nb-front-changes-form { display: grid; grid-template-columns: minmax(6em, 10em) 1fr; gap: 0.3em 0.6em; align-items: center; margin-bottom: 0.6em; }
+.nb-front-changes-row { display: contents; }
+.nb-front-changes-label { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted); }
+.nb-front-changes-form input[type=text],
+.nb-front-changes-form input[type=date],
+.nb-front-changes-form select,
+.nb-front-changes-form textarea { width: 100%; font-size: 0.9em; padding: 2px 4px; box-sizing: border-box; background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); }
+.nb-front-changes-form textarea { resize: vertical; min-height: 3em; }
+.nb-front-changes-actions { display: flex; gap: 0.4em; }
+
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }
 .nb-nb-nb-name { flex: 1; font-weight: 500; }
