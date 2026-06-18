@@ -7970,7 +7970,7 @@ def api_cine_data():
         })
 
     lanes.sort(key=lambda l: l['seq'])
-    stories.sort(key=lambda s: (s['storyline'], s['seq']))
+    stories.sort(key=lambda s: (s['plotline'], s['seq']))
 
     # Scene coverage: which scene selectors are claimed by at least one story
     claimed = {ref['selector'] for st in stories for ref in st['scenes'] if ref['selector']}
