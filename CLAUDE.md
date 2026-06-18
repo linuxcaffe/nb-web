@@ -112,7 +112,7 @@ types:
 
 Access levels: `guest` / `user` / `office` / `admin` / empty (inherit notebook default).
 
-FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyline`, `story`, `actor`, `location`, `character` (cine); add new types here + `INDICATORS` dict.
+FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyline`, `plotline`, `story`, `milestone`, `actor`, `location`, `character` (cine); add new types here + `INDICATORS` dict.
 
 ## NbWeb-cine plugin
 

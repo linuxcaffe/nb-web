@@ -636,7 +636,7 @@ INDICATORS = {
     'strip':       '🎞️',
     'shot':        '🎬',
     'scene':       '📜',
-    'storyline':   '🧵',   # legacy — prefer plotline
+    'storyline':   '🧵',   # main story lane (sits above plotlines)
     'plotline':    '🧵',
     'story':       '🃏',
     'actor':       '🧑',
@@ -666,14 +666,14 @@ INDICATORS = {
 #   strip     — film production stripboard note      🎞️  (NbWeb-cine plugin)
 #   shot      — individual camera shot               🎬  (NbWeb-cine plugin)
 #   scene     — screenplay scene document            📜  (NbWeb-cine plugin)
-#   plotline  — named lane in the storylines board   🧵  (NbWeb-cine plugin) [was: storyline]
-#   storyline — legacy alias for plotline            🧵  (NbWeb-cine plugin)
+#   plotline  — named lane in the storylines board   🧵  (NbWeb-cine plugin)
+#   storyline — main story lane; floats above plotlines, cards promoted via story_seq:
 #   story     — card on the storylines board         🃏  (NbWeb-cine plugin)
 #   actor     — cast member / talent card            🧑  (NbWeb-cine plugin)
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'actor', 'location', 'day', 'resource'})
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -7199,14 +7199,16 @@ def api_test_batch():
 # ---------------------------------------------------------------------------
 
 def _resolve_dest_dir(dest: str) -> Path:
-    """Resolve nb move dest like 'work:folder/' to the filesystem directory."""
+    """Resolve nb move dest like 'work:folder/file.md' or 'work:folder/' to the directory."""
     if ':' in dest:
         nb_name, rest = dest.split(':', 1)
         folder = rest.strip('/')
     else:
         nb_name = dest.strip('/')
         folder = ''
-    return (NB_DIR / nb_name / folder) if folder else (NB_DIR / nb_name)
+    p = (NB_DIR / nb_name / folder) if folder else (NB_DIR / nb_name)
+    # If dest included a filename (has an extension), return its parent directory
+    return p.parent if p.suffix else p
 
 
 @app.route('/api/note/rename', methods=['POST'])
@@ -7271,7 +7273,10 @@ def api_move():
 
     r = run_nb('move', selector, dest, '--force')
     if not nb_ok(r):
-        return jsonify({'success': False, 'stderr': strip_ansi(r['stderr'])})
+        stderr = strip_ansi(r['stderr'])
+        if 'already exists' in stderr.lower():
+            return jsonify({'success': True, 'already_there': True})
+        return jsonify({'success': False, 'stderr': stderr})
 
     # Move annotation sidecar to the destination directory (non-fatal)
     ann_moved = False
@@ -7922,26 +7927,35 @@ def api_cine_data():
             resolved.append({'ref': token, 'selector': sel})
         return resolved
 
+    _project = request.args.get('project', '').strip()
     storylines_dir = nb_path / 'storylines'
-    lanes        = []
-    _story_raws  = []   # collected before lane lookup is built
+    if _project:
+        storylines_dir = storylines_dir / _project
+    lanes           = []
+    _story_raws     = []   # collected before lane lookup is built
+    _milestone_raws = []
     if storylines_dir.is_dir():
         for f in sorted(storylines_dir.glob('*.md')):
             try:
-                meta, _ = parse_frontmatter(f.read_text(errors='replace'))
+                raw_text = f.read_text(errors='replace')
+                meta, body = parse_frontmatter(raw_text)
                 ftype = str(meta.get('type', '')).strip().lower()
                 stem  = f.stem
+                _sl_rel = f'storylines/{_project + "/" if _project else ""}{f.name}'
                 if ftype in ('plotline', 'storyline'):
                     lanes.append({
-                        'selector': f'{notebook}:storylines/{f.name}',
-                        'filename': f.name,
-                        'stem':     stem,
-                        'title':    str(meta.get('title', stem)),
-                        'color':    str(meta.get('color', '')),
-                        'seq':      _cine_int(meta.get('seq'), 999),
+                        'selector':     f'{notebook}:{_sl_rel}',
+                        'filename':     f.name,
+                        'stem':         stem,
+                        'title':        str(meta.get('title', stem)),
+                        'color':        str(meta.get('color', '')),
+                        'seq':          _cine_int(meta.get('seq'), 999),
+                        'is_storyline': ftype == 'storyline',
                     })
                 elif ftype == 'story':
-                    _story_raws.append((f, meta, stem))
+                    _story_raws.append((f, meta, stem, body))
+                elif ftype == 'milestone':
+                    _milestone_raws.append((f, meta, stem, body))
             except Exception:
                 pass
 
@@ -7952,24 +7966,39 @@ def api_cine_data():
         _lane_lookup[lane['title'].strip().lower()] = lane['stem']
 
     stories = []
-    for f, meta, stem in _story_raws:
+    for f, meta, stem, body in _story_raws:
         raw_sl     = str(meta.get('plotline', '') or meta.get('storyline', '')).strip()
         storyline  = _lane_lookup.get(raw_sl.lower(), raw_sl)
         scenes_raw = meta.get('scenes', '')
         stories.append({
-            'selector':   f'{notebook}:storylines/{f.name}',
-            'filename':   f.name,
-            'stem':       stem,
-            'title':      str(meta.get('title', stem)).strip(),
-            'plotline':   storyline,
-            'seq':        _cine_int(meta.get('seq'), 999),
-            'scenes':     _resolve_scene_refs(scenes_raw),
-            'scenes_raw': str(scenes_raw),
-            'color':      str(meta.get('color', '')),
-            'meta':       {k: v for k, v in meta.items() if k != 'type'},
+            'selector':     f'{notebook}:storylines/{_project + "/" if _project else ""}{f.name}',
+            'filename':     f.name,
+            'stem':         stem,
+            'title':        str(meta.get('title', stem)).strip(),
+            'plotline':     storyline,
+            'seq':          _cine_int(meta.get('seq'), 999),
+            'story_seq':    _cine_int(meta.get('story_seq')),   # None when unset
+            'scenes':       _resolve_scene_refs(scenes_raw),
+            'scenes_raw':   str(scenes_raw),
+            'color':        str(meta.get('color', '')),
+            'body_preview': body.strip()[:280] if body else '',
+            'meta':         {k: v for k, v in meta.items() if k != 'type'},
         })
 
-    lanes.sort(key=lambda l: l['seq'])
+    milestones = []
+    for f, meta, stem, body in _milestone_raws:
+        milestones.append({
+            'selector':      f'{notebook}:storylines/{_project + "/" if _project else ""}{f.name}',
+            'filename':      f.name,
+            'stem':          stem,
+            'title':         str(meta.get('title', stem)).strip(),
+            'milestone_seq': _cine_int(meta.get('milestone_seq')),
+            'body_preview':  body.strip()[:280] if body else '',
+            'meta':          {k: v for k, v in meta.items() if k != 'type'},
+        })
+    milestones.sort(key=lambda m: (m['milestone_seq'] is None, m['milestone_seq'] or 0))
+
+    lanes.sort(key=lambda l: (0 if l['is_storyline'] else 1, l['seq']))
     stories.sort(key=lambda s: (s['plotline'], s['seq']))
 
     # Scene coverage: which scene selectors are claimed by at least one story
@@ -7986,6 +8015,7 @@ def api_cine_data():
         'config':        config,
         'lanes':         lanes,
         'stories':       stories,
+        'milestones':    milestones,
         'orphan_scenes': orphan_scenes,
     })
 
@@ -8121,9 +8151,9 @@ def api_cine_story_resequence():
         selector = move.get('selector', '')
         try:
             storyline = str(move.get('plotline') or move.get('storyline', ''))
-            seq       = int(move['seq'])
-        except (KeyError, TypeError, ValueError):
-            errors.append({'selector': selector, 'error': 'plotline and seq required'})
+            seq       = int(move.get('seq', 0))
+        except (TypeError, ValueError):
+            errors.append({'selector': selector, 'error': 'invalid seq'})
             continue
 
         fpath = _resolve_to_nb_path(selector)
@@ -8137,9 +8167,22 @@ def api_cine_story_resequence():
             except ValueError:
                 pass
 
+        # story_seq / milestone_seq: absent = don't touch; null = clear; integer = set
+        patch = {}
+        if storyline:
+            patch['plotline'] = storyline
+        if seq:
+            patch['seq'] = seq
+        if 'story_seq' in move:
+            ss = move['story_seq']
+            patch['story_seq'] = '' if ss is None else int(ss)
+        if 'milestone_seq' in move:
+            ms = move['milestone_seq']
+            patch['milestone_seq'] = '' if ms is None else int(ms)
+
         try:
             raw     = fpath.read_text(errors='replace')
-            patched = _patch_fm_fields(raw, plotline=storyline, seq=seq)
+            patched = _patch_fm_fields(raw, **patch)
             fpath.write_text(patched)
             updated.append(selector)
         except Exception as e:
@@ -8177,16 +8220,19 @@ def api_cine_story_create():
     notebook  = data.get('notebook', '').strip()
     title     = data.get('title', '').strip()
     storyline = (data.get('plotline', '') or data.get('storyline', '')).strip()
+    _project  = data.get('project', '').strip()
 
     if not notebook or not title:
         return jsonify({'error': 'notebook and title required'}), 400
 
     nb_path        = NB_DIR / notebook
     storylines_dir = nb_path / 'storylines'
+    if _project:
+        storylines_dir = storylines_dir / _project
     if not nb_path.is_dir():
         return jsonify({'error': 'notebook not found'}), 404
 
-    storylines_dir.mkdir(exist_ok=True)
+    storylines_dir.mkdir(parents=True, exist_ok=True)
 
     # Auto-assign seq: max existing seq in this lane + 1
     seq = data.get('seq')
@@ -8234,7 +8280,7 @@ def api_cine_story_create():
     fpath.write_text(scaffold)
 
     # Update nb index and git commit
-    selector = f'{notebook}:storylines/{fpath.name}'
+    selector = f'{notebook}:storylines/{_project + "/" if _project else ""}{fpath.name}'
     idx_path = storylines_dir / '.index'
     if idx_path.exists():
         existing = idx_path.read_text().splitlines()
@@ -8249,6 +8295,80 @@ def api_cine_story_create():
                            cwd=str(nb_path), timeout=10)
             subprocess.run(
                 ['git', 'commit', '-m', f'[nb-web] Add story: {title}'],
+                capture_output=True, cwd=str(nb_path), timeout=10)
+        except Exception:
+            pass
+
+    return jsonify({'ok': True, 'selector': selector, 'filename': fpath.name})
+
+
+@app.route('/api/cine/milestone/create', methods=['POST'])
+def api_cine_milestone_create():
+    """Create a new milestone note in storylines/<project>/.
+
+    Body: {"notebook": "Takeout", "title": "Picture Lock", "project": "makemovies",
+           "milestone_seq": 1}
+    Returns: {"selector": "...", "ok": true}
+    """
+    data         = request.get_json(silent=True) or {}
+    notebook     = data.get('notebook', '').strip()
+    title        = data.get('title', '').strip()
+    _project     = data.get('project', '').strip()
+    milestone_seq = data.get('milestone_seq')
+
+    if not notebook or not title:
+        return jsonify({'error': 'notebook and title required'}), 400
+
+    nb_path        = NB_DIR / notebook
+    storylines_dir = nb_path / 'storylines'
+    if _project:
+        storylines_dir = storylines_dir / _project
+    if not nb_path.is_dir():
+        return jsonify({'error': 'notebook not found'}), 404
+
+    storylines_dir.mkdir(parents=True, exist_ok=True)
+
+    if milestone_seq is None:
+        max_seq = 0
+        for f in storylines_dir.glob('*.md'):
+            try:
+                m, _ = parse_frontmatter(f.read_text(errors='replace'))
+                if str(m.get('type', '')).strip().lower() == 'milestone':
+                    max_seq = max(max_seq, int(m.get('milestone_seq') or 0))
+            except Exception:
+                pass
+        milestone_seq = max_seq + 1
+
+    slug  = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:48]
+    fpath = storylines_dir / f'{slug}.md'
+    counter = 1
+    while fpath.exists():
+        fpath = storylines_dir / f'{slug}_{counter}.md'
+        counter += 1
+
+    scaffold = (
+        f'---\ntype: milestone\ntitle: {title}\n'
+        f'milestone_seq: {milestone_seq}\n---\n'
+    )
+    fpath.write_text(scaffold)
+
+    rel_stem = f'storylines/{_project + "/" if _project else ""}{fpath.name}'
+    selector = f'{notebook}:{rel_stem}'
+
+    idx_path = storylines_dir / '.index'
+    if idx_path.exists():
+        existing = idx_path.read_text().splitlines()
+        if fpath.name not in existing:
+            idx_path.write_text('\n'.join(existing + [fpath.name]) + '\n')
+    else:
+        idx_path.write_text(fpath.name + '\n')
+
+    if (nb_path / '.git').exists():
+        try:
+            subprocess.run(['git', 'add', '-A'], capture_output=True,
+                           cwd=str(nb_path), timeout=10)
+            subprocess.run(
+                ['git', 'commit', '-m', f'[nb-web] Add milestone: {title}'],
                 capture_output=True, cwd=str(nb_path), timeout=10)
         except Exception:
             pass
