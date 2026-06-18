@@ -7993,6 +7993,7 @@ def api_cine_data():
             'stem':          stem,
             'title':         str(meta.get('title', stem)).strip(),
             'milestone_seq': _cine_int(meta.get('milestone_seq')),
+            'story_seq':     _cine_int(meta.get('story_seq')),
             'body_preview':  body.strip()[:280] if body else '',
             'meta':          {k: v for k, v in meta.items() if k != 'type'},
         })
