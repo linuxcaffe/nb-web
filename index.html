@@ -17,11 +17,11 @@
 
 <!-- ── Command bar ──────────────────────────────────────────────── -->
 <header id="nb-cmd-bar">
-  <button id="nb-logo-btn" class="nb-logo-btn" title="Menu"><img src="/nb-logo.png" alt="nb" class="nb-logo-img"></button>
+  <button id="nb-logo-btn" class="nb-logo-btn" data-i18n-title="tip_menu" title="Menu"><img src="/nb-logo.png" alt="nb" class="nb-logo-img"></button>
   <span class="nb-cmd-group-sep" aria-hidden="true"></span>
   <div id="nb-cmds-builtin">
-    <button class="nb-cmd" data-cmd="add">Add</button>
-    <button class="nb-cmd active" data-cmd="list">List</button>
+    <button class="nb-cmd" data-cmd="add" data-i18n="btn_add">Add</button>
+    <button class="nb-cmd active" data-cmd="list" data-i18n="btn_list">List</button>
   </div>
   <span class="nb-cmd-group-sep" aria-hidden="true"></span>
   <div id="nb-cmds-plugins">
@@ -29,11 +29,11 @@
   </div>
   <div id="nb-search-wrap">
     <button id="nb-cal-icon" class="nb-search-icon-btn" data-cmd="cal" title="Calendar">📅</button>
-    <input id="nb-search" type="search" placeholder="search…" autocomplete="off" spellcheck="false">
-    <button id="nb-search-clear" class="nb-icon-btn nb-search-x" title="Clear search" hidden>✕</button>
+    <input id="nb-search" type="search" placeholder="search…" data-i18n="input_search" autocomplete="off" spellcheck="false">
+    <button id="nb-search-clear" class="nb-icon-btn nb-search-x" data-i18n-title="tip_clear_search" title="Clear search" hidden>✕</button>
     <span class="nb-search-sep" aria-hidden="true"></span>
-    <input id="nb-tags" type="text" placeholder="tags…" autocomplete="off" spellcheck="false">
-    <button id="nb-tags-clear" class="nb-icon-btn nb-search-x" title="Clear tags" hidden>✕</button>
+    <input id="nb-tags" type="text" placeholder="tags…" data-i18n="input_tags" autocomplete="off" spellcheck="false">
+    <button id="nb-tags-clear" class="nb-icon-btn nb-search-x" data-i18n-title="tip_clear_tags" title="Clear tags" hidden>✕</button>
   </div>
 </header>
 
@@ -56,14 +56,14 @@
   <!-- List pane -->
   <aside id="nb-list-pane">
     <div id="nb-list-meta">
-      <button class="nb-panel-menu-btn" id="nb-list-menu-btn" title="List options">☰</button>
+      <button class="nb-panel-menu-btn" id="nb-list-menu-btn" data-i18n-title="tip_list_opts" title="List options">☰</button>
       <span id="nb-count"></span>
       <span id="nb-type-breakdown"></span>
       <div id="nb-list-plugin-btns"></div>
-      <button id="nb-sort-btn" class="nb-list-sort-btn nb-icon-btn" title="Sort">⇅</button>
+      <button id="nb-sort-btn" class="nb-list-sort-btn nb-icon-btn" data-i18n-title="tip_sort" title="Sort">⇅</button>
     </div>
     <ul id="nb-list" role="listbox" aria-label="Notes"></ul>
-    <div id="nb-list-empty" hidden>No items found.</div>
+    <div id="nb-list-empty" data-i18n="msg_no_items" hidden>No items found.</div>
   </aside>
 
   <!-- Drag handle -->
@@ -73,24 +73,24 @@
   <main id="nb-preview-pane">
     <div id="nb-preview-toolbar" hidden>
       <div class="nb-toolbar-left">
-        <button class="nb-panel-menu-btn" id="nb-preview-menu-btn" title="Note options">☰</button>
-        <button class="nb-tool-btn" id="nb-extras-btn" title="Show/hide extras (frontmatter, annotations…) — press . to toggle">◉</button>
+        <button class="nb-panel-menu-btn" id="nb-preview-menu-btn" data-i18n-title="tip_note_opts" title="Note options">☰</button>
+        <button class="nb-tool-btn" id="nb-extras-btn" data-i18n-title="tip_extras" title="Show/hide extras (frontmatter, annotations…) — press . to toggle">◉</button>
       </div>
       <div id="nb-preview-renderers"></div>
       <div id="nb-preview-nav">
-        <button id="nb-back-btn"    class="nb-tool-btn" title="Go back"    hidden>←</button>
-        <button id="nb-forward-btn" class="nb-tool-btn" title="Go forward" hidden>→</button>
+        <button id="nb-back-btn"    class="nb-tool-btn" data-i18n-title="tip_back"    title="Go back"    hidden>←</button>
+        <button id="nb-forward-btn" class="nb-tool-btn" data-i18n-title="tip_forward" title="Go forward" hidden>→</button>
         <span id="nb-preview-ref"   class="nb-preview-ref"></span>
         <span id="nb-preview-title"></span>
       </div>
       <div id="nb-preview-actions">
-        <span id="nb-pin-indicator" hidden title="Pinned to list top — click to unpin">📌</span>
-        <button id="nb-done-btn"       class="nb-tool-btn nb-btn-primary" hidden>Done</button>
-        <button id="nb-sheet-save-btn" class="nb-tool-btn nb-btn-primary" hidden>Save</button>
-        <button id="nb-open-ext-btn"   class="nb-tool-btn" hidden title="Open with system viewer">↗ Open</button>
-        <button id="nb-changes-btn" class="nb-tool-btn" hidden title="Edit frontmatter fields">Changes</button>
-        <button id="nb-edit-btn"   class="nb-tool-btn">Edit</button>
-        <button id="nb-delete-btn" class="nb-tool-btn nb-btn-danger">Delete</button>
+        <span id="nb-pin-indicator" hidden data-i18n-title="tip_pin" title="Pinned to list top — click to unpin">📌</span>
+        <button id="nb-done-btn"       class="nb-tool-btn nb-btn-primary" data-i18n="btn_done"    hidden>Done</button>
+        <button id="nb-sheet-save-btn" class="nb-tool-btn nb-btn-primary" data-i18n="btn_save"    hidden>Save</button>
+        <button id="nb-open-ext-btn"   class="nb-tool-btn" hidden title="Open with system viewer" data-i18n="btn_open">↗ Open</button>
+        <button id="nb-changes-btn" class="nb-tool-btn" hidden data-i18n="btn_changes" data-i18n-title="tip_changes" title="Edit frontmatter fields">Changes</button>
+        <button id="nb-edit-btn"   class="nb-tool-btn" data-i18n="btn_edit">Edit</button>
+        <button id="nb-delete-btn" class="nb-tool-btn nb-btn-danger" data-i18n="btn_delete">Delete</button>
       </div>
     </div>
 
@@ -101,7 +101,7 @@
     <div id="nb-preview-content">
       <div id="nb-welcome">
         <h2>nb-web</h2>
-        <p>Select a note, or choose a command above.</p>
+        <p data-i18n="msg_select_note">Select a note, or choose a command above.</p>
       </div>
     </div>
 
@@ -114,8 +114,8 @@
         <button class="nb-tool-btn" data-fmt="link">🔗</button>
         <button class="nb-tool-btn" data-fmt="tag">#tag</button>
         <span class="nb-spacer"></span>
-        <button id="nb-save-btn"   class="nb-tool-btn nb-btn-primary">Save</button>
-        <button id="nb-cancel-btn" class="nb-tool-btn">Cancel</button>
+        <button id="nb-save-btn"   class="nb-tool-btn nb-btn-primary" data-i18n="btn_save">Save</button>
+        <button id="nb-cancel-btn" class="nb-tool-btn" data-i18n="btn_cancel">Cancel</button>
       </div>
       <textarea id="nb-editor" spellcheck="true"></textarea>
     </div>
@@ -130,8 +130,8 @@
         <button class="nb-tool-btn" data-ann-fmt="link">🔗</button>
         <button class="nb-tool-btn" data-ann-fmt="tag">#tag</button>
         <span class="nb-spacer"></span>
-        <button id="nb-ann-save-btn"   class="nb-tool-btn nb-btn-primary">Save</button>
-        <button id="nb-ann-cancel-btn" class="nb-tool-btn">Cancel</button>
+        <button id="nb-ann-save-btn"   class="nb-tool-btn nb-btn-primary" data-i18n="btn_save">Save</button>
+        <button id="nb-ann-cancel-btn" class="nb-tool-btn" data-i18n="btn_cancel">Cancel</button>
       </div>
       <textarea id="nb-ann-editor" spellcheck="true" placeholder="Markdown supported…"></textarea>
     </div>
@@ -146,7 +146,7 @@
     <img src="/nb-logo.png" alt="nb" class="nb-menu-logo-img">
     <span class="nb-menu-subtitle">nb-web</span>
     <span id="nb-menu-build" class="nb-menu-build">…</span>
-    <button id="nb-menu-sync-btn" class="nb-menu-sync-btn">Sync home</button>
+    <button id="nb-menu-sync-btn" class="nb-menu-sync-btn" data-i18n="btn_sync_home">Sync home</button>
   </div>
   <nav id="nb-menu-nav"><!-- populated from cmds.txt via /api/cmds --></nav>
 </aside>
@@ -154,7 +154,7 @@
 <!-- ── Bottom anchor: Journal append ───────────────────────────── -->
 <div id="nb-bottom-bar">
   <div id="nb-append-bar" hidden>
-    <textarea id="nb-append-input" placeholder="Add to today's log…" rows="1"></textarea>
+    <textarea id="nb-append-input" placeholder="Add to today's log…" data-i18n="input_append" rows="1"></textarea>
     <button id="nb-append-btn" class="nb-btn-primary">↑</button>
   </div>
 </div>

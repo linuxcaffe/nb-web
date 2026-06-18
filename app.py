@@ -140,6 +140,8 @@ _SETTINGS_SCHEMA = {
                             ] if isinstance(v, list) else []},
     'codeblock_access':   {'type': dict, 'default': {},
                             'coerce': lambda v: v if isinstance(v, dict) else {}},
+    'lang':               {'type': str,  'default': 'en',
+                            'coerce': lambda v: str(v).strip().lower()[:5] or 'en'},
 }
 
 def _load_settings():
@@ -7545,6 +7547,21 @@ def api_nb_settings():
         _save_settings(validated)
         _settings = _load_settings()
     return jsonify(_settings)
+
+
+@app.route('/api/locale')
+def api_locale():
+    lang = _load_settings().get('lang', 'en') or 'en'
+    locale_path = Path(__file__).parent / 'locales' / f'{lang}.json'
+    if not locale_path.exists():
+        locale_path = Path(__file__).parent / 'locales' / 'en.json'
+    try:
+        return app.response_class(
+            response=locale_path.read_text(encoding='utf-8'),
+            mimetype='application/json'
+        )
+    except Exception:
+        return jsonify({}), 500
 
 
 # ---------------------------------------------------------------------------

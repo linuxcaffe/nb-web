@@ -89,6 +89,44 @@ const NbWeb = (() => {
         }
     }
 
+    // ── i18n ─────────────────────────────────────────────────────────────────
+
+    let _locale = {};
+    let _localePromise = null;
+
+    async function loadLocale() {
+        if (_localePromise) return _localePromise;
+        _localePromise = fetch('/api/locale')
+            .then(r => r.json())
+            .then(data => { _locale = data; return data; })
+            .catch(() => { _locale = {}; return {}; });
+        return _localePromise;
+    }
+
+    // Translate key → locale string, falling back to the key itself.
+    function t(key) { return _locale[key] ?? key; }
+
+    // Apply data-i18n="key" translations to DOM; call after loadLocale().
+    // Handles text content and placeholder/title attributes.
+    function applyI18n(root) {
+        root = root || document;
+        root.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.dataset.i18n;
+            if (!key) return;
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                if (el.placeholder) el.placeholder = t(key);
+            } else {
+                el.textContent = t(key);
+            }
+        });
+        root.querySelectorAll('[data-i18n-title]').forEach(el => {
+            el.title = t(el.dataset.i18nTitle);
+        });
+        // Set <html lang=""> from locale meta
+        if (_locale._lang) document.documentElement.lang = _locale._lang;
+        if (_locale._dir)  document.documentElement.dir  = _locale._dir;
+    }
+
     // ── Extras-hidden API ─────────────────────────────────────────────────────
 
     // Returns true when the 👁 extras toggle is active (class on #nb-preview-content).
@@ -531,6 +569,9 @@ const NbWeb = (() => {
     }
 
     return {
+        t,
+        loadLocale,
+        applyI18n,
         registerModule,
         registerRenderer,
         publishWebsite,

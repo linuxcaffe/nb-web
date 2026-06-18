@@ -1621,9 +1621,10 @@
                 const actions = document.createElement('div');
                 actions.className = 'nb-front-changes-actions';
 
+                const _t = (key) => NbWeb.t(key);
                 const saveBtn = document.createElement('button');
                 saveBtn.className   = 'nb-tw-btn';
-                saveBtn.textContent = 'Save';
+                saveBtn.textContent = _t('btn_save');
                 saveBtn.addEventListener('click', async () => {
                     const updates = {};
                     for (const w of form.querySelectorAll('[data-fm-key]')) {
@@ -1648,7 +1649,7 @@
 
                 const cancelBtn = document.createElement('button');
                 cancelBtn.className   = 'nb-tw-btn';
-                cancelBtn.textContent = 'Cancel';
+                cancelBtn.textContent = _t('btn_cancel');
                 cancelBtn.addEventListener('click', () => {
                     panel.hidden = true; btn.classList.remove('nb-active');
                 });

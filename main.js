@@ -1,6 +1,8 @@
 // nb-web main.js — list, preview, editor, today, add, sync
 
 const NbMain = (() => {
+    const _t = (key) => NbWeb.t(key);
+
     let _activeSelector = null;
     let _activeType     = null;   // classify() type of current note
     let _activeFilename = null;   // original filename for raw export
@@ -703,7 +705,7 @@ const NbMain = (() => {
                     await fetch('/api/open', { method: 'POST',
                         headers: {'Content-Type':'application/json'},
                         body: JSON.stringify({ selector: note.selector }) });
-                } finally { openExtBtn.textContent = '↗ Open'; openExtBtn.disabled = false; }
+                } finally { openExtBtn.textContent = _t('btn_open'); openExtBtn.disabled = false; }
             };
         }
 
@@ -771,8 +773,8 @@ const NbMain = (() => {
             const unlockBtn = document.createElement('button');
             unlockBtn.id        = 'nb-unlock-btn';
             unlockBtn.className = 'nb-tool-btn';
-            unlockBtn.title     = 'Remove lock from this note';
-            unlockBtn.textContent = '🔒 Unlock';
+            unlockBtn.title     = _t('tip_unlock_note');
+            unlockBtn.textContent = '🔒 ' + _t('btn_unlock');
             unlockBtn.addEventListener('click', async () => {
                 unlockBtn.disabled = true; unlockBtn.textContent = '…';
                 try {
@@ -796,7 +798,7 @@ const NbMain = (() => {
             const relockBtn = document.createElement('button');
             relockBtn.id        = 'nb-relock-btn';
             relockBtn.className = 'nb-tool-btn';
-            relockBtn.title     = 'Lock this note';
+            relockBtn.title     = _t('tip_lock_note');
             relockBtn.textContent = '🔒';
             relockBtn.addEventListener('click', async () => {
                 relockBtn.disabled = true;
@@ -971,14 +973,14 @@ const NbMain = (() => {
                             headers: {'Content-Type':'application/json'},
                             body: JSON.stringify({selector: note.selector, password: pw.value})
                         });
-                        if (r.status === 401) { err.textContent = 'Wrong password'; pw.select(); return; }
+                        if (r.status === 401) { err.textContent = _t('msg_wrong_pw'); pw.select(); return; }
                         const d = await r.json();
                         _encPassword = pw.value;
                         _decryptAndRender(note, content, d.content);
                     } catch(e) {
-                        err.textContent = 'Error: ' + e.message;
+                        err.textContent = _t('status_error') + ': ' + e.message;
                     } finally {
-                        unlockBtn.disabled = false; unlockBtn.textContent = 'Unlock';
+                        unlockBtn.disabled = false; unlockBtn.textContent = _t('btn_unlock');
                     }
                 };
                 pw.addEventListener('keydown', e => { if (e.key === 'Enter') doUnlock(); });
@@ -1623,7 +1625,7 @@ const NbMain = (() => {
             pane.classList.remove('nb-ann-editing');
             content.style.flexBasis = '';
             foot.hidden = false;
-            document.getElementById('nb-ann-save-btn').textContent = 'Save';
+            document.getElementById('nb-ann-save-btn').textContent = _t('btn_save');
             _renderAnnotationFoot(foot, note, savedText !== undefined ? savedText : (current || null));
         }
 
@@ -1632,7 +1634,7 @@ const NbMain = (() => {
         document.getElementById('nb-ann-save-btn').onclick = async () => {
             const body = ta.value.trim();
             const sb   = document.getElementById('nb-ann-save-btn');
-            sb.textContent = 'Saving…';
+            sb.textContent = _t('status_saving');
             try {
                 const r = await fetch(`/api/note/annotate?selector=${encodeURIComponent(note.selector)}`, {
                     method: 'POST',
@@ -1641,8 +1643,8 @@ const NbMain = (() => {
                 });
                 const d = await r.json();
                 if (d.ok) { _noteCache.delete(note.selector); _close(d.annotation); }
-                else { sb.textContent = 'Save'; alert('✗ ' + (d.error || 'failed')); }
-            } catch(e) { sb.textContent = 'Save'; alert('✗ ' + e.message); }
+                else { sb.textContent = _t('btn_save'); alert('✗ ' + (d.error || 'failed')); }
+            } catch(e) { sb.textContent = _t('btn_save'); alert('✗ ' + e.message); }
         };
     }
 
@@ -1700,7 +1702,7 @@ const NbMain = (() => {
 
             const saveBtn = document.createElement('button');
             saveBtn.className   = 'nb-tw-btn';
-            saveBtn.textContent = 'Save';
+            saveBtn.textContent = _t('btn_save');
             saveBtn.addEventListener('click', async () => {
                 const updates = {};
                 for (const w of form.querySelectorAll('[data-fm-key]')) {
@@ -1726,7 +1728,7 @@ const NbMain = (() => {
 
             const cancelBtn = document.createElement('button');
             cancelBtn.className   = 'nb-tw-btn';
-            cancelBtn.textContent = 'Cancel';
+            cancelBtn.textContent = _t('btn_cancel');
             cancelBtn.addEventListener('click', () => {
                 panel.hidden = true; btn.classList.remove('nb-active');
             });
@@ -1793,7 +1795,7 @@ const NbMain = (() => {
 
         const pop = document.createElement('div');
         pop.className = 'nb-info-popover';
-        pop.textContent = 'Loading…';
+        pop.textContent = _t('status_loading');
 
         // Initial position: below element, left-aligned
         const rect = e.target.getBoundingClientRect();
@@ -1931,7 +1933,7 @@ const NbMain = (() => {
     async function _saveCsvBlocks() {
         if (!_activeSelector) return;
         const btn = document.getElementById('nb-sheet-save-btn');
-        btn.textContent = 'Saving…';
+        btn.textContent = _t('status_saving');
         try {
             const r  = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector));
             const d  = await r.json();
@@ -1961,15 +1963,15 @@ const NbMain = (() => {
             const wd = await wr.json();
             if (wd.success) {
                 _noteCache.delete(_activeSelector);
-                btn.textContent = '✓ Saved';
-                setTimeout(() => { btn.textContent = 'Save'; }, 1200);
+                btn.textContent = _t('status_saved');
+                setTimeout(() => { btn.textContent = _t('btn_save'); }, 1200);
             } else {
                 alert('Save failed: ' + (wd.stderr || 'unknown'));
             }
         } catch(e) {
             alert('Save error: ' + e);
         } finally {
-            if (btn.textContent === 'Saving…') btn.textContent = 'Save';
+            if (btn.textContent === _t('status_saving')) btn.textContent = _t('btn_save');
         }
     }
 
@@ -2013,7 +2015,7 @@ const NbMain = (() => {
         const ws = spreadsheet?.worksheets?.[0];
         if (!ws) { alert('Sheet not ready'); return; }
         const btn = document.getElementById('nb-save-btn');
-        btn.textContent = 'Saving…';
+        btn.textContent = _t('status_saving');
         try {
             const data = ws.getData();
             const csv = data.map(row =>
@@ -2031,14 +2033,14 @@ const NbMain = (() => {
             const d = await r.json();
             if (d.success) {
                 _noteCache.delete(_activeSelector);
-                btn.textContent = '✓ Saved';
-                setTimeout(() => { btn.textContent = 'Save'; }, 1200);
+                btn.textContent = _t('status_saved');
+                setTimeout(() => { btn.textContent = _t('btn_save'); }, 1200);
             } else {
                 alert('Save failed: ' + (d.stderr || 'unknown error'));
-                btn.textContent = 'Save';
+                btn.textContent = _t('btn_save');
             }
         } catch(e) {
-            btn.textContent = 'Save';
+            btn.textContent = _t('btn_save');
             throw e;
         }
     }
@@ -2655,7 +2657,7 @@ const NbMain = (() => {
 
         const lbl = document.createElement('span');
         lbl.className   = 'nb-move-label';
-        lbl.textContent = 'History:';
+        lbl.textContent = _t('label_history');
 
         const sel = document.createElement('select');
         sel.className = 'nb-scope-select';
@@ -2664,13 +2666,13 @@ const NbMain = (() => {
         sel.style.maxWidth = '480px';
 
         const loadingOpt = document.createElement('option');
-        loadingOpt.textContent = 'Loading…';
+        loadingOpt.textContent = _t('status_loading');
         sel.appendChild(loadingOpt);
         sel.disabled = true;
 
         const restoreBtn = document.createElement('button');
         restoreBtn.className   = 'nb-tool-btn nb-btn-primary';
-        restoreBtn.textContent = 'Restore';
+        restoreBtn.textContent = _t('btn_restore');
         restoreBtn.disabled    = true;
 
         const cancelBtn = document.createElement('button');
@@ -2698,14 +2700,14 @@ const NbMain = (() => {
             const d = await r.json();
             commits = d.commits || [];
         } catch(e) {
-            sel.options[0].textContent = 'Error loading history';
+            sel.options[0].textContent = _t('msg_err_history');
             return;
         }
 
         sel.innerHTML = '';
         if (!commits.length) {
             const o = document.createElement('option');
-            o.textContent = 'No history found';
+            o.textContent = _t('msg_no_history');
             sel.appendChild(o);
             return;
         }
@@ -2747,7 +2749,7 @@ const NbMain = (() => {
             if (!hash) return;
             const subj = sel.options[sel.selectedIndex]?.textContent || hash;
             if (!confirm(`Restore note to version: ${subj}?`)) return;
-            restoreBtn.textContent = 'Restoring…'; restoreBtn.disabled = true;
+            restoreBtn.textContent = _t('btn_restoring'); restoreBtn.disabled = true;
             try {
                 const r = await fetch('/api/note/restore', {
                     method: 'POST',
@@ -2761,11 +2763,11 @@ const NbMain = (() => {
                     NbNav.reexecute();
                 } else {
                     alert('Restore failed: ' + (d.error || 'unknown'));
-                    restoreBtn.textContent = 'Restore'; restoreBtn.disabled = false;
+                    restoreBtn.textContent = _t('btn_restore'); restoreBtn.disabled = false;
                 }
             } catch(e) {
                 alert('Restore error: ' + e);
-                restoreBtn.textContent = 'Restore'; restoreBtn.disabled = false;
+                restoreBtn.textContent = _t('btn_restore'); restoreBtn.disabled = false;
             }
         });
     }
@@ -3429,7 +3431,7 @@ const NbMain = (() => {
         const titleEl = document.getElementById('nb-preview-title');
         if (titleEl) {
             titleEl.style.cursor = 'pointer';
-            titleEl.title = 'Click to copy notebook:id selector';
+            titleEl.title = _t('tip_copy_selector');
             titleEl.addEventListener('click', () => {
                 const link = _activeNoteRef || _activeSelector;
                 if (!link) return;
@@ -3549,7 +3551,7 @@ const NbMain = (() => {
         if (!_activeSelector || !_encPassword) return;
         const content = document.getElementById('nb-editor').value;
         const btn = document.getElementById('nb-save-btn');
-        btn.textContent = 'Saving…';
+        btn.textContent = _t('status_saving');
         try {
             const r = await fetch('/api/note/encrypted', {
                 method: 'PUT',
@@ -3569,7 +3571,7 @@ const NbMain = (() => {
                 alert('Save failed: ' + (d.error || 'unknown error'));
             }
         } finally {
-            btn.textContent = 'Save';
+            btn.textContent = _t('btn_save');
         }
     }
 
@@ -3577,7 +3579,7 @@ const NbMain = (() => {
         if (!_activeSelector) return;
         const content = document.getElementById('nb-editor').value;
         const btn = document.getElementById('nb-save-btn');
-        btn.textContent = 'Saving…';
+        btn.textContent = _t('status_saving');
         try {
             const r = await fetch('/api/note', {
                 method: 'PUT',
@@ -3597,7 +3599,7 @@ const NbMain = (() => {
             }
             else alert('Save failed: ' + (d.stderr || 'unknown error'));
         } finally {
-            btn.textContent = 'Save';
+            btn.textContent = _t('btn_save');
         }
     }
 
@@ -3716,7 +3718,7 @@ const NbMain = (() => {
 
         const lbl = document.createElement('span');
         lbl.className = 'nb-move-label';
-        lbl.textContent = 'Fixed in:';
+        lbl.textContent = _t('label_fixed_in');
 
         const sel = document.createElement('select');
         sel.className = 'nb-scope-select';
@@ -3741,15 +3743,15 @@ const NbMain = (() => {
 
         const doneBtn = document.createElement('button');
         doneBtn.className   = 'nb-tool-btn nb-btn-primary';
-        doneBtn.textContent = 'Done';
+        doneBtn.textContent = _t('btn_done');
 
         const editBtn = document.createElement('button');
         editBtn.className   = 'nb-tool-btn';
-        editBtn.textContent = 'Edit';
+        editBtn.textContent = _t('btn_edit');
 
         const skipBtn = document.createElement('button');
         skipBtn.className   = 'nb-tool-btn';
-        skipBtn.textContent = 'Skip';
+        skipBtn.textContent = _t('btn_skip');
 
         bar.append(lbl, sel, doneBtn, editBtn, skipBtn);
         document.getElementById('nb-preview-actions').hidden = true;
@@ -3758,9 +3760,9 @@ const NbMain = (() => {
 
         const run = async (nugget) => {
             doneBtn.disabled = editBtn.disabled = skipBtn.disabled = true;
-            doneBtn.textContent = 'Marking…';
+            doneBtn.textContent = _t('btn_marking');
             try { await doClose(nugget, note); }
-            finally { doneBtn.textContent = 'Done'; doneBtn.disabled = editBtn.disabled = skipBtn.disabled = false; }
+            finally { doneBtn.textContent = _t('btn_done'); doneBtn.disabled = editBtn.disabled = skipBtn.disabled = false; }
         };
 
         doneBtn.addEventListener('click', () => run(sel.value));
@@ -3786,7 +3788,7 @@ const NbMain = (() => {
             const content = document.getElementById('nb-preview-content');
             const toolbar = document.getElementById('nb-preview-toolbar');
             toolbar.hidden = false;
-            document.getElementById('nb-preview-title').textContent = "Today's Journal";
+            document.getElementById('nb-preview-title').textContent = _t('msg_today_journal');
             const ref = document.getElementById('nb-preview-ref');
             if (ref) ref.textContent = '';
 
@@ -4033,7 +4035,7 @@ const NbMain = (() => {
         };
 
         const btn = document.getElementById('nf-save');
-        btn.textContent = 'Creating…'; btn.disabled = true;
+        btn.textContent = _t('btn_creating'); btn.disabled = true;
         try {
             const r = await fetch('/api/notes', {
                 method: 'POST',
@@ -4055,10 +4057,10 @@ const NbMain = (() => {
                 }
             } else {
                 alert('Create failed: ' + (d.error || 'unknown'));
-                btn.textContent = 'Create'; btn.disabled = false;
+                btn.textContent = _t('btn_create'); btn.disabled = false;
             }
         } catch(e) {
-            btn.textContent = 'Create'; btn.disabled = false;
+            btn.textContent = _t('btn_create'); btn.disabled = false;
         }
     }
 
@@ -4386,7 +4388,7 @@ const NbMain = (() => {
 
             if (!templates.length) {
                 empty.hidden = false;
-                empty.textContent = 'No templates found.';
+                empty.textContent = _t('msg_no_templates');
                 return;
             }
             empty.hidden = true;
@@ -4529,7 +4531,7 @@ const NbMain = (() => {
 
             if (!_lastNbList.length) {
                 document.getElementById('nb-list-empty').hidden = false;
-                document.getElementById('nb-list-empty').textContent = 'No notebooks found.';
+                document.getElementById('nb-list-empty').textContent = _t('msg_no_notebooks');
                 return;
             }
 
@@ -4636,7 +4638,7 @@ const NbMain = (() => {
         if (nbwebPlugins.length) {
             const hdr = document.createElement('li');
             hdr.className = 'nb-list-section-header';
-            hdr.textContent = 'NbWeb Plugins';
+            hdr.textContent = _t('label_plugins');
             list.appendChild(hdr);
 
             nbwebPlugins.forEach(p => {
@@ -4863,9 +4865,9 @@ const NbMain = (() => {
             // Sync status dot: yellow=unpushed, grey=no remote, green=synced
             const dot = document.createElement('span');
             dot.style.cssText = 'width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-right:2px;align-self:center';
-            if (!nb.has_remote)      { dot.style.background = 'var(--text-dim)'; dot.title = 'No remote'; }
+            if (!nb.has_remote)      { dot.style.background = 'var(--text-dim)'; dot.title = _t('tip_no_remote'); }
             else if (nb.unpushed > 0){ dot.style.background = 'var(--yellow,#f0b429)'; dot.title = `${nb.unpushed} unpushed`; }
-            else                     { dot.style.background = 'var(--green,#2ecc71)';  dot.title = 'Synced'; }
+            else                     { dot.style.background = 'var(--green,#2ecc71)';  dot.title = _t('tip_synced'); }
 
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
@@ -5229,7 +5231,7 @@ const NbMain = (() => {
                 if (!grid) return;
                 const lbl = document.createElement('span');
                 lbl.style.cssText = 'color:var(--text-dim)';
-                lbl.textContent = 'Folders';
+                lbl.textContent = _t('label_folders');
                 const val = document.createElement('span');
                 val.style.cssText = 'color:var(--text);font-family:var(--font-mono);font-size:11px';
                 val.textContent = folders.join('  ·  ');
@@ -7357,6 +7359,8 @@ const NbDialog = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', async () => {
+    await NbWeb.loadLocale();
+    NbWeb.applyI18n();
     await NbWeb._loadPlugins();
     await NbWeb._init();
     NbMain.init();

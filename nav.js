@@ -1,6 +1,8 @@
 // nb-web nav.js — command bar, opts bar, output bar, side menu
 
 const NbNav = (() => {
+    const _t = (key) => NbWeb.t(key);
+
     let _notebooks = [];
     let _scope     = 'home';   // global notebook scope, set via Notebooks cmd
 
@@ -400,19 +402,19 @@ const NbNav = (() => {
 
         const cancelBtn = document.createElement('button');
         cancelBtn.className   = 'nb-tool-btn';
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = _t('btn_cancel');
         cancelBtn.addEventListener('click', _doCancel);
 
         const wantsEditor = st.type === 'note' || st.type === 'todo';
         const editBtn = document.createElement('button');
         editBtn.className   = 'nb-tool-btn';
-        editBtn.textContent = 'Edit';
+        editBtn.textContent = _t('btn_edit');
         editBtn.hidden      = !wantsEditor;
         editBtn.addEventListener('click', _doEdit);
 
         const saveBtn = document.createElement('button');
         saveBtn.className   = 'nb-tool-btn nb-btn-primary';
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = _t('btn_save');
         saveBtn.addEventListener('click', _doSave);
 
         actionWrap.append(cancelBtn, editBtn, saveBtn);
@@ -432,7 +434,7 @@ const NbNav = (() => {
         }
         function _idle() {
             saveBtn.disabled = editBtn.disabled = false;
-            saveBtn.textContent = 'Save';
+            saveBtn.textContent = _t('btn_save');
         }
 
         function _doCancel() {
@@ -757,7 +759,7 @@ const NbNav = (() => {
         const st = _state.daily;
         const label = document.createElement('span');
         label.className = 'nb-opt-nav-label';
-        label.textContent = st.date || 'today';
+        label.textContent = st.date || _t('label_today');
 
         function step(d) {
             const base = st.date ? new Date(st.date + 'T12:00:00') : new Date();
@@ -773,8 +775,8 @@ const NbNav = (() => {
             _makeNavBtn('◀', () => step(-1)),
             label,
             _makeNavBtn('▶', () => step(1)),
-            _makeChip('today', !st.date, () => {
-                st.date = ''; label.textContent = 'today';
+            _makeChip(_t('label_today'), !st.date, () => {
+                st.date = ''; label.textContent = _t('label_today');
                 _updateOutputBar(); _executeCmd();
             })
         );
@@ -820,7 +822,7 @@ const NbNav = (() => {
 
         const runBtn = document.createElement('button');
         runBtn.className   = 'nb-opt-chip nb-opt-run';
-        runBtn.textContent = 'run ↵';
+        runBtn.textContent = _t('btn_run');
         runBtn.addEventListener('click', _executeCmd);
         bar.appendChild(runBtn);
 
@@ -1205,7 +1207,7 @@ const NbNav = (() => {
             const bar    = document.getElementById('nb-cmd-output-bar');
             const tokens = document.getElementById('nb-cmd-output-tokens');
             bar.hidden = false;
-            tokens.textContent = 'Restarting…';
+            tokens.textContent = _t('status_restarting');
             await fetch('/api/restart', { method: 'POST' }).catch(() => {});
             const poll = () => fetch('/api/notebooks')
                 .then(async () => {
@@ -1256,9 +1258,9 @@ const NbNav = (() => {
             title.textContent  = `Sync · ${nb}`;
             comment.value      = '';
             nowBtn.disabled    = false;
-            nowBtn.textContent = 'Sync Now';
+            nowBtn.textContent = _t('btn_sync_now');
             hideOutput();
-            changesEl.innerHTML   = 'Loading…';
+            changesEl.innerHTML   = _t('status_loading');
 
             fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json()).then(d => {
                 if (!d.has_remote) {
@@ -1277,7 +1279,7 @@ const NbNav = (() => {
                         const url = urlInput.value.trim();
                         if (!url) return;
                         connectBtn.disabled    = true;
-                        connectBtn.textContent = 'Connecting…';
+                        connectBtn.textContent = _t('btn_connecting');
                         fetch('/api/nb/wire-notebook', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -1285,18 +1287,18 @@ const NbNav = (() => {
                         }).then(r => r.json()).then(wd => {
                             showOutput(wd.output || (wd.success ? 'Connected.' : 'Connect failed.'));
                             if (wd.success) {
-                                changesEl.innerHTML = '<span class="nb-sync-uptodate">Connected — up to date</span>';
+                                changesEl.innerHTML = `<span class="nb-sync-uptodate">${_t('msg_up_to_date')}</span>`;
                                 nowBtn.disabled    = false;
-                                nowBtn.textContent = 'Sync Now';
+                                nowBtn.textContent = _t('btn_sync_now');
                                 _pollNbSyncStatus();
                             } else {
                                 connectBtn.disabled    = false;
-                                connectBtn.textContent = 'Retry';
+                                connectBtn.textContent = _t('btn_retry');
                             }
                         }).catch(err => {
                             showOutput('Error: ' + err);
                             connectBtn.disabled    = false;
-                            connectBtn.textContent = 'Retry';
+                            connectBtn.textContent = _t('btn_retry');
                         });
                     };
                     return;
@@ -1335,8 +1337,8 @@ const NbNav = (() => {
                 }
                 changesEl.innerHTML = parts.length
                     ? parts.join('')
-                    : '<span class="nb-sync-uptodate">Up to date</span>';
-            }).catch(() => { changesEl.textContent = 'Could not load status.'; });
+                    : `<span class="nb-sync-uptodate">Up to date</span>`;
+            }).catch(() => { changesEl.textContent = _t('msg_err_status'); });
 
             dialog.style.display = 'flex';
             const close = () => { dialog.style.display = 'none'; };
@@ -1349,8 +1351,8 @@ const NbNav = (() => {
                 hideOutput();
 
                 let elapsed = 0;
-                const tick = () => { nowBtn.textContent = `Syncing… ${++elapsed}s`; };
-                nowBtn.textContent = 'Syncing… 0s';
+                const tick = () => { nowBtn.textContent = `${_t('status_syncing').replace('…','')}… ${++elapsed}s`; };
+                nowBtn.textContent = `${_t('status_syncing').replace('…','')}… 0s`;
                 const timer = setInterval(tick, 1000);
 
                 fetch('/api/sync', {
@@ -1361,13 +1363,12 @@ const NbNav = (() => {
                     clearInterval(timer);
                     showOutput(data.output || (data.success ? 'Sync complete.' : 'Sync failed.'));
                     nowBtn.disabled    = false;
-                    nowBtn.textContent = data.success ? 'Sync Now' : 'Retry';
+                    nowBtn.textContent = data.success ? _t('btn_sync_now') : _t('btn_retry');
                     if (data.success) {
                         comment.value = '';
                         _pollNbSyncStatus();
                         NbNav.reexecute();
-                        // Refresh the status panel inside the dialog
-                        changesEl.innerHTML = '<span class="nb-sync-uptodate">Up to date</span>';
+                        changesEl.innerHTML = `<span class="nb-sync-uptodate">Up to date</span>`;
                         fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`)
                             .then(r => r.json()).then(d => {
                                 if (d.unpushed || d.files?.length)
@@ -1378,7 +1379,7 @@ const NbNav = (() => {
                     clearInterval(timer);
                     showOutput('Error: ' + err);
                     nowBtn.disabled    = false;
-                    nowBtn.textContent = 'Retry';
+                    nowBtn.textContent = _t('btn_retry');
                 });
             };
 
