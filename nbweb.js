@@ -178,7 +178,10 @@ const NbWeb = (() => {
         const active = _activeFor(notebook);
         // new multi-renderer API: return first renderer's render fn as a backward-compat shim
         const multi = active.find(m => m.previewRenderers?.length);
-        if (multi) return note => multi.previewRenderers[0].render(note);
+        if (multi) return note => {
+            const r = multi.previewRenderers.find(pr => !pr.detect || pr.detect(note));
+            return r ? r.render(note) : null;
+        };
         return active.find(m => m.previewRenderer)?.previewRenderer ?? null;
     }
 
