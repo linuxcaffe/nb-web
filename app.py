@@ -636,7 +636,8 @@ INDICATORS = {
     'strip':       '🎞️',
     'shot':        '🎬',
     'scene':       '📜',
-    'storyline':   '🧵',
+    'storyline':   '🧵',   # legacy — prefer plotline
+    'plotline':    '🧵',
     'story':       '🃏',
     'actor':       '🧑',
     'location':    '📍',
@@ -665,13 +666,14 @@ INDICATORS = {
 #   strip     — film production stripboard note      🎞️  (NbWeb-cine plugin)
 #   shot      — individual camera shot               🎬  (NbWeb-cine plugin)
 #   scene     — screenplay scene document            📜  (NbWeb-cine plugin)
-#   storyline — named lane in the storylines board   🧵  (NbWeb-cine plugin)
+#   plotline  — named lane in the storylines board   🧵  (NbWeb-cine plugin) [was: storyline]
+#   storyline — legacy alias for plotline            🧵  (NbWeb-cine plugin)
 #   story     — card on the storylines board         🃏  (NbWeb-cine plugin)
 #   actor     — cast member / talent card            🧑  (NbWeb-cine plugin)
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'story', 'actor', 'location', 'day', 'resource'})
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'actor', 'location', 'day', 'resource'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -7929,7 +7931,7 @@ def api_cine_data():
                 meta, _ = parse_frontmatter(f.read_text(errors='replace'))
                 ftype = str(meta.get('type', '')).strip().lower()
                 stem  = f.stem
-                if ftype == 'storyline':
+                if ftype in ('plotline', 'storyline'):
                     lanes.append({
                         'selector': f'{notebook}:storylines/{f.name}',
                         'filename': f.name,
@@ -7951,7 +7953,7 @@ def api_cine_data():
 
     stories = []
     for f, meta, stem in _story_raws:
-        raw_sl     = str(meta.get('storyline', '')).strip()
+        raw_sl     = str(meta.get('plotline', '') or meta.get('storyline', '')).strip()
         storyline  = _lane_lookup.get(raw_sl.lower(), raw_sl)
         scenes_raw = meta.get('scenes', '')
         stories.append({
@@ -7959,7 +7961,7 @@ def api_cine_data():
             'filename':   f.name,
             'stem':       stem,
             'title':      str(meta.get('title', stem)).strip(),
-            'storyline':  storyline,
+            'plotline':   storyline,
             'seq':        _cine_int(meta.get('seq'), 999),
             'scenes':     _resolve_scene_refs(scenes_raw),
             'scenes_raw': str(scenes_raw),
@@ -8118,10 +8120,10 @@ def api_cine_story_resequence():
     for move in moves:
         selector = move.get('selector', '')
         try:
-            storyline = str(move['storyline'])
+            storyline = str(move.get('plotline') or move.get('storyline', ''))
             seq       = int(move['seq'])
         except (KeyError, TypeError, ValueError):
-            errors.append({'selector': selector, 'error': 'storyline and seq required'})
+            errors.append({'selector': selector, 'error': 'plotline and seq required'})
             continue
 
         fpath = _resolve_to_nb_path(selector)
@@ -8137,7 +8139,7 @@ def api_cine_story_resequence():
 
         try:
             raw     = fpath.read_text(errors='replace')
-            patched = _patch_fm_fields(raw, storyline=storyline, seq=seq)
+            patched = _patch_fm_fields(raw, plotline=storyline, seq=seq)
             fpath.write_text(patched)
             updated.append(selector)
         except Exception as e:
@@ -8174,7 +8176,7 @@ def api_cine_story_create():
     data      = request.get_json(silent=True) or {}
     notebook  = data.get('notebook', '').strip()
     title     = data.get('title', '').strip()
-    storyline = data.get('storyline', '').strip()
+    storyline = (data.get('plotline', '') or data.get('storyline', '')).strip()
 
     if not notebook or not title:
         return jsonify({'error': 'notebook and title required'}), 400
@@ -8195,7 +8197,7 @@ def api_cine_story_create():
                 try:
                     m, _ = parse_frontmatter(f.read_text(errors='replace'))
                     if str(m.get('type', '')).strip().lower() == 'story' \
-                            and str(m.get('storyline', '')).strip() == storyline:
+                            and (str(m.get('plotline', '') or m.get('storyline', '')).strip()) == storyline:
                         max_seq = max(max_seq, int(m.get('seq') or 0))
                 except Exception:
                     pass
@@ -8217,15 +8219,15 @@ def api_cine_story_create():
         scaffold = tmpl_path.read_text(errors='replace')
         scaffold = _resolve_template_vars(scaffold, title=title)
         # Inject storyline + seq into the frontmatter
-        scaffold = _patch_fm_fields(scaffold, storyline=storyline, seq=seq)
+        scaffold = _patch_fm_fields(scaffold, plotline=storyline, seq=seq)
     elif global_tmpl.exists():
         scaffold = global_tmpl.read_text(errors='replace')
         scaffold = _resolve_template_vars(scaffold, title=title)
-        scaffold = _patch_fm_fields(scaffold, storyline=storyline, seq=seq)
+        scaffold = _patch_fm_fields(scaffold, plotline=storyline, seq=seq)
     else:
         # Minimal hardcoded scaffold — works before the template exists
         scaffold = (
-            f'---\ntype: story\ntitle: {title}\nstoryline: {storyline}\n'
+            f'---\ntype: story\ntitle: {title}\nplotline: {storyline}\n'
             f'seq: {seq}\nscenes:\ncharacters:\ndesc:\n---\n'
         )
 
