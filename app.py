@@ -7982,6 +7982,32 @@ def api_cine_data():
     lanes           = []
     _story_raws     = []   # collected before lane lookup is built
     _milestone_raws = []
+
+    # New convention: master storyline note may live at storylines/{project}.md
+    # (one level above the project subfolder) rather than inside the subfolder.
+    # Check for it first so it gets an is_storyline lane even when not in the glob below.
+    if _project:
+        _master = nb_path / 'storylines' / f'{_project}.md'
+        if _master.is_file():
+            try:
+                _mraw = _master.read_text(errors='replace')
+                _mmeta, _ = parse_frontmatter(_mraw)
+                if str(_mmeta.get('type', '')).strip().lower() in ('plotline', 'storyline'):
+                    _morders = {k[len('order_'):]: v for k, v in _mmeta.items()
+                                if k.startswith('order_') and str(v).strip()}
+                    lanes.append({
+                        'selector':     f'{notebook}:storylines/{_master.name}',
+                        'filename':     _master.name,
+                        'stem':         _master.stem,
+                        'title':        str(_mmeta.get('title', _master.stem)),
+                        'color':        str(_mmeta.get('color', '')),
+                        'seq':          _cine_int(_mmeta.get('seq'), 999),
+                        'is_storyline': True,
+                        'orders':       _morders,
+                    })
+            except Exception:
+                pass
+
     if storylines_dir.is_dir():
         for f in sorted(storylines_dir.glob('*.md')):
             try:
