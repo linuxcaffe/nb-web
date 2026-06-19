@@ -90,16 +90,10 @@
 
     function _initCollapseToggle(block) {
         const header = block.querySelector('[class*="-header"]');
-        if (!header || header.querySelector('.nb-collapse-btn')) return;
+        if (!header || header.dataset.collapseWired) return;
+        header.dataset.collapseWired = '1';
         const key = _collapseKey(block);
-        const btn = document.createElement('button');
-        btn.className = 'nb-collapse-btn';
-        btn.setAttribute('aria-label', 'Toggle collapse');
-        header.insertBefore(btn, header.firstChild);
-        const apply = collapsed => {
-            block.classList.toggle('nb-collapsed', collapsed);
-            btn.textContent = collapsed ? '▶' : '▼';
-        };
+        const apply = collapsed => block.classList.toggle('nb-collapsed', collapsed);
         apply(localStorage.getItem(key) === '1');
         const toggle = e => {
             e.stopPropagation();
@@ -107,7 +101,7 @@
             apply(collapsed);
             collapsed ? localStorage.setItem(key, '1') : localStorage.removeItem(key);
         };
-        btn.addEventListener('click', toggle);
+        header.addEventListener('click', toggle);
         header.querySelectorAll('.nb-collapse-zone').forEach(z =>
             z.addEventListener('click', toggle));
     }

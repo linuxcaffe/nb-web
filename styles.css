@@ -2082,14 +2082,9 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-nb-nb-active { background: var(--bg2); }
 
 /* ── collapse toggle (all codeblock types) ───────────────────── */
+/* Whole header bar is the toggle; no button. Icon in header identifies block type. */
 .nb-collapsed > *:not([class*="-header"]) { display: none; }
-.nb-collapse-btn {
-  background: none; border: none; cursor: pointer;
-  color: var(--text-dim); font-size: 0.65em;
-  padding: 0 5px 0 0; flex-shrink: 0; line-height: 1;
-  transition: color 0.1s;
-}
-.nb-collapse-btn:hover { color: var(--accent); }
+[class*="-header"] { cursor: pointer; user-select: none; }
 
 /* ── git codeblock ───────────────────────────────────────────── */
 .nb-git-block {
