@@ -400,6 +400,30 @@ def _load_user(username):
     except Exception:
         return None
 
+def _load_user_by_name(display_name):
+    """Find a user whose name: field matches display_name (case-insensitive)."""
+    if not USERS_DIR.exists():
+        return None
+    needle = display_name.strip().lower()
+    for path in USERS_DIR.glob('*.md'):
+        stem = path.stem
+        if not _RE_USERNAME.match(stem):
+            continue
+        try:
+            meta, _ = parse_frontmatter(path.read_text())
+            if str(meta.get('name', '')).lower() == needle:
+                nbs = meta.get('notebooks')
+                return {
+                    'username':      stem,
+                    'name':          str(meta.get('name', stem)),
+                    'level':         str(meta.get('level', 'user')),
+                    'notebooks':     list(nbs) if isinstance(nbs, (list, tuple)) else [],
+                    'password_hash': str(meta.get('password_hash', '')),
+                }
+        except Exception:
+            continue
+    return None
+
 def _level_gte(have, need):
     try:
         return LEVELS.index(have) >= LEVELS.index(need)
@@ -529,17 +553,24 @@ _LOGIN_HTML = '''<!DOCTYPE html>
               border-radius: 4px; color: #fff; font-size: 1rem; cursor: pointer; }}
     button:hover {{ background: #2d63b8; }}
     .err {{ color: #ff8080; margin-bottom: 1rem; font-size: .9rem; }}
+    .guest-btn {{ margin-top: .75rem; background: transparent; border: 1px solid #2a4a8a;
+                  color: #8aaacc; font-size: .85rem; }}
+    .guest-btn:hover {{ background: #1a2e50; color: #a0c4ff; border-color: #5588cc; }}
   </style>
 </head>
 <body>
-  <form method="POST" action="/login">
+  <form method="POST" action="/login" id="lf">
     <h2>nb-web</h2>
     {error}
-    <label>Username</label>
+    <label>Username or name</label>
     <input name="username" type="text" autocomplete="username" autofocus>
     <label>Password</label>
     <input name="password" type="password" autocomplete="current-password">
     <button type="submit">Sign in</button>
+    <button type="button" class="guest-btn" onclick="
+      document.querySelector(\'[name=username]\').value=\'guest\';
+      document.querySelector(\'[name=password]\').value=\'guest\';
+      document.getElementById(\'lf\').submit();">Log in as Guest</button>
   </form>
 </body>
 </html>'''
@@ -552,7 +583,7 @@ def login():
         return _LOGIN_HTML.format(error=''), 200, {'Content-Type': 'text/html; charset=utf-8'}
     username = request.form.get('username', '').strip().lower()
     password = request.form.get('password', '')
-    user = _load_user(username)
+    user = _load_user(username) or _load_user_by_name(username)
     if user and user['password_hash'] and check_password_hash(user['password_hash'], password):
         session['user'] = {k: user[k] for k in ('username', 'name', 'level', 'notebooks')}
         return redirect('/')
