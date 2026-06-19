@@ -3086,6 +3086,85 @@ def api_front_query():
     return jsonify(results)
 
 
+@app.route('/api/config-tree')
+def api_config_tree():
+    """Return the config inheritance chain from root to a target notebook/folder.
+
+    Query params:
+      notebook  — target notebook name (required)
+      folder    — path within notebook, e.g. 'shots' or 'storylines/film-school'
+      key       — if given, only include this field in each node's 'contributes'
+
+    Response: ordered array of nodes from global root → target, each:
+      { level, path, selector, exists, contributes }
+
+    'contributes' holds only what that config file itself sets — not inherited
+    values.  Position in the array implies inheritance; consumers should not
+    repeat inherited values in the UI.
+    """
+    notebook = request.args.get('notebook', '').strip()
+    folder   = request.args.get('folder',   '').strip().strip('/')
+    key      = request.args.get('key',      '').strip()
+
+    if not notebook or not _safe_notebook(notebook):
+        return jsonify({'error': 'invalid notebook'}), 400
+
+    user = session.get('user', {})
+    nb_cfg = _notebook_config(notebook)
+    required = str(nb_cfg.get('access') or 'user')
+    if not _level_gte(user.get('level', ''), required):
+        return jsonify({'error': 'forbidden'}), 403
+
+    nb_root = NB_DIR / notebook
+
+    def _read_contributes(cfg_path):
+        """Parse a config file and return its own frontmatter (not merged)."""
+        if not cfg_path.exists():
+            return {}
+        try:
+            meta, _ = parse_frontmatter(cfg_path.read_text())
+            return meta
+        except Exception:
+            return {}
+
+    def _filter(meta):
+        """Apply key filter if requested."""
+        if not key or not meta:
+            return meta
+        v = meta.get(key)
+        return {key: v} if v is not None else {}
+
+    def _node(level, cfg_path):
+        raw = _read_contributes(cfg_path)
+        return {
+            'level':       level,
+            'path':        str(cfg_path),
+            'selector':    str(cfg_path),   # absolute path — /api/note handles it
+            'exists':      cfg_path.exists(),
+            'contributes': _filter(raw),
+        }
+
+    nodes = []
+
+    # 1. Global — ~/.nb/.nb.md
+    nodes.append(_node('global', NB_DIR / '.nb.md'))
+
+    # 2. Notebook manifest — ~/.nb/{notebook}/.{notebook}.md
+    nodes.append(_node('notebook', nb_root / f'.{notebook}.md'))
+
+    # 3. Folder chain — each segment of the requested folder path
+    if folder:
+        parts = folder.split('/')
+        current = nb_root
+        for part in parts:
+            current = current / part
+            cfg_path = current / f'.{part}.md'
+            level = 'subfolder' if current.parent != nb_root else 'folder'
+            nodes.append(_node(level, cfg_path))
+
+    return jsonify(nodes)
+
+
 _all_notes_cache: dict = {}   # {'sig': tuple, 'data': list[dict]}
 
 def _index_sig() -> tuple:
