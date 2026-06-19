@@ -65,7 +65,7 @@
         tw:      { img: '.images:tw-logo.png',      alt: 'Taskwarrior' },
         git:     { img: '.images:git-logo.png',     alt: 'git' },
         nb:      { img: 'nb-logo.png',              alt: 'nb', direct: true },
-        t:       { text: 't', large: true },
+        t:       { img: '.images:t-logo.svg',       alt: 't' },
         tui:     { text: 'TUI' },
         nav:     { text: 'NAV' },
         front:   { text: 'FM'  },
