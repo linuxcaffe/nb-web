@@ -3841,19 +3841,51 @@ def api_annotation_template():
     return jsonify({'content': _resolve_template_vars(raw, title=title)})
 
 
-def _load_constraints(note_path: Path) -> dict:
-    """Walk from note's folder up to its notebook root, merging .constraints.md files.
+def _normalize_constraint(val) -> str:
+    """Normalise a constraint value to the string format expected by the JS widget renderer.
 
-    Processes root-first so folder-level entries override notebook-level entries.
+    Accepts the legacy string format ('select a,b,c', 'bool', 'area', 'date')
+    or the rich dict format from folder config constraints: sections, which may use
+    either 'widget:' or 'type:' keys:
+        {widget: select, values: [D, N], required: true}
+        {type: enum,     values: [D, N], required: true}
+        {type: multiline}
+        {type: integer}
+    """
+    if isinstance(val, str):
+        return val.strip()
+    if isinstance(val, dict):
+        widget = str(val.get('widget') or val.get('type') or 'text').strip()
+        if widget in ('select', 'enum'):
+            values = val.get('values', [])
+            return 'select ' + ','.join(str(v) for v in values)
+        if widget == 'multiline':
+            return 'area'
+        if widget in ('integer', 'string'):
+            return 'text'
+        return widget   # 'bool', 'date', 'area', 'text' pass through
+    return 'text'
+
+
+def _load_constraints(note_path: Path) -> dict:
+    """Return constraint map for a note, normalised to JS widget string format.
+
+    Two sources, merged in priority order (higher priority wins):
+      1. Legacy .constraints.md files — walk from notebook root down to note folder
+      2. constraints: section in folder config (.{foldername}.md) — via _folder_config()
+
+    This allows gradual migration: add constraints: to folder configs and they
+    automatically override the corresponding .constraints.md entries.
     Constraint values are always returned as strings (e.g. 'select a,b,c', 'bool').
     """
+    # ── Step 1: legacy .constraints.md walk-up (lower priority) ──────────────
     dirs = []
     p = note_path.parent
     while True:
         dirs.append(p)
         try:
             rel = p.relative_to(NB_DIR)
-            if len(rel.parts) <= 1:   # reached the notebook root
+            if len(rel.parts) <= 1:
                 break
         except ValueError:
             break
@@ -3864,8 +3896,22 @@ def _load_constraints(note_path: Path) -> dict:
         cf = d / '.constraints.md'
         if not cf.exists():
             continue
-        meta, _ = parse_frontmatter(cf.read_text(errors='replace'))
-        merged.update({k: str(v) for k, v in meta.items() if k and v is not None})
+        try:
+            meta, _ = parse_frontmatter(cf.read_text(errors='replace'))
+            merged.update({k: str(v) for k, v in meta.items() if k and v is not None})
+        except Exception:
+            pass
+
+    # ── Step 2: folder config constraints: section (higher priority) ─────────
+    try:
+        notebook = note_path.relative_to(NB_DIR).parts[0]
+        cfg = _folder_config(notebook, note_path)
+        for k, v in (cfg.get('constraints') or {}).items():
+            if v is not None:
+                merged[k] = _normalize_constraint(v)
+    except Exception:
+        pass
+
     return merged
 
 
