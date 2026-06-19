@@ -3101,7 +3101,7 @@ def _list_notes(notebook, folder, limit):
             first = next((l.strip() for l in body.splitlines() if l.strip()), '')
             todo_status = 'closed' if first.startswith('# [x]') else 'open'
         sel_path = (folder + '/' if folder else '') + fname
-        items.append({
+        item = {
             'type':       itype,
             'indicator':  _indicator(itype, todo_status),
             'id':         item_id,
@@ -3114,7 +3114,18 @@ def _list_notes(notebook, folder, limit):
             'pinned':     meta.get('pinned', '') == 'true',
             'status':     todo_status,
             'annotation': _read_annotation(str(fpath)),
-        })
+        }
+        if 'tag_color' in meta:
+            item['tag_color'] = meta['tag_color']
+            fm_tags_raw = meta.get('tags', '')
+            if isinstance(fm_tags_raw, list):
+                fm_tags = [t.lstrip('#') for t in fm_tags_raw if t]
+            else:
+                fm_tags = [t.strip().lstrip('#')
+                           for t in str(fm_tags_raw).split() if t.strip()]
+            body_tags = re.findall(r'#([\w/-]+)', body)
+            item['tags'] = list(dict.fromkeys(fm_tags + body_tags))
+        items.append(item)
         if len(items) >= limit:
             break
 
@@ -7943,6 +7954,9 @@ def api_cine_data():
                 stem  = f.stem
                 _sl_rel = f'storylines/{_project + "/" if _project else ""}{f.name}'
                 if ftype in ('plotline', 'storyline'):
+                    orders = {k[len('order_'):]: v
+                              for k, v in meta.items()
+                              if k.startswith('order_') and str(v).strip()}
                     lanes.append({
                         'selector':     f'{notebook}:{_sl_rel}',
                         'filename':     f.name,
@@ -7951,6 +7965,7 @@ def api_cine_data():
                         'color':        str(meta.get('color', '')),
                         'seq':          _cine_int(meta.get('seq'), 999),
                         'is_storyline': ftype == 'storyline',
+                        'orders':       orders,
                     })
                 elif ftype == 'story':
                     _story_raws.append((f, meta, stem, body))
@@ -8203,6 +8218,60 @@ def api_cine_story_resequence():
                 pass
 
     return jsonify({'updated': updated, 'errors': errors})
+
+
+@app.route('/api/cine/storyline/order', methods=['POST'])
+def api_cine_storyline_order():
+    """Save a named storyline order to the storyline note's frontmatter.
+
+    Body: {notebook, selector, name, order}
+      selector — the storyline note (type:storyline)
+      name     — order name (alphanumeric/underscore/hyphen)
+      order    — comma-separated filename stems; empty string to delete
+    """
+    data     = request.get_json(silent=True) or {}
+    selector = data.get('selector', '').strip()
+    name     = data.get('name', '').strip()
+    order    = str(data.get('order', ''))
+
+    if not selector or not name:
+        return jsonify({'error': 'selector and name required'}), 400
+    if not re.match(r'^[a-z0-9_-]+$', name, re.I):
+        return jsonify({'error': 'name must be alphanumeric, underscore, or hyphen'}), 400
+
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': 'storyline note not found'}), 404
+
+    notebook = data.get('notebook', '')
+    if not notebook:
+        try:
+            notebook = str(fpath.relative_to(NB_DIR).parts[0])
+        except ValueError:
+            pass
+
+    raw     = fpath.read_text(errors='replace')
+    key     = f'order_{name}'
+    if order:
+        patched = _patch_fm_fields(raw, **{key: order})
+    else:
+        # Delete: strip the key line from frontmatter
+        patched = _patch_fm_fields(raw, **{key: ''})
+
+    fpath.write_text(patched)
+
+    nb_path = NB_DIR / notebook
+    if nb_path.is_dir() and (nb_path / '.git').exists():
+        try:
+            subprocess.run(['git', 'add', '-A'], capture_output=True,
+                           cwd=str(nb_path), timeout=10)
+            subprocess.run(
+                ['git', 'commit', '-m', f'[nb-web] Save storyline order "{name}"'],
+                capture_output=True, cwd=str(nb_path), timeout=10)
+        except Exception:
+            pass
+
+    return jsonify({'ok': True, 'name': name, 'order': order})
 
 
 @app.route('/api/cine/story/create', methods=['POST'])

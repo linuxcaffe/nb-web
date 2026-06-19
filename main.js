@@ -375,6 +375,17 @@ const NbMain = (() => {
         return [];
     }
 
+    function _matchTagColor(raw, tags) {
+        const entries = Array.isArray(raw) ? raw : [raw];
+        const colorMap = {};
+        for (const e of entries) {
+            const idx = String(e).indexOf(':');
+            if (idx > 0) colorMap[e.slice(0, idx).trim()] = e.slice(idx + 1).trim();
+        }
+        for (const tag of (tags || [])) { if (colorMap[tag]) return colorMap[tag]; }
+        return null;
+    }
+
     function renderList(notes, fromSort = false) {
         if (!fromSort) {
             _lastNotes = notes;
@@ -475,6 +486,10 @@ const NbMain = (() => {
             title.textContent = _listDisplayMode === 'filename'
                 ? note.filename
                 : (_pluginTitle ?? note.title ?? note.filename);
+            if (note.tag_color) {
+                const _tc = _matchTagColor(note.tag_color, note.tags);
+                if (_tc) title.style.color = _tc;
+            }
             titleRow.appendChild(title);
 
             if (note.annotation_match) {
@@ -7241,6 +7256,7 @@ const NbDialog = (() => {
                 // Include the filename so nb doesn't preserve the source folder structure
                 const filename = sel.split(':').slice(1).join(':').split('/').pop();
                 const dest = destPrefix + filename;
+                if (dest === sel) continue; // already at destination
                 try {
                     const resp = await fetch('/api/note/move', {
                         method: 'POST',
@@ -7248,15 +7264,15 @@ const NbDialog = (() => {
                         body: JSON.stringify({ selector: sel, dest }),
                     });
                     const rd = await resp.json();
-                    if (!rd.success) failed++;
+                    if (!rd.success) { failed++; console.warn('move failed', sel, rd); }
                     else {
                         _noteCache.delete(sel);
                         document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
                     }
-                } catch { failed++; }
+                } catch(e) { failed++; console.warn('move error', sel, e); }
             }
             if (failed) {
-                alert(`${failed} move${failed !== 1 ? 's' : ''} failed.`);
+                alert(`${failed} move${failed !== 1 ? 's' : ''} failed — see browser console for details.`);
                 moveBtn.textContent = isBulk ? `Move ${count} items` : 'Move';
                 moveBtn.disabled = false;
             } else {
