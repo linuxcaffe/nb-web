@@ -61,8 +61,8 @@
     // Native blocks: short CAPS label styled as a monospace chip.
     const _CB_ICONS = {
         hledger: { img: '.images:hledger-logo.png', alt: 'hledger' },
-        chart:   { img: '.images:hledger-logo.png', alt: 'hledger' },
-        tw:      { img: '.images:tw.svg',           alt: 'Taskwarrior' },
+        chart:   { img: '.images:pie-chart.svg',    alt: 'chart' },
+        tw:      { img: '.images:tw-logo.png',      alt: 'Taskwarrior' },
         git:     { img: '.images:git-logo.png',     alt: 'git' },
         nb:      { img: 'nb-logo.png',              alt: 'nb', direct: true },
         t:       { text: 't', large: true },
