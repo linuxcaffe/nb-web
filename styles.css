@@ -1011,6 +1011,18 @@ body {
 }
 .nb-xref-ref:hover { opacity: 1; }
 
+.nb-xref-urls {
+    margin-top: 1.5em;
+    padding: 0.4em 0.75em;
+    border-top: 1px solid var(--border);
+    font-size: 0.82em;
+    color: var(--fg-muted);
+}
+.nb-xref-urls div { margin: 0.15em 0; }
+.nb-xref-urls a { color: var(--link); text-decoration: none; }
+.nb-xref-urls a::before { content: '↗ '; opacity: 0.5; }
+.nb-xref-urls a:hover { text-decoration: underline; }
+
 .nb-inline-query { font-variant-numeric: tabular-nums;
                    color: var(--text-muted); font-style: italic; }
 .nb-iq-done  { color: inherit; font-style: normal; }

@@ -2157,8 +2157,29 @@ const NbMain = (() => {
         return w;
     }
 
+    function _xrefUrlLabel(url) {
+        try {
+            const u    = new URL(url);
+            const host = u.hostname.replace(/^www\./, '');
+            if (host === 'en.wikipedia.org' || host === 'wikipedia.org') {
+                const slug = u.pathname.split('/').pop() || '';
+                return 'Wikipedia: ' + decodeURIComponent(slug).replace(/_/g, ' ');
+            }
+            if (host === 'github.com') {
+                const parts = u.pathname.split('/').filter(Boolean);
+                return parts.length >= 2 ? `GitHub: ${parts[0]}/${parts[1]}` : 'GitHub';
+            }
+            if (host === 'youtube.com' || host === 'youtu.be') return 'YouTube';
+            if (host === 'vimeo.com') return 'Vimeo';
+            return host;
+        } catch { return url; }
+    }
+
     async function _enrichXref(container, note) {
-        // xref: accepts a string ("hledger:") or list (["hledger:", "accts:tutorial/"])
+        // xref: accepts a string, URL, or list — three resolver types:
+        //   "hledger:" / "accts:tutorial/"  → notebook/folder: heading words vs note titles
+        //   "Takeout:docs/ref.md"            → file: heading words vs headings in that file
+        //   "https://..."                    → URL: appended as "See also" footer link
         const xrefRaw = note.meta?.xref;
         const targets = (Array.isArray(xrefRaw) ? xrefRaw : [xrefRaw])
             .map(t => {
@@ -2172,14 +2193,38 @@ const NbMain = (() => {
             .filter(Boolean);
         if (!targets.length) return;
 
+        const isUrl  = t => /^https?:\/\//.test(t);
+        const isFile = t => !isUrl(t) && t.endsWith('.md');
+
+        const urlTargets = targets.filter(isUrl);
+        const filTargets = targets.filter(isFile);
+        const nbTargets  = targets.filter(t => !isUrl(t) && !isFile(t));
+
+        const rendered = container.querySelector('.nb-rendered') ?? container;
+
+        // ── URL targets: "See also" footer — no heading analysis needed ──
+        if (urlTargets.length) {
+            const foot = document.createElement('div');
+            foot.className = 'nb-xref-urls';
+            for (const url of urlTargets) {
+                const a = document.createElement('a');
+                a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+                a.textContent = _xrefUrlLabel(url);
+                const row = document.createElement('div');
+                row.appendChild(a);
+                foot.appendChild(row);
+            }
+            rendered.appendChild(foot);
+        }
+
+        if (!filTargets.length && !nbTargets.length) return;
+
         const ignoreRaw = note.meta?.['xref-ignore'];
         const ignoreSet = new Set(
             (Array.isArray(ignoreRaw) ? ignoreRaw
                 : String(ignoreRaw || '').split(/[\s,]+/))
                 .map(w => w.toLowerCase().trim()).filter(Boolean)
         );
-
-        const rendered  = container.querySelector('.nb-rendered') ?? container;
 
         // Inline includes (book chapters, {{inline:}}) load asynchronously.
         // Wait for eager inlines (nb-inlines-settled), then force any deferred ones and
@@ -2195,7 +2240,7 @@ const NbMain = (() => {
             }
         }
 
-        const headings  = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6')];
+        const headings = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6')];
         if (!headings.length) return;
 
         // Build word → stem map from all heading text (skip stop/ignore/short words)
@@ -2212,29 +2257,40 @@ const NbMain = (() => {
 
         const stems    = [...new Set(wordToStem.values())];
         const stemsEnc = encodeURIComponent(stems.join(','));
-        // Parallel-fetch all targets, merge into one matchMap keyed by stem
+
+        // Parallel-fetch all targets (notebook + file), merge into one matchMap keyed by stem
         const matchMap = {};
-        await Promise.all(targets.map(async target => {
-            try {
-                const r = await fetch(`/api/xref?target=${encodeURIComponent(target)}&stems=${stemsEnc}`);
-                if (!r.ok) return;
-                const d = await r.json();
-                if (d.error) return;
-                for (const [stem, refs] of Object.entries(d)) {
-                    if (!matchMap[stem]) matchMap[stem] = [];
-                    for (const ref of refs) {
-                        if (!matchMap[stem].some(x => x.selector === ref.selector))
-                            matchMap[stem].push(ref);
-                    }
+        const _mergeRefs = (d, keyFn = r => r.selector) => {
+            if (d.error) return;
+            for (const [stem, refs] of Object.entries(d)) {
+                if (!matchMap[stem]) matchMap[stem] = [];
+                for (const ref of refs) {
+                    if (!matchMap[stem].some(x => keyFn(x) === keyFn(ref)))
+                        matchMap[stem].push(ref);
                 }
-            } catch { /* skip failed target */ }
-        }));
+            }
+        };
+        await Promise.all([
+            ...nbTargets.map(async target => {
+                try {
+                    const r = await fetch(`/api/xref?target=${encodeURIComponent(target)}&stems=${stemsEnc}`);
+                    if (r.ok) _mergeRefs(await r.json());
+                } catch { /* skip failed target */ }
+            }),
+            ...filTargets.map(async target => {
+                try {
+                    const r = await fetch(`/api/xref/headings?selector=${encodeURIComponent(target)}&stems=${stemsEnc}`);
+                    // file refs are deduped by selector+title since same file can match multiple headings
+                    if (r.ok) _mergeRefs(await r.json(), ref => `${ref.selector}\x00${ref.title}`);
+                } catch { /* skip failed target */ }
+            }),
+        ]);
         if (!Object.keys(matchMap).length) return;
 
-        // Assign sequential reference numbers per unique target selector
+        // Assign sequential reference numbers per unique (selector, title) pair
         const refNums = new Map();
         let refN = 0;
-        const getRef = sel => { if (!refNums.has(sel)) refNums.set(sel, ++refN); return refNums.get(sel); };
+        const getRef = key => { if (!refNums.has(key)) refNums.set(key, ++refN); return refNums.get(key); };
 
         for (const h of headings) {
             const walker = document.createTreeWalker(h, NodeFilter.SHOW_TEXT);
@@ -2254,10 +2310,11 @@ const NbMain = (() => {
                     frag.appendChild(document.createTextNode(m[0]));
                     if (refs?.length) {
                         for (const ref of refs) {
+                            const key = `${ref.selector}\x00${ref.title || ''}`;
                             const sup = document.createElement('sup');
                             sup.className       = 'nb-xref-ref';
                             sup.title           = ref.title;
-                            sup.textContent     = `[${getRef(ref.selector)}]`;
+                            sup.textContent     = `[${getRef(key)}]`;
                             sup.dataset.xrefSel = ref.selector;
                             sup.addEventListener('click', e => { e.stopPropagation(); NbMain.openNote(ref.selector); });
                             frag.appendChild(sup);

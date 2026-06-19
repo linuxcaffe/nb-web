@@ -1332,6 +1332,43 @@ def api_xref():
     return jsonify(result)
 
 
+@app.route('/api/xref/headings')
+def api_xref_headings():
+    """Heading-to-heading cross-reference: match query stems against headings in a specific file.
+    Returns same shape as /api/xref: {stem: [{selector, title}]} where title is the heading text."""
+    selector  = request.args.get('selector', '').strip()
+    stems_raw = request.args.get('stems', '').strip()
+    if not selector or not stems_raw:
+        return jsonify({'error': 'selector and stems required'}), 400
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return jsonify({'error': f'selector {selector!r} not found'}), 404
+    raw = fpath.read_text(errors='replace')
+    _, body = parse_frontmatter(raw)
+    query_stems = [s for s in stems_raw.split(',') if s]
+    result: dict = {}
+    for line in body.splitlines():
+        m = re.match(r'^(#{1,6})\s+(.*)', line)
+        if not m:
+            continue
+        heading_text = m.group(2).strip()
+        heading_stems: set = set()
+        for word in re.findall(r'[a-zA-Z][a-zA-Z0-9-]*', heading_text):
+            stem = _stem_xref(word)
+            if stem and len(stem) >= 3 and stem not in _XREF_STOP:
+                heading_stems.add(stem)
+        entry = {'selector': selector, 'title': heading_text}
+        for qs in query_stems:
+            for hs in heading_stems:
+                plen = min(len(qs), len(hs))
+                if hs == qs or (plen >= 5 and (hs.startswith(qs) or qs.startswith(hs))):
+                    result.setdefault(qs, [])
+                    if not any(r['title'] == heading_text for r in result[qs]):
+                        result[qs].append(entry)
+                    break
+    return jsonify(result)
+
+
 @app.route('/api/open', methods=['POST'])
 def api_open():
     """Open a file in the system's default desktop application (xdg-open)."""
