@@ -50,6 +50,7 @@ not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
 5. **Template schema:** change generator functions AND seeded templates together — one without the other breaks notes
 6. **nb subprocess stdin:** `input=''` not `input=None` in `run_nb()` — prevents Flask hangs on interactive prompts
 7. **`renderPreview` must be `async`:** it calls `await NbWeb.loadNotebookConfig(...)`. Making it non-async is a parse-time SyntaxError that kills the entire NbMain IIFE — nothing displays, nothing is clickable. Check `async function renderPreview` before editing near it.
+8. **ServiceWorker cache (`sw.js`):** bump `CACHE = 'nb-web-vN'` whenever `main.js`, `nav.js`, `styles.css`, `nbweb.js`, or any plugin file changes. Without a version bump, browsers serve stale cached assets and users see old behaviour. Commit `sw.js` in the same PR as the asset change.
 
 ## nb notebook layout
 
