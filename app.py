@@ -417,6 +417,58 @@ def _notebook_config(notebook):
     except Exception:
         return {}
 
+
+def _merge_configs(base, override):
+    """Merge two config dicts; override wins, recurse into nested dicts."""
+    if not override:
+        return base
+    result = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(result.get(k), dict):
+            result[k] = _merge_configs(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def _folder_config(notebook, note_path):
+    """Return merged config for a note: notebook manifest + folder walk-up.
+
+    Walks from note_path's directory up to the notebook root, collecting
+    .{foldername}.md configs. Child folders win over parents, parents win
+    over the notebook manifest.
+    """
+    nb_root = NB_DIR / notebook
+    base = _notebook_config(notebook)
+    try:
+        folder = Path(note_path)
+        if folder.is_file():
+            folder = folder.parent
+    except Exception:
+        return base
+
+    # Walk up collecting folder configs (innermost first)
+    configs = []
+    current = folder
+    while True:
+        if not str(current).startswith(str(nb_root)) or current == nb_root:
+            break
+        cfg_file = current / f'.{current.name}.md'
+        if cfg_file.exists():
+            try:
+                meta, _ = parse_frontmatter(cfg_file.read_text())
+                configs.append(meta)
+            except Exception:
+                pass
+        current = current.parent
+
+    # Apply outermost→innermost so innermost wins
+    result = base
+    for cfg in reversed(configs):
+        result = _merge_configs(result, cfg)
+    return result
+
+
 def _effective_access(note_meta, nb_meta):
     """Return the minimum level required to view a note.
 
@@ -1928,17 +1980,32 @@ def _hledger_notebook_path(notebook):
 
 
 def _hledger_config_for_notebook(notebook):
-    """Return parsed .nb-hledger.json for notebook, or None."""
+    """Return hledger config for notebook.
+
+    Checks in order:
+      1. .nb-hledger.json  — legacy JSON file, takes precedence
+      2. hledger: section in .<notebook>.md  — notebook manifest
+    Relative journal paths in the manifest are resolved against notebook root.
+    """
     nb_path = _hledger_notebook_path(notebook)
     if not nb_path:
         return None
     cfg_file = nb_path / '.nb-hledger.json'
-    if not cfg_file.exists():
-        return None
-    try:
-        return json.loads(cfg_file.read_text())
-    except Exception:
-        return None
+    if cfg_file.exists():
+        try:
+            return json.loads(cfg_file.read_text())
+        except Exception:
+            pass
+    # Fallback: hledger: section from notebook manifest
+    nb_cfg = _notebook_config(notebook)
+    hledger = nb_cfg.get('hledger')
+    if hledger and isinstance(hledger, dict):
+        hledger = dict(hledger)
+        journal = hledger.get('journal', '')
+        if journal and not os.path.isabs(journal) and not journal.startswith('~'):
+            hledger['journal'] = str(nb_path / journal)
+        return hledger
+    return None
 
 
 def _hledger_journal_path(config):
@@ -7851,6 +7918,9 @@ def api_cine_data():
             config = json.loads(cine_json.read_text())
         except Exception:
             pass
+    else:
+        nb_cfg = _notebook_config(notebook)
+        config = nb_cfg.get('cine') or {}
 
     shots = []
     shots_dir = nb_path / 'shots'
