@@ -2070,6 +2070,7 @@
 
     async function _loadConfigBlock(el) {
         if (!_cbCan(el, 'config', 'read')) { _cbDenyRead(el); return; }
+        const wasOpen = !el.classList.contains('nb-collapsed');
         const currentSelector = NbMain?.activeSelector?.() || '';
         const { key, notebook, folder } = _configParseQuery(el.dataset.query || '', currentSelector);
 
@@ -2090,15 +2091,82 @@
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const nodes = await r.json();
             if (nodes.error) throw new Error(nodes.error);
-            _configRender(el, nodes, key, currentSelector);
+            _configRender(el, nodes, key, currentSelector, wasOpen);
         } catch (e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
         }
     }
 
-    function _configRender(el, nodes, key, currentSelector) {
+    function _configHelpPopover(trigger) {
+        if (trigger._helpPop) { trigger._helpPop.remove(); trigger._helpPop = null; return; }
+        const pop = document.createElement('div');
+        pop.className = 'nb-config-help-pop';
+        pop.innerHTML =
+            `<strong>config block</strong> — shows the config inheritance chain for a key.<br><br>` +
+            `<code>access: .</code> &nbsp;— <em>key</em> for current note's context<br>` +
+            `<code>access: Notebook:folder/</code> &nbsp;— explicit target<br>` +
+            `<code>.</code> &nbsp;— all keys, current context<br><br>` +
+            `Chain: <code>note → folder → notebook → global</code><br>` +
+            `<strong>▶</strong> amber = effective (wins). &nbsp;<strong>◉</strong> blue = this file is open.<br>` +
+            `<strong>○</strong> = config file not yet created at this level.<br><br>` +
+            `<a href="#" onclick="NbMain.openNote('docs:CODEBLOCKS.md');return false">Full docs →</a>`;
+        const rect = trigger.getBoundingClientRect();
+        pop.style.cssText =
+            `position:fixed;z-index:9000;top:${rect.bottom+4}px;right:${window.innerWidth-rect.right}px;` +
+            `background:var(--bg2);border:1px solid var(--border);border-radius:6px;` +
+            `padding:10px 14px;box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:320px;font-size:0.82em;line-height:1.6`;
+        document.body.appendChild(pop);
+        trigger._helpPop = pop;
+        trigger.classList.add('nb-hl-btn-active');
+        const away = e => {
+            if (!pop.contains(e.target) && e.target !== trigger) {
+                pop.remove(); trigger._helpPop = null;
+                trigger.classList.remove('nb-hl-btn-active');
+                document.removeEventListener('click', away, true);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', away, true), 0);
+    }
+
+    function _configRender(el, nodes, key, currentSelector, wasOpen) {
         el.innerHTML = '';
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
+
+        // ── Header ──────────────────────────────────────────────────────────
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-config-header nb-collapse-zone';
+
+        const meta = document.createElement('span');
+        meta.className = 'nb-config-meta';
+        meta.textContent = 'config';
+        if (key) {
+            const kspan = document.createElement('code');
+            kspan.className = 'nb-config-hdr-key';
+            kspan.textContent = key + ':';
+            meta.appendChild(document.createTextNode(' '));
+            meta.appendChild(kspan);
+        }
+        hdr.appendChild(meta);
+
+        const acts = document.createElement('span');
+        acts.className = 'nb-config-actions';
+
+        const helpBtn = document.createElement('button');
+        helpBtn.className = 'nb-tw-btn nb-config-btn';
+        helpBtn.title = 'Help'; helpBtn.textContent = '?';
+        helpBtn.addEventListener('click', e => { e.stopPropagation(); _configHelpPopover(helpBtn); });
+        acts.appendChild(helpBtn);
+
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn nb-config-btn';
+        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', e => { e.stopPropagation(); _loadConfigBlock(el); });
+        acts.appendChild(refBtn);
+
+        hdr.appendChild(acts);
+        el.appendChild(hdr);
+        if (!wasOpen) el.classList.add('nb-collapsed');
+        _initCollapseToggle(el);
 
         const ICONS  = { global: '🌐', notebook: '📒', folder: '📁', subfolder: '📂', note: '📄' };
         const INDENT = { global: 0, notebook: 1, folder: 2, subfolder: 3, note: 4 };

@@ -2042,6 +2042,12 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-front-changes-actions { display: flex; gap: 0.4em; }
 
 /* config codeblock — inheritance tree */
+.nb-config-header { display: flex; align-items: center; gap: 0.4em; padding: 0.2em 0.3em; cursor: pointer; user-select: none; }
+.nb-config-meta { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted); flex: 1; }
+.nb-config-hdr-key { margin-left: 0.3em; color: var(--text); }
+.nb-config-actions { display: flex; gap: 0.1em; margin-left: auto; }
+.nb-config-btn { font-size: 0.9em; }
+.nb-config-help-pop a { color: var(--accent); }
 .nb-config-tree { border-collapse: collapse; font-family: var(--font-mono); font-size: 0.85em; width: 100%; }
 .nb-config-node td { padding: 0.15em 0.3em 0.15em 0; vertical-align: baseline; }
 .nb-config-node.nb-config-missing { opacity: 0.45; }
