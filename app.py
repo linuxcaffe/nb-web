@@ -406,9 +406,9 @@ def _level_gte(have, need):
     except ValueError:
         return False
 
-def _notebook_config(notebook):
-    """Read ~/<notebook>/.<notebook>.md and return its frontmatter dict."""
-    cfg = NB_DIR / notebook / f'.{notebook}.md'
+def _global_config():
+    """Read ~/.nb/.nb.md and return its frontmatter dict."""
+    cfg = NB_DIR / '.nb.md'
     if not cfg.exists():
         return {}
     try:
@@ -416,6 +416,19 @@ def _notebook_config(notebook):
         return meta
     except Exception:
         return {}
+
+
+def _notebook_config(notebook):
+    """Read ~/.nb/{notebook}/.{notebook}.md merged over global config."""
+    base = _global_config()
+    cfg = NB_DIR / notebook / f'.{notebook}.md'
+    if not cfg.exists():
+        return base
+    try:
+        meta, _ = parse_frontmatter(cfg.read_text())
+        return _merge_configs(base, meta)
+    except Exception:
+        return base
 
 
 def _merge_configs(base, override):
@@ -7712,7 +7725,13 @@ def api_nb_settings():
                 return jsonify({'error': f'Invalid value for {key}: {e}'}), 400
         _save_settings(validated)
         _settings = _load_settings()
-    return jsonify(_settings)
+    # Merge global config codeblock_access over nb-settings.json value
+    result = dict(_settings)
+    global_cb = (_global_config().get('codeblock_access') or {})
+    if global_cb:
+        merged_cb = _merge_configs(result.get('codeblock_access') or {}, global_cb)
+        result = dict(result, codeblock_access=merged_cb)
+    return jsonify(result)
 
 
 @app.route('/api/locale')
