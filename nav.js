@@ -1601,6 +1601,10 @@ const NbNav = (() => {
             _initCmdBar();
             _initMenu();
             _initSyncDialog();
+            document.addEventListener('nb-auth-ready', () => {
+                const el = document.getElementById('nb-menu-user');
+                if (el && window.NbUser?.name) el.textContent = window.NbUser.name;
+            });
             setInterval(_pollNbSyncStatus, 60_000);
             document.getElementById('nb-cmd-output-clear').addEventListener('click', _clearOutputBar);
 
