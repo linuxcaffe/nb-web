@@ -2041,6 +2041,19 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-front-changes-form .nb-fm-inherited { font-size: 0.9em; padding: 2px 4px; color: var(--text-muted); font-style: italic; }
 .nb-front-changes-actions { display: flex; gap: 0.4em; }
 
+/* config codeblock — inheritance tree */
+.nb-config-tree { list-style: none; margin: 0; padding: 0; font-family: var(--font-mono); font-size: 0.85em; }
+.nb-config-node { display: flex; align-items: baseline; gap: 0.4em; padding: 0.15em 0; padding-left: calc(var(--depth, 0) * 1.4em); }
+.nb-config-node.nb-config-missing { opacity: 0.45; }
+.nb-config-marker { flex-shrink: 0; width: 0.9em; color: var(--accent, #4a9eff); }
+.nb-config-node.nb-config-missing .nb-config-marker { color: var(--text-muted); }
+.nb-config-icon  { flex-shrink: 0; }
+.nb-config-name  { font-size: 0.9em; padding: 0; background: none; border: none; color: var(--link, #4a9eff); cursor: pointer; text-align: left; }
+.nb-config-name:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
+.nb-config-contrib { margin-left: auto; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.nb-config-contrib.nb-config-contrib-key { color: var(--text); font-weight: 500; }
+.nb-config-key-label { font-family: var(--font-mono); font-size: 0.8em; color: var(--text-muted); margin-bottom: 0.2em; }
+
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }
 .nb-nb-nb-name { flex: 1; font-weight: 500; }
