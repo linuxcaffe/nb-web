@@ -2257,6 +2257,27 @@
             } else {
                 tdN.className += ' nb-config-name nb-config-name--missing';
                 tdN.textContent = displayName;
+                if (node.level === 'folder' || node.level === 'subfolder' || node.level === 'notebook') {
+                    const createBtn = document.createElement('button');
+                    createBtn.className = 'nb-tw-btn nb-config-create-btn';
+                    createBtn.title = 'Create config file';
+                    createBtn.textContent = '+';
+                    createBtn.addEventListener('click', async e => {
+                        e.stopPropagation();
+                        createBtn.disabled = true; createBtn.textContent = '…';
+                        const body = { notebook };
+                        if (node.level !== 'notebook') body.folder = node.path.replace(/.*\/\.nb\/[^/]+\//, '').replace(/\/\.[^/]+\.md$/, '');
+                        try {
+                            const r = await fetch('/api/config-create', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+                            const d = await r.json();
+                            if (d.selector) {
+                                await _loadConfigBlock(el);
+                                NbMain.openNote(d.selector);
+                            }
+                        } catch { createBtn.disabled = false; createBtn.textContent = '+'; }
+                    });
+                    tdN.appendChild(createBtn);
+                }
             }
 
             // Value cell — always rendered; dash when key not set at this level

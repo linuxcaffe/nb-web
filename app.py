@@ -3219,6 +3219,59 @@ def api_config_tree():
     return jsonify(nodes)
 
 
+@app.route('/api/config-create', methods=['POST'])
+def api_config_create():
+    """Create a dotfile config at the requested level from the global template.
+
+    Body: { notebook, folder? }
+      folder — path within notebook (e.g. 'shots'); omit for notebook-level config
+
+    Writes:
+      folder  → ~/.nb/{notebook}/{folder}/.{leafname}.md
+      notebook→ ~/.nb/{notebook}/.{notebook}.md
+
+    Returns: { selector } — absolute path usable by /api/note
+    """
+    data     = request.get_json(force=True) or {}
+    notebook = data.get('notebook', '').strip()
+    folder   = data.get('folder',   '').strip().strip('/')
+
+    if not notebook or not _safe_notebook(notebook):
+        return jsonify({'error': 'invalid notebook'}), 400
+
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'error': 'forbidden'}), 403
+
+    nb_root = NB_DIR / notebook
+
+    if folder:
+        parts    = folder.split('/')
+        leaf     = parts[-1]
+        cfg_path = nb_root / folder / f'.{leaf}.md'
+    else:
+        leaf     = notebook
+        cfg_path = nb_root / f'.{notebook}.md'
+
+    if cfg_path.exists():
+        return jsonify({'selector': str(cfg_path), 'created': False})
+
+    # Load template
+    tpl_path = NB_DIR / '.templates' / 'nb-config-folder.md'
+    if tpl_path.exists():
+        tpl = tpl_path.read_text()
+    else:
+        tpl = '---\nconfig: folder\ndate: {{date}}\n---\n\n<!-- {{folder}} config -->\n'
+
+    content = _resolve_template_vars(tpl, title=leaf)
+    content = content.replace('{{folder}}', leaf).replace('{{notebook}}', notebook)
+
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(content)
+
+    return jsonify({'selector': str(cfg_path), 'created': True})
+
+
 _all_notes_cache: dict = {}   # {'sig': tuple, 'data': list[dict]}
 
 def _index_sig() -> tuple:

@@ -2087,6 +2087,8 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-icon { white-space: nowrap; }
 .nb-config-name { font-size: 0.9em; padding: 0; background: none; border: none; color: var(--link, #4a9eff); cursor: pointer; text-align: left; white-space: nowrap; }
 .nb-config-name--missing { color: var(--text-muted); font-size: 0.9em; white-space: nowrap; }
+.nb-config-create-btn { font-size: 0.8em; margin-left: 0.5em; padding: 0 4px; opacity: 0.5; vertical-align: middle; }
+.nb-config-create-btn:hover { opacity: 1; }
 .nb-config-name-cell { width: 99%; }
 .nb-config-contrib { white-space: nowrap; color: var(--text-muted); padding-left: 1.5em; text-align: right; }
 .nb-config-contrib.nb-config-contrib-key   { color: var(--text); font-weight: 500; }
