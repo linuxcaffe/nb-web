@@ -406,9 +406,9 @@ def _level_gte(have, need):
     except ValueError:
         return False
 
-def _notebook_config(notebook):
-    """Read ~/<notebook>/.<notebook>.md and return its frontmatter dict."""
-    cfg = NB_DIR / notebook / f'.{notebook}.md'
+def _global_config():
+    """Read ~/.nb/.nb.md and return its frontmatter dict."""
+    cfg = NB_DIR / '.nb.md'
     if not cfg.exists():
         return {}
     try:
@@ -416,6 +416,71 @@ def _notebook_config(notebook):
         return meta
     except Exception:
         return {}
+
+
+def _notebook_config(notebook):
+    """Read ~/.nb/{notebook}/.{notebook}.md merged over global config."""
+    base = _global_config()
+    cfg = NB_DIR / notebook / f'.{notebook}.md'
+    if not cfg.exists():
+        return base
+    try:
+        meta, _ = parse_frontmatter(cfg.read_text())
+        return _merge_configs(base, meta)
+    except Exception:
+        return base
+
+
+def _merge_configs(base, override):
+    """Merge two config dicts; override wins, recurse into nested dicts."""
+    if not override:
+        return base
+    result = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(result.get(k), dict):
+            result[k] = _merge_configs(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def _folder_config(notebook, note_path):
+    """Return merged config for a note: notebook manifest + folder walk-up.
+
+    Walks from note_path's directory up to the notebook root, collecting
+    .{foldername}.md configs. Child folders win over parents, parents win
+    over the notebook manifest.
+    """
+    nb_root = NB_DIR / notebook
+    base = _notebook_config(notebook)
+    try:
+        folder = Path(note_path)
+        if folder.is_file():
+            folder = folder.parent
+    except Exception:
+        return base
+
+    # Walk up collecting folder configs (innermost first)
+    configs = []
+    current = folder
+    while True:
+        if not str(current).startswith(str(nb_root)) or current == nb_root:
+            break
+        cfg_file = current / f'.{current.name}.md'
+        if cfg_file.exists():
+            try:
+                meta, _ = parse_frontmatter(cfg_file.read_text())
+                configs.append(meta)
+            except Exception:
+                pass
+        current = current.parent
+
+    # Apply outermost→innermost so innermost wins
+    result = base
+    for cfg in reversed(configs):
+        result = _merge_configs(result, cfg)
+    return result
+
 
 def _effective_access(note_meta, nb_meta):
     """Return the minimum level required to view a note.
@@ -1928,17 +1993,32 @@ def _hledger_notebook_path(notebook):
 
 
 def _hledger_config_for_notebook(notebook):
-    """Return parsed .nb-hledger.json for notebook, or None."""
+    """Return hledger config for notebook.
+
+    Checks in order:
+      1. .nb-hledger.json  — legacy JSON file, takes precedence
+      2. hledger: section in .<notebook>.md  — notebook manifest
+    Relative journal paths in the manifest are resolved against notebook root.
+    """
     nb_path = _hledger_notebook_path(notebook)
     if not nb_path:
         return None
     cfg_file = nb_path / '.nb-hledger.json'
-    if not cfg_file.exists():
-        return None
-    try:
-        return json.loads(cfg_file.read_text())
-    except Exception:
-        return None
+    if cfg_file.exists():
+        try:
+            return json.loads(cfg_file.read_text())
+        except Exception:
+            pass
+    # Fallback: hledger: section from notebook manifest
+    nb_cfg = _notebook_config(notebook)
+    hledger = nb_cfg.get('hledger')
+    if hledger and isinstance(hledger, dict):
+        hledger = dict(hledger)
+        journal = hledger.get('journal', '')
+        if journal and not os.path.isabs(journal) and not journal.startswith('~'):
+            hledger['journal'] = str(nb_path / journal)
+        return hledger
+    return None
 
 
 def _hledger_journal_path(config):
@@ -2960,36 +3040,152 @@ def api_front_query():
         nb_list = [d.name for d in sorted(NB_DIR.iterdir())
                    if d.is_dir() and not d.name.startswith('.')]
 
+    def _scan_file(fpath, selector, notebook=None):
+        itype = classify(fpath.name, notebook)
+        if itype in BINARY_TYPES:
+            return None
+        try:
+            raw = fpath.read_text(errors='replace')
+        except OSError:
+            return None
+        meta, body = parse_frontmatter(raw)
+        if not _front_matches(meta, filters):
+            return None
+        title = meta.get('title') or meta.get('name') or note_title(fpath.name, body)
+        return {'title': title, 'selector': selector, 'filename': fpath.name,
+                'type': itype, 'notebook': notebook or '',
+                'meta': {k: str(v) for k, v in meta.items()}}
+
     results = []
+
+    # Scan NB_DIR root dotfiles (.nb.md etc.) when no notebook filter is set
+    if not notebooks_raw:
+        for fpath in sorted(NB_DIR.iterdir()):
+            if fpath.is_file() and fpath.name.startswith('.'):
+                r = _scan_file(fpath, str(fpath))
+                if r:
+                    results.append(r)
+                    if len(results) >= limit:
+                        return jsonify(results)
+
     for notebook in nb_list:
         nb_dir = nb_dir_for(notebook)
         for dirpath_s, dirnames, filenames in os.walk(nb_dir):
             dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
             dirpath = Path(dirpath_s)
             for fname in sorted(filenames):
-                if fname.startswith('.'):
-                    continue
                 fpath = dirpath / fname
                 rel   = str(fpath.relative_to(nb_dir))
-                itype = classify(fname, notebook)
-                if itype in BINARY_TYPES:
-                    continue
-                try:
-                    raw = fpath.read_text(errors='replace')
-                except OSError:
-                    continue
-                meta, body = parse_frontmatter(raw)
-                if not _front_matches(meta, filters):
-                    continue
-                title    = meta.get('title') or meta.get('name') or note_title(fname, body)
                 selector = f'{notebook}:{rel}'
-                results.append({'title': title, 'selector': selector, 'filename': fname,
-                                'type': itype, 'notebook': notebook,
-                                'meta': {k: str(v) for k, v in meta.items()}})
-                if len(results) >= limit:
-                    return jsonify(results)
+                r = _scan_file(fpath, selector, notebook)
+                if r:
+                    results.append(r)
+                    if len(results) >= limit:
+                        return jsonify(results)
 
     return jsonify(results)
+
+
+@app.route('/api/config-tree')
+def api_config_tree():
+    """Return the config inheritance chain from root to a target notebook/folder.
+
+    Query params:
+      notebook  — target notebook name (required)
+      folder    — path within notebook, e.g. 'shots' or 'storylines/film-school'
+      key       — if given, only include this field in each node's 'contributes'
+
+    Response: ordered array of nodes from global root → target, each:
+      { level, path, selector, exists, contributes }
+
+    'contributes' holds only what that config file itself sets — not inherited
+    values.  Position in the array implies inheritance; consumers should not
+    repeat inherited values in the UI.
+    """
+    notebook = request.args.get('notebook', '').strip()
+    folder   = request.args.get('folder',   '').strip().strip('/')
+    key      = request.args.get('key',      '').strip()
+    selector = request.args.get('selector', '').strip()
+
+    if not notebook or not _safe_notebook(notebook):
+        return jsonify({'error': 'invalid notebook'}), 400
+
+    user = session.get('user', {})
+    nb_cfg = _notebook_config(notebook)
+    required = str(nb_cfg.get('access') or 'user')
+    if not _level_gte(user.get('level', ''), required):
+        return jsonify({'error': 'forbidden'}), 403
+
+    nb_root = NB_DIR / notebook
+
+    def _read_contributes(cfg_path):
+        """Parse a config file and return its own frontmatter (not merged)."""
+        if not cfg_path.exists():
+            return {}
+        try:
+            meta, _ = parse_frontmatter(cfg_path.read_text())
+            return meta
+        except Exception:
+            return {}
+
+    def _filter(meta):
+        """Apply key filter if requested."""
+        if not key or not meta:
+            return meta
+        v = meta.get(key)
+        return {key: v} if v is not None else {}
+
+    def _node(level, cfg_path):
+        raw = _read_contributes(cfg_path)
+        return {
+            'level':       level,
+            'path':        str(cfg_path),
+            'selector':    str(cfg_path),   # absolute path — /api/note handles it
+            'exists':      cfg_path.exists(),
+            'contributes': _filter(raw),
+        }
+
+    nodes = []
+
+    # 1. Global — ~/.nb/.nb.md
+    nodes.append(_node('global', NB_DIR / '.nb.md'))
+
+    # 2. Notebook manifest — ~/.nb/{notebook}/.{notebook}.md
+    nodes.append(_node('notebook', nb_root / f'.{notebook}.md'))
+
+    # 3. Folder chain — each segment of the requested folder path
+    if folder:
+        parts = folder.split('/')
+        current = nb_root
+        for part in parts:
+            current = current / part
+            cfg_path = current / f'.{part}.md'
+            level = 'subfolder' if current.parent != nb_root else 'folder'
+            nodes.append(_node(level, cfg_path))
+
+    # 4. Note — the note itself (highest priority; wins if it sets the key)
+    if selector:
+        note_path = None
+        if selector.startswith('/'):
+            p = Path(selector)
+            try:
+                p.relative_to(NB_DIR)
+                note_path = p
+            except ValueError:
+                pass
+        else:
+            note_path = _resolve_to_nb_path(selector)
+        if note_path and note_path.exists():
+            raw = _read_contributes(note_path)
+            nodes.append({
+                'level':       'note',
+                'path':        str(note_path),
+                'selector':    selector,
+                'exists':      True,
+                'contributes': _filter(raw),
+            })
+
+    return jsonify(nodes)
 
 
 _all_notes_cache: dict = {}   # {'sig': tuple, 'data': list[dict]}
@@ -3774,19 +3970,51 @@ def api_annotation_template():
     return jsonify({'content': _resolve_template_vars(raw, title=title)})
 
 
-def _load_constraints(note_path: Path) -> dict:
-    """Walk from note's folder up to its notebook root, merging .constraints.md files.
+def _normalize_constraint(val) -> str:
+    """Normalise a constraint value to the string format expected by the JS widget renderer.
 
-    Processes root-first so folder-level entries override notebook-level entries.
+    Accepts:
+      Legacy strings:  'select a,b,c' | 'bool' | 'area' | 'date' | 'text'
+      Inheritance ref: 'scene.loc' — dot-notation reference to a parent note field;
+                       passed through as-is; JS and nb-constraints.sh handle it
+      Rich dicts:      {widget: select, values: [...]}  or  {type: enum, values: [...]}
+                       {type: multiline}  →  'area'
+                       {type: integer|string}  →  'text'
+    """
+    if isinstance(val, str):
+        return val.strip()   # 'scene.loc', 'select D,N', 'bool' — all pass through
+    if isinstance(val, dict):
+        widget = str(val.get('widget') or val.get('type') or 'text').strip()
+        if widget in ('select', 'enum'):
+            values = val.get('values', [])
+            return 'select ' + ','.join(str(v) for v in values)
+        if widget == 'multiline':
+            return 'area'
+        if widget in ('integer', 'string'):
+            return 'text'
+        return widget   # 'bool', 'date', 'area', 'text' pass through
+    return 'text'
+
+
+def _load_constraints(note_path: Path) -> dict:
+    """Return constraint map for a note, normalised to JS widget string format.
+
+    Two sources, merged in priority order (higher priority wins):
+      1. Legacy .constraints.md files — walk from notebook root down to note folder
+      2. constraints: section in folder config (.{foldername}.md) — via _folder_config()
+
+    This allows gradual migration: add constraints: to folder configs and they
+    automatically override the corresponding .constraints.md entries.
     Constraint values are always returned as strings (e.g. 'select a,b,c', 'bool').
     """
+    # ── Step 1: legacy .constraints.md walk-up (lower priority) ──────────────
     dirs = []
     p = note_path.parent
     while True:
         dirs.append(p)
         try:
             rel = p.relative_to(NB_DIR)
-            if len(rel.parts) <= 1:   # reached the notebook root
+            if len(rel.parts) <= 1:
                 break
         except ValueError:
             break
@@ -3797,8 +4025,22 @@ def _load_constraints(note_path: Path) -> dict:
         cf = d / '.constraints.md'
         if not cf.exists():
             continue
-        meta, _ = parse_frontmatter(cf.read_text(errors='replace'))
-        merged.update({k: str(v) for k, v in meta.items() if k and v is not None})
+        try:
+            meta, _ = parse_frontmatter(cf.read_text(errors='replace'))
+            merged.update({k: str(v) for k, v in meta.items() if k and v is not None})
+        except Exception:
+            pass
+
+    # ── Step 2: folder config constraints: section (higher priority) ─────────
+    try:
+        notebook = note_path.relative_to(NB_DIR).parts[0]
+        cfg = _folder_config(notebook, note_path)
+        for k, v in (cfg.get('constraints') or {}).items():
+            if v is not None:
+                merged[k] = _normalize_constraint(v)
+    except Exception:
+        pass
+
     return merged
 
 
@@ -7178,6 +7420,27 @@ def api_test_run():
         return jsonify({'error': str(e), 'exit_code': 1})
 
 
+@app.route('/api/test/glob')
+def api_test_glob():
+    """List test scripts matching a prefix, e.g. ?prefix=nb-schem- returns
+    ['nb-schem-fields.sh', 'nb-schem-values.sh', ...] sorted alphabetically.
+
+    The prefix must end with '-' (dangling dash convention) and contain only
+    safe characters — no path separators or dots beyond the .sh extension.
+    """
+    prefix = request.args.get('prefix', '').strip()
+    if not prefix:
+        return jsonify({'error': 'prefix required'}), 400
+    if not prefix.endswith('-'):
+        return jsonify({'error': 'prefix must end with -'}), 400
+    if '/' in prefix or '\\' in prefix or prefix.startswith('.'):
+        return jsonify({'error': 'invalid prefix'}), 400
+    if not TEST_DIR.is_dir():
+        return jsonify([])
+    matches = sorted(p.name for p in TEST_DIR.glob(f'{prefix}*.sh'))
+    return jsonify(matches)
+
+
 @app.route('/api/test/batch', methods=['POST'])
 def api_test_batch():
     """Run multiple test scripts in parallel with a single round trip.
@@ -7601,7 +7864,13 @@ def api_nb_settings():
                 return jsonify({'error': f'Invalid value for {key}: {e}'}), 400
         _save_settings(validated)
         _settings = _load_settings()
-    return jsonify(_settings)
+    # Merge global config codeblock_access over nb-settings.json value
+    result = dict(_settings)
+    global_cb = (_global_config().get('codeblock_access') or {})
+    if global_cb:
+        merged_cb = _merge_configs(result.get('codeblock_access') or {}, global_cb)
+        result = dict(result, codeblock_access=merged_cb)
+    return jsonify(result)
 
 
 @app.route('/api/locale')
@@ -7851,6 +8120,9 @@ def api_cine_data():
             config = json.loads(cine_json.read_text())
         except Exception:
             pass
+    else:
+        nb_cfg = _notebook_config(notebook)
+        config = nb_cfg.get('cine') or {}
 
     shots = []
     shots_dir = nb_path / 'shots'

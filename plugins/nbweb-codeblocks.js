@@ -1528,6 +1528,16 @@
 
     function _fmWidget(key, value, constraint) {
         const c = (constraint || '').trim();
+        // Dot-notation inheritance ref (e.g. "scene.loc") — field is read-only, sourced from another note
+        if (/^\w+\.\w+$/.test(c)) {
+            const wrap = document.createElement('span');
+            wrap.className = 'nb-fm-inherited';
+            wrap.dataset.fmKey = key;
+            wrap.dataset.fmInherited = c;
+            wrap.textContent = value || '';
+            wrap.title = `inherited from ${c}`;
+            return wrap;
+        }
         if (c.startsWith('select ')) {
             const options = c.slice(7).split(',').map(s => s.trim());
             const sel = document.createElement('select');
@@ -2019,6 +2029,167 @@
         el.appendChild(list);
     }
 
+    // ── config codeblock ─────────────────────────────────────────────────────
+    // Visualises the config inheritance chain from global root to a target.
+    //
+    // Query forms:
+    //   <key>: .              walk to current note's notebook/folder; highlight <key>
+    //   <key>: nb:folder/     walk to specified target; highlight <key>
+    //   (bare)                walk to current note; show all contributed keys
+
+    function _configParseQuery(raw, currentSelector) {
+        raw = (raw || '').trim();
+        let key = '', target = '';
+
+        if (raw) {
+            const m = raw.match(/^(\w[\w.-]*):\s*(.*)$/);
+            if (m) { key = m[1]; target = m[2].trim(); }
+            else     target = raw;
+        }
+
+        // Resolve '.' or empty → current note's notebook + folder
+        if (!target || target === '.') {
+            // currentSelector is e.g. 'Takeout:shots/WH-captive-cu-4f.md'
+            const colon = (currentSelector || '').indexOf(':');
+            if (colon >= 0) {
+                const nb  = currentSelector.slice(0, colon);
+                const rel = currentSelector.slice(colon + 1);
+                const parts = rel.split('/');
+                const folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+                target = folder ? `${nb}:${folder}/` : `${nb}:`;
+            }
+        }
+
+        // Parse target into notebook + folder
+        const tc = target.indexOf(':');
+        const notebook = tc >= 0 ? target.slice(0, tc) : target.replace(/\/$/, '');
+        const folder   = tc >= 0 ? target.slice(tc + 1).replace(/\/$/, '') : '';
+
+        return { key, notebook, folder };
+    }
+
+    async function _loadConfigBlock(el) {
+        if (!_cbCan(el, 'config', 'read')) { _cbDenyRead(el); return; }
+        const currentSelector = NbMain?.activeSelector?.() || '';
+        const { key, notebook, folder } = _configParseQuery(el.dataset.query || '', currentSelector);
+
+        if (!notebook) {
+            el.innerHTML = '<span class="nb-hl-error">⚠ config: no notebook resolved</span>';
+            return;
+        }
+
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+
+        try {
+            const params = new URLSearchParams({ notebook });
+            if (folder)          params.set('folder', folder);
+            if (key)             params.set('key', key);
+            if (currentSelector) params.set('selector', currentSelector);
+            const r = await fetch(`/api/config-tree?${params}`);
+            if (r.status === 403) { _cbDenyRead(el); return; }
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const nodes = await r.json();
+            if (nodes.error) throw new Error(nodes.error);
+            _configRender(el, nodes, key, currentSelector);
+        } catch (e) {
+            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
+    function _configRender(el, nodes, key, currentSelector) {
+        el.innerHTML = '';
+        el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
+
+        const ICONS  = { global: '🌐', notebook: '📒', folder: '📁', subfolder: '📂', note: '📄' };
+        const INDENT = { global: 0, notebook: 1, folder: 2, subfolder: 3, note: 4 };
+
+        // Effective = last (highest priority) node that contributes the queried key.
+        // If no key, effective = deepest existing node.
+        const deepest = key
+            ? [...nodes].reverse().find(n => n.contributes && n.contributes[key] !== undefined)
+            : [...nodes].reverse().find(n => n.exists);
+
+        const table = document.createElement('table');
+        table.className = 'nb-config-tree';
+
+        for (const node of nodes) {
+            const isHere      = node.exists && currentSelector && node.selector === currentSelector;
+            const isEffective = !isHere && node === deepest;
+            const contrib     = node.contributes || {};
+
+            const tr = document.createElement('tr');
+            tr.className = 'nb-config-node'
+                + (node.exists    ? ''                    : ' nb-config-missing')
+                + (isHere         ? ' nb-config-here'     : '')
+                + (isEffective    ? ' nb-config-effective': '');
+            tr.dataset.level = node.level;
+
+            // Marker cell
+            const tdM = document.createElement('td');
+            tdM.className = 'nb-config-marker';
+            tdM.textContent = isHere ? '◉' : (isEffective ? '▶' : (node.exists ? '●' : '○'));
+
+            // Icon cell (indented by depth)
+            const tdI = document.createElement('td');
+            tdI.className = 'nb-config-icon';
+            tdI.style.paddingLeft = `${(INDENT[node.level] || 0) * 1.2}em`;
+            tdI.textContent = ICONS[node.level] || '·';
+
+            // Path/name cell
+            const tdN = document.createElement('td');
+            tdN.className = 'nb-config-name-cell';
+            const displayName = node.level === 'note'
+                ? node.selector
+                : node.path.replace(/.*\/\.nb\//, '~/.nb/');
+            if (node.exists) {
+                const btn = document.createElement('button');
+                btn.className = 'nb-nav-link nb-config-name';
+                btn.textContent = displayName;
+                btn.addEventListener('click', () => NbMain.openNote(node.selector));
+                tdN.appendChild(btn);
+            } else {
+                tdN.className += ' nb-config-name nb-config-name--missing';
+                tdN.textContent = displayName;
+            }
+
+            // Value cell — always rendered; dash when key not set at this level
+            const tdV = document.createElement('td');
+            tdV.className = 'nb-config-contrib';
+            if (key) {
+                if (contrib[key] !== undefined) {
+                    tdV.textContent = _configFormatVal(contrib[key]);
+                    tdV.classList.add('nb-config-contrib-key');
+                } else {
+                    tdV.textContent = '—';
+                    tdV.classList.add('nb-config-contrib-empty');
+                }
+            } else {
+                const keys = Object.keys(contrib);
+                tdV.textContent = keys.length ? keys.join(', ') : '';
+            }
+
+            tr.appendChild(tdM);
+            tr.appendChild(tdI);
+            tr.appendChild(tdN);
+            tr.appendChild(tdV);
+            table.appendChild(tr);
+        }
+
+        if (key) {
+            const lbl = document.createElement('div');
+            lbl.className = 'nb-config-key-label';
+            lbl.textContent = key + ':';
+            el.appendChild(lbl);
+        }
+        el.appendChild(table);
+    }
+
+    function _configFormatVal(v) {
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'object') return Array.isArray(v) ? v.join(', ') : '{…}';
+        return String(v);
+    }
+
     // ── test codeblock ────────────────────────────────────────────────────────
     // Form 1: "script | Label"  → clickable button; runs on click; resets on pass
     // Form 2: "script"          → auto-runs at render; invisible on pass+empty output
@@ -2026,6 +2197,8 @@
     // Collect the names of all scripts that will auto-run (Form 2) across a set
     // of .nb-test-block elements.  Used to build the batch request.
     function _collectAutoRunScripts(blocks) {
+        // Glob prefixes (dangling dash) can't be pre-collected without a network
+        // round trip — they're resolved lazily in _loadTestBlock instead.
         const scripts = new Set();
         for (const el of blocks) {
             const raw   = (el.dataset.query || '').trim();
@@ -2035,7 +2208,7 @@
                 const pipe   = line.indexOf('|');
                 const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
                 const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-                if (script && !label) scripts.add(script);
+                if (script && !label && !script.endsWith('-')) scripts.add(script);
             } else {
                 // Multi-script: only collect if the group has no label (auto-run mode)
                 let groupLabel = '';
@@ -2045,7 +2218,7 @@
                     const pipe   = line.indexOf('|');
                     const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
                     const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-                    if (script) { parsed.push(script); groupLabel = groupLabel || label; }
+                    if (script && !script.endsWith('-')) { parsed.push(script); groupLabel = groupLabel || label; }
                 }
                 if (!groupLabel) parsed.forEach(s => scripts.add(s));
             }
@@ -2070,37 +2243,69 @@
         }
     }
 
+    // Resolve a dangling-dash prefix (e.g. 'nb-schem-') to a sorted list of
+    // matching script names via /api/test/glob.  Returns [] on any error.
+    async function _resolveTestGlob(prefix) {
+        try {
+            const r = await fetch(`/api/test/glob?prefix=${encodeURIComponent(prefix)}`);
+            if (!r.ok) return [];
+            const names = await r.json();
+            return Array.isArray(names) ? names : [];
+        } catch { return []; }
+    }
+
     async function _loadTestBlock(el, batchMap = new Map()) {
         const raw   = (el.dataset.query || '').trim();
         const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
 
         if (lines.length <= 1) {
-            // Single-script — existing behaviour unchanged
+            // Single-script or single glob prefix
             const line   = lines[0] || '';
             const pipe   = line.indexOf('|');
-            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const token  = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
             const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-            if (!script) { el.remove(); return; }
+            if (!token) { el.remove(); return; }
+
+            // Dangling dash — resolve to a group
+            if (token.endsWith('-')) {
+                if (!_cbCan(el, 'test', 'read')) { el.remove(); return; }
+                el.innerHTML = '<span class="nb-spin">⟳</span>';
+                const names = await _resolveTestGlob(token);
+                if (!names.length) { el.innerHTML = `<span class="nb-hl-muted">No scripts match ${_esc(token)}*.sh</span>`; return; }
+                const scripts = names.map(n => ({ script: n, label: n.replace(/\.sh$/, '') }));
+                const groupLabel = label || token;
+                if (label) { _buildGroupBtn(el, scripts, groupLabel); }
+                else       { await _runGroupTest(el, scripts, null, null, batchMap); }
+                return;
+            }
+
             if (!_cbCan(el, 'test', 'read')) {
                 if (label) _buildTestDenied(el, label, _cbLevel(el, 'test', 'read'));
                 else       el.remove();
                 return;
             }
-            if (label) { _buildTestBtn(el, script, label); }
-            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, script, null, null, batchMap.get(script) ?? null); }
+            if (label) { _buildTestBtn(el, token, label); }
+            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, token, null, null, batchMap.get(token) ?? null); }
             return;
         }
 
-        // Multi-script group — parse scripts and optional group label
+        // Multi-script group — parse scripts and optional group label.
         // A line starting with | (no script) sets the group label only.
+        // A glob line (ends with -) expands inline before running.
         const scripts = [];
         let groupLabel = '';
         for (const line of lines) {
             if (line.startsWith('|')) { groupLabel = groupLabel || line.slice(1).trim(); continue; }
             const pipe   = line.indexOf('|');
-            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const token  = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
             const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-            if (script) { scripts.push({ script, label }); groupLabel = groupLabel || label; }
+            if (!token) continue;
+            if (token.endsWith('-')) {
+                const names = await _resolveTestGlob(token);
+                names.forEach(n => scripts.push({ script: n, label: n.replace(/\.sh$/, '') }));
+            } else {
+                if (token) { scripts.push({ script: token, label }); groupLabel = groupLabel || label; }
+            }
         }
         if (!scripts.length) { el.remove(); return; }
 
@@ -2431,6 +2636,16 @@
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
                     await Promise.all(blocks.map(async el => { try { await _loadFrontBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
+                },
+            },
+            {
+                lang:   'config',
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-config-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-config-block')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { try { await _loadConfigBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
