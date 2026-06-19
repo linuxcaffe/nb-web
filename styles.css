@@ -1018,10 +1018,20 @@ body {
     font-size: 0.82em;
     color: var(--fg-muted);
 }
-.nb-xref-urls div { margin: 0.15em 0; }
-.nb-xref-urls a { color: var(--link); text-decoration: none; }
+.nb-xref-url-row { margin: 0.4em 0; }
+.nb-xref-urls a { color: var(--link); text-decoration: none; font-weight: 500; }
 .nb-xref-urls a::before { content: '↗ '; opacity: 0.5; }
 .nb-xref-urls a:hover { text-decoration: underline; }
+.nb-xref-url-extract {
+    margin-top: 0.25em;
+    font-size: 0.95em;
+    line-height: 1.45;
+    color: var(--fg-muted);
+    max-height: 4.5em;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+}
 
 .nb-inline-query { font-variant-numeric: tabular-nums;
                    color: var(--text-muted); font-style: italic; }

@@ -2202,16 +2202,37 @@ const NbMain = (() => {
 
         const rendered = container.querySelector('.nb-rendered') ?? container;
 
-        // ── URL targets: "See also" footer — no heading analysis needed ──
+        // ── URL targets: "See also" footer — links rendered immediately,
+        //    Wikipedia summaries fetched in parallel and injected in place ──
         if (urlTargets.length) {
             const foot = document.createElement('div');
             foot.className = 'nb-xref-urls';
             for (const url of urlTargets) {
+                const row = document.createElement('div');
+                row.className = 'nb-xref-url-row';
+
                 const a = document.createElement('a');
                 a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
                 a.textContent = _xrefUrlLabel(url);
-                const row = document.createElement('div');
                 row.appendChild(a);
+
+                // Wikipedia: fetch summary and inject extract below the link
+                try {
+                    const u = new URL(url);
+                    if (u.hostname === 'en.wikipedia.org' || u.hostname === 'wikipedia.org') {
+                        const slug = u.pathname.split('/').pop();
+                        if (slug) {
+                            const extract = document.createElement('div');
+                            extract.className = 'nb-xref-url-extract';
+                            row.appendChild(extract);
+                            fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(slug)}`)
+                                .then(r => r.ok ? r.json() : null)
+                                .then(d => { if (d?.extract) extract.textContent = d.extract; else extract.remove(); })
+                                .catch(() => extract.remove());
+                        }
+                    }
+                } catch { /* non-URL or parse error — link only */ }
+
                 foot.appendChild(row);
             }
             rendered.appendChild(foot);
