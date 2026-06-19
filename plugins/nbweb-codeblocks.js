@@ -1528,6 +1528,16 @@
 
     function _fmWidget(key, value, constraint) {
         const c = (constraint || '').trim();
+        // Dot-notation inheritance ref (e.g. "scene.loc") — field is read-only, sourced from another note
+        if (/^\w+\.\w+$/.test(c)) {
+            const wrap = document.createElement('span');
+            wrap.className = 'nb-fm-inherited';
+            wrap.dataset.fmKey = key;
+            wrap.dataset.fmInherited = c;
+            wrap.textContent = value || '';
+            wrap.title = `inherited from ${c}`;
+            return wrap;
+        }
         if (c.startsWith('select ')) {
             const options = c.slice(7).split(',').map(s => s.trim());
             const sel = document.createElement('select');

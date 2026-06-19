@@ -2038,6 +2038,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-front-changes-form select,
 .nb-front-changes-form textarea { width: 100%; font-size: 0.9em; padding: 2px 4px; box-sizing: border-box; background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); }
 .nb-front-changes-form textarea { resize: vertical; min-height: 3em; }
+.nb-front-changes-form .nb-fm-inherited { font-size: 0.9em; padding: 2px 4px; color: var(--text-muted); font-style: italic; }
 .nb-front-changes-actions { display: flex; gap: 0.4em; }
 
 /* notebooks sub-layout */
