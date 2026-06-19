@@ -3338,6 +3338,13 @@ def _list_notes(notebook, folder, limit):
         if not fpath.exists() or fname.startswith('.'):
             continue
         if fpath.is_dir():
+            fcfg = fpath / f'.{fname}.md'
+            fmeta = {}
+            if fcfg.exists():
+                try: fmeta, _ = parse_frontmatter(fcfg.read_text())
+                except Exception: pass
+            if not _level_gte(user.get('level', ''), _effective_access(fmeta, nb_meta)):
+                continue
             items.append({
                 'type': 'folder', 'indicator': '📂',
                 'id': '', 'filename': fname, 'title': fname,
