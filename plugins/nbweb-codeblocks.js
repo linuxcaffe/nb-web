@@ -2070,7 +2070,7 @@
 
     async function _loadConfigBlock(el) {
         if (!_cbCan(el, 'config', 'read')) { _cbDenyRead(el); return; }
-        const currentSelector = window.NbMain?.activeSelector?.() || '';
+        const currentSelector = NbMain?.activeSelector?.() || '';
         const { key, notebook, folder } = _configParseQuery(el.dataset.query || '', currentSelector);
 
         if (!notebook) {
