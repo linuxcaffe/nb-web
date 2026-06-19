@@ -7397,6 +7397,27 @@ def api_test_run():
         return jsonify({'error': str(e), 'exit_code': 1})
 
 
+@app.route('/api/test/glob')
+def api_test_glob():
+    """List test scripts matching a prefix, e.g. ?prefix=nb-schem- returns
+    ['nb-schem-fields.sh', 'nb-schem-values.sh', ...] sorted alphabetically.
+
+    The prefix must end with '-' (dangling dash convention) and contain only
+    safe characters — no path separators or dots beyond the .sh extension.
+    """
+    prefix = request.args.get('prefix', '').strip()
+    if not prefix:
+        return jsonify({'error': 'prefix required'}), 400
+    if not prefix.endswith('-'):
+        return jsonify({'error': 'prefix must end with -'}), 400
+    if '/' in prefix or '\\' in prefix or prefix.startswith('.'):
+        return jsonify({'error': 'invalid prefix'}), 400
+    if not TEST_DIR.is_dir():
+        return jsonify([])
+    matches = sorted(p.name for p in TEST_DIR.glob(f'{prefix}*.sh'))
+    return jsonify(matches)
+
+
 @app.route('/api/test/batch', methods=['POST'])
 def api_test_batch():
     """Run multiple test scripts in parallel with a single round trip.

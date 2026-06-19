@@ -2173,6 +2173,8 @@
     // Collect the names of all scripts that will auto-run (Form 2) across a set
     // of .nb-test-block elements.  Used to build the batch request.
     function _collectAutoRunScripts(blocks) {
+        // Glob prefixes (dangling dash) can't be pre-collected without a network
+        // round trip — they're resolved lazily in _loadTestBlock instead.
         const scripts = new Set();
         for (const el of blocks) {
             const raw   = (el.dataset.query || '').trim();
@@ -2182,7 +2184,7 @@
                 const pipe   = line.indexOf('|');
                 const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
                 const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-                if (script && !label) scripts.add(script);
+                if (script && !label && !script.endsWith('-')) scripts.add(script);
             } else {
                 // Multi-script: only collect if the group has no label (auto-run mode)
                 let groupLabel = '';
@@ -2192,7 +2194,7 @@
                     const pipe   = line.indexOf('|');
                     const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
                     const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-                    if (script) { parsed.push(script); groupLabel = groupLabel || label; }
+                    if (script && !script.endsWith('-')) { parsed.push(script); groupLabel = groupLabel || label; }
                 }
                 if (!groupLabel) parsed.forEach(s => scripts.add(s));
             }
@@ -2217,37 +2219,69 @@
         }
     }
 
+    // Resolve a dangling-dash prefix (e.g. 'nb-schem-') to a sorted list of
+    // matching script names via /api/test/glob.  Returns [] on any error.
+    async function _resolveTestGlob(prefix) {
+        try {
+            const r = await fetch(`/api/test/glob?prefix=${encodeURIComponent(prefix)}`);
+            if (!r.ok) return [];
+            const names = await r.json();
+            return Array.isArray(names) ? names : [];
+        } catch { return []; }
+    }
+
     async function _loadTestBlock(el, batchMap = new Map()) {
         const raw   = (el.dataset.query || '').trim();
         const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
 
         if (lines.length <= 1) {
-            // Single-script — existing behaviour unchanged
+            // Single-script or single glob prefix
             const line   = lines[0] || '';
             const pipe   = line.indexOf('|');
-            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const token  = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
             const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-            if (!script) { el.remove(); return; }
+            if (!token) { el.remove(); return; }
+
+            // Dangling dash — resolve to a group
+            if (token.endsWith('-')) {
+                if (!_cbCan(el, 'test', 'read')) { el.remove(); return; }
+                el.innerHTML = '<span class="nb-spin">⟳</span>';
+                const names = await _resolveTestGlob(token);
+                if (!names.length) { el.innerHTML = `<span class="nb-hl-muted">No scripts match ${_esc(token)}*.sh</span>`; return; }
+                const scripts = names.map(n => ({ script: n, label: n.replace(/\.sh$/, '') }));
+                const groupLabel = label || token;
+                if (label) { _buildGroupBtn(el, scripts, groupLabel); }
+                else       { await _runGroupTest(el, scripts, null, null, batchMap); }
+                return;
+            }
+
             if (!_cbCan(el, 'test', 'read')) {
                 if (label) _buildTestDenied(el, label, _cbLevel(el, 'test', 'read'));
                 else       el.remove();
                 return;
             }
-            if (label) { _buildTestBtn(el, script, label); }
-            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, script, null, null, batchMap.get(script) ?? null); }
+            if (label) { _buildTestBtn(el, token, label); }
+            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, token, null, null, batchMap.get(token) ?? null); }
             return;
         }
 
-        // Multi-script group — parse scripts and optional group label
+        // Multi-script group — parse scripts and optional group label.
         // A line starting with | (no script) sets the group label only.
+        // A glob line (ends with -) expands inline before running.
         const scripts = [];
         let groupLabel = '';
         for (const line of lines) {
             if (line.startsWith('|')) { groupLabel = groupLabel || line.slice(1).trim(); continue; }
             const pipe   = line.indexOf('|');
-            const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+            const token  = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
             const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-            if (script) { scripts.push({ script, label }); groupLabel = groupLabel || label; }
+            if (!token) continue;
+            if (token.endsWith('-')) {
+                const names = await _resolveTestGlob(token);
+                names.forEach(n => scripts.push({ script: n, label: n.replace(/\.sh$/, '') }));
+            } else {
+                if (token) { scripts.push({ script: token, label }); groupLabel = groupLabel || label; }
+            }
         }
         if (!scripts.length) { el.remove(); return; }
 
