@@ -3844,16 +3844,16 @@ def api_annotation_template():
 def _normalize_constraint(val) -> str:
     """Normalise a constraint value to the string format expected by the JS widget renderer.
 
-    Accepts the legacy string format ('select a,b,c', 'bool', 'area', 'date')
-    or the rich dict format from folder config constraints: sections, which may use
-    either 'widget:' or 'type:' keys:
-        {widget: select, values: [D, N], required: true}
-        {type: enum,     values: [D, N], required: true}
-        {type: multiline}
-        {type: integer}
+    Accepts:
+      Legacy strings:  'select a,b,c' | 'bool' | 'area' | 'date' | 'text'
+      Inheritance ref: 'scene.loc' — dot-notation reference to a parent note field;
+                       passed through as-is; JS and nb-constraints.sh handle it
+      Rich dicts:      {widget: select, values: [...]}  or  {type: enum, values: [...]}
+                       {type: multiline}  →  'area'
+                       {type: integer|string}  →  'text'
     """
     if isinstance(val, str):
-        return val.strip()
+        return val.strip()   # 'scene.loc', 'select D,N', 'bool' — all pass through
     if isinstance(val, dict):
         widget = str(val.get('widget') or val.get('type') or 'text').strip()
         if widget in ('select', 'enum'):
