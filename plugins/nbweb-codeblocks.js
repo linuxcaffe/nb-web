@@ -2082,73 +2082,97 @@
 
         try {
             const params = new URLSearchParams({ notebook });
-            if (folder) params.set('folder', folder);
-            if (key)    params.set('key', key);
+            if (folder)          params.set('folder', folder);
+            if (key)             params.set('key', key);
+            if (currentSelector) params.set('selector', currentSelector);
             const r = await fetch(`/api/config-tree?${params}`);
             if (r.status === 403) { _cbDenyRead(el); return; }
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const nodes = await r.json();
             if (nodes.error) throw new Error(nodes.error);
-            _configRender(el, nodes, key);
+            _configRender(el, nodes, key, currentSelector);
         } catch (e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
         }
     }
 
-    function _configRender(el, nodes, key) {
+    function _configRender(el, nodes, key, currentSelector) {
         el.innerHTML = '';
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
 
-        const ICONS = { global: '🌐', notebook: '📒', folder: '📁', subfolder: '📂' };
-        const INDENT = { global: 0, notebook: 1, folder: 2, subfolder: 3 };
+        const ICONS  = { global: '🌐', notebook: '📒', folder: '📁', subfolder: '📂', note: '📄' };
+        const INDENT = { global: 0, notebook: 1, folder: 2, subfolder: 3, note: 4 };
 
-        const ul = document.createElement('ul');
-        ul.className = 'nb-config-tree';
+        // Effective = last (highest priority) node that contributes the queried key.
+        // If no key, effective = deepest existing node.
+        const deepest = key
+            ? [...nodes].reverse().find(n => n.contributes && n.contributes[key] !== undefined)
+            : [...nodes].reverse().find(n => n.exists);
+
+        const table = document.createElement('table');
+        table.className = 'nb-config-tree';
 
         for (const node of nodes) {
-            const li = document.createElement('li');
-            li.className = 'nb-config-node' + (node.exists ? '' : ' nb-config-missing');
-            li.style.setProperty('--depth', INDENT[node.level] || 0);
+            const isHere      = node.exists && currentSelector && node.selector === currentSelector;
+            const isEffective = !isHere && node === deepest;
+            const contrib     = node.contributes || {};
 
-            const marker = document.createElement('span');
-            marker.className = 'nb-config-marker';
-            marker.textContent = node.exists ? '●' : '○';
+            const tr = document.createElement('tr');
+            tr.className = 'nb-config-node'
+                + (node.exists    ? ''                    : ' nb-config-missing')
+                + (isHere         ? ' nb-config-here'     : '')
+                + (isEffective    ? ' nb-config-effective': '');
+            tr.dataset.level = node.level;
 
-            const icon = document.createElement('span');
-            icon.className = 'nb-config-icon';
-            icon.textContent = ICONS[node.level] || '·';
+            // Marker cell
+            const tdM = document.createElement('td');
+            tdM.className = 'nb-config-marker';
+            tdM.textContent = isHere ? '◉' : (isEffective ? '▶' : (node.exists ? '●' : '○'));
 
-            const name = document.createElement('button');
-            name.className = 'nb-nav-link nb-config-name';
-            name.textContent = node.path.replace(/.*\/\.nb\//, '~/.nb/');
+            // Icon cell (indented by depth)
+            const tdI = document.createElement('td');
+            tdI.className = 'nb-config-icon';
+            tdI.style.paddingLeft = `${(INDENT[node.level] || 0) * 1.2}em`;
+            tdI.textContent = ICONS[node.level] || '·';
+
+            // Path/name cell
+            const tdN = document.createElement('td');
+            tdN.className = 'nb-config-name-cell';
+            const displayName = node.level === 'note'
+                ? node.selector
+                : node.path.replace(/.*\/\.nb\//, '~/.nb/');
             if (node.exists) {
-                name.addEventListener('click', () => NbMain.openNote(node.selector));
+                const btn = document.createElement('button');
+                btn.className = 'nb-nav-link nb-config-name';
+                btn.textContent = displayName;
+                btn.addEventListener('click', () => NbMain.openNote(node.selector));
+                tdN.appendChild(btn);
             } else {
-                name.disabled = true;
+                tdN.className += ' nb-config-name nb-config-name--missing';
+                tdN.textContent = displayName;
             }
 
-            li.appendChild(marker);
-            li.appendChild(icon);
-            li.appendChild(name);
-
-            // Contributions column
-            const contrib = node.contributes || {};
-            const keys = Object.keys(contrib);
-            if (keys.length) {
-                const cv = document.createElement('span');
-                cv.className = 'nb-config-contrib';
-                if (key && contrib[key] !== undefined) {
-                    // Single key — show value inline
-                    cv.textContent = _configFormatVal(contrib[key]);
-                    cv.classList.add('nb-config-contrib-key');
-                } else if (!key) {
-                    // All keys — show as compact tag list
-                    cv.textContent = keys.join(', ');
+            // Value cell — always rendered; dash when key not set at this level
+            const tdV = document.createElement('td');
+            tdV.className = 'nb-config-contrib';
+            if (key) {
+                if (contrib[key] !== undefined) {
+                    tdV.textContent = _configFormatVal(contrib[key]);
+                    tdV.classList.add('nb-config-contrib-key');
+                } else {
+                    tdV.textContent = '—';
+                    tdV.classList.add('nb-config-contrib-empty');
                 }
-                li.appendChild(cv);
+            } else {
+                const keys = Object.keys(contrib);
+                tdV.textContent = keys.length ? keys.join(', ') : '';
             }
 
-            ul.appendChild(li);
+            tr.appendChild(tdM);
+            tr.appendChild(tdI);
+            tr.appendChild(tdN);
+            tr.appendChild(tdV);
+            table.appendChild(tr);
         }
 
         if (key) {
@@ -2157,7 +2181,7 @@
             lbl.textContent = key + ':';
             el.appendChild(lbl);
         }
-        el.appendChild(ul);
+        el.appendChild(table);
     }
 
     function _configFormatVal(v) {

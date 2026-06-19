@@ -2042,16 +2042,25 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-front-changes-actions { display: flex; gap: 0.4em; }
 
 /* config codeblock — inheritance tree */
-.nb-config-tree { list-style: none; margin: 0; padding: 0; font-family: var(--font-mono); font-size: 0.85em; }
-.nb-config-node { display: flex; align-items: baseline; gap: 0.4em; padding: 0.15em 0; padding-left: calc(var(--depth, 0) * 1.4em); }
+.nb-config-tree { border-collapse: collapse; font-family: var(--font-mono); font-size: 0.85em; width: 100%; }
+.nb-config-node td { padding: 0.15em 0.3em 0.15em 0; vertical-align: baseline; }
 .nb-config-node.nb-config-missing { opacity: 0.45; }
-.nb-config-marker { flex-shrink: 0; width: 0.9em; color: var(--accent, #4a9eff); }
-.nb-config-node.nb-config-missing .nb-config-marker { color: var(--text-muted); }
-.nb-config-icon  { flex-shrink: 0; }
-.nb-config-name  { font-size: 0.9em; padding: 0; background: none; border: none; color: var(--link, #4a9eff); cursor: pointer; text-align: left; }
-.nb-config-name:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
-.nb-config-contrib { margin-left: auto; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
-.nb-config-contrib.nb-config-contrib-key { color: var(--text); font-weight: 500; }
+.nb-config-node[data-level="note"] td { border-top: 1px solid var(--border, rgba(255,255,255,.1)); padding-top: 0.35em; }
+.nb-config-marker { width: 1em; color: var(--accent, #4a9eff); white-space: nowrap; }
+.nb-config-node.nb-config-missing   .nb-config-marker { color: var(--text-muted); }
+.nb-config-node.nb-config-effective .nb-config-marker { color: var(--accent-alt, #f0a500); }
+.nb-config-node.nb-config-here      .nb-config-marker { color: var(--accent, #4a9eff); }
+.nb-config-node.nb-config-effective .nb-config-name-cell { font-weight: 500; color: var(--text); }
+.nb-config-node.nb-config-here td         { background: var(--bg3, rgba(255,255,255,.06)); }
+.nb-config-node.nb-config-here td:first-child { border-radius: 4px 0 0 4px; }
+.nb-config-node.nb-config-here td:last-child  { border-radius: 0 4px 4px 0; }
+.nb-config-icon { white-space: nowrap; }
+.nb-config-name { font-size: 0.9em; padding: 0; background: none; border: none; color: var(--link, #4a9eff); cursor: pointer; text-align: left; white-space: nowrap; }
+.nb-config-name--missing { color: var(--text-muted); font-size: 0.9em; white-space: nowrap; }
+.nb-config-name-cell { width: 99%; }
+.nb-config-contrib { white-space: nowrap; color: var(--text-muted); padding-left: 1.5em; text-align: right; }
+.nb-config-contrib.nb-config-contrib-key   { color: var(--text); font-weight: 500; }
+.nb-config-contrib.nb-config-contrib-empty { opacity: 0.35; }
 .nb-config-key-label { font-family: var(--font-mono); font-size: 0.8em; color: var(--text-muted); margin-bottom: 0.2em; }
 
 /* notebooks sub-layout */

@@ -3105,6 +3105,7 @@ def api_config_tree():
     notebook = request.args.get('notebook', '').strip()
     folder   = request.args.get('folder',   '').strip().strip('/')
     key      = request.args.get('key',      '').strip()
+    selector = request.args.get('selector', '').strip()
 
     if not notebook or not _safe_notebook(notebook):
         return jsonify({'error': 'invalid notebook'}), 400
@@ -3161,6 +3162,28 @@ def api_config_tree():
             cfg_path = current / f'.{part}.md'
             level = 'subfolder' if current.parent != nb_root else 'folder'
             nodes.append(_node(level, cfg_path))
+
+    # 4. Note — the note itself (highest priority; wins if it sets the key)
+    if selector:
+        note_path = None
+        if selector.startswith('/'):
+            p = Path(selector)
+            try:
+                p.relative_to(NB_DIR)
+                note_path = p
+            except ValueError:
+                pass
+        else:
+            note_path = _resolve_to_nb_path(selector)
+        if note_path and note_path.exists():
+            raw = _read_contributes(note_path)
+            nodes.append({
+                'level':       'note',
+                'path':        str(note_path),
+                'selector':    selector,
+                'exists':      True,
+                'contributes': _filter(raw),
+            })
 
     return jsonify(nodes)
 
