@@ -3034,8 +3034,6 @@ def api_front_query():
             dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
             dirpath = Path(dirpath_s)
             for fname in sorted(filenames):
-                if fname.startswith('.'):
-                    continue
                 fpath = dirpath / fname
                 rel   = str(fpath.relative_to(nb_dir))
                 itype = classify(fname, notebook)
