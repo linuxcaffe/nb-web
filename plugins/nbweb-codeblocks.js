@@ -65,7 +65,7 @@
         tw:      { img: '.images:tw.svg',           alt: 'Taskwarrior' },
         git:     { img: '.images:git-logo.png',     alt: 'git' },
         nb:      { img: 'nb-logo.png',              alt: 'nb', direct: true },
-        t:       { text: 'CLK' },
+        t:       { text: 't', large: true },
         tui:     { text: 'TUI' },
         nav:     { text: 'NAV' },
         front:   { text: 'FM'  },
@@ -85,6 +85,7 @@
             el.title = spec.alt || blockType;
         } else {
             el.textContent = spec?.text || blockType.slice(0, 3).toUpperCase();
+            if (spec?.large) el.classList.add('nb-cb-icon--large');
             el.setAttribute('aria-label', blockType);
         }
         return el;

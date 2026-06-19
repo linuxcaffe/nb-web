@@ -2102,6 +2102,12 @@ span.nb-cb-icon {
   border-radius: 3px; padding: 1px 4px;
   flex-shrink: 0; line-height: 1.5; align-self: center;
 }
+span.nb-cb-icon.nb-cb-icon--large {
+  font-size: 1.1em; font-weight: 400; letter-spacing: 0;
+  border: none; padding: 0;
+  font-family: var(--font-serif, Georgia, serif);
+  font-style: italic;
+}
 
 /* ── git codeblock ───────────────────────────────────────────── */
 .nb-git-block {
