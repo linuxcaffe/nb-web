@@ -56,6 +56,40 @@
 
     // ── Shared codeblock infrastructure ──────────────────────────────────────
 
+    // Block icons — image-backed or CAPS text badge. Always visible in header.
+    // Image blocks: served from ~/.nb/.images/ via /api/file?selector=.images:*
+    // Native blocks: short CAPS label styled as a monospace chip.
+    const _CB_ICONS = {
+        hledger: { img: '.images:hledger-logo.png', alt: 'hledger' },
+        chart:   { img: '.images:hledger-logo.png', alt: 'hledger' },
+        tw:      { img: '.images:tw.svg',           alt: 'Taskwarrior' },
+        git:     { img: '.images:git-logo.png',     alt: 'git' },
+        nb:      { img: 'nb-logo.png',              alt: 'nb', direct: true },
+        t:       { text: 'CLK' },
+        tui:     { text: 'TUI' },
+        nav:     { text: 'NAV' },
+        front:   { text: 'FM'  },
+        config:  { text: 'CFG' },
+        test:    { text: 'TST' },
+    };
+
+    function _cbIcon(blockType) {
+        const spec = _CB_ICONS[blockType];
+        const el = document.createElement(spec?.img ? 'img' : 'span');
+        el.className = 'nb-cb-icon';
+        if (spec?.img) {
+            el.src = spec.direct
+                ? `/${spec.img}`
+                : `/api/file?selector=${encodeURIComponent(spec.img)}`;
+            el.alt = spec.alt || blockType;
+            el.title = spec.alt || blockType;
+        } else {
+            el.textContent = spec?.text || blockType.slice(0, 3).toUpperCase();
+            el.setAttribute('aria-label', blockType);
+        }
+        return el;
+    }
+
     // Attach a codeblock form: floats as fixed popover when block is collapsed,
     // inserts inline otherwise. Returns a dismiss function that cleans up both.
     function _cbFormAttach(form, trigger, el, inlineInsertFn) {
@@ -193,6 +227,7 @@
         acts.appendChild(refBtn);
 
         hdr.append(statusEl, acts);
+        hdr.insertBefore(_cbIcon('t'), hdr.firstChild);
         el.appendChild(hdr);
 
         if (report?.rows?.length) {
@@ -384,6 +419,7 @@
         acts.appendChild(refBtn);
 
         hdr.appendChild(acts);
+        hdr.insertBefore(_cbIcon('tw'), hdr.firstChild);
         el.appendChild(hdr);
 
         if (!tasks.length) return;
@@ -630,6 +666,7 @@
         refBtn.title = 'Refresh'; refBtn.textContent = '↻';
         refBtn.addEventListener('click', () => _loadNbBlock(el));
         hdr.appendChild(refBtn);
+        hdr.insertBefore(_cbIcon('nb'), hdr.firstChild);
         el.appendChild(hdr);
 
         if (!backlinks.length) {
@@ -667,6 +704,7 @@
         refBtn.addEventListener('click', () => _loadNbBlock(el));
         hdr.innerHTML = `<span class="nb-nb-meta"><span class="nb-nb-name">nb</span> notebooks <span class="nb-nb-count">${notebooks.length}</span></span>`;
         hdr.appendChild(refBtn);
+        hdr.insertBefore(_cbIcon('nb'), hdr.firstChild);
         el.appendChild(hdr);
 
         if (!notebooks.length) {
@@ -759,6 +797,7 @@
             } catch(e) { console.error('git remote:', e); }
         });
         hdr.appendChild(refBtn);
+        hdr.insertBefore(_cbIcon('git'), hdr.firstChild);
         el.appendChild(hdr);
         const pre = document.createElement('pre');
         pre.className = 'nb-git-pre';
@@ -1152,6 +1191,7 @@
         acts.appendChild(refBtn);
 
         hdr.appendChild(acts);
+        hdr.insertBefore(_cbIcon('hledger'), hdr.firstChild);
         el.appendChild(hdr);
         _initCollapseToggle(el);
     }
@@ -1748,6 +1788,7 @@
                 hdr.appendChild(lbl);
             }
             hdr.appendChild(refBtn);
+            hdr.insertBefore(_cbIcon('front'), hdr.firstChild);
             el.appendChild(hdr);
 
             // ── List ────────────────────────────────────────────────────────
@@ -1911,6 +1952,7 @@
             });
         }
         hdr.prepend(crumbs);
+        hdr.insertBefore(_cbIcon('nav'), hdr.firstChild);
         el.appendChild(hdr);
         _initCollapseToggle(el);
     }
@@ -1944,6 +1986,7 @@
         });
 
         hdr.prepend(crumbs);
+        hdr.insertBefore(_cbIcon('nav'), hdr.firstChild);
         el.appendChild(hdr);
         _initCollapseToggle(el);
     }
@@ -2158,6 +2201,7 @@
         acts.appendChild(refBtn);
 
         hdr.appendChild(acts);
+        hdr.insertBefore(_cbIcon('config'), hdr.firstChild);
         el.appendChild(hdr);
         if (!wasOpen) el.classList.add('nb-collapsed');
         _initCollapseToggle(el);

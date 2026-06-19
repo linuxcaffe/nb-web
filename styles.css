@@ -2086,6 +2086,23 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-collapsed > *:not([class*="-header"]) { display: none; }
 [class*="-header"] { cursor: pointer; user-select: none; }
 
+/* ── codeblock icons ─────────────────────────────────────────── */
+/* img variant — app logos from ~/.nb/.images/ */
+img.nb-cb-icon {
+  height: 1.2em; width: 1.2em;
+  object-fit: contain; flex-shrink: 0;
+  vertical-align: middle; border-radius: 2px;
+}
+/* text badge variant — native blocks with no app logo */
+span.nb-cb-icon {
+  font-family: var(--font-mono);
+  font-size: 0.65em; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border: 1px solid var(--border, rgba(255,255,255,.15));
+  border-radius: 3px; padding: 1px 4px;
+  flex-shrink: 0; line-height: 1.5; align-self: center;
+}
+
 /* ── git codeblock ───────────────────────────────────────────── */
 .nb-git-block {
   margin: 1em 0;
