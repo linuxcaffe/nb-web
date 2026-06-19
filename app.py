@@ -3040,7 +3040,34 @@ def api_front_query():
         nb_list = [d.name for d in sorted(NB_DIR.iterdir())
                    if d.is_dir() and not d.name.startswith('.')]
 
+    def _scan_file(fpath, selector, notebook=None):
+        itype = classify(fpath.name, notebook)
+        if itype in BINARY_TYPES:
+            return None
+        try:
+            raw = fpath.read_text(errors='replace')
+        except OSError:
+            return None
+        meta, body = parse_frontmatter(raw)
+        if not _front_matches(meta, filters):
+            return None
+        title = meta.get('title') or meta.get('name') or note_title(fpath.name, body)
+        return {'title': title, 'selector': selector, 'filename': fpath.name,
+                'type': itype, 'notebook': notebook or '',
+                'meta': {k: str(v) for k, v in meta.items()}}
+
     results = []
+
+    # Scan NB_DIR root dotfiles (.nb.md etc.) when no notebook filter is set
+    if not notebooks_raw:
+        for fpath in sorted(NB_DIR.iterdir()):
+            if fpath.is_file() and fpath.name.startswith('.'):
+                r = _scan_file(fpath, str(fpath))
+                if r:
+                    results.append(r)
+                    if len(results) >= limit:
+                        return jsonify(results)
+
     for notebook in nb_list:
         nb_dir = nb_dir_for(notebook)
         for dirpath_s, dirnames, filenames in os.walk(nb_dir):
@@ -3049,23 +3076,12 @@ def api_front_query():
             for fname in sorted(filenames):
                 fpath = dirpath / fname
                 rel   = str(fpath.relative_to(nb_dir))
-                itype = classify(fname, notebook)
-                if itype in BINARY_TYPES:
-                    continue
-                try:
-                    raw = fpath.read_text(errors='replace')
-                except OSError:
-                    continue
-                meta, body = parse_frontmatter(raw)
-                if not _front_matches(meta, filters):
-                    continue
-                title    = meta.get('title') or meta.get('name') or note_title(fname, body)
                 selector = f'{notebook}:{rel}'
-                results.append({'title': title, 'selector': selector, 'filename': fname,
-                                'type': itype, 'notebook': notebook,
-                                'meta': {k: str(v) for k, v in meta.items()}})
-                if len(results) >= limit:
-                    return jsonify(results)
+                r = _scan_file(fpath, selector, notebook)
+                if r:
+                    results.append(r)
+                    if len(results) >= limit:
+                        return jsonify(results)
 
     return jsonify(results)
 
