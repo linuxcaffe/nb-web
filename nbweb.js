@@ -202,6 +202,12 @@ const NbWeb = (() => {
         }
     }
 
+    // Synchronous read from the already-primed cache; returns {} if not loaded.
+    // Always call loadNotebookConfig first to warm the cache.
+    function getCachedNotebookConfig(notebook) {
+        return _notebookTypeConfigs.get(notebook) || {};
+    }
+
     // Bust the cache for a notebook — call after saving type config so the next
     // render re-fetches.
     function bustNotebookConfigCache(notebook) {
@@ -584,6 +590,7 @@ const NbWeb = (() => {
         getPreviewRenderer,
         getPreviewRenderers,
         loadNotebookConfig,
+        getCachedNotebookConfig,
         bustNotebookConfigCache,
         getRenderers,
         getRendererTypes,

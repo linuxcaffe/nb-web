@@ -2254,7 +2254,7 @@
                 row.appendChild(val);
             }
 
-            if (!node.has_config && node.level !== 'notebook') {
+            if (!node.has_config && node.level !== 'note') {
                 const createBtn = document.createElement('button');
                 createBtn.className = 'nb-tw-btn nb-config-create-btn';
                 createBtn.title = 'Create config file here';
@@ -2266,6 +2266,7 @@
                         const r = await fetch('/api/config-create', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
+                            // rel_path is '' for notebook root — backend maps that to notebook-level config
                             body: JSON.stringify({ notebook, folder: node.rel_path }),
                         });
                         const d = await r.json();

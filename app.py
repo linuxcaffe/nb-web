@@ -507,10 +507,10 @@ def _folder_config(notebook, note_path):
 
 
 def _effective_access(note_meta, nb_meta):
-    """Return the minimum level required to view a note.
+    """Return the access specifier for a note.
 
     Resolution order:
-      note access:    → explicit override, always wins
+      note access:    → explicit override (level string or username), always wins
       note user:      → inherits that user's level from their card
       notebook config → access: in .<notebook>.md
       system default  → 'user' (guests see nothing unless explicitly granted)
@@ -522,6 +522,18 @@ def _effective_access(note_meta, nb_meta):
         if card:
             return card.get('level', 'user')
     return str(nb_meta.get('access') or 'user')
+
+def _can_access(user, note_meta, nb_meta):
+    """Return True if user can access a note/folder/notebook.
+
+    Extends _effective_access to support username-specific access:
+      access: djp  → only the user with username 'djp' can see it.
+      tech level   → bypasses username-specific locks for recovery.
+    """
+    access = _effective_access(note_meta, nb_meta)
+    if access not in LEVELS:
+        return user.get('level') == 'tech' or user.get('username') == access
+    return _level_gte(user.get('level', ''), access)
 
 @app.before_request
 def _check_auth():
@@ -740,6 +752,7 @@ INDICATORS = {
     'day':         '📅',
     'resource':    '🎁',
     'note':        '',
+    'dotfile':     '⚙',
     'code':        '📋',
     'file':        '',
 }
@@ -769,7 +782,7 @@ INDICATORS = {
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource'})
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -2961,7 +2974,7 @@ def api_notebooks():
     user = session.get('user', {})
     user_level = user.get('level', '')
     names = [n for n in names
-             if _level_gte(user_level, _effective_access({}, _notebook_config(n)))]
+             if _can_access(user, {}, _notebook_config(n))]
     if _level_gte(user_level, 'admin'):
         names += [d for d in DOTFOLDERS if (NB_DIR / d).is_dir()]
     return jsonify({'notebooks': names, 'current_notebook': current_nb,
@@ -3519,7 +3532,7 @@ def _list_notes(notebook, folder, limit):
             if fcfg.exists():
                 try: fmeta, _ = parse_frontmatter(fcfg.read_text())
                 except Exception: pass
-            if not _level_gte(user.get('level', ''), _effective_access(fmeta, nb_meta)):
+            if not _can_access(user, fmeta, nb_meta):
                 continue
             items.append({
                 'type': 'folder', 'indicator': '📂',
@@ -3539,7 +3552,7 @@ def _list_notes(notebook, folder, limit):
                 continue
             meta, body = parse_frontmatter(raw)
             itype = _apply_meta_type(itype, meta)
-        if not _level_gte(user.get('level', ''), _effective_access(meta, nb_meta)):
+        if not _can_access(user, meta, nb_meta):
             continue
         title = meta.get('title') or meta.get('name') or note_title(fname, body)
         excerpt = _first_excerpt_line(body, meta)
@@ -4059,9 +4072,10 @@ def api_note():
     meta, body = parse_frontmatter(raw)
     itype = _apply_meta_type(itype, meta)
 
-    nb_meta = _notebook_config(note_notebook) if note_notebook else {}
+    full_meta = _folder_config(note_notebook, fpath) if note_notebook else {}
+    nb_meta   = full_meta  # includes global → notebook → folder walk-up
     user = session.get('user', {})
-    if not _level_gte(user.get('level', ''), _effective_access(meta, nb_meta)):
+    if not _can_access(user, meta, nb_meta):
         if request.args.get('inline'):
             return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
         return jsonify({'error': 'Access denied'}), 403
@@ -4101,6 +4115,7 @@ def api_note():
         'mtime':    datetime.fromtimestamp(Path(fpath).stat().st_mtime).strftime('%Y-%m-%d'),
         'locked':   locked,
         'lock_reason': lock_reason,
+        'effective_access': _effective_access(meta, nb_meta),
     })
 
 
@@ -6275,7 +6290,7 @@ def api_nb_notebooks():
     user = session.get('user', {})
     user_level = user.get('level', '')
     notebooks = [n for n in notebooks
-                 if _level_gte(user_level, _effective_access({}, _notebook_config(n['name'])))]
+                 if _can_access(user, {}, _notebook_config(n['name']))]
     if _level_gte(user_level, 'admin'):
         for df in DOTFOLDERS:
             df_path = NB_DIR / df
@@ -6703,14 +6718,11 @@ def api_nb_notebook_config():
         return jsonify(error='invalid notebook'), 400
     config_path = NB_DIR / notebook / f'.{notebook}.md'
     if request.method == 'GET':
+        merged_meta = _notebook_config(notebook)   # global + notebook merged
         if config_path.exists():
             raw = config_path.read_text(errors='replace')
-            try:
-                meta, _ = parse_frontmatter(raw)
-            except Exception:
-                meta = {}
-            return jsonify(content=raw, exists=True, meta=meta)
-        return jsonify(content='---\n# access: guest\n---\n', exists=False, meta={})
+            return jsonify(content=raw, exists=True, meta=merged_meta)
+        return jsonify(content='---\n# access: guest\n---\n', exists=False, meta=merged_meta)
     # PUT — admin+ only
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'admin'):

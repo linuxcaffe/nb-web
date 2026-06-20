@@ -1004,6 +1004,33 @@ body {
     opacity: 0.45;
 }
 
+/* ── Access badge — sits in #nb-cmd-output-bar, left of the × clear button ── */
+.nb-access-badge {
+    display: inline-block;
+    margin-left: auto;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.18em 0.6em;
+    border-radius: 999px;
+    font-family: var(--font-mono, monospace);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.nb-access-badge--inherited {
+    opacity: 0.6;
+    font-style: italic;
+    text-transform: none;
+    font-weight: 500;
+}
+.nb-access-badge[data-level="guest"]    { background: #d4edda; color: #1a6330; }
+.nb-access-badge[data-level="user"]     { background: #cce5ff; color: #004085; }
+.nb-access-badge[data-level="office"]   { background: #fff3cd; color: #856404; }
+.nb-access-badge[data-level="admin"]    { background: #f8d7da; color: #721c24; }
+.nb-access-badge[data-level="tech"]     { background: #343a40; color: #f8f9fa; }
+.nb-access-badge[data-level="username"] { background: #e2d9f3; color: #4a1b8a; }
+
 .nb-xref-ref {
     font-size: 0.6em; font-weight: normal; font-family: var(--font-mono, monospace);
     color: var(--link); opacity: 0.5; cursor: pointer;

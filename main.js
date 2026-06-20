@@ -1490,6 +1490,49 @@ const NbMain = (() => {
         }
         _appendAnnotation(container, note);
         if (note?.meta?.xref) _enrichXref(container, note);
+        _injectAccessBadge(note);
+    }
+
+    const _ACCESS_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];
+
+    function _injectAccessBadge(note) {
+        // Remove any existing badge; restore bar visibility if it was badge-only
+        const oldBadge = document.getElementById('nb-access-badge');
+        if (oldBadge) {
+            oldBadge.remove();
+            const bar    = document.getElementById('nb-cmd-output-bar');
+            const tokDiv = document.getElementById('nb-cmd-output-tokens');
+            if (bar && tokDiv && !tokDiv.hasChildNodes()) bar.hidden = true;
+        }
+
+        const nbCfg = NbWeb.getCachedNotebookConfig(note?.notebook);
+        // access_badge is a notebook/folder config setting — never read from note.meta,
+        // since dotfile frontmatter (e.g. .accts.md) would trigger it when viewed as a note.
+        const enabled = /^(true|yes|1|on)$/i.test(String(nbCfg?.access_badge ?? ''));
+        if (!enabled) return;
+
+        // effective_access from backend is the full resolved chain
+        // (note FM → folder config walk-up → notebook → global).
+        // Fall back to nbCfg.access only if the note predates the field.
+        const access    = note?.effective_access
+                          ? String(note.effective_access)
+                          : (note?.meta?.access ? String(note.meta.access)
+                             : (nbCfg?.access   ? String(nbCfg.access) : 'user'));
+        const inherited = !note?.meta?.access;
+        const isUser    = !_ACCESS_LEVELS.includes(access);
+
+        const clearBtn = document.getElementById('nb-cmd-output-clear');
+        const bar      = document.getElementById('nb-cmd-output-bar');
+        if (!clearBtn || !bar) return;
+
+        const badge = document.createElement('span');
+        badge.id        = 'nb-access-badge';
+        badge.className = 'nb-access-badge' + (inherited ? ' nb-access-badge--inherited' : '');
+        badge.dataset.level = isUser ? 'username' : access;
+        badge.textContent   = isUser ? `@${access}` : access;
+        badge.title = `access: ${access}${inherited ? ' (inherited)' : ' (inherited from notebook)'}`;
+        bar.insertBefore(badge, clearBtn);
+        bar.hidden = false;
     }
 
     // If unloaded inline spans remain after a TOC build, mark the TOC as partial
