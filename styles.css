@@ -1174,8 +1174,8 @@ body {
 
 /* Extras-hidden mode — toggled by ◉/○ button */
 #nb-preview-content.nb-extras-hidden .nb-fm-fallback { display: none; }
-/* Hide annotation foot only when it has content; spare the empty "Add annotation" button */
-#nb-preview-content.nb-extras-hidden .nb-annotation-foot:not(:has(.nb-ann-empty)) { display: none; }
+/* In extras-hidden mode, collapse annotation body but keep the bar (Edit/Add) visible */
+#nb-preview-content.nb-extras-hidden .nb-ann-body { display: none; }
 /* Changes button and panel mirror extras visibility */
 #nb-preview-pane.nb-extras-hidden #nb-changes-btn   { display: none !important; }
 #nb-preview-pane.nb-extras-hidden #nb-changes-panel { display: none !important; }
