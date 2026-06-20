@@ -2254,6 +2254,34 @@
                 row.appendChild(val);
             }
 
+            if (!node.has_config && node.level !== 'notebook') {
+                const createBtn = document.createElement('button');
+                createBtn.className = 'nb-tw-btn nb-config-create-btn';
+                createBtn.title = 'Create config file here';
+                createBtn.textContent = '＋ Create';
+                createBtn.addEventListener('click', async e => {
+                    e.stopPropagation();
+                    createBtn.disabled = true; createBtn.textContent = '⟳ creating…';
+                    try {
+                        const r = await fetch('/api/config-create', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ notebook, folder: node.rel_path }),
+                        });
+                        const d = await r.json();
+                        if (d.selector) {
+                            await _loadConfigBlock(el);
+                            NbMain.openNote(d.selector);
+                        } else {
+                            createBtn.disabled = false; createBtn.textContent = '＋ Create';
+                        }
+                    } catch {
+                        createBtn.disabled = false; createBtn.textContent = '＋ Create';
+                    }
+                });
+                row.appendChild(createBtn);
+            }
+
             body.appendChild(row);
             for (const child of (node.children || [])) _renderNode(child, depth + 1);
         }
