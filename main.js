@@ -1642,8 +1642,16 @@ const NbMain = (() => {
     // ── Annotation footnote ────────────────────────────────────────────────
 
     const _NO_ANNOTATION_TYPES = new Set();
+    function _setExtrasAnnotationHint(hasAnnotation) {
+        const btn = document.getElementById('nb-extras-btn');
+        if (!btn) return;
+        if (hasAnnotation) btn.dataset.hasAnnotation = '1';
+        else delete btn.dataset.hasAnnotation;
+    }
+
     function _appendAnnotation(container, note) {
         if (_NO_ANNOTATION_TYPES.has(note.meta?.type)) return;
+        _setExtrasAnnotationHint(!!note.annotation);
         const foot = document.createElement('div');
         foot.className = 'nb-annotation-foot';
         container.appendChild(foot);
@@ -1734,7 +1742,7 @@ const NbMain = (() => {
                     body: JSON.stringify({ content: body }),
                 });
                 const d = await r.json();
-                if (d.ok) { _noteCache.delete(note.selector); _close(d.annotation); }
+                if (d.ok) { _noteCache.delete(note.selector); _setExtrasAnnotationHint(!!d.annotation); _close(d.annotation); }
                 else { sb.textContent = _t('btn_save'); alert('✗ ' + (d.error || 'failed')); }
             } catch(e) { sb.textContent = _t('btn_save'); alert('✗ ' + e.message); }
         };
@@ -1746,6 +1754,7 @@ const NbMain = (() => {
             await fetch(`/api/note/annotate?selector=${encodeURIComponent(note.selector)}`,
                 { method: 'DELETE' });
             _noteCache.delete(note.selector);
+            _setExtrasAnnotationHint(false);
             _renderAnnotationFoot(foot, note, null);
         } catch(e) { /* silent */ }
     }

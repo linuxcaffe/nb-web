@@ -1174,8 +1174,18 @@ body {
 
 /* Extras-hidden mode — toggled by ◉/○ button */
 #nb-preview-content.nb-extras-hidden .nb-fm-fallback { display: none; }
-/* In extras-hidden mode, collapse annotation body but keep the bar (Edit/Add) visible */
-#nb-preview-content.nb-extras-hidden .nb-ann-body { display: none; }
+/* Hide annotation foot in extras-hidden mode; Add annotation button is exempt (nb-ann-empty) */
+#nb-preview-content.nb-extras-hidden .nb-annotation-foot:not(:has(.nb-ann-empty)) { display: none; }
+/* Dot badge on extras button when annotation exists but is hidden */
+#nb-extras-btn[data-has-annotation] { position: relative; }
+#nb-extras-btn[data-has-annotation].nb-active::after {
+  content: '';
+  position: absolute;
+  top: 3px; right: 3px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 /* Changes button and panel mirror extras visibility */
 #nb-preview-pane.nb-extras-hidden #nb-changes-btn   { display: none !important; }
 #nb-preview-pane.nb-extras-hidden #nb-changes-panel { display: none !important; }
