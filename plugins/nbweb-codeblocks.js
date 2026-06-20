@@ -2129,7 +2129,7 @@
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const nodes = await r.json();
             if (nodes.error) throw new Error(nodes.error);
-            _configRender(el, nodes, key, currentSelector, wasOpen);
+            _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder);
         } catch (e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
         }
@@ -2166,7 +2166,7 @@
         setTimeout(() => document.addEventListener('click', away, true), 0);
     }
 
-    function _configRender(el, nodes, key, currentSelector, wasOpen) {
+    function _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder) {
         el.innerHTML = '';
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
 
@@ -2260,21 +2260,33 @@
                 if (node.level === 'folder' || node.level === 'subfolder' || node.level === 'notebook') {
                     const createBtn = document.createElement('button');
                     createBtn.className = 'nb-tw-btn nb-config-create-btn';
-                    createBtn.title = 'Create config file';
-                    createBtn.textContent = '+';
+                    createBtn.title = 'Create config file here';
+                    createBtn.textContent = '＋ Create';
                     createBtn.addEventListener('click', async e => {
                         e.stopPropagation();
-                        createBtn.disabled = true; createBtn.textContent = '…';
+                        createBtn.disabled = true; createBtn.textContent = '⟳ creating…';
                         const body = { notebook };
-                        if (node.level !== 'notebook') body.folder = node.path.replace(/.*\/\.nb\/[^/]+\//, '').replace(/\/\.[^/]+\.md$/, '');
+                        if (node.level !== 'notebook') {
+                            // Derive folder from path: strip ~/.nb/{notebook}/ prefix and .{leaf}.md suffix
+                            const nbPrefix = new RegExp(`.*\\/\\.nb\\/${notebook}\\/`);
+                            body.folder = node.path.replace(nbPrefix, '').replace(/\/\.[^/]+\.md$/, '');
+                        }
                         try {
-                            const r = await fetch('/api/config-create', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+                            const r = await fetch('/api/config-create', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body),
+                            });
                             const d = await r.json();
                             if (d.selector) {
                                 await _loadConfigBlock(el);
                                 NbMain.openNote(d.selector);
+                            } else {
+                                createBtn.disabled = false; createBtn.textContent = '＋ Create';
                             }
-                        } catch { createBtn.disabled = false; createBtn.textContent = '+'; }
+                        } catch {
+                            createBtn.disabled = false; createBtn.textContent = '＋ Create';
+                        }
                     });
                     tdN.appendChild(createBtn);
                 }
