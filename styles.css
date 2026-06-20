@@ -3082,3 +3082,6 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-cfg-actions { display: flex; align-items: center; gap: 1em; }
 .nb-cfg-status  { font-size: 0.85em; color: var(--text-muted); }
 .nb-cfg-body    { padding: 1.5em 2em; border-top: 1px solid var(--border); }
+.nb-cfg-hint    { display: block; font-size: 0.78em; margin-top: 0.25em; min-height: 1em; }
+.nb-cfg-hint-inherit  { color: var(--text-dim, var(--text-muted)); }
+.nb-cfg-hint-override { color: var(--accent); }

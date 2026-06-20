@@ -4104,6 +4104,16 @@ def api_note():
     locked      = lk is not None
     lock_reason = lk.read_text(errors='replace').strip() or None if locked else None
 
+    # For config dotfiles, provide the parent chain (excluding this file) so the
+    # frontend can show inherited vs own values in the config form.
+    parent_meta = {}
+    if itype == 'dotfile' and meta.get('config') and note_notebook:
+        try:
+            parent_dir = Path(fpath).parent.parent
+            parent_meta = _folder_config(note_notebook, str(parent_dir))
+        except Exception:
+            parent_meta = {}
+
     return jsonify({
         'selector': selector,
         'notebook': note_notebook or '',
@@ -4125,6 +4135,7 @@ def api_note():
         'lock_reason': lock_reason,
         'effective_access': _effective_access(meta, nb_meta),
         'effective_checks':  nb_meta.get('checks'),
+        'parent_meta': parent_meta,
     })
 
 

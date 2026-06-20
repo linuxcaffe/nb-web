@@ -1861,13 +1861,40 @@ const NbMain = (() => {
     }
 
     function _buildConfigForm(container, note) {
-        const m = note.meta || {};
+        const m  = note.meta || {};
+        const pm = note.parent_meta || {};   // inherited from parent chain
         const ACCESS = ['', 'guest', 'user', 'office', 'admin'];
 
-        function row(label, ctrl) {
+        // Attach a muted hint span to an input/select; update on change.
+        // ownVal: current value in this file's FM (undefined/null = not set)
+        // inheritedVal: what the parent chain provides (undefined/null = nothing)
+        function _wireHint(el, ownVal, inheritedRaw) {
+            const hint = el.parentElement.querySelector('.nb-cfg-hint');
+            if (!hint) return;
+            const iStr = inheritedRaw !== undefined && inheritedRaw !== null
+                ? (Array.isArray(inheritedRaw) ? inheritedRaw.join(' ') : String(inheritedRaw))
+                : null;
+            function update() {
+                const cur = el.value.trim ? el.value.trim() : el.value;
+                if (!iStr) { hint.textContent = ''; return; }
+                if (!cur || cur === '') {
+                    hint.textContent = `inherits: ${iStr}`;
+                    hint.className = 'nb-cfg-hint nb-cfg-hint-inherit';
+                } else {
+                    hint.textContent = `takes precedence over inherited: ${iStr}`;
+                    hint.className = 'nb-cfg-hint nb-cfg-hint-override';
+                }
+            }
+            el.addEventListener('input',  update);
+            el.addEventListener('change', update);
+            update();
+        }
+
+        function row(label, ctrl, hint = '') {
+            const hintHtml = hint !== false ? `<span class="nb-cfg-hint"></span>` : '';
             return `<div class="nb-cfg-row">
                 <span class="nb-cfg-label">${_esc(label)}</span>
-                <div class="nb-cfg-ctrl">${ctrl}</div>
+                <div class="nb-cfg-ctrl">${ctrl}${hintHtml}</div>
             </div>`;
         }
 
@@ -1876,7 +1903,7 @@ const NbMain = (() => {
             ACCESS.map(v => `<option value="${v}"${(m.access ?? '') === v ? ' selected' : ''}>${v || '(inherit)'}</option>`).join('')
         }</select>`;
 
-        // prepend_date — tristate: inherit / true / false
+        // prepend_date — tristate
         const pdCur = m.prepend_date === undefined || m.prepend_date === null ? '' : String(m.prepend_date);
         const pdSel = `<select class="nb-cfg-select" name="prepend_date">${
             [['', '(inherit)'], ['true', 'true'], ['false', 'false']]
@@ -1899,12 +1926,12 @@ const NbMain = (() => {
 
         container.innerHTML = `<div class="nb-config-form">
             <div class="nb-cfg-fields">
-                ${row('config',       `<span class="nb-cfg-readonly">${_esc(m.config)}</span>`)}
+                ${row('config',       `<span class="nb-cfg-readonly">${_esc(m.config)}</span>`, false)}
                 ${row('access',       accessSel)}
                 ${row('pinned',       `<input class="nb-cfg-text" type="text" name="pinned" value="${_esc(m.pinned || '')}" placeholder="filename.md">`)}
                 ${row('prepend_date', pdSel)}
                 ${row('checks',       checksCtrl)}
-                ${row('tag_color',    tcCtrl)}
+                ${row('tag_color',    tcCtrl, false)}
             </div>
             <div class="nb-cfg-actions">
                 <button type="button" class="nb-cfg-save-btn nb-tw-btn">Save</button>
@@ -1913,6 +1940,12 @@ const NbMain = (() => {
         </div>${bodyHtml}`;
 
         const form = container.querySelector('.nb-config-form');
+
+        // Wire inherited hints
+        _wireHint(form.querySelector('[name=access]'),       m.access,       pm.access);
+        _wireHint(form.querySelector('[name=pinned]'),       m.pinned,       pm.pinned);
+        _wireHint(form.querySelector('[name=prepend_date]'), m.prepend_date, pm.prepend_date);
+        _wireHint(form.querySelector('[name=checks]'),       m.checks,       pm.checks);
 
         // Wire tag-color rows
         form.querySelectorAll('.nb-cfg-tc-row').forEach(r =>
