@@ -1506,9 +1506,9 @@ const NbMain = (() => {
     function _virtualTestPrefix(note) {
         if (note?.meta?.type === 'dotfile') return '';
         // Per-note FM wins; fall back to effective value from config chain
-        const raw = (note?.meta?.tests !== undefined)
-            ? note.meta.tests
-            : note?.effective_tests;
+        const raw = (note?.meta?.checks !== undefined)
+            ? note.meta.checks
+            : note?.effective_checks;
         // null (tests:), undefined, or empty string (tests: "") all suppress
         if (raw == null || raw === '' || raw === false) return '';
         const prefixes = Array.isArray(raw)
