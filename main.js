@@ -917,6 +917,11 @@ const NbMain = (() => {
                 });
             }
             return;
+        } else if (note.type === 'dotfile' && note.meta?.config) {
+            content.innerHTML = '<div class="nb-rendered nb-config-wrap"></div>';
+            _buildConfigForm(content.querySelector('.nb-config-wrap'), note);
+            _finishRendered(content, note);
+            return;
         } else if (_pluginHtml !== null) {
             html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
         } else if (note.type === 'sheet') {
@@ -1757,6 +1762,183 @@ const NbMain = (() => {
             _setExtrasAnnotationHint(false);
             _renderAnnotationFoot(foot, note, null);
         } catch(e) { /* silent */ }
+    }
+
+    // ── Config dotfile renderer ────────────────────────────────────────────────
+    // Triggered for type:dotfile notes with a config: FM field.
+    // Renders an editable form for known config fields, followed by body content.
+
+    function _cfgTagColorRow(tag, color) {
+        return `<div class="nb-cfg-tc-row">
+            <input class="nb-cfg-text nb-cfg-tc-name" type="text" value="${_esc(tag)}" placeholder="tag">
+            <input class="nb-cfg-color" type="color" value="${_esc(/^#[0-9a-f]{6}$/i.test(color) ? color : '#888888')}">
+            <button type="button" class="nb-cfg-tc-del nb-tw-btn">×</button>
+        </div>`;
+    }
+
+    function _configFmToContent(meta, body) {
+        const lines = ['---'];
+        const ORDER = ['config', 'type', 'title', 'date', 'access', 'pinned', 'prepend_date', 'checks', 'tag_color'];
+        const handled = new Set();
+        function emit(key, v) {
+            if (key === 'tag_color' && v && typeof v === 'object' && !Array.isArray(v)) {
+                lines.push('tag_color:');
+                for (const [t, c] of Object.entries(v)) lines.push(`  ${t}: '${c}'`);
+            } else if (v === null || v === undefined) {
+                lines.push(`${key}:`);
+            } else if (Array.isArray(v)) {
+                lines.push(`${key}: [${v.join(', ')}]`);
+            } else if (typeof v === 'boolean') {
+                lines.push(`${key}: ${v}`);
+            } else {
+                lines.push(`${key}: ${v}`);
+            }
+        }
+        for (const key of ORDER) {
+            if (key in meta) { emit(key, meta[key]); handled.add(key); }
+        }
+        for (const [key, val] of Object.entries(meta)) {
+            if (!handled.has(key)) emit(key, val);
+        }
+        lines.push('---');
+        if (body && body.trim()) lines.push('', body.trim());
+        return lines.join('\n') + '\n';
+    }
+
+    async function _saveConfigForm(form, note, statusEl) {
+        const meta = { ...note.meta };
+
+        const access = form.querySelector('[name=access]').value;
+        if (access) meta.access = access; else delete meta.access;
+
+        const pinned = form.querySelector('[name=pinned]').value.trim();
+        if (pinned) meta.pinned = pinned; else delete meta.pinned;
+
+        const pd = form.querySelector('[name=prepend_date]').value;
+        if (pd === '') delete meta.prepend_date;
+        else meta.prepend_date = (pd === 'true');
+
+        const suppressChecks = form.querySelector('[name=checks-suppress]').checked;
+        const checksText = form.querySelector('[name=checks]').value.trim();
+        if (suppressChecks) meta.checks = null;
+        else if (checksText) meta.checks = checksText.split(/\s+/).filter(Boolean);
+        else delete meta.checks;
+
+        const tcRows = [...form.querySelectorAll('.nb-cfg-tc-row')];
+        if (tcRows.length) {
+            const tc = {};
+            tcRows.forEach(r => {
+                const t = r.querySelector('.nb-cfg-tc-name').value.trim();
+                const c = r.querySelector('.nb-cfg-color').value;
+                if (t) tc[t] = c;
+            });
+            if (Object.keys(tc).length) meta.tag_color = tc; else delete meta.tag_color;
+        } else {
+            delete meta.tag_color;
+        }
+
+        const newContent = _configFmToContent(meta, note.body);
+        statusEl.textContent = 'Saving…';
+        form.querySelector('.nb-cfg-save-btn').disabled = true;
+        try {
+            const r = await fetch('/api/note', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ selector: note.selector, content: newContent }),
+            });
+            const d = await r.json();
+            if (d.success) {
+                NbMain.bustNoteCache(note.selector);
+                NbWeb.bustNotebookConfigCache(note.notebook);
+                statusEl.textContent = 'Saved';
+                setTimeout(() => { statusEl.textContent = ''; }, 2000);
+            } else {
+                statusEl.textContent = '✗ ' + (d.stderr || d.error || 'failed');
+            }
+        } catch(e) {
+            statusEl.textContent = '✗ ' + e.message;
+        } finally {
+            form.querySelector('.nb-cfg-save-btn').disabled = false;
+        }
+    }
+
+    function _buildConfigForm(container, note) {
+        const m = note.meta || {};
+        const ACCESS = ['', 'guest', 'user', 'office', 'admin'];
+
+        function row(label, ctrl) {
+            return `<div class="nb-cfg-row">
+                <span class="nb-cfg-label">${_esc(label)}</span>
+                <div class="nb-cfg-ctrl">${ctrl}</div>
+            </div>`;
+        }
+
+        // access
+        const accessSel = `<select class="nb-cfg-select" name="access">${
+            ACCESS.map(v => `<option value="${v}"${(m.access ?? '') === v ? ' selected' : ''}>${v || '(inherit)'}</option>`).join('')
+        }</select>`;
+
+        // prepend_date — tristate: inherit / true / false
+        const pdCur = m.prepend_date === undefined || m.prepend_date === null ? '' : String(m.prepend_date);
+        const pdSel = `<select class="nb-cfg-select" name="prepend_date">${
+            [['', '(inherit)'], ['true', 'true'], ['false', 'false']]
+                .map(([v, l]) => `<option value="${v}"${pdCur === v ? ' selected' : ''}>${l}</option>`).join('')
+        }</select>`;
+
+        // checks
+        const checksNull = 'checks' in m && (m.checks === null || m.checks === '');
+        const checksVal  = checksNull ? '' : Array.isArray(m.checks) ? m.checks.join(' ') : (m.checks || '');
+        const checksCtrl = `<div class="nb-cfg-checks-wrap">
+            <input class="nb-cfg-text" type="text" name="checks" value="${_esc(checksVal)}" placeholder="e.g. nb- hl-">
+            <label class="nb-cfg-suppress"><input type="checkbox" name="checks-suppress"${checksNull ? ' checked' : ''}> suppress inherited</label>
+        </div>`;
+
+        // tag_color
+        const tc = (m.tag_color && typeof m.tag_color === 'object') ? m.tag_color : {};
+        const tcHtml = Object.entries(tc).map(([t, c]) => _cfgTagColorRow(t, c)).join('');
+        const tcCtrl = `<div class="nb-cfg-tc-list">${tcHtml}</div>
+            <button type="button" class="nb-cfg-tc-add nb-tw-btn">+ tag color</button>`;
+
+        const bodyHtml = note.body
+            ? `<div class="nb-cfg-body nb-rendered">${_renderMarkdown(note.body, note.selector)}</div>`
+            : '';
+
+        container.innerHTML = `<div class="nb-config-form">
+            <div class="nb-cfg-fields">
+                ${row('config',       `<span class="nb-cfg-readonly">${_esc(m.config)}</span>`)}
+                ${row('access',       accessSel)}
+                ${row('pinned',       `<input class="nb-cfg-text" type="text" name="pinned" value="${_esc(m.pinned || '')}" placeholder="filename.md">`)}
+                ${row('prepend_date', pdSel)}
+                ${row('checks',       checksCtrl)}
+                ${row('tag_color',    tcCtrl)}
+            </div>
+            <div class="nb-cfg-actions">
+                <button type="button" class="nb-cfg-save-btn nb-tw-btn">Save</button>
+                <span class="nb-cfg-status"></span>
+            </div>
+        </div>${bodyHtml}`;
+
+        const form = container.querySelector('.nb-config-form');
+
+        // Wire tag-color rows
+        form.querySelectorAll('.nb-cfg-tc-row').forEach(r =>
+            r.querySelector('.nb-cfg-tc-del').addEventListener('click', () => r.remove()));
+
+        form.querySelector('.nb-cfg-tc-add').addEventListener('click', () => {
+            const list = form.querySelector('.nb-cfg-tc-list');
+            const div = document.createElement('div');
+            div.innerHTML = _cfgTagColorRow('', '#888888');
+            const newRow = div.firstElementChild;
+            newRow.querySelector('.nb-cfg-tc-del').addEventListener('click', () => newRow.remove());
+            list.appendChild(newRow);
+            newRow.querySelector('.nb-cfg-tc-name').focus();
+        });
+
+        form.querySelector('.nb-cfg-save-btn').addEventListener('click', () =>
+            _saveConfigForm(form, note, form.querySelector('.nb-cfg-status')));
+
+        const bodyEl = container.querySelector('.nb-cfg-body');
+        if (bodyEl) _enrichRendered(bodyEl, note);
     }
 
     // ── Frontmatter Changes panel (toolbar button → panel below toolbar) ──────
