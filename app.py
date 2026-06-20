@@ -4142,9 +4142,8 @@ def _read_annotation(note_path: str) -> str | None:
     ap = _annotation_path(note_path)
     if not ap.exists():
         return None
-    raw = ap.read_text(errors='replace')
-    _, body = parse_frontmatter(raw)
-    return body.strip()  # '' = sidecar exists but body empty; None = no sidecar file
+    raw = ap.read_text(errors='replace').strip()
+    return raw or None  # None = no sidecar / completely empty file
 
 def _merged_meta(note_path: str, note_meta: dict) -> dict:
     """Return effective meta: annotation FM as base, note FM wins on collision.

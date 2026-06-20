@@ -1647,11 +1647,20 @@ const NbMain = (() => {
         const foot = document.createElement('div');
         foot.className = 'nb-annotation-foot';
         container.appendChild(foot);
-        _renderAnnotationFoot(foot, note, note.annotation ?? null);
+        _renderAnnotationFoot(foot, note, note.annotation || null);
+    }
+
+    function _annBodyText(raw) {
+        // Strip YAML frontmatter block from annotation text before display.
+        // The raw sidecar content is shown as-is in the editor; display strips FM.
+        if (!raw) return raw;
+        const m = raw.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
+        return m ? m[1].trim() : raw;
     }
 
     function _renderAnnotationFoot(foot, note, text) {
-        if (text !== null) {
+        if (text) {
+            const displayText = _annBodyText(text);
             foot.innerHTML = `
                 <div class="nb-ann-bar">
                     <span class="nb-ann-label">📝 Annotation</span>
@@ -1660,7 +1669,7 @@ const NbMain = (() => {
                         <button class="nb-ann-del-btn nb-tw-btn">Delete</button>
                     </span>
                 </div>
-                <div class="nb-ann-body nb-rendered">${_renderMarkdown(text)}</div>`;
+                <div class="nb-ann-body nb-rendered">${_renderMarkdown(displayText)}</div>`;
 
             _enrichRendered(foot.querySelector('.nb-ann-body'), note);
             foot.querySelector('.nb-ann-edit-btn').addEventListener('click', () =>
