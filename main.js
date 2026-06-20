@@ -1512,6 +1512,7 @@ const NbMain = (() => {
         if (!note?.meta) return;
         const frags = [];
         for (const [key, val] of Object.entries(note.meta)) {
+            if (key === 'check') continue; // directive, not a toolbar block
             const r = NbWeb.getCodeblockRenderer(key);
             if (!r) continue;
             const query = val === true ? '' : String(val ?? '').trim();
@@ -1524,15 +1525,15 @@ const NbMain = (() => {
     }
 
     // Build synthetic Type-1 test fences from `tests:` FM or config chain.
-    // tests: hl-          → one block running all hl-* scripts
-    // tests: [nb-, hl-]   → two blocks, one per prefix
-    // tests: ""           → empty string suppresses inherited (returns '')
+    // check: hl-          → one block running all hl-* scripts
+    // check: [nb-, hl-]   → two blocks, one per prefix
+    // check: ""           → empty string suppresses inherited (returns '')
     // Dotfiles are the SOURCE of config — never self-inject.
     function _virtualTestPrefix(note) {
         if (note?.meta?.type === 'dotfile') return '';
         // Per-note FM wins; fall back to effective value from config chain
-        const raw = (note?.meta?.checks !== undefined)
-            ? note.meta.checks
+        const raw = (note?.meta?.check !== undefined)
+            ? note.meta.check
             : note?.effective_checks;
         // null (tests:), undefined, or empty string (tests: "") all suppress
         if (raw == null || raw === '' || raw === false) return '';
@@ -1798,7 +1799,7 @@ const NbMain = (() => {
 
     function _configFmToContent(meta, body) {
         const lines = ['---'];
-        const ORDER = ['config', 'type', 'title', 'date', 'access', 'pinned', 'prepend_date', 'checks', 'tag_color'];
+        const ORDER = ['config', 'type', 'title', 'date', 'access', 'pinned', 'prepend_date', 'check', 'tag_color'];
         const handled = new Set();
         function emit(key, v) {
             if (key === 'tag_color' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -1838,9 +1839,9 @@ const NbMain = (() => {
         if (pd === '') delete meta.prepend_date;
         else meta.prepend_date = (pd === 'true');
 
-        const checksText = form.querySelector('[name=checks]').value.trim();
-        if (checksText) meta.checks = checksText.split(/\s+/).filter(Boolean);
-        else delete meta.checks;
+        const checksText = form.querySelector('[name=check]').value.trim();
+        if (checksText) meta.check = checksText.split(/\s+/).filter(Boolean);
+        else delete meta.check;
 
         const tcRows = [...form.querySelectorAll('.nb-cfg-tc-row')];
         if (tcRows.length) {
@@ -1930,9 +1931,9 @@ const NbMain = (() => {
                 .map(([v, l]) => `<option value="${v}"${pdCur === v ? ' selected' : ''}>${l}</option>`).join('')
         }</select>`;
 
-        // checks
-        const checksVal = Array.isArray(m.checks) ? m.checks.join(' ') : (m.checks || '');
-        const checksCtrl = `<input class="nb-cfg-text" type="text" name="checks" value="${_esc(checksVal)}" placeholder="e.g. nb- hl- (empty = inherit)">`;
+        // check
+        const checksVal = Array.isArray(m.check) ? m.check.join(' ') : (m.check || '');
+        const checksCtrl = `<input class="nb-cfg-text" type="text" name="check" value="${_esc(checksVal)}" placeholder="e.g. nb- hl- (empty = inherit)">`;
 
         // tag_color
         const tc = (m.tag_color && typeof m.tag_color === 'object') ? m.tag_color : {};
@@ -1961,7 +1962,7 @@ const NbMain = (() => {
                 ${row('access',       accessSel)}
                 ${row('pinned',       `<input class="nb-cfg-text" type="text" name="pinned" value="${_esc(m.pinned || '')}" placeholder="filename.md">`)}
                 ${row('prepend_date', pdSel)}
-                ${row('checks',       checksCtrl)}
+                ${row('check',        checksCtrl)}
                 ${row('tag_color',    tcCtrl, false)}
             </div>
             <div class="nb-cfg-actions">
@@ -1976,7 +1977,7 @@ const NbMain = (() => {
         _wireHint(form.querySelector('[name=access]'),       m.access,       pm.access);
         _wireHint(form.querySelector('[name=pinned]'),       m.pinned,       pm.pinned);
         _wireHint(form.querySelector('[name=prepend_date]'), m.prepend_date, pm.prepend_date);
-        _wireHint(form.querySelector('[name=checks]'),       m.checks,       pm.checks);
+        _wireHint(form.querySelector('[name=check]'),        m.check,        pm.check);
 
         // Wire tag-color rows
         form.querySelectorAll('.nb-cfg-tc-row').forEach(r =>
