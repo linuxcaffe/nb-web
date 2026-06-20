@@ -1027,7 +1027,7 @@ const NbMain = (() => {
             }
             // Unknown types (plugin types like 'account', 'contact', etc.) render as markdown.
             // Only raw-display if there's genuinely no body to render.
-            html = _renderFmFallback(note.meta) + _renderMarkdown(note.body, note.selector);
+            html = _renderFmFallback(note.meta) + _renderMarkdown(_virtualTestPrefix(note) + (note.body || ''), note.selector);
         }
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
@@ -1491,6 +1491,26 @@ const NbMain = (() => {
         _appendAnnotation(container, note);
         if (note?.meta?.xref) _enrichXref(container, note);
         _injectAccessBadge(note);
+    }
+
+    // Build synthetic Type-1 test fences from `tests:` FM or config chain.
+    // tests: hl-          → one block running all hl-* scripts
+    // tests: [nb-, hl-]   → two blocks, one per prefix
+    // tests: ""           → empty string suppresses inherited (returns '')
+    // Dotfiles are the SOURCE of config — never self-inject.
+    function _virtualTestPrefix(note) {
+        if (note?.meta?.type === 'dotfile') return '';
+        // Per-note FM wins; fall back to effective value from config chain
+        const raw = (note?.meta?.tests !== undefined)
+            ? note.meta.tests
+            : note?.effective_tests;
+        // null (tests:), undefined, or empty string (tests: "") all suppress
+        if (raw == null || raw === '' || raw === false) return '';
+        const prefixes = Array.isArray(raw)
+            ? raw.map(s => String(s).trim()).filter(Boolean)
+            : String(raw).trim().split(/[\s,]+/).filter(Boolean);
+        if (!prefixes.length) return '';
+        return prefixes.map(p => `\`\`\`test\n${p}\n\`\`\``).join('\n') + '\n\n';
     }
 
     const _ACCESS_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];

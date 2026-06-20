@@ -4116,6 +4116,7 @@ def api_note():
         'locked':   locked,
         'lock_reason': lock_reason,
         'effective_access': _effective_access(meta, nb_meta),
+        'effective_tests':  nb_meta.get('tests'),
     })
 
 
