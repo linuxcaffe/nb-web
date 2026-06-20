@@ -117,8 +117,6 @@ _SETTINGS_SCHEMA = {
                             str(k): str(Path(os.path.expanduser(str(p))).resolve())
                             for k, p in (v.items() if isinstance(v, dict) else {}.items())
                         }},
-    'default_git_remote': {'type': str, 'default': '',
-                            'coerce': lambda v: str(v).strip()},
     'notebook_prefs':     {'type': dict, 'default': {},
                             'coerce': lambda v: v if isinstance(v, dict) else {}},
     'vcf_source':         {'type': str, 'default': '~/Downloads/contacts.vcf',
@@ -138,10 +136,6 @@ _SETTINGS_SCHEMA = {
                                 }
                                 for p in v if isinstance(p, dict) and p.get('url')
                             ] if isinstance(v, list) else []},
-    'codeblock_access':   {'type': dict, 'default': {},
-                            'coerce': lambda v: v if isinstance(v, dict) else {}},
-    'lang':               {'type': str,  'default': 'en',
-                            'coerce': lambda v: str(v).strip().lower()[:5] or 'en'},
 }
 
 def _load_settings():
@@ -179,16 +173,9 @@ _settings = _load_settings()
 
 
 def _effective_setting(key, default=None):
-    """Read a config key: .nb.md wins over nb-settings.json.
-
-    Allows portable settings (default_git_remote, codeblock_access, lang) to
-    live in the undercarriage repo and travel with the machine setup, while
-    nb-settings.json remains a thin residual for truly machine-specific values.
-    """
+    """Read a portable config key from ~/.nb/.nb.md."""
     val = _global_config().get(key)
-    if val is not None:
-        return val
-    return _load_settings().get(key, default)
+    return val if val is not None else default
 
 
 def _cb_write_allowed(block_type):
@@ -8120,13 +8107,7 @@ def api_nb_settings():
                 return jsonify({'error': f'Invalid value for {key}: {e}'}), 400
         _save_settings(validated)
         _settings = _load_settings()
-    result = dict(_settings)
-    # Reflect effective values for portable keys so the UI shows what's actually in use
-    for key in ('default_git_remote', 'codeblock_access', 'lang'):
-        effective = _effective_setting(key)
-        if effective is not None:
-            result[key] = effective
-    return jsonify(result)
+    return jsonify(_settings)
 
 
 @app.route('/api/locale')
