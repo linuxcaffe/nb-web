@@ -1818,10 +1818,8 @@ const NbMain = (() => {
         if (pd === '') delete meta.prepend_date;
         else meta.prepend_date = (pd === 'true');
 
-        const suppressChecks = form.querySelector('[name=checks-suppress]').checked;
         const checksText = form.querySelector('[name=checks]').value.trim();
-        if (suppressChecks) meta.checks = null;
-        else if (checksText) meta.checks = checksText.split(/\s+/).filter(Boolean);
+        if (checksText) meta.checks = checksText.split(/\s+/).filter(Boolean);
         else delete meta.checks;
 
         const tcRows = [...form.querySelectorAll('.nb-cfg-tc-row')];
@@ -1886,12 +1884,8 @@ const NbMain = (() => {
         }</select>`;
 
         // checks
-        const checksNull = 'checks' in m && (m.checks === null || m.checks === '');
-        const checksVal  = checksNull ? '' : Array.isArray(m.checks) ? m.checks.join(' ') : (m.checks || '');
-        const checksCtrl = `<div class="nb-cfg-checks-wrap">
-            <input class="nb-cfg-text" type="text" name="checks" value="${_esc(checksVal)}" placeholder="e.g. nb- hl-">
-            <label class="nb-cfg-suppress"><input type="checkbox" name="checks-suppress"${checksNull ? ' checked' : ''}> suppress inherited</label>
-        </div>`;
+        const checksVal = Array.isArray(m.checks) ? m.checks.join(' ') : (m.checks || '');
+        const checksCtrl = `<input class="nb-cfg-text" type="text" name="checks" value="${_esc(checksVal)}" placeholder="e.g. nb- hl- (empty = inherit)">`;
 
         // tag_color
         const tc = (m.tag_color && typeof m.tag_color === 'object') ? m.tag_color : {};
