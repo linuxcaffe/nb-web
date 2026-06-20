@@ -3261,10 +3261,14 @@ def api_config_create():
     if tpl_path.exists():
         tpl = tpl_path.read_text()
     else:
-        tpl = '---\nconfig: folder\ndate: {{date}}\n---\n\n<!-- {{folder}} config -->\n'
+        tpl = '---\nconfig: {{folder}}\ntitle: {{folder_path}} config\ndate: {{date}}\n---\n\n<!-- {{folder_path}} — describe this folder here -->\n'
 
-    content = _resolve_template_vars(tpl, title=leaf)
-    content = content.replace('{{folder}}', leaf).replace('{{notebook}}', notebook)
+    folder_path = f"{notebook}/{folder}" if folder else notebook
+    content = _resolve_template_vars(tpl, title=folder_path)
+    content = (content
+               .replace('{{folder}}',      leaf)
+               .replace('{{notebook}}',    notebook)
+               .replace('{{folder_path}}', folder_path))
 
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(content)
