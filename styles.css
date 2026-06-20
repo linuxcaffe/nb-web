@@ -1186,9 +1186,7 @@ body {
   border-radius: 50%;
   background: var(--accent);
 }
-/* Changes button and panel mirror extras visibility */
-#nb-preview-pane.nb-extras-hidden #nb-changes-btn   { display: none !important; }
-#nb-preview-pane.nb-extras-hidden #nb-changes-panel { display: none !important; }
+/* FM panel stays visible regardless of extras-hidden mode */
 
 /* Empty-field toggle in fm fallback — hide empty rows by default */
 .nb-fm-fallback .nb-fm-empty-row { display: none; }

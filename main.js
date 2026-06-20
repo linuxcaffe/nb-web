@@ -2751,7 +2751,6 @@ const NbMain = (() => {
             if (hidden) {
                 const panel = document.getElementById('nb-changes-panel');
                 if (panel) panel.hidden = true;
-                document.getElementById('nb-changes-btn')?.classList.remove('nb-active');
             }
         };
         _apply(localStorage.getItem(_EXTRAS_KEY) === '1');
