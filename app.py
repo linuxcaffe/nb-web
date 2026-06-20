@@ -3491,6 +3491,20 @@ def _list_notes(notebook, folder, limit):
     user    = session.get('user', {})
     nb_meta = _notebook_config(notebook)
 
+    # Read the current folder's own config for folder-level pinned: setting
+    folder_pinned = ''
+    if folder:
+        leaf = folder.split('/')[-1]
+        fcfg_path = folder_path / f'.{leaf}.md'
+    else:
+        fcfg_path = nb_path / f'.{notebook}.md'
+    if fcfg_path.exists():
+        try:
+            fcfg_meta, _ = parse_frontmatter(fcfg_path.read_text())
+            folder_pinned = str(fcfg_meta.get('pinned', '') or '').strip()
+        except Exception:
+            pass
+
     items = []
     for pos, fname in enumerate(reversed(index)):   # newest first
         item_id = total - pos                        # ID: last entry = total
@@ -3544,7 +3558,7 @@ def _list_notes(notebook, folder, limit):
             'selector':   f"{notebook}:{sel_path}",
             'excerpt':    excerpt,
             'updated':    '',
-            'pinned':     meta.get('pinned', '') == 'true',
+            'pinned':     meta.get('pinned', '') == 'true' or bool(folder_pinned and fname in (folder_pinned, folder_pinned if folder_pinned.endswith('.md') else folder_pinned + '.md')),
             'status':     todo_status,
             'annotation': _read_annotation(str(fpath)),
         }
