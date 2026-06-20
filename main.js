@@ -1498,9 +1498,29 @@ const NbMain = (() => {
             _markTocPartial(container);
             _watchInlineTocRebuild(container, note);
         }
+        _buildFmBlocks(note);
         _appendAnnotation(container, note);
         if (note?.meta?.xref) _enrichXref(container, note);
         _injectAccessBadge(note);
+    }
+
+    async function _buildFmBlocks(note) {
+        const wrap = document.getElementById('nb-fm-blocks');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        wrap.hidden = true;
+        if (!note?.meta) return;
+        const frags = [];
+        for (const [key, val] of Object.entries(note.meta)) {
+            const r = NbWeb.getCodeblockRenderer(key);
+            if (!r) continue;
+            const query = val === true ? '' : String(val ?? '').trim();
+            frags.push(r.html(query));
+        }
+        if (!frags.length) return;
+        wrap.innerHTML = frags.join('');
+        wrap.hidden = false;
+        await NbWeb.renderCodeblocks(wrap);
     }
 
     // Build synthetic Type-1 test fences from `tests:` FM or config chain.

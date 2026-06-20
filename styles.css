@@ -1004,6 +1004,13 @@ body {
     opacity: 0.45;
 }
 
+/* FM-declared codeblocks — rendered between TOC bar and note body */
+#nb-fm-blocks {
+  border-bottom: 1px solid var(--border);
+}
+#nb-fm-blocks > * { margin: 0; border-radius: 0; border-left: none; border-right: none; border-top: none; }
+#nb-preview-toolbar[hidden] ~ * ~ #nb-fm-blocks { display: none !important; }
+
 /* ── Access badge — sits in #nb-cmd-output-bar, left of the × clear button ── */
 .nb-access-badge {
     display: inline-block;
