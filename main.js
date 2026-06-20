@@ -1515,7 +1515,7 @@ const NbMain = (() => {
             ? raw.map(s => String(s).trim()).filter(Boolean)
             : String(raw).trim().split(/[\s,]+/).filter(Boolean);
         if (!prefixes.length) return '';
-        return prefixes.map(p => `\`\`\`test\n${p}\n\`\`\``).join('\n') + '\n\n';
+        return prefixes.map(p => `\`\`\`check\n${p}\n\`\`\``).join('\n') + '\n\n';
     }
 
     const _ACCESS_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];
