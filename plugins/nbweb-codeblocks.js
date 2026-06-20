@@ -2206,6 +2206,11 @@
         hdr.appendChild(meta);
         const acts = document.createElement('span');
         acts.className = 'nb-config-actions';
+        const helpBtn = document.createElement('button');
+        helpBtn.className = 'nb-tw-btn nb-config-btn';
+        helpBtn.title = 'Help'; helpBtn.textContent = '?';
+        helpBtn.addEventListener('click', e => { e.stopPropagation(); _configHelpPopover(helpBtn); });
+        acts.appendChild(helpBtn);
         const refBtn = document.createElement('button');
         refBtn.className = 'nb-tw-btn nb-config-btn';
         refBtn.title = 'Refresh'; refBtn.textContent = '↻';
@@ -2254,6 +2259,14 @@
         }
 
         _renderNode(tree, 0);
+
+        if (attribute && !tree.has_attr && !(tree.children || []).length) {
+            const hint = document.createElement('div');
+            hint.className = 'nb-config-tree-hint';
+            hint.textContent = `No folders in ${notebook} have ${attribute}: set yet. Use ＋ Create to add a folder config.`;
+            body.appendChild(hint);
+        }
+
         el.appendChild(body);
     }
 

@@ -2106,6 +2106,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-tree-name { background: none; border: none; padding: 0; text-align: left; white-space: nowrap; color: var(--text); }
 .nb-config-tree-name.nb-nav-link { color: var(--link, #4a9eff); cursor: pointer; }
 .nb-config-tree-val  { color: var(--accent-alt, #f0a500); margin-left: 0.5em; }
+.nb-config-tree-hint { font-size: 0.8em; color: var(--text-muted); padding: 0.4em 0.5em; font-family: var(--font-sans, system-ui); font-style: italic; }
 
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }
