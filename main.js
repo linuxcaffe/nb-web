@@ -1924,7 +1924,18 @@ const NbMain = (() => {
             ? `<div class="nb-cfg-body nb-rendered">${_renderMarkdown(note.body, note.selector)}</div>`
             : '';
 
+        const effAccess = note.effective_access || '';
+        const accessMeta = effAccess
+            ? `<span class="nb-cfg-meta-item">access: ${_esc(effAccess)}</span>`
+            : '';
+        const headerBar = `<div class="nb-cfg-meta">
+            <span class="nb-cfg-meta-item nb-cfg-meta-sel">${_esc(note.selector)}</span>
+            <span class="nb-cfg-meta-item">modified ${_esc(note.mtime || '')}</span>
+            ${accessMeta}
+        </div>`;
+
         container.innerHTML = `<div class="nb-config-form">
+            ${headerBar}
             <div class="nb-cfg-fields">
                 ${row('config',       `<span class="nb-cfg-readonly">${_esc(m.config)}</span>`, false)}
                 ${row('access',       accessSel)}

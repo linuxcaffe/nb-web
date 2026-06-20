@@ -3056,6 +3056,12 @@ span.nb-cb-icon.nb-cb-icon--large {
 
 /* ── Config dotfile renderer ──────────────────────────────────────────────── */
 .nb-config-form { padding: 1.5em 2em; max-width: 640px; }
+.nb-cfg-meta {
+  display: flex; flex-wrap: wrap; gap: 0.5em 1.5em;
+  padding: 0.5em 0 1.2em;
+  font-size: 0.8em; color: var(--text-muted);
+}
+.nb-cfg-meta-sel { font-family: var(--font-mono, monospace); color: var(--text); }
 .nb-cfg-fields  { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 1em; }
 .nb-cfg-row {
   display: flex; align-items: flex-start; gap: 1em;
