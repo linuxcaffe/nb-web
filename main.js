@@ -1647,11 +1647,11 @@ const NbMain = (() => {
         const foot = document.createElement('div');
         foot.className = 'nb-annotation-foot';
         container.appendChild(foot);
-        _renderAnnotationFoot(foot, note, note.annotation || null);
+        _renderAnnotationFoot(foot, note, note.annotation ?? null);
     }
 
     function _renderAnnotationFoot(foot, note, text) {
-        if (text) {
+        if (text !== null) {
             foot.innerHTML = `
                 <div class="nb-ann-bar">
                     <span class="nb-ann-label">📝 Annotation</span>
