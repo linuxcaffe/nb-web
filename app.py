@@ -178,9 +178,22 @@ def _save_settings(patch):
 _settings = _load_settings()
 
 
+def _effective_setting(key, default=None):
+    """Read a config key: .nb.md wins over nb-settings.json.
+
+    Allows portable settings (default_git_remote, codeblock_access, lang) to
+    live in the undercarriage repo and travel with the machine setup, while
+    nb-settings.json remains a thin residual for truly machine-specific values.
+    """
+    val = _global_config().get(key)
+    if val is not None:
+        return val
+    return _load_settings().get(key, default)
+
+
 def _cb_write_allowed(block_type):
     """Return True if the current session user meets the write level for block_type."""
-    level = (_settings.get('codeblock_access') or {}).get(block_type, {}).get('write')
+    level = (_effective_setting('codeblock_access') or {}).get(block_type, {}).get('write')
     if not level:
         return True
     user = session.get('user', {})
@@ -4884,7 +4897,7 @@ def api_nb_sync_status():
                               cwd=str(nb_path), timeout=5, env=env)
     has_remote = bool(remote_r.stdout.strip())
     if not has_remote:
-        default_remote = _load_settings().get('default_git_remote', '').strip()
+        default_remote = (_effective_setting('default_git_remote') or '').strip()
         return jsonify({'changes': 0, 'has_remote': False, 'unpushed': 0, 'files': [],
                         'default_remote': default_remote})
     unpushed = 0
@@ -5130,10 +5143,9 @@ def api_nb_git_log():
 @app.route('/api/nb/git-wire', methods=['POST'])
 def api_nb_git_wire():
     """Configure default remote for all unremoted nb notebooks, branch = notebook name."""
-    cfg = _load_settings()
-    default_remote = cfg.get('default_git_remote', '').strip()
+    default_remote = (_effective_setting('default_git_remote') or '').strip()
     if not default_remote:
-        return jsonify({'error': 'No default_git_remote set. Add it in Settings → Git.'})
+        return jsonify({'error': 'No default_git_remote set. Add it in Settings → Git or .nb.md.'})
 
     env = {**os.environ, 'GIT_PAGER': 'cat', 'NO_COLOR': '1',
            'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true'}
@@ -5204,10 +5216,10 @@ def api_nb_wire_notebook():
         return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found.'})
 
     if not remote_url:
-        remote_url = _load_settings().get('default_git_remote', '').strip()
+        remote_url = (_effective_setting('default_git_remote') or '').strip()
     if not remote_url:
         return jsonify({'success': False,
-                        'output': 'No remote URL provided and no default_git_remote set in Settings → Git.'})
+                        'output': 'No remote URL provided and no default_git_remote set in Settings → Git or .nb.md.'})
 
     git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
                'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
@@ -6708,7 +6720,7 @@ def api_nb_notebook_detail():
 
     cfg = _load_settings()
     nb_prefs = cfg.get('notebook_prefs', {}).get(notebook, {})
-    default_remote = cfg.get('default_git_remote', '').strip()
+    default_remote = (_effective_setting('default_git_remote') or '').strip()
 
     lk_path = nb_path / '.nb-lock'
     nb_locked = lk_path.exists()
@@ -8108,18 +8120,18 @@ def api_nb_settings():
                 return jsonify({'error': f'Invalid value for {key}: {e}'}), 400
         _save_settings(validated)
         _settings = _load_settings()
-    # Merge global config codeblock_access over nb-settings.json value
     result = dict(_settings)
-    global_cb = (_global_config().get('codeblock_access') or {})
-    if global_cb:
-        merged_cb = _merge_configs(result.get('codeblock_access') or {}, global_cb)
-        result = dict(result, codeblock_access=merged_cb)
+    # Reflect effective values for portable keys so the UI shows what's actually in use
+    for key in ('default_git_remote', 'codeblock_access', 'lang'):
+        effective = _effective_setting(key)
+        if effective is not None:
+            result[key] = effective
     return jsonify(result)
 
 
 @app.route('/api/locale')
 def api_locale():
-    lang = _load_settings().get('lang', 'en') or 'en'
+    lang = (_effective_setting('lang') or 'en')
     locale_path = Path(__file__).parent / 'locales' / f'{lang}.json'
     if not locale_path.exists():
         locale_path = Path(__file__).parent / 'locales' / 'en.json'
