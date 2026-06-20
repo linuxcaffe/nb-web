@@ -1266,6 +1266,75 @@ def api_file():
     return send_file(fpath, conditional=True)
 
 
+_GALLERY_IMAGE_EXTS = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp'})
+
+@app.route('/api/gallery')
+def api_gallery():
+    """Return sorted list of images from the nearest images/ folder.
+
+    path param:
+      absent  — walk up from note dir to find first images/ folder
+      '.'     — look only in note_dir/images/; return [] if absent (vanish)
+      selector — use that explicit path directly
+    """
+    selector = request.args.get('selector', '').strip()
+    path_arg  = request.args.get('path', '').strip()
+
+    def list_images(img_dir: Path) -> list[dict]:
+        out = []
+        for f in sorted(img_dir.iterdir()):
+            if not f.is_file() or f.name.startswith('.'):
+                continue
+            if f.suffix.lower() not in _GALLERY_IMAGE_EXTS:
+                continue
+            try:
+                rel   = f.relative_to(NB_DIR)
+                parts = rel.parts
+                sel   = f'{parts[0]}:{"/".join(parts[1:])}' if len(parts) >= 2 else str(f)
+            except ValueError:
+                continue
+            out.append({'name': f.stem, 'filename': f.name,
+                        'url': f'/api/file?selector={sel}'})
+        return out
+
+    note_dir: Path | None = None
+    if selector:
+        fpath = _resolve_to_nb_path(selector)
+        if fpath:
+            note_dir = fpath.parent if fpath.is_file() else fpath
+
+    if path_arg == '.':
+        if note_dir is None:
+            return jsonify({'images': []})
+        candidate = note_dir / 'images'
+        return jsonify({'images': list_images(candidate) if candidate.is_dir() else []})
+
+    if path_arg:
+        if ':' in path_arg:
+            nb_name, rel = path_arg.split(':', 1)
+            p = (NB_DIR / nb_name / rel.strip('/')).resolve()
+        else:
+            p = Path(path_arg).expanduser().resolve()
+        try:
+            p.relative_to(NB_DIR)
+        except ValueError:
+            return jsonify({'error': 'path outside NB_DIR'}), 400
+        return jsonify({'images': list_images(p) if p.is_dir() else []})
+
+    # Walk up from note_dir; stop at NB_DIR boundary
+    if note_dir is None:
+        return jsonify({'images': []})
+    for d in [note_dir, *note_dir.parents]:
+        try:
+            d.relative_to(NB_DIR)
+        except ValueError:
+            break
+        candidate = d / 'images'
+        if candidate.is_dir():
+            return jsonify({'images': list_images(candidate)})
+    return jsonify({'images': []})
+
+
 @app.route('/api/preview')
 def api_preview():
     """Return a renderable preview for non-text file types."""

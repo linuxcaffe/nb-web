@@ -2846,6 +2846,133 @@
         });
     }
 
+    // ── gallery ───────────────────────────────────────────────────────────────
+
+    const _GALLERY_SIZES = { thumb: 80, small: 140, med: 220, large: 320 };
+
+    async function _loadGalleryBlock(el) {
+        const raw     = (el.dataset.query || '').trim();
+        const space   = raw.indexOf(' ');
+        const sizeKey = space < 0 ? raw : raw.slice(0, space);
+        const pathArg = space < 0 ? '' : raw.slice(space + 1).trim();
+        const cellPx  = _GALLERY_SIZES[sizeKey] || _GALLERY_SIZES.med;
+        const selector = NbMain.activeSelector() || '';
+
+        const params = new URLSearchParams({ selector });
+        if (pathArg) params.set('path', pathArg);
+
+        try {
+            const d = await fetch(`/api/gallery?${params}`).then(r => r.json());
+            const images = d.images || [];
+
+            if (!images.length) { el.innerHTML = ''; return; }
+
+            const wasCollapsed = el.classList.contains('nb-collapsed');
+            el.innerHTML = '';
+            if (wasCollapsed) el.classList.add('nb-collapsed');
+
+            const hdr = document.createElement('div');
+            hdr.className = 'nb-gallery-header';
+
+            const meta = document.createElement('span');
+            meta.className = 'nb-gallery-meta';
+            meta.innerHTML =
+                `<span class="nb-gallery-name">gallery</span>` +
+                `<span class="nb-gallery-count">${images.length}</span>` +
+                (pathArg ? ` <code>${_esc(pathArg)}</code>` : '');
+
+            const acts = document.createElement('span');
+            acts.className = 'nb-gallery-acts';
+            const refBtn = document.createElement('button');
+            refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+            refBtn.addEventListener('click', e => { e.stopPropagation(); _loadGalleryBlock(el); });
+            acts.appendChild(refBtn);
+
+            hdr.appendChild(meta);
+            hdr.appendChild(acts);
+
+            const grid = document.createElement('div');
+            grid.className = 'nb-gallery-grid';
+            grid.style.setProperty('--nb-gcell', cellPx + 'px');
+
+            for (const img of images) {
+                const cell = document.createElement('div');
+                cell.className = 'nb-gallery-cell';
+                const pic = document.createElement('img');
+                pic.className = 'nb-gallery-img';
+                pic.alt = img.name; pic.loading = 'lazy'; pic.src = img.url;
+                pic.addEventListener('click', () => _galleryLightbox(images, img.url));
+                const cap = document.createElement('div');
+                cap.className = 'nb-gallery-cap';
+                cap.textContent = img.name;
+                cell.appendChild(pic);
+                cell.appendChild(cap);
+                grid.appendChild(cell);
+            }
+
+            el.appendChild(hdr);
+            el.appendChild(grid);
+            _initCollapseToggle(el);
+        } catch (e) {
+            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+        }
+    }
+
+    function _galleryLightbox(images, activeUrl) {
+        document.getElementById('nb-gallery-lb')?.remove();
+        let cur = images.findIndex(i => i.url === activeUrl);
+
+        const lb = document.createElement('div');
+        lb.id = 'nb-gallery-lb';
+        lb.className = 'nb-gallery-lb';
+
+        const img = document.createElement('img');
+        img.className = 'nb-gallery-lb-img';
+
+        const cap = document.createElement('div');
+        cap.className = 'nb-gallery-lb-cap';
+
+        function show(idx) {
+            cur = ((idx % images.length) + images.length) % images.length;
+            img.src = images[cur].url;
+            cap.textContent = images[cur].name;
+        }
+
+        const prev = document.createElement('button');
+        prev.className = 'nb-gallery-lb-nav nb-gallery-lb-prev';
+        prev.textContent = '‹';
+        prev.addEventListener('click', e => { e.stopPropagation(); show(cur - 1); });
+
+        const next = document.createElement('button');
+        next.className = 'nb-gallery-lb-nav nb-gallery-lb-next';
+        next.textContent = '›';
+        next.addEventListener('click', e => { e.stopPropagation(); show(cur + 1); });
+
+        const close = document.createElement('button');
+        close.className = 'nb-gallery-lb-close';
+        close.textContent = '×';
+        close.addEventListener('click', () => lb.remove());
+
+        lb.addEventListener('click', () => lb.remove());
+        img.addEventListener('click', e => e.stopPropagation());
+
+        lb.appendChild(prev); lb.appendChild(img);
+        lb.appendChild(next); lb.appendChild(close); lb.appendChild(cap);
+        document.body.appendChild(lb);
+
+        const onKey = e => {
+            if (!document.getElementById('nb-gallery-lb')) {
+                document.removeEventListener('keydown', onKey); return;
+            }
+            if (e.key === 'Escape')      { lb.remove(); document.removeEventListener('keydown', onKey); }
+            if (e.key === 'ArrowLeft')   show(cur - 1);
+            if (e.key === 'ArrowRight')  show(cur + 1);
+        };
+        document.addEventListener('keydown', onKey);
+
+        show(cur);
+    }
+
     // ── Plugin registration ───────────────────────────────────────────────────
 
     NbWeb.registerModule('codeblocks', {
@@ -3018,6 +3145,16 @@
                         finally { NbWeb.statusPill?.tick(); }
                     }));
                     container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
+                },
+            },
+            {
+                lang:   'gallery',
+                html:   text => { const {query} = _cbParseGates(text); return `<div class="nb-gallery-block" data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-gallery-block')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { try { await _loadGalleryBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
         ],
