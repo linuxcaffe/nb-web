@@ -7827,10 +7827,7 @@ def api_move():
 
     r = run_nb('move', selector, dest, '--force')
     if not nb_ok(r):
-        stderr = strip_ansi(r['stderr'])
-        if 'already exists' in stderr.lower():
-            return jsonify({'success': True, 'already_there': True})
-        return jsonify({'success': False, 'stderr': stderr})
+        return jsonify({'success': False, 'stderr': strip_ansi(r['stderr'])})
 
     # Move annotation sidecar to the destination directory (non-fatal)
     ann_moved = False

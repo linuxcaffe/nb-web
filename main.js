@@ -7398,6 +7398,7 @@ const NbDialog = (() => {
             const destPrefix = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
             moveBtn.textContent = 'Moving…'; moveBtn.disabled = true;
             let failed = 0;
+            const failReasons = [];
             for (const sel of selectors) {
                 // Include the filename so nb doesn't preserve the source folder structure
                 const filename = sel.split(':').slice(1).join(':').split('/').pop();
@@ -7410,15 +7411,20 @@ const NbDialog = (() => {
                         body: JSON.stringify({ selector: sel, dest }),
                     });
                     const rd = await resp.json();
-                    if (!rd.success) { failed++; console.warn('move failed', sel, rd); }
-                    else {
+                    if (!rd.success) {
+                        failed++;
+                        const msg = rd.stderr || '';
+                        failReasons.push(msg.includes('already exists')
+                            ? `A note named "${dest.split('/').pop()}" already exists at that destination.`
+                            : (msg || 'unknown error'));
+                    } else {
                         _noteCache.delete(sel);
                         document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
                     }
-                } catch(e) { failed++; console.warn('move error', sel, e); }
+                } catch(e) { failed++; failReasons.push(String(e)); }
             }
             if (failed) {
-                alert(`${failed} move${failed !== 1 ? 's' : ''} failed — see browser console for details.`);
+                alert(failReasons.join('\n') || `${failed} move${failed !== 1 ? 's' : ''} failed.`);
                 moveBtn.textContent = isBulk ? `Move ${count} items` : 'Move';
                 moveBtn.disabled = false;
             } else {
