@@ -3553,7 +3553,8 @@ def _list_notes(notebook, folder, limit):
             except OSError:
                 continue
             meta, body = parse_frontmatter(raw)
-            itype = _apply_meta_type(itype, meta)
+        meta  = _merged_meta(str(fpath), meta)
+        itype = _apply_meta_type(itype, meta)
         if not _can_access(user, meta, nb_meta):
             continue
         title = meta.get('title') or meta.get('name') or note_title(fname, body)
@@ -4057,12 +4058,15 @@ def api_note():
 
     # Don't read binary files as text — frontend fetches /api/file for those
     if itype in BINARY_TYPES:
+        bin_meta  = _merged_meta(fpath, {})
+        bin_itype = _apply_meta_type(itype, bin_meta)
+        bin_title = bin_meta.get('title') or bin_meta.get('name') or note_title(filename, '')
         return jsonify({
             'selector': selector, 'notebook': note_notebook or '',
             'id': note_id, 'filename': filename,
-            'title': note_title(filename, ''),
-            'type': itype, 'binary': True,
-            'raw': '', 'body': '', 'tags': [], 'meta': {},
+            'title': bin_title,
+            'type': bin_itype, 'binary': True,
+            'raw': '', 'body': '', 'tags': [], 'meta': bin_meta,
             'annotation': annotation_text,
             'path': fpath,
         })
@@ -4073,6 +4077,7 @@ def api_note():
         return jsonify({'error': 'could not read file'}), 404
 
     meta, body = parse_frontmatter(raw)
+    meta  = _merged_meta(fpath, meta)
     itype = _apply_meta_type(itype, meta)
 
     full_meta = _folder_config(note_notebook, fpath) if note_notebook else {}
@@ -4135,9 +4140,29 @@ def _annotation_path(note_path: str) -> Path:
 
 def _read_annotation(note_path: str) -> str | None:
     ap = _annotation_path(note_path)
-    if ap.exists():
-        return ap.read_text(errors='replace').strip() or None
-    return None
+    if not ap.exists():
+        return None
+    raw = ap.read_text(errors='replace')
+    _, body = parse_frontmatter(raw)
+    return body.strip() or None
+
+def _merged_meta(note_path: str, note_meta: dict) -> dict:
+    """Return effective meta: annotation FM as base, note FM wins on collision.
+
+    For files that cannot carry frontmatter (images, binaries, .journal, etc.)
+    the annotation sidecar FM is the sole metadata source. For .md notes the
+    note's own FM takes precedence; the annotation fills any gaps.
+    """
+    ap = _annotation_path(note_path)
+    if not ap.exists():
+        return note_meta
+    try:
+        ann_meta, _ = parse_frontmatter(ap.read_text(errors='replace'))
+    except Exception:
+        return note_meta
+    if not ann_meta:
+        return note_meta
+    return {**ann_meta, **note_meta}  # note_meta keys win
 
 def _find_nb_lock(path) -> 'Path | None':
     """Walk up from path (file or dir) to notebook root; return first .nb-lock found, or None."""
