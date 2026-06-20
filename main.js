@@ -376,11 +376,16 @@ const NbMain = (() => {
     }
 
     function _matchTagColor(raw, tags) {
-        const entries = Array.isArray(raw) ? raw : [raw];
-        const colorMap = {};
-        for (const e of entries) {
-            const idx = String(e).indexOf(':');
-            if (idx > 0) colorMap[e.slice(0, idx).trim()] = e.slice(idx + 1).trim();
+        let colorMap;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            colorMap = raw;
+        } else {
+            colorMap = {};
+            const entries = Array.isArray(raw) ? raw : [raw];
+            for (const e of entries) {
+                const idx = String(e).indexOf(':');
+                if (idx > 0) colorMap[e.slice(0, idx).trim()] = e.slice(idx + 1).trim();
+            }
         }
         for (const tag of (tags || [])) { if (colorMap[tag]) return colorMap[tag]; }
         return null;

@@ -3518,6 +3518,8 @@ def _list_notes(notebook, folder, limit):
         except Exception:
             pass
 
+    nb_tag_color = nb_meta.get('tag_color') or None
+
     items = []
     for pos, fname in enumerate(reversed(index)):   # newest first
         item_id = total - pos                        # ID: last entry = total
@@ -3575,8 +3577,9 @@ def _list_notes(notebook, folder, limit):
             'status':     todo_status,
             'annotation': _read_annotation(str(fpath)),
         }
-        if 'tag_color' in meta:
-            item['tag_color'] = meta['tag_color']
+        tag_color_src = meta.get('tag_color') or nb_tag_color
+        if tag_color_src:
+            item['tag_color'] = tag_color_src
             fm_tags_raw = meta.get('tags', '')
             if isinstance(fm_tags_raw, list):
                 fm_tags = [t.lstrip('#') for t in fm_tags_raw if t]
@@ -4445,6 +4448,21 @@ def api_create_note():
             )
 
         using_template = bool(template_path or template_content)
+
+        # Read prepend_date from config chain (notebook → folder)
+        _cfg = _notebook_config(notebook)
+        if folder:
+            _leaf = folder.split('/')[-1]
+            _fcfg_path = NB_DIR / notebook / folder / f'.{_leaf}.md'
+            if _fcfg_path.exists():
+                try:
+                    _fcfg_meta, _ = parse_frontmatter(_fcfg_path.read_text())
+                    _cfg = _merge_configs(_cfg, _fcfg_meta)
+                except Exception:
+                    pass
+        _pd = _cfg.get('prepend_date', True)
+        prepend_date = str(_pd).lower() not in ('false', '0', 'no', 'off')
+
         explicit_filename = data.get('filename', '').strip()
         if explicit_filename:
             # Caller supplies exact filename (e.g. cine Ctrl+[ shot creation)
@@ -4453,13 +4471,12 @@ def api_create_note():
             note_filename = explicit_filename
         else:
             slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
-            # Clean slug when: subfolder note (items/ etc.) OR template-driven note.
-            # Template = intentional structured content that needs a predictable URL.
-            # Timestamp prefix reserved for casual root-level notes (no template).
-            if folder or using_template:
+            # Timestamp prefix for casual root-level notes; suppressed by config,
+            # folder context, or template (template = structured, needs stable URL).
+            if folder or using_template or not prepend_date:
                 note_filename = f"{slug}.md"
-        if not explicit_filename and not (folder or using_template):
-            note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
+            else:
+                note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
 
         # When content starts with YAML frontmatter, nb CLI's --content corrupts
         # it (strips <a href= tags, reorders blocks). Write directly to disk instead.
