@@ -3219,6 +3219,111 @@ def api_config_tree():
     return jsonify(nodes)
 
 
+@app.route('/api/config-tree-walk')
+def api_config_tree_walk():
+    """Walk a notebook's folder tree and return every config node found.
+
+    Query params:
+      notebook  — required
+      attribute — optional key to filter; only nodes that set it are 'active',
+                  others become dim pass-through nodes on the path between them
+      folder    — optional subtree root (restricts walk to this folder and below)
+
+    Each node:
+      { name, rel_path, selector, level, has_config, contributes, children[] }
+
+    level: 'notebook' | 'folder' | 'subfolder' | 'note'
+    """
+    notebook  = request.args.get('notebook',  '').strip()
+    attribute = request.args.get('attribute', '').strip()
+    folder    = request.args.get('folder',    '').strip().strip('/')
+
+    if not notebook or not _safe_notebook(notebook):
+        return jsonify({'error': 'invalid notebook'}), 400
+
+    user = session.get('user', {})
+    nb_cfg = _notebook_config(notebook)
+    if not _level_gte(user.get('level', ''), str(nb_cfg.get('access') or 'user')):
+        return jsonify({'error': 'forbidden'}), 403
+
+    nb_root = NB_DIR / notebook
+    root    = nb_root / folder if folder else nb_root
+
+    def _cfg_meta(dir_path):
+        """Read the .{name}.md config in dir_path; return (exists, contributes)."""
+        name     = dir_path.name
+        cfg_file = dir_path / f'.{name}.md'
+        if cfg_file.exists():
+            try:
+                meta, _ = parse_frontmatter(cfg_file.read_text())
+                val = meta.get(attribute) if attribute else None
+                return True, meta, str(cfg_file)
+            except Exception:
+                return True, {}, str(cfg_file)
+        return False, {}, None
+
+    def _walk(dir_path, rel, depth):
+        has_cfg, meta, cfg_path = _cfg_meta(dir_path)
+        has_attr = bool(attribute and meta.get(attribute) is not None)
+
+        children = []
+        try:
+            entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
+        except PermissionError:
+            entries = []
+
+        for entry in entries:
+            if entry.name.startswith('.'):
+                continue
+            if entry.is_dir() and (entry / '.index').exists():
+                child_rel = f"{rel}/{entry.name}" if rel else entry.name
+                children.append(_walk(entry, child_rel, depth + 1))
+
+        # Prune: if filtering by attribute, drop subtrees with no active nodes
+        if attribute:
+            children = [c for c in children if c.get('_active')]
+
+        active = has_attr or any(c.get('_active') for c in children)
+
+        contrib = {}
+        if attribute and attribute in meta:
+            contrib[attribute] = meta[attribute]
+        elif not attribute:
+            contrib = {k: v for k, v in meta.items() if not k.startswith('password')}
+
+        level = 'notebook' if dir_path == nb_root else ('folder' if depth == 1 else 'subfolder')
+        sel   = f"{notebook}:{rel}/" if rel else f"{notebook}:"
+
+        node = {
+            'name':       dir_path.name,
+            'rel_path':   rel,
+            'selector':   sel,
+            'cfg_path':   cfg_path,
+            'level':      level,
+            'has_config': has_cfg,
+            'contributes': contrib,
+            'has_attr':   has_attr,
+            '_active':    active,
+            'children':   children,
+        }
+        return node
+
+    tree = _walk(root, folder, 0 if not folder else folder.count('/') + 1)
+
+    # Attach notebook-level config as root wrapper if walking from nb root
+    nb_cfg_path = nb_root / f'.{notebook}.md'
+    nb_has, nb_meta, nb_cfg_file = _cfg_meta(nb_root)
+
+    # Strip internal _active key from output
+    def _clean(node):
+        node.pop('_active', None)
+        for c in node.get('children', []):
+            _clean(c)
+
+    _clean(tree)
+    return jsonify(tree)
+
+
 @app.route('/api/config-create', methods=['POST'])
 def api_config_create():
     """Create a dotfile config at the requested level from the global template.

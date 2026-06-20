@@ -2077,9 +2077,19 @@
 
     function _configParseQuery(raw, currentSelector) {
         raw = (raw || '').trim();
-        let key = '', target = '';
+        let key = '', target = '', treeMode = false, treeAttr = '';
 
-        if (raw) {
+        // tree mode: first token is 'tree'
+        if (/^tree\b/i.test(raw)) {
+            treeMode = true;
+            const rest = raw.replace(/^tree\s*/i, '').trim();
+            // tokens: words without ':' = attribute; word with ':' suffix = notebook
+            const tokens = rest.split(/\s+/).filter(Boolean);
+            for (const tok of tokens) {
+                if (tok.endsWith(':')) target = tok;          // notebook:
+                else if (!treeAttr)   treeAttr = tok;        // first non-colon = attribute
+            }
+        } else if (raw) {
             const m = raw.match(/^(\w[\w.-]*):\s*(.*)$/);
             if (m) { key = m[1]; target = m[2].trim(); }
             else     target = raw;
@@ -2087,7 +2097,6 @@
 
         // Resolve '.' or empty → current note's notebook + folder
         if (!target || target === '.') {
-            // currentSelector is e.g. 'Takeout:shots/WH-captive-cu-4f.md'
             const colon = (currentSelector || '').indexOf(':');
             if (colon >= 0) {
                 const nb  = currentSelector.slice(0, colon);
@@ -2103,14 +2112,14 @@
         const notebook = tc >= 0 ? target.slice(0, tc) : target.replace(/\/$/, '');
         const folder   = tc >= 0 ? target.slice(tc + 1).replace(/\/$/, '') : '';
 
-        return { key, notebook, folder };
+        return { key, notebook, folder, treeMode, treeAttr };
     }
 
     async function _loadConfigBlock(el) {
         if (!_cbCan(el, 'config', 'read')) { _cbDenyRead(el); return; }
         const wasOpen = !el.classList.contains('nb-collapsed');
         const currentSelector = NbMain?.activeSelector?.() || '';
-        const { key, notebook, folder } = _configParseQuery(el.dataset.query || '', currentSelector);
+        const { key, notebook, folder, treeMode, treeAttr } = _configParseQuery(el.dataset.query || '', currentSelector);
 
         if (!notebook) {
             el.innerHTML = '<span class="nb-hl-error">⚠ config: no notebook resolved</span>';
@@ -2120,16 +2129,28 @@
         el.innerHTML = '<span class="nb-spin">⟳</span>';
 
         try {
-            const params = new URLSearchParams({ notebook });
-            if (folder)          params.set('folder', folder);
-            if (key)             params.set('key', key);
-            if (currentSelector) params.set('selector', currentSelector);
-            const r = await fetch(`/api/config-tree?${params}`);
-            if (r.status === 403) { _cbDenyRead(el); return; }
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const nodes = await r.json();
-            if (nodes.error) throw new Error(nodes.error);
-            _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder);
+            if (treeMode) {
+                const params = new URLSearchParams({ notebook });
+                if (treeAttr) params.set('attribute', treeAttr);
+                if (folder)   params.set('folder', folder);
+                const r = await fetch(`/api/config-tree-walk?${params}`);
+                if (r.status === 403) { _cbDenyRead(el); return; }
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const tree = await r.json();
+                if (tree.error) throw new Error(tree.error);
+                _configTreeRender(el, tree, treeAttr, notebook, wasOpen);
+            } else {
+                const params = new URLSearchParams({ notebook });
+                if (folder)          params.set('folder', folder);
+                if (key)             params.set('key', key);
+                if (currentSelector) params.set('selector', currentSelector);
+                const r = await fetch(`/api/config-tree?${params}`);
+                if (r.status === 403) { _cbDenyRead(el); return; }
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const nodes = await r.json();
+                if (nodes.error) throw new Error(nodes.error);
+                _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder);
+            }
         } catch (e) {
             el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
         }
@@ -2164,6 +2185,76 @@
             }
         };
         setTimeout(() => document.addEventListener('click', away, true), 0);
+    }
+
+    function _configTreeRender(el, tree, attribute, notebook, wasOpen) {
+        el.innerHTML = '';
+        el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
+
+        // Header
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-config-header nb-collapse-zone';
+        const meta = document.createElement('span');
+        meta.className = 'nb-config-meta';
+        meta.innerHTML = 'config <code>tree</code>';
+        if (attribute) {
+            const k = document.createElement('code');
+            k.className = 'nb-config-hdr-key'; k.textContent = attribute + ':';
+            meta.appendChild(document.createTextNode(' '));
+            meta.appendChild(k);
+        }
+        hdr.appendChild(meta);
+        const acts = document.createElement('span');
+        acts.className = 'nb-config-actions';
+        const refBtn = document.createElement('button');
+        refBtn.className = 'nb-tw-btn nb-config-btn';
+        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+        refBtn.addEventListener('click', e => { e.stopPropagation(); _loadConfigBlock(el); });
+        acts.appendChild(refBtn);
+        hdr.appendChild(acts);
+        hdr.insertBefore(_cbIcon('config'), hdr.firstChild);
+        el.appendChild(hdr);
+        if (!wasOpen) el.classList.add('nb-collapsed');
+        _initCollapseToggle(el);
+
+        // Recursive tree builder
+        const body = document.createElement('div');
+        body.className = 'nb-config-tree-body';
+
+        function _renderNode(node, depth) {
+            const row = document.createElement('div');
+            row.className = 'nb-config-tree-row'
+                + (node.has_config  ? ' nb-config-tree-has-cfg'  : ' nb-config-tree-no-cfg')
+                + (node.has_attr    ? ' nb-config-tree-has-attr'  : '');
+            row.style.paddingLeft = `${depth * 1.4}em`;
+
+            const marker = document.createElement('span');
+            marker.className = 'nb-config-tree-marker';
+            marker.textContent = node.has_attr ? '▶' : (node.has_config ? '●' : '○');
+
+            const nameBtn = document.createElement(node.has_config ? 'button' : 'span');
+            nameBtn.className = 'nb-config-tree-name' + (node.has_config ? ' nb-nav-link' : '');
+            nameBtn.textContent = node.name;
+            if (node.has_config) {
+                nameBtn.addEventListener('click', () => NbMain.openNote(node.cfg_path));
+            }
+
+            row.appendChild(marker);
+            row.appendChild(nameBtn);
+
+            if (node.has_attr && attribute) {
+                const val = document.createElement('code');
+                val.className = 'nb-config-tree-val';
+                val.textContent = _configFormatVal(node.contributes[attribute]);
+                row.appendChild(val);
+            }
+
+            body.appendChild(row);
+            for (const child of (node.children || [])) _renderNode(child, depth + 1);
+        }
+
+        _renderNode(tree, 0);
+        el.appendChild(body);
     }
 
     function _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder) {

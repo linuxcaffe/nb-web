@@ -2095,6 +2095,18 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-contrib.nb-config-contrib-empty { opacity: 0.35; }
 .nb-config-key-label { font-family: var(--font-mono); font-size: 0.8em; color: var(--text-muted); margin-bottom: 0.2em; }
 
+/* config tree (walk mode) */
+.nb-config-tree-body { font-family: var(--font-mono); font-size: 0.85em; padding: 0.3em 0; }
+.nb-config-tree-row  { display: flex; align-items: baseline; gap: 0.4em; padding: 0.1em 0.5em; }
+.nb-config-tree-row.nb-config-tree-no-cfg  { opacity: 0.38; }
+.nb-config-tree-row.nb-config-tree-has-cfg { opacity: 0.65; }
+.nb-config-tree-row.nb-config-tree-has-attr{ opacity: 1; }
+.nb-config-tree-marker { color: var(--text-muted); width: 1em; flex-shrink: 0; }
+.nb-config-tree-row.nb-config-tree-has-attr .nb-config-tree-marker { color: var(--accent-alt, #f0a500); }
+.nb-config-tree-name { background: none; border: none; padding: 0; text-align: left; white-space: nowrap; color: var(--text); }
+.nb-config-tree-name.nb-nav-link { color: var(--link, #4a9eff); cursor: pointer; }
+.nb-config-tree-val  { color: var(--accent-alt, #f0a500); margin-left: 0.5em; }
+
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }
 .nb-nb-nb-name { flex: 1; font-weight: 500; }
