@@ -1506,16 +1506,16 @@ const NbMain = (() => {
     function _virtualTestPrefix(note) {
         if (note?.meta?.type === 'dotfile') return '';
         // Per-note FM wins; fall back to effective value from config chain
-        const raw = (note?.meta?.tests !== undefined)
-            ? note.meta.tests
-            : note?.effective_tests;
+        const raw = (note?.meta?.checks !== undefined)
+            ? note.meta.checks
+            : note?.effective_checks;
         // null (tests:), undefined, or empty string (tests: "") all suppress
         if (raw == null || raw === '' || raw === false) return '';
         const prefixes = Array.isArray(raw)
             ? raw.map(s => String(s).trim()).filter(Boolean)
             : String(raw).trim().split(/[\s,]+/).filter(Boolean);
         if (!prefixes.length) return '';
-        return prefixes.map(p => `\`\`\`test\n${p}\n\`\`\``).join('\n') + '\n\n';
+        return prefixes.map(p => `\`\`\`check\n${p}\n\`\`\``).join('\n') + '\n\n';
     }
 
     const _ACCESS_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];

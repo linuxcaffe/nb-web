@@ -2499,12 +2499,12 @@
         return [...scripts];
     }
 
-    // POST /api/test/batch — one round trip for N scripts.  Returns a Map of
+    // POST /api/check/batch — one round trip for N scripts.  Returns a Map of
     // script → result.  On any error returns an empty Map so callers fall back
-    // to individual /api/test/run fetches transparently.
+    // to individual /api/check/run fetches transparently.
     async function _fetchTestBatch(scripts, selector) {
         try {
-            const r = await fetch('/api/test/batch', {
+            const r = await fetch('/api/check/batch', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({ scripts, selector }),
@@ -2517,10 +2517,10 @@
     }
 
     // Resolve a dangling-dash prefix (e.g. 'nb-schem-') to a sorted list of
-    // matching script names via /api/test/glob.  Returns [] on any error.
+    // matching script names via /api/check/glob.  Returns [] on any error.
     async function _resolveTestGlob(prefix) {
         try {
-            const r = await fetch(`/api/test/glob?prefix=${encodeURIComponent(prefix)}`);
+            const r = await fetch(`/api/check/glob?prefix=${encodeURIComponent(prefix)}`);
             if (!r.ok) return [];
             const names = await r.json();
             return Array.isArray(names) ? names : [];
@@ -2541,7 +2541,7 @@
 
             // Dangling dash — resolve to a group
             if (token.endsWith('-')) {
-                if (!_cbCan(el, 'test', 'read')) { el.remove(); return; }
+                if (!_cbCan(el, 'check', 'read')) { el.remove(); return; }
                 el.innerHTML = '<span class="nb-spin">⟳</span>';
                 const names = await _resolveTestGlob(token);
                 if (!names.length) { el.innerHTML = `<span class="nb-hl-muted">No scripts match ${_esc(token)}*.sh</span>`; return; }
@@ -2552,8 +2552,8 @@
                 return;
             }
 
-            if (!_cbCan(el, 'test', 'read')) {
-                if (label) _buildTestDenied(el, label, _cbLevel(el, 'test', 'read'));
+            if (!_cbCan(el, 'check', 'read')) {
+                if (label) _buildTestDenied(el, label, _cbLevel(el, 'check', 'read'));
                 else       el.remove();
                 return;
             }
@@ -2582,8 +2582,8 @@
         }
         if (!scripts.length) { el.remove(); return; }
 
-        if (!_cbCan(el, 'test', 'read')) {
-            if (groupLabel) _buildTestDenied(el, groupLabel, _cbLevel(el, 'test', 'read'));
+        if (!_cbCan(el, 'check', 'read')) {
+            if (groupLabel) _buildTestDenied(el, groupLabel, _cbLevel(el, 'check', 'read'));
             else            el.remove();
             return;
         }
@@ -2637,7 +2637,7 @@
                 return { script, ...batchMap.get(script) };
             }
             try {
-                const r = await fetch('/api/test/run', {
+                const r = await fetch('/api/check/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ script, selector, force }),
@@ -2734,7 +2734,7 @@
             d = cachedResult;
         } else {
             try {
-                const r = await fetch('/api/test/run', {
+                const r = await fetch('/api/check/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ script, selector, force }),
@@ -2817,7 +2817,7 @@
                 const selector = NbMain.activeSelector() || '';
                 let d;
                 try {
-                    const r = await fetch('/api/test/run', {
+                    const r = await fetch('/api/check/run', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ script, selector, force: true }),
@@ -2998,7 +2998,7 @@
                 },
             },
             {
-                lang:   'test',
+                lang:   'check',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-test-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"></div>`; },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-test-block')];

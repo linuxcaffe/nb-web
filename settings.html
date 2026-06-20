@@ -767,9 +767,9 @@
         </div>`;
       }).join('');
 
-      if (d.test_scripts?.length) {
+      if (d.check_scripts?.length) {
         html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Test scripts</div>
-          ${_extraRows(d.test_scripts, 'nbz-script-cb')}</div>`;
+          ${_extraRows(d.check_scripts, 'nbz-script-cb')}</div>`;
       }
       if (d.templates?.length) {
         html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Templates</div>
@@ -806,7 +806,7 @@
           m.includes_git && 'git history',
           d.encrypted && '🔒 encrypted',
           d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
-          d.test_scripts?.length && `${d.test_scripts.length} test script${d.test_scripts.length!==1?'s':''}`,
+          d.check_scripts?.length && `${d.check_scripts.length} check script${d.check_scripts.length!==1?'s':''}`,
           d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
         ].filter(Boolean).join(' · ');
         prevName.textContent = m.name;
@@ -845,7 +845,7 @@
       const toTemplates = [...extrasEl.querySelectorAll('.nbz-template-cb:checked')]
                            .map(cb => cb.dataset.file).filter(Boolean);
       if (toInstall.length)   fd.append('install_plugins',   JSON.stringify(toInstall));
-      if (toTests.length)     fd.append('install_tests',     JSON.stringify(toTests));
+      if (toTests.length)     fd.append('install_checks',     JSON.stringify(toTests));
       if (toTemplates.length) fd.append('install_templates', JSON.stringify(toTemplates));
       return fd;
     }
@@ -876,7 +876,7 @@
           date,
           '🔒 encrypted',
           d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
-          d.test_scripts?.length && `${d.test_scripts.length} test script${d.test_scripts.length!==1?'s':''}`,
+          d.check_scripts?.length && `${d.check_scripts.length} check script${d.check_scripts.length!==1?'s':''}`,
           d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
         ].filter(Boolean).join(' · ');
         prevName.textContent = m.name;
@@ -914,10 +914,10 @@
           lines.push(`  ${icon} ${p.action.padEnd(8)}  ${p.name || p.filename} ${ver}${iVer}`);
         });
       }
-      if (d.test_scripts?.length) {
+      if (d.check_scripts?.length) {
         lines.push('');
         lines.push('Test scripts:');
-        d.test_scripts.forEach(s => lines.push(`  ${s.action==='new'?'+':'↺'} ${s.action.padEnd(9)}  ${s.filename} → ${s.dest}`));
+        d.check_scripts.forEach(s => lines.push(`  ${s.action==='new'?'+':'↺'} ${s.action.padEnd(9)}  ${s.filename} → ${s.dest}`));
       }
       if (d.templates?.length) {
         lines.push('');
@@ -961,7 +961,7 @@
         if (d.ok) {
           const parts = [`✓ Imported "${_esc(d.notebook)}" (${d.note_count} notes)`];
           if (d.installed_plugins?.length) parts.push(`${d.installed_plugins.length} plugin(s) installed`);
-          if (d.copied_tests?.length)      parts.push(`${d.copied_tests.length} test script(s) copied`);
+          if (d.copied_tests?.length)      parts.push(`${d.copied_tests.length} check script(s) copied`);
           if (d.copied_templates?.length)  parts.push(`${d.copied_templates.length} template(s) copied`);
           status.textContent = parts.join(' · '); status.className = 'status ok';
           goBtn.textContent = 'Import'; goBtn.disabled = false; dryBtn.disabled = false;
