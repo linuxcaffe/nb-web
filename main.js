@@ -7418,7 +7418,7 @@ const NbDialog = (() => {
                             ? `A note named "${dest.split('/').pop()}" already exists at that destination.`
                             : (msg || 'unknown error'));
                     } else {
-                        _noteCache.delete(sel);
+                        NbMain.bustNoteCache(sel);
                         document.querySelector(`#nb-list .nb-list-item[data-selector="${CSS.escape(sel)}"]`)?.remove();
                     }
                 } catch(e) { failed++; failReasons.push(String(e)); }
@@ -7482,7 +7482,7 @@ const NbDialog = (() => {
                 });
                 const d = await r.json();
                 if (d.success) {
-                    _noteCache.delete(selector);
+                    NbMain.bustNoteCache(selector);
                     close();
                     NbNav.reexecute();
                 } else {
