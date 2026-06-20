@@ -42,7 +42,7 @@ PORT    = int(os.environ.get('NB_WEB_PORT', 5001))
 DEBUG   = os.environ.get('NB_WEB_DEBUG', '').lower() in ('1', 'true', 'yes')
 
 GLOBAL_TEMPLATES_DIR = NB_DIR / '.templates'
-TEST_DIR             = NB_DIR / '.test'
+CHECK_DIR             = NB_DIR / '.checks'
 WEB_DIR              = NB_DIR / '.web'
 WEB_PLUGINS_DIR      = WEB_DIR / 'plugins'
 CMDS_FILE            = Path(__file__).parent / 'cmds.txt'
@@ -192,8 +192,8 @@ def _cb_write_allowed(block_type):
 # ---------------------------------------------------------------------------
 
 _weather_cache: dict = {'value': None, 'ts': 0.0}
-_test_cache:    dict = {}   # (script, selector) -> {'result': dict, 'ts': float}
-_TEST_CACHE_TTL = 30        # seconds; force=True bypasses
+_check_cache:    dict = {}   # (script, selector) -> {'result': dict, 'ts': float}
+_CHECK_CACHE_TTL = 30        # seconds; force=True bypasses
 
 def _fetch_weather() -> str:
     if _weather_cache['value'] and time.time() - _weather_cache['ts'] < 3600:
@@ -2137,7 +2137,7 @@ def api_hledger_path_selector():
 
 @app.route('/api/fs/list')
 def api_fs_list():
-    """List a directory that is inside NB_DIR (including hidden dirs like .test)."""
+    """List a directory that is inside NB_DIR (including hidden dirs like .checks)."""
     path = request.args.get('path', '').strip()
     if not path:
         return jsonify({'error': 'no path'}), 400
@@ -5507,14 +5507,14 @@ def api_nb_archive():
 
     Format 2 adds optional sections alongside the notebook directory:
       plugins/       — JS plugin files for any enabled plugins
-      test_scripts/  — scripts from ~/.nb/.test/
+      check_scripts/  — scripts from ~/.nb/.checks/
       templates/     — global templates from ~/.nb/.templates/
     """
     data              = request.get_json() or {}
     notebook          = data.get('notebook', '').strip()
     includes_git      = bool(data.get('includes_git', False))
     include_code      = bool(data.get('include_code', False))
-    include_tests     = bool(data.get('include_tests', False))
+    include_checks     = bool(data.get('include_checks', False))
     include_templates = bool(data.get('include_templates', False))
     description       = str(data.get('description', '')).strip()
     password          = str(data.get('password', '')).strip()
@@ -5544,7 +5544,7 @@ def api_nb_archive():
 
     # Gather extra sections before building the zip so they can go in the manifest
     plugin_entries  = _gather_plugins_for_archive() if include_code else []
-    test_files      = sorted(TEST_DIR.glob('*.sh')) if include_tests and TEST_DIR.is_dir() else []
+    test_files      = sorted(CHECK_DIR.glob('*.sh')) if include_checks and CHECK_DIR.is_dir() else []
     template_files  = sorted(GLOBAL_TEMPLATES_DIR.glob('*.md')) if include_templates and GLOBAL_TEMPLATES_DIR.is_dir() else []
     # Also include notebook-local templates
     nb_tmpl_dir = nb_path / '.templates'
@@ -5562,7 +5562,7 @@ def api_nb_archive():
         'note_count':        note_count,
         'includes_git':      includes_git,
         'include_code':      include_code,
-        'include_tests':     include_tests,
+        'include_checks':     include_checks,
         'include_templates': include_templates,
         'encrypted':         bool(password),
         'description':       description,
@@ -5570,7 +5570,7 @@ def api_nb_archive():
             {'file': f'plugins/{e["real_path"].name}', **e['meta']}
             for e in plugin_entries
         ],
-        'test_scripts': [f.name for f in test_files],
+        'check_scripts': [f.name for f in test_files],
         'templates':    [f.name for f in template_files],
     }
 
@@ -5602,8 +5602,8 @@ def api_nb_archive():
             try:   zf.write(str(entry['real_path']), f'plugins/{entry["real_path"].name}')
             except Exception as exc: skipped.append(f'plugins/{entry["real_path"].name}: {exc}')
         for sh in test_files:
-            try:   zf.write(str(sh), f'test_scripts/{sh.name}')
-            except Exception as exc: skipped.append(f'test_scripts/{sh.name}: {exc}')
+            try:   zf.write(str(sh), f'check_scripts/{sh.name}')
+            except Exception as exc: skipped.append(f'check_scripts/{sh.name}: {exc}')
         for tmpl in template_files:
             try:   zf.write(str(tmpl), f'templates/{tmpl.name}')
             except Exception as exc: skipped.append(f'templates/{tmpl.name}: {exc}')
@@ -5611,7 +5611,7 @@ def api_nb_archive():
     out_buf = io.BytesIO()
     if password:
         # Encrypted format: only the notebook notes are private.
-        # plugins/, test_scripts/, templates/ stay plaintext — the archive
+        # plugins/, check_scripts/, templates/ stay plaintext — the archive
         # works as a full installer without the password; only note extraction needs it.
         inner_buf = io.BytesIO()
         with zipfile.ZipFile(inner_buf, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as inner_zf:
@@ -5646,7 +5646,7 @@ def api_nb_import_preview():
     """Read .nb_archive metadata from a .nbz upload without extracting.
 
     For format-2 archives, also returns plugin version comparisons,
-    test script list, and template list so the UI can show install options.
+    check script list, and template list so the UI can show install options.
     """
     f = request.files.get('archive')
     if not f:
@@ -5686,15 +5686,15 @@ def api_nb_import_preview():
                 plugins_info.append({**p, 'filename': fname,
                                      'installed_version': inst_ver, 'action': action})
 
-            # Per-file comparison for test scripts and templates
-            test_scripts = []
+            # Per-file comparison for check scripts and templates
+            check_scripts = []
             for item in zf.infolist():
-                if item.is_dir() or not item.filename.startswith('test_scripts/'): continue
+                if item.is_dir() or not item.filename.startswith('check_scripts/'): continue
                 fname = item.filename.split('/')[-1]
                 if not fname: continue
                 data = zf.read(item.filename)
-                test_scripts.append({'filename': fname,
-                                     'action': _extra_action(data, TEST_DIR / fname)})
+                check_scripts.append({'filename': fname,
+                                     'action': _extra_action(data, CHECK_DIR / fname)})
             templates = []
             for item in zf.infolist():
                 if item.is_dir() or not item.filename.startswith('templates/'): continue
@@ -5711,7 +5711,7 @@ def api_nb_import_preview():
                 'conflict':    conflict,
                 'suggested':   (notebook + '-import') if conflict else notebook,
                 'plugins':     plugins_info,
-                'test_scripts': test_scripts,
+                'check_scripts': check_scripts,
                 'templates':   templates,
             })
     except zipfile.BadZipFile:
@@ -5727,7 +5727,7 @@ def api_nb_import_dry_run():
     Same parameters as /api/nb/import. Returns per-file action reports:
       notebook_files  — count + conflict check
       plugins         — install / upgrade / current / skipped
-      test_scripts    — new / overwrite (per file)
+      check_scripts    — new / overwrite (per file)
       templates       — new / overwrite (per file)
     """
     f = request.files.get('archive')
@@ -5741,9 +5741,9 @@ def api_nb_import_dry_run():
     except Exception:
         install_plugins = []
     try:
-        install_tests     = json.loads(request.form.get('install_tests', '[]'))
+        install_checks     = json.loads(request.form.get('install_checks', '[]'))
     except Exception:
-        install_tests     = []
+        install_checks     = []
     try:
         install_templates = json.loads(request.form.get('install_templates', '[]'))
     except Exception:
@@ -5809,14 +5809,14 @@ def api_nb_import_dry_run():
             # Test scripts (always plaintext in outer_zf)
             scripts_out = []
             for item in outer_zf.infolist():
-                if item.is_dir() or not item.filename.startswith('test_scripts/'): continue
+                if item.is_dir() or not item.filename.startswith('check_scripts/'): continue
                 fname = item.filename.split('/')[-1]
                 if not fname: continue
-                selected = (not install_tests) or (fname in install_tests)
+                selected = (not install_checks) or (fname in install_checks)
                 data   = outer_zf.read(item.filename)
-                action = _extra_action(data, TEST_DIR / fname) if selected else 'skipped'
+                action = _extra_action(data, CHECK_DIR / fname) if selected else 'skipped'
                 scripts_out.append({'filename': fname, 'action': action,
-                                    'dest': str(TEST_DIR / fname)})
+                                    'dest': str(CHECK_DIR / fname)})
 
             # Templates (always plaintext in outer_zf)
             templates_out = []
@@ -5842,7 +5842,7 @@ def api_nb_import_dry_run():
         'notebook_dest':     str(nb_dest),
         'notebook_files':    len(nb_files),
         'plugins':           plugins_out,
-        'test_scripts':      scripts_out,
+        'check_scripts':      scripts_out,
         'templates':         templates_out,
     })
 
@@ -5853,7 +5853,7 @@ def api_nb_import():
 
     Format-2 extras (all optional, controlled by form fields):
       install_plugins   — JSON list of filenames, e.g. '["nbweb-hledger.js"]'
-      install_tests     — 'true' to copy test_scripts/ to ~/.nb/.test/
+      install_checks     — 'true' to copy check_scripts/ to ~/.nb/.checks/
       install_templates — 'true' to copy templates/ to ~/.nb/.templates/
     """
     global _settings
@@ -5868,9 +5868,9 @@ def api_nb_import():
     except Exception:
         install_plugins   = []
     try:
-        install_tests     = json.loads(request.form.get('install_tests', '[]'))
+        install_checks     = json.loads(request.form.get('install_checks', '[]'))
     except Exception:
-        install_tests     = []
+        install_checks     = []
     try:
         install_templates = json.loads(request.form.get('install_templates', '[]'))
     except Exception:
@@ -5962,14 +5962,14 @@ def api_nb_import():
                     _save_settings({'plugins': current_plugins})
                     _settings = _load_settings()
 
-            # Copy test scripts — always plaintext in outer_zf
-            if install_tests:
-                TEST_DIR.mkdir(parents=True, exist_ok=True)
+            # Copy check scripts — always plaintext in outer_zf
+            if install_checks:
+                CHECK_DIR.mkdir(parents=True, exist_ok=True)
                 for item in outer_zf.infolist():
-                    if item.is_dir() or not item.filename.startswith('test_scripts/'): continue
+                    if item.is_dir() or not item.filename.startswith('check_scripts/'): continue
                     fname = item.filename.split('/')[-1]
-                    if not fname or fname not in install_tests: continue
-                    target = TEST_DIR / fname
+                    if not fname or fname not in install_checks: continue
+                    target = CHECK_DIR / fname
                     target.write_bytes(outer_zf.read(item.filename))
                     target.chmod(0o755)
                     copied_tests.append(fname)
@@ -7603,12 +7603,12 @@ def api_run():
 
 
 # ---------------------------------------------------------------------------
-# API: Test codeblock runner
+# API: Check codeblock runner
 # ---------------------------------------------------------------------------
 
-@app.route('/api/test/run', methods=['POST'])
-def api_test_run():
-    """Run a script from ~/.nb/.test/ with note context env vars."""
+@app.route('/api/check/run', methods=['POST'])
+def api_check_run():
+    """Run a script from ~/.nb/.checks/ with note context env vars."""
     data        = request.get_json(force=True) or {}
     script_name = (data.get('script') or '').strip()
     selector    = (data.get('selector') or '').strip()
@@ -7619,18 +7619,18 @@ def api_test_run():
     if '/' in script_name or script_name.startswith('.'):
         return jsonify({'error': 'invalid script name', 'exit_code': 1}), 400
 
-    script_path = TEST_DIR / script_name
+    script_path = CHECK_DIR / script_name
     if not script_path.exists() and not script_name.endswith('.sh'):
-        script_path = TEST_DIR / (script_name + '.sh')
+        script_path = CHECK_DIR / (script_name + '.sh')
     if not script_path.exists():
-        return jsonify({'error': f'script not found: {script_name} (looked in {TEST_DIR})', 'exit_code': 1}), 404
+        return jsonify({'error': f'script not found: {script_name} (looked in {CHECK_DIR})', 'exit_code': 1}), 404
 
     # Return cached result for auto-runs (force=False) within TTL
     cache_key = (script_name, selector)
     now = time.time()
     if not force:
-        entry = _test_cache.get(cache_key)
-        if entry and (now - entry['ts']) < _TEST_CACHE_TTL:
+        entry = _check_cache.get(cache_key)
+        if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
             return jsonify(entry['result'])
 
     notebook  = selector.split(':')[0] if ':' in selector else ''
@@ -7655,7 +7655,7 @@ def api_test_run():
             'stderr':    result.stderr,
             'exit_code': result.returncode,
         }
-        _test_cache[cache_key] = {'result': result_data, 'ts': now}
+        _check_cache[cache_key] = {'result': result_data, 'ts': now}
         return jsonify(result_data)
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'script timed out (30s)', 'exit_code': 1})
@@ -7663,9 +7663,9 @@ def api_test_run():
         return jsonify({'error': str(e), 'exit_code': 1})
 
 
-@app.route('/api/test/glob')
-def api_test_glob():
-    """List test scripts matching a prefix, e.g. ?prefix=nb-schem- returns
+@app.route('/api/check/glob')
+def api_check_glob():
+    """List check scripts matching a prefix, e.g. ?prefix=nb-schem- returns
     ['nb-schem-fields.sh', 'nb-schem-values.sh', ...] sorted alphabetically.
 
     The prefix must end with '-' (dangling dash convention) and contain only
@@ -7678,21 +7678,21 @@ def api_test_glob():
         return jsonify({'error': 'prefix must end with -'}), 400
     if '/' in prefix or '\\' in prefix or prefix.startswith('.'):
         return jsonify({'error': 'invalid prefix'}), 400
-    if not TEST_DIR.is_dir():
+    if not CHECK_DIR.is_dir():
         return jsonify([])
-    matches = sorted(p.name for p in TEST_DIR.glob(f'{prefix}*.sh'))
+    matches = sorted(p.name for p in CHECK_DIR.glob(f'{prefix}*.sh'))
     return jsonify(matches)
 
 
-@app.route('/api/test/batch', methods=['POST'])
-def api_test_batch():
-    """Run multiple test scripts in parallel with a single round trip.
+@app.route('/api/check/batch', methods=['POST'])
+def api_check_batch():
+    """Run multiple check scripts in parallel with a single round trip.
 
     Request:  { "scripts": ["hl-ok", "nb-dirty", ...], "selector": "accts:review.md" }
     Response: { "hl-ok": { "stdout": "", "exit_code": 0 }, ... }
 
     Scripts are deduplicated before running.  Cache is checked per-script
-    using the same key/TTL as /api/test/run so results are shared.
+    using the same key/TTL as /api/check/run so results are shared.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -7720,19 +7720,19 @@ def api_test_batch():
             return script_name, {'error': 'invalid script name', 'exit_code': 1, 'stdout': ''}
         cache_key = (script_name, selector)
         now = time.time()
-        entry = _test_cache.get(cache_key)
-        if entry and (now - entry['ts']) < _TEST_CACHE_TTL:
+        entry = _check_cache.get(cache_key)
+        if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
             return script_name, entry['result']
-        script_path = TEST_DIR / script_name
+        script_path = CHECK_DIR / script_name
         if not script_path.exists() and not script_name.endswith('.sh'):
-            script_path = TEST_DIR / (script_name + '.sh')
+            script_path = CHECK_DIR / (script_name + '.sh')
         if not script_path.exists():
             return script_name, {'error': f'not found: {script_name}', 'exit_code': 1, 'stdout': ''}
         try:
             r = subprocess.run(['bash', str(script_path)],
                                capture_output=True, text=True, env=env, timeout=30)
             result = {'stdout': r.stdout, 'stderr': r.stderr, 'exit_code': r.returncode}
-            _test_cache[cache_key] = {'result': result, 'ts': now}
+            _check_cache[cache_key] = {'result': result, 'ts': now}
             return script_name, result
         except subprocess.TimeoutExpired:
             return script_name, {'error': 'timed out (30s)', 'exit_code': 1, 'stdout': ''}

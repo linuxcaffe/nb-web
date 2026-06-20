@@ -2499,12 +2499,12 @@
         return [...scripts];
     }
 
-    // POST /api/test/batch — one round trip for N scripts.  Returns a Map of
+    // POST /api/check/batch — one round trip for N scripts.  Returns a Map of
     // script → result.  On any error returns an empty Map so callers fall back
-    // to individual /api/test/run fetches transparently.
+    // to individual /api/check/run fetches transparently.
     async function _fetchTestBatch(scripts, selector) {
         try {
-            const r = await fetch('/api/test/batch', {
+            const r = await fetch('/api/check/batch', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({ scripts, selector }),
@@ -2517,10 +2517,10 @@
     }
 
     // Resolve a dangling-dash prefix (e.g. 'nb-schem-') to a sorted list of
-    // matching script names via /api/test/glob.  Returns [] on any error.
+    // matching script names via /api/check/glob.  Returns [] on any error.
     async function _resolveTestGlob(prefix) {
         try {
-            const r = await fetch(`/api/test/glob?prefix=${encodeURIComponent(prefix)}`);
+            const r = await fetch(`/api/check/glob?prefix=${encodeURIComponent(prefix)}`);
             if (!r.ok) return [];
             const names = await r.json();
             return Array.isArray(names) ? names : [];
@@ -2637,7 +2637,7 @@
                 return { script, ...batchMap.get(script) };
             }
             try {
-                const r = await fetch('/api/test/run', {
+                const r = await fetch('/api/check/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ script, selector, force }),
@@ -2734,7 +2734,7 @@
             d = cachedResult;
         } else {
             try {
-                const r = await fetch('/api/test/run', {
+                const r = await fetch('/api/check/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ script, selector, force }),
@@ -2817,7 +2817,7 @@
                 const selector = NbMain.activeSelector() || '';
                 let d;
                 try {
-                    const r = await fetch('/api/test/run', {
+                    const r = await fetch('/api/check/run', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ script, selector, force: true }),
