@@ -2452,6 +2452,7 @@
             const lbl = document.createElement('div');
             lbl.className = 'nb-config-key-label';
             lbl.textContent = key + ':';
+            lbl.dataset.xrefHeading = key;
             el.appendChild(lbl);
         }
         el.appendChild(table);

@@ -4204,6 +4204,7 @@ def api_note():
         'lock_reason': lock_reason,
         'effective_access': _effective_access(meta, nb_meta),
         'effective_checks':  nb_meta.get('check'),
+        'effective_xref':    nb_meta.get('xref'),
         'parent_meta': parent_meta,
     })
 

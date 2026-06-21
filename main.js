@@ -1500,7 +1500,7 @@ const NbMain = (() => {
         }
         _buildFmBlocks(note);
         _appendAnnotation(container, note);
-        if (note?.meta?.xref) _enrichXref(container, note);
+        if (note?.effective_xref ?? note?.meta?.xref) _enrichXref(container, note);
         _injectAccessBadge(note);
     }
 
@@ -2507,7 +2507,7 @@ const NbMain = (() => {
         //   "hledger:" / "accts:tutorial/"  → notebook/folder: heading words vs note titles
         //   "Takeout:docs/ref.md"            → file: heading words vs headings in that file
         //   "https://..."                    → URL: appended as "See also" footer link
-        const xrefRaw = note.meta?.xref;
+        const xrefRaw = note.effective_xref ?? note.meta?.xref;
         const targets = (Array.isArray(xrefRaw) ? xrefRaw : [xrefRaw])
             .map(t => {
                 // YAML parses 'hledger:' inside a flow list as {hledger: null} — unwrap it
@@ -2588,7 +2588,7 @@ const NbMain = (() => {
             }
         }
 
-        const headings = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6')];
+        const headings = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6,[data-xref-heading]')];
         if (!headings.length) return;
 
         // Build word → stem map from all heading text (skip stop/ignore/short words)
