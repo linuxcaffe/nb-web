@@ -506,6 +506,53 @@ def _folder_config(notebook, note_path):
     return result
 
 
+def _folder_config_sources(notebook, note_path):
+    """Like _folder_config but also returns a {key: nb-relative-path} sources dict."""
+    nb_root = NB_DIR / notebook
+    try:
+        folder = Path(note_path)
+        if folder.is_file():
+            folder = folder.parent
+    except Exception:
+        return _notebook_config(notebook), {}
+
+    # Notebook-level config: parent chain is global config only
+    try:
+        folder.relative_to(nb_root)
+    except ValueError:
+        base = _global_config()
+        return base, {k: '.nb.md' for k in base}
+
+    configs_with_paths = []
+    current = folder
+    while True:
+        if not str(current).startswith(str(nb_root)) or current == nb_root:
+            break
+        cfg_file = current / f'.{current.name}.md'
+        if cfg_file.exists():
+            try:
+                meta, _ = parse_frontmatter(cfg_file.read_text())
+                configs_with_paths.append((meta, str(cfg_file.relative_to(nb_root))))
+            except Exception:
+                pass
+        current = current.parent
+
+    nb_cfg_file = nb_root / f'.{notebook}.md'
+    nb_rel = str(nb_cfg_file.relative_to(nb_root)) if nb_cfg_file.exists() else f'.{notebook}.md'
+
+    base = _notebook_config(notebook)
+    sources = {k: nb_rel for k in base}
+    result = dict(base)
+    for meta, rel_path in reversed(configs_with_paths):
+        for k, v in meta.items():
+            if isinstance(v, dict) and isinstance(result.get(k), dict):
+                result[k] = _merge_configs(result[k], v)
+            else:
+                result[k] = v
+            sources[k] = rel_path
+    return result, sources
+
+
 def _effective_access(note_meta, nb_meta):
     """Return the access specifier for a note.
 
@@ -4176,12 +4223,14 @@ def api_note():
     # For config dotfiles, provide the parent chain (excluding this file) so the
     # frontend can show inherited vs own values in the config form.
     parent_meta = {}
+    parent_meta_sources = {}
     if itype == 'dotfile' and meta.get('config') and note_notebook:
         try:
             parent_dir = Path(fpath).parent.parent
-            parent_meta = _folder_config(note_notebook, str(parent_dir))
+            parent_meta, parent_meta_sources = _folder_config_sources(note_notebook, str(parent_dir))
         except Exception:
             parent_meta = {}
+            parent_meta_sources = {}
 
     return jsonify({
         'selector': selector,
@@ -4206,6 +4255,7 @@ def api_note():
         'effective_checks':  nb_meta.get('check'),
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'parent_meta': parent_meta,
+        'parent_meta_sources': parent_meta_sources,
     })
 
 

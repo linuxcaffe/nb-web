@@ -3151,13 +3151,13 @@ span.nb-cb-icon.nb-cb-icon--large {
   font-family: var(--font-mono, monospace); font-size: 0.82em;
   color: var(--text-muted); padding-top: 0.25em;
 }
-.nb-cfg-ctrl    { flex: 1; }
+.nb-cfg-ctrl    { flex: 1; display: flex; align-items: baseline; gap: 0.5em; }
 .nb-cfg-readonly { font-family: var(--font-mono, monospace); font-size: 0.88em; color: var(--text-muted); }
 .nb-cfg-select, .nb-cfg-text {
   background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
   color: var(--text); padding: 3px 8px; font-size: 0.88em;
 }
-.nb-cfg-text    { width: 100%; }
+.nb-cfg-text    { flex: 1; }
 .nb-cfg-tc-list { display: flex; flex-direction: column; gap: 0.3em; margin-bottom: 0.4em; }
 .nb-cfg-tc-row  { display: flex; align-items: center; gap: 0.4em; }
 .nb-cfg-tc-name { flex: 1; }
@@ -3165,6 +3165,8 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-cfg-actions { display: flex; align-items: center; gap: 1em; }
 .nb-cfg-status  { font-size: 0.85em; color: var(--text-muted); }
 .nb-cfg-body    { padding: 1.5em 2em; border-top: 1px solid var(--border); }
-.nb-cfg-hint    { display: block; font-size: 0.78em; margin-top: 0.25em; min-height: 1em; }
-.nb-cfg-hint-inherit  { color: var(--text-dim, var(--text-muted)); }
-.nb-cfg-hint-override { color: var(--accent); }
+.nb-cfg-hint   { font-size: 0.75em; font-family: var(--font-mono, monospace); white-space: nowrap; }
+.nb-cfg-hint-inherit { color: var(--text-muted); }
+.nb-cfg-row--inherited .nb-cfg-label,
+.nb-cfg-row--inherited .nb-cfg-select,
+.nb-cfg-row--inherited .nb-cfg-text { opacity: 0.55; }

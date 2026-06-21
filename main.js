@@ -1510,6 +1510,7 @@ const NbMain = (() => {
         wrap.innerHTML = '';
         wrap.hidden = true;
         if (!note?.meta) return;
+
         const frags = [];
         for (const [key, val] of Object.entries(note.meta)) {
             if (key === 'check') continue; // directive, not a toolbar block
@@ -1522,6 +1523,30 @@ const NbMain = (() => {
         wrap.innerHTML = frags.join('');
         wrap.hidden = false;
         await NbWeb.renderCodeblocks(wrap);
+
+        // FM blocks default closed. After render (so headers exist and
+        // _initCollapseToggle is wired), collapse any block the user hasn't
+        // explicitly opened before. Track open state in nb-fm: key.
+        for (const block of [...wrap.children]) {
+            const bCls = [...block.classList].find(c => c.endsWith('-block')) || 'block';
+            const bId  = block.dataset.cmd || block.dataset.query || block.dataset.period || '';
+            const fmKey = `nb-fm:${bCls}:${bId}`;
+
+            if (localStorage.getItem(fmKey) !== '1') {
+                block.classList.add('nb-collapsed');
+            }
+
+            // Track when user opens/closes this FM block
+            const hdr = block.querySelector('[class*="-header"]');
+            if (hdr && !hdr.dataset.fmWired) {
+                hdr.dataset.fmWired = '1';
+                hdr.addEventListener('click', () => setTimeout(() => {
+                    block.classList.contains('nb-collapsed')
+                        ? localStorage.removeItem(fmKey)
+                        : localStorage.setItem(fmKey, '1');
+                }, 0));
+            }
+        }
     }
 
     // Build synthetic Type-1 test fences from `tests:` FM or config chain.
@@ -1801,20 +1826,25 @@ const NbMain = (() => {
         const lines = ['---'];
         const ORDER = ['config', 'type', 'title', 'date', 'access', 'pinned', 'prepend_date', 'check', 'tag_color'];
         const handled = new Set();
-        function emit(key, v) {
-            if (key === 'tag_color' && v && typeof v === 'object' && !Array.isArray(v)) {
-                lines.push('tag_color:');
-                for (const [t, c] of Object.entries(v)) lines.push(`  ${t}: '${c}'`);
-            } else if (v === null || v === undefined) {
-                lines.push(`${key}:`);
+        function emitYaml(key, v, indent) {
+            const pad = ' '.repeat(indent);
+            if (v === null || v === undefined) {
+                lines.push(`${pad}${key}:`);
             } else if (Array.isArray(v)) {
-                lines.push(`${key}: [${v.join(', ')}]`);
+                lines.push(`${pad}${key}: [${v.join(', ')}]`);
             } else if (typeof v === 'boolean') {
-                lines.push(`${key}: ${v}`);
+                lines.push(`${pad}${key}: ${v}`);
+            } else if (typeof v === 'object') {
+                lines.push(`${pad}${key}:`);
+                for (const [k, cv] of Object.entries(v)) emitYaml(k, cv, indent + 2);
             } else {
-                lines.push(`${key}: ${v}`);
+                // Quote strings containing : or # to be safe
+                const s = String(v);
+                const needsQuote = s.includes(':') || s.includes('#') || s.includes('"') || s.startsWith(' ') || s.endsWith(' ');
+                lines.push(`${pad}${key}: ${needsQuote ? `"${s.replace(/"/g, '\\"')}"` : s}`);
             }
         }
+        function emit(key, v) { emitYaml(key, v, 0); }
         for (const key of ORDER) {
             if (key in meta) { emit(key, meta[key]); handled.add(key); }
         }
@@ -1886,24 +1916,22 @@ const NbMain = (() => {
         const pm = note.parent_meta || {};   // inherited from parent chain
         const ACCESS = ['', 'guest', 'user', 'office', 'admin'];
 
-        // Attach a muted hint span to an input/select; update on change.
-        // ownVal: current value in this file's FM (undefined/null = not set)
-        // inheritedVal: what the parent chain provides (undefined/null = nothing)
-        function _wireHint(el, ownVal, inheritedRaw) {
+        function _wireHint(el, ownVal, inheritedRaw, sourcePath) {
             const hint = el.parentElement.querySelector('.nb-cfg-hint');
             if (!hint) return;
-            const iStr = inheritedRaw !== undefined && inheritedRaw !== null
-                ? (Array.isArray(inheritedRaw) ? inheritedRaw.join(' ') : String(inheritedRaw))
-                : null;
+            const hasInherited = inheritedRaw !== undefined && inheritedRaw !== null;
+            const row = el.closest('.nb-cfg-row');
             function update() {
                 const cur = el.value.trim ? el.value.trim() : el.value;
-                if (!iStr) { hint.textContent = ''; return; }
-                if (!cur || cur === '') {
-                    hint.textContent = `inherits: ${iStr}`;
+                const inheriting = hasInherited && (!cur || cur === '');
+                if (inheriting) {
+                    hint.textContent = sourcePath || 'inherited';
                     hint.className = 'nb-cfg-hint nb-cfg-hint-inherit';
+                    row?.classList.add('nb-cfg-row--inherited');
                 } else {
-                    hint.textContent = `takes precedence over inherited: ${iStr}`;
-                    hint.className = 'nb-cfg-hint nb-cfg-hint-override';
+                    hint.textContent = '';
+                    hint.className = 'nb-cfg-hint';
+                    row?.classList.remove('nb-cfg-row--inherited');
                 }
             }
             el.addEventListener('input',  update);
@@ -1920,20 +1948,23 @@ const NbMain = (() => {
         }
 
         // access
+        const accessInherit = pm.access || '(inherit)';
         const accessSel = `<select class="nb-cfg-select" name="access">${
-            ACCESS.map(v => `<option value="${v}"${(m.access ?? '') === v ? ' selected' : ''}>${v || '(inherit)'}</option>`).join('')
+            ACCESS.map(v => `<option value="${v}"${(m.access ?? '') === v ? ' selected' : ''}>${v || accessInherit}</option>`).join('')
         }</select>`;
 
         // prepend_date — tristate
         const pdCur = m.prepend_date === undefined || m.prepend_date === null ? '' : String(m.prepend_date);
+        const pdInherit = pm.prepend_date !== undefined && pm.prepend_date !== null ? String(pm.prepend_date) : '(inherit)';
         const pdSel = `<select class="nb-cfg-select" name="prepend_date">${
-            [['', '(inherit)'], ['true', 'true'], ['false', 'false']]
+            [['', pdInherit], ['true', 'true'], ['false', 'false']]
                 .map(([v, l]) => `<option value="${v}"${pdCur === v ? ' selected' : ''}>${l}</option>`).join('')
         }</select>`;
 
         // check
-        const checksVal = Array.isArray(m.check) ? m.check.join(' ') : (m.check || '');
-        const checksCtrl = `<input class="nb-cfg-text" type="text" name="check" value="${_esc(checksVal)}" placeholder="e.g. nb- hl- (empty = inherit)">`;
+        const checksVal      = Array.isArray(m.check) ? m.check.join(' ') : (m.check || '');
+        const checksInherited = Array.isArray(pm.check) ? pm.check.join(' ') : (pm.check || '');
+        const checksCtrl = `<input class="nb-cfg-text" type="text" name="check" value="${_esc(checksVal)}" placeholder="${_esc(checksInherited)}">`;
 
         // tag_color
         const tc = (m.tag_color && typeof m.tag_color === 'object') ? m.tag_color : {};
@@ -1974,10 +2005,11 @@ const NbMain = (() => {
         const form = container.querySelector('.nb-config-form');
 
         // Wire inherited hints
-        _wireHint(form.querySelector('[name=access]'),       m.access,       pm.access);
-        _wireHint(form.querySelector('[name=pinned]'),       m.pinned,       pm.pinned);
-        _wireHint(form.querySelector('[name=prepend_date]'), m.prepend_date, pm.prepend_date);
-        _wireHint(form.querySelector('[name=check]'),        m.check,        pm.check);
+        const pms = note.parent_meta_sources || {};
+        _wireHint(form.querySelector('[name=access]'),       m.access,       pm.access,       pms.access);
+        _wireHint(form.querySelector('[name=pinned]'),       m.pinned,       pm.pinned,       pms.pinned);
+        _wireHint(form.querySelector('[name=prepend_date]'), m.prepend_date, pm.prepend_date, pms.prepend_date);
+        _wireHint(form.querySelector('[name=check]'),        m.check,        pm.check,        pms.check);
 
         // Wire tag-color rows
         form.querySelectorAll('.nb-cfg-tc-row').forEach(r =>
