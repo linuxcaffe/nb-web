@@ -1831,7 +1831,12 @@ const NbMain = (() => {
             if (v === null || v === undefined) {
                 lines.push(`${pad}${key}:`);
             } else if (Array.isArray(v)) {
-                lines.push(`${pad}${key}: [${v.join(', ')}]`);
+                const items = v.map(item => {
+                    const s = String(item);
+                    return (s.includes(',') || s.includes(':') || s.includes('#') || s.includes('"') || s.startsWith(' ') || s.endsWith(' '))
+                        ? `"${s.replace(/"/g, '\\"')}"` : s;
+                });
+                lines.push(`${pad}${key}: [${items.join(', ')}]`);
             } else if (typeof v === 'boolean') {
                 lines.push(`${pad}${key}: ${v}`);
             } else if (typeof v === 'object') {
@@ -4042,6 +4047,9 @@ const NbMain = (() => {
                 _noteCache.delete(_activeSelector);
                 const savedSel = _activeSelector;
                 delete _toolbarCache[NbNav.notebook];  // bust so toolbar: changes show immediately
+                // Config dotfiles (.{name}.md) affect notebook config — bust so changes take effect immediately.
+                const _savedFile = _activeSelector.split(':').pop().split('/').pop();
+                if (_savedFile.startsWith('.')) NbWeb.bustNotebookConfigCache(NbNav.notebook);
                 _closeEditor();
                 _noAutoSelect = true;
                 NbNav.reexecute();
