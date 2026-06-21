@@ -956,6 +956,24 @@ body {
 .nb-inline-content > .nb-rendered > *:first-child { margin-top: 0; }
 .nb-inline-content > .nb-rendered > *:last-child  { margin-bottom: 0; }
 
+#nb-tabs-bar {
+    display: flex; flex-wrap: wrap; gap: 2px;
+    padding: 0 0 0; margin: 0 0 0.75em;
+    border-bottom: 1px solid var(--border-dim, #333);
+}
+#nb-preview-toolbar[hidden] ~ * ~ #nb-tabs-bar { display: none !important; }
+.nb-tab {
+    padding: 5px 14px; font-size: 0.82em;
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); cursor: pointer; border-radius: 4px 4px 0 0;
+    margin-bottom: -1px; transition: color 0.1s;
+}
+.nb-tab:hover { color: var(--text); background: var(--bg2, rgba(255,255,255,0.04)); }
+.nb-tab--active {
+    color: var(--accent, #57a0d9); border-bottom-color: var(--accent, #57a0d9);
+    font-weight: 600; cursor: default;
+}
+
 .nb-toc { margin: 0 0 1.5em;
           background: var(--bg2, rgba(255,255,255,0.03));
           border: 1px solid var(--border-dim, #333); border-radius: 6px;

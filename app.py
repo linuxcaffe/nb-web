@@ -675,7 +675,10 @@ def _dot_selector_to_path(selector):
     nb, _, filename = selector.partition(':')
     if nb not in DOTFOLDERS or not filename or '/' in filename or filename.startswith('.'):
         return None
-    return NB_DIR / nb / filename
+    p = NB_DIR / nb / filename
+    if not p.exists() and not filename.endswith('.md'):
+        p = NB_DIR / nb / (filename + '.md')
+    return p
 
 def _list_dotfolder_notes(dotfolder, limit=200):
     folder_path = NB_DIR / dotfolder

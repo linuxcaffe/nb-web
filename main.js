@@ -1498,10 +1498,66 @@ const NbMain = (() => {
             _markTocPartial(container);
             _watchInlineTocRebuild(container, note);
         }
+        _buildTabs(note);
         _buildFmBlocks(note);
         _appendAnnotation(container, note);
         if (note?.effective_xref ?? note?.meta?.xref) _enrichXref(container, note);
         _injectAccessBadge(note);
+    }
+
+    async function _buildTabs(note) {
+        const bar = document.getElementById('nb-tabs-bar');
+        if (!bar) return;
+        bar.innerHTML = '';
+        bar.hidden = true;
+
+        const rawTabs = note?.meta?.tabs;
+        if (!rawTabs) return;
+        const entries = Array.isArray(rawTabs) ? rawTabs : String(rawTabs).split(',').map(s => s.trim()).filter(Boolean);
+        if (!entries.length) return;
+
+        // Resolve a relative tab entry to a full selector.
+        // Entries can be: bare filename, relative path (../folder/file.md), or full selector (nb:file.md)
+        function _resolveTabEntry(entry) {
+            if (entry.includes(':')) return entry;  // already a full selector
+            const nb  = note.notebook || NbNav.notebook;
+            const rel = note.filename ? note.filename.split('/').slice(0, -1).join('/') : '';
+            // Normalise ../  paths relative to note's folder
+            const parts = (rel ? rel + '/' : '') + entry;
+            const resolved = parts.split('/').reduce((acc, seg) => {
+                if (seg === '..') { acc.pop(); } else if (seg && seg !== '.') { acc.push(seg); }
+                return acc;
+            }, []);
+            return nb + ':' + resolved.join('/');
+        }
+
+        // Tab 0 — current note, always active
+        const makeTab = (label, sel, active) => {
+            const btn = document.createElement('button');
+            btn.className = 'nb-tab' + (active ? ' nb-tab--active' : '');
+            btn.textContent = label;
+            if (!active) btn.addEventListener('click', () => openNote(sel));
+            bar.appendChild(btn);
+        };
+
+        makeTab(note.meta?.title || note.title || note.filename || '…', note.selector, true);
+
+        bar.hidden = false;
+
+        // Remaining tabs — fetch titles asynchronously
+        for (const entry of entries) {
+            const sel = _resolveTabEntry(entry.trim());
+            const btn = document.createElement('button');
+            btn.className = 'nb-tab';
+            btn.textContent = sel.split(':').pop().replace(/\.md$/, '');  // interim label
+            btn.addEventListener('click', () => openNote(sel));
+            bar.appendChild(btn);
+            // Fetch real title
+            fetch('/api/note?selector=' + encodeURIComponent(sel))
+                .then(r => r.ok ? r.json() : null)
+                .then(d => { if (d) btn.textContent = d.meta?.alias || d.title || d.filename || sel; })
+                .catch(() => {});
+        }
     }
 
     async function _buildFmBlocks(note) {
