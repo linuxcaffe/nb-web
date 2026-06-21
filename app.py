@@ -363,7 +363,7 @@ from werkzeug.security import check_password_hash
 
 USERS_DIR  = NB_DIR / '.users'
 LEVELS     = ['guest', 'user', 'office', 'admin', 'tech']
-DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules', '.lib']
+DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules', '.lib', '.test']
 
 _SECRET_FILE = Path(__file__).parent / '.flask_secret'
 
