@@ -6430,21 +6430,30 @@ def api_nb_notebooks():
                 except Exception:
                     website = {}
 
+            cine_json    = entry / '.nb-cine.json'
+            hledger_json = entry / '.nb-hledger.json'
+            _manifest    = None   # lazy-loaded once if either JSON file is absent
+
             cine = None
-            cine_json = entry / '.nb-cine.json'
             if cine_json.exists():
                 try:
                     cine = json.loads(cine_json.read_text())
                 except Exception:
                     cine = {}
+            else:
+                _manifest = _notebook_config(entry.name)
+                cine = _manifest.get('cine') or None
 
             hledger = None
-            hledger_json = entry / '.nb-hledger.json'
             if hledger_json.exists():
                 try:
                     hledger = json.loads(hledger_json.read_text())
                 except Exception:
                     hledger = {}
+            else:
+                if _manifest is None:
+                    _manifest = _notebook_config(entry.name)
+                hledger = _manifest.get('hledger') or None
 
             notebooks.append({
                 'name': entry.name, 'count': count, 'mtime': mtime,
