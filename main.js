@@ -1914,7 +1914,7 @@ const NbMain = (() => {
         function row(label, ctrl, hint = '') {
             const hintHtml = hint !== false ? `<span class="nb-cfg-hint"></span>` : '';
             return `<div class="nb-cfg-row">
-                <span class="nb-cfg-label">${_esc(label)}</span>
+                <span class="nb-cfg-label" data-xref-heading="${_esc(label)}">${_esc(label)}</span>
                 <div class="nb-cfg-ctrl">${ctrl}${hintHtml}</div>
             </div>`;
         }
