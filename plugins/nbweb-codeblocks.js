@@ -2438,7 +2438,13 @@
                 }
             } else {
                 const keys = Object.keys(contrib);
-                tdV.textContent = keys.length ? keys.join(', ') : '';
+                keys.forEach((k, i) => {
+                    const sp = document.createElement('span');
+                    sp.textContent = k;
+                    sp.dataset.xrefHeading = k;
+                    tdV.appendChild(sp);
+                    if (i < keys.length - 1) tdV.appendChild(document.createTextNode(', '));
+                });
             }
 
             tr.appendChild(tdM);
