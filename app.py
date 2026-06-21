@@ -4097,6 +4097,47 @@ def _search_notes(notebook, folder, query, limit, tags=None):
         except Exception:
             pass
 
+    # --- Supplemental: dotfile glob (nb search never indexes dotfiles) ---
+    if query.startswith('.') and notebook and len(items) < limit:
+        nb_root = NB_DIR / notebook
+        if nb_root.is_dir():
+            # Accept bare stem (.shots) or explicit name (.shots.md)
+            patterns = [query + '.md', query] if '.' not in query[1:] else [query]
+            for pat in patterns:
+                for dotfile in sorted(nb_root.rglob(pat)):
+                    if len(items) >= limit:
+                        break
+                    rel = str(dotfile.relative_to(nb_root))
+                    sel = f"{notebook}:{rel}"
+                    if sel in seen_sels:
+                        continue
+                    seen_sels.add(sel)
+                    try:
+                        raw_f = dotfile.read_text(errors='replace')
+                        meta_f, body_f = parse_frontmatter(raw_f)
+                        dtitle  = meta_f.get('title') or meta_f.get('config') or note_title(dotfile.name, body_f)
+                        excerpt = next((ln.strip()[:120] for ln in body_f.splitlines()
+                                        if ln.strip() and not _RE_HEADING.match(ln.strip())), '')
+                        itype   = _apply_meta_type(classify(dotfile.name, notebook), meta_f)
+                        fmtime  = dotfile.stat().st_mtime
+                    except Exception:
+                        dtitle, excerpt, itype, fmtime = dotfile.name, '', 'note', 0
+                    items.append({
+                        'selector':         sel,
+                        'filename':         dotfile.name,
+                        'title':            dtitle,
+                        'type':             itype,
+                        'status':           None,
+                        'indicator':        _indicator(itype, None),
+                        'mtime':            fmtime,
+                        'excerpt':          excerpt,
+                        'notebook':         notebook,
+                        'updated':          '',
+                        'pinned':           False,
+                        'annotation_match': False,
+                        'annotation':       None,
+                    })
+
     return jsonify({'notes': items, 'total': len(items), 'query': query})
 
 
@@ -4142,8 +4183,23 @@ def api_note():
         # Resolve selector to a real path first (handles both filename and id selectors)
         path_r = run_nb('show', selector, '--path')
         if not nb_ok(path_r):
-            return jsonify({'error': 'not found'}), 404
-        fpath = path_r['stdout'].strip()
+            # Fallback: direct filesystem lookup for dotfiles not indexed by nb.
+            # Handles Takeout:.Takeout.md, Takeout:shots/.shots.md, etc.
+            if ':' in selector:
+                _nb, _, _rel = selector.partition(':')
+                try:
+                    _p = (NB_DIR / _nb / _rel).resolve()
+                    _p.relative_to(NB_DIR)  # must stay within NB_DIR
+                    if _p.is_file():
+                        fpath = str(_p)
+                    else:
+                        return jsonify({'error': 'not found'}), 404
+                except (ValueError, OSError):
+                    return jsonify({'error': 'not found'}), 404
+            else:
+                return jsonify({'error': 'not found'}), 404
+        else:
+            fpath = path_r['stdout'].strip()
 
     # Determine notebook name and numeric id from filesystem path
     p = Path(fpath)
