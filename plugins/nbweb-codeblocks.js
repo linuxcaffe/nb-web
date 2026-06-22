@@ -44,6 +44,14 @@
         el.remove();
     }
 
+    function _cbError(el, lang, message, onRefresh) {
+        el.innerHTML = '';
+        const cls = lang === 'hledger' ? 'hl' : lang;
+        const { hdr, meta } = _buildBarHeader(el, { lang, cls, onRefresh });
+        meta.innerHTML = `<span class="nb-cb-err">⚠ ${_esc(message)}</span>`;
+        el.appendChild(hdr);
+    }
+
     function _cbGateAttrs(readLevel, writeLevel) {
         return (readLevel  ? ` data-cb-read="${readLevel}"`  : '')
              + (writeLevel ? ` data-cb-write="${writeLevel}"` : '');
@@ -70,6 +78,8 @@
         nav:     { text: 'NAV' },
         front:   { text: 'FM'  },
         config:  { text: 'CFG' },
+        gallery: { text: 'GAL' },
+        toc:     { text: 'TOC' },
         test:    { text: 'TST' },
     };
 
@@ -139,6 +149,39 @@
         header.addEventListener('click', toggle);
         header.querySelectorAll('.nb-collapse-zone').forEach(z =>
             z.addEventListener('click', toggle));
+    }
+
+    // Shared barblock header factory — icon + meta placeholder + acts (help? + refresh?).
+    // Returns { hdr, meta, acts, refBtn, helpBtn } so callers can fill meta and prepend extra acts buttons.
+    // cls overrides lang for CSS class names when the icon key and CSS prefix differ (e.g. lang:'hledger', cls:'hl').
+    function _buildBarHeader(el, { lang, cls, collapseZone = false, onRefresh, onHelp } = {}) {
+        const blockCls = cls || lang;
+        const hdr = document.createElement('div');
+        hdr.className = `nb-barblock nb-${blockCls}-header` + (collapseZone ? ' nb-collapse-zone' : '');
+        hdr.appendChild(_cbIcon(lang));
+        const meta = document.createElement('span');
+        meta.className = `nb-${blockCls}-meta`;
+        hdr.appendChild(meta);
+        const acts = document.createElement('span');
+        acts.className = 'nb-barblock-acts';
+        let helpBtn = null;
+        if (onHelp) {
+            helpBtn = document.createElement('button');
+            helpBtn.className = 'nb-tw-btn';
+            helpBtn.title = 'Help'; helpBtn.textContent = '?';
+            helpBtn.addEventListener('click', e => { e.stopPropagation(); onHelp(helpBtn); });
+            acts.appendChild(helpBtn);
+        }
+        let refBtn = null;
+        if (onRefresh) {
+            refBtn = document.createElement('button');
+            refBtn.className = 'nb-tw-btn nb-barblock-refresh';
+            refBtn.title = 'Refresh'; refBtn.textContent = '↻';
+            refBtn.addEventListener('click', e => { e.stopPropagation(); onRefresh(); });
+            acts.appendChild(refBtn);
+        }
+        hdr.appendChild(acts);
+        return { hdr, meta, acts, refBtn, helpBtn };
     }
 
     // ── t timeclock ───────────────────────────────────────────────────────────
@@ -338,13 +381,13 @@
         try {
             const r = await fetch(`/api/task-query?q=${encodeURIComponent(q)}`);
             const d = await r.json();
-            if (d.error) { el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(d.error)}</span>`; return; }
+            if (d.error) { _cbError(el, 'tw', d.error, () => _loadTwBlock(el)); return; }
             const twLaunch = d.twTerminalMode ? {terminal: true, cmd: d.twLaunchCmd}
                            : d.twWebUrl      ? {url: d.twWebUrl}
                            : null;
             _buildTwTable(el, (d.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), q, colSpec, twLaunch);
         } catch(e) {
-            el.innerHTML = `<span class="nb-tw-error">⚠ ${_esc(e.message)}</span>`;
+            _cbError(el, 'tw', e.message, () => _loadTwBlock(el));
         }
         _initCollapseToggle(el);
     }
@@ -383,13 +426,12 @@
         };
 
         el.innerHTML = '';
-        const hdr = document.createElement('div');
-        hdr.className = 'nb-tw-header';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
         const twTitle = !launch         ? 'Configure launch in Settings → Codeblocks'
                       : launch.terminal ? 'Run in terminal'
                       :                   'Open in tw-web';
-        hdr.innerHTML = `<span class="nb-tw-meta"><span class="nb-tw-name" title="${twTitle}">task</span><span class="nb-tw-count">${tasks.length}</span>${filterHtml}</span>`;
+        const { hdr, meta, acts, refBtn } = _buildBarHeader(el, { lang: 'tw', onRefresh: () => _loadTwBlock(el) });
+        meta.innerHTML = `<span class="nb-tw-name" title="${twTitle}">task</span><span class="nb-tw-count">${tasks.length}</span>${filterHtml}`;
         const twNameEl = hdr.querySelector('.nb-tw-name');
         twNameEl.addEventListener('click', async () => {
             if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
@@ -402,25 +444,14 @@
             finally { twNameEl.classList.remove('nb-tw-name-launching'); }
         });
 
-        const acts = document.createElement('span');
-        acts.className = 'nb-tw-header-acts';
-
         if (_cbCan(el, 'tw', 'write')) {
             const addBtn = document.createElement('button');
             addBtn.className = 'nb-tw-btn nb-tw-add-btn';
             addBtn.title = 'Add task'; addBtn.textContent = '+';
             addBtn.addEventListener('click', () => _showTwAddForm(el, q, addBtn));
-            acts.appendChild(addBtn);
+            acts.insertBefore(addBtn, refBtn);
         }
 
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn nb-tw-refresh';
-        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _loadTwBlock(el));
-        acts.appendChild(refBtn);
-
-        hdr.appendChild(acts);
-        hdr.insertBefore(_cbIcon('tw'), hdr.firstChild);
         el.appendChild(hdr);
 
         if (!tasks.length) return;
@@ -634,7 +665,7 @@
                 const d = await fetch('/api/nb/notebooks').then(r => r.json());
                 _buildNbNotebooks(el, d.notebooks || []);
             } catch(e) {
-                el.innerHTML = `<span class="nb-nb-error">⚠ ${_esc(e.message)}</span>`;
+                _cbError(el, 'nb', e.message, () => _loadNbBlock(el));
             }
         } else if (cmd === 'backlinks') {
             const title    = document.getElementById('nb-preview-title')?.textContent?.trim() || '';
@@ -647,27 +678,19 @@
                 ).then(r => r.json());
                 _buildNbBacklinks(el, d.backlinks || [], title, limit);
             } catch(e) {
-                el.innerHTML = `<span class="nb-nb-error">⚠ ${_esc(e.message)}</span>`;
+                _cbError(el, 'nb', e.message, () => _loadNbBlock(el));
             }
         } else {
-            el.innerHTML = `<span class="nb-nb-error">unknown nb command: ${_esc(cmd)}</span>`;
+            _cbError(el, 'nb', `unknown nb command: ${_esc(cmd)}`, () => _loadNbBlock(el));
         }
         _initCollapseToggle(el);
     }
 
     function _buildNbBacklinks(el, backlinks, title, limit = 20) {
         el.innerHTML = '';
-        const hdr = document.createElement('div');
-        hdr.className = 'nb-nb-header';
         const countHint = backlinks.length === limit ? `top ${limit}` : backlinks.length;
-        hdr.innerHTML = `<span class="nb-nb-meta"><span class="nb-nb-name">nb</span> backlinks · <code>${_esc(title)}</code> <span class="nb-nb-count">${countHint}</span></span>`;
-
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn';
-        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _loadNbBlock(el));
-        hdr.appendChild(refBtn);
-        hdr.insertBefore(_cbIcon('nb'), hdr.firstChild);
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'nb', onRefresh: () => _loadNbBlock(el) });
+        meta.innerHTML = `<span class="nb-nb-name">nb</span> backlinks · <code>${_esc(title)}</code> <span class="nb-nb-count">${countHint}</span>`;
         el.appendChild(hdr);
 
         if (!backlinks.length) {
@@ -698,14 +721,8 @@
 
     function _buildNbNotebooks(el, notebooks) {
         el.innerHTML = '';
-        const hdr = document.createElement('div');
-        hdr.className = 'nb-nb-header';
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _loadNbBlock(el));
-        hdr.innerHTML = `<span class="nb-nb-meta"><span class="nb-nb-name">nb</span> notebooks <span class="nb-nb-count">${notebooks.length}</span></span>`;
-        hdr.appendChild(refBtn);
-        hdr.insertBefore(_cbIcon('nb'), hdr.firstChild);
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'nb', onRefresh: () => _loadNbBlock(el) });
+        meta.innerHTML = `<span class="nb-nb-name">nb</span> notebooks <span class="nb-nb-count">${notebooks.length}</span>`;
         el.appendChild(hdr);
 
         if (!notebooks.length) {
@@ -754,18 +771,23 @@
         if (!_cbCan(el, 'git', 'read')) { _cbDenyRead(el); return; }
         const line  = (el.dataset.cmd || '').trim();
         const space = line.indexOf(' ');
-        const repo  = space === -1 ? line : line.slice(0, space);
+        let   repo  = space === -1 ? line : line.slice(0, space);
         const args  = space === -1 ? ''   : line.slice(space + 1).trim();
+        if (repo === '.') {
+            const sel = NbMain?.activeSelector?.() || '';
+            const c   = sel.indexOf(':');
+            repo = c >= 0 ? sel.slice(0, c) : repo;
+        }
         el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const d = await fetch(
                 `/api/nb/git?repo=${encodeURIComponent(repo)}&args=${encodeURIComponent(args)}`
             ).then(r => r.json());
-            if (d.error) { el.innerHTML = `<span class="nb-git-error">⚠ ${_esc(d.error)}</span>`; return; }
+            if (d.error) { _cbError(el, 'git', d.error, () => _loadGitBlock(el)); return; }
             _buildGitOutput(el, d.output || '', repo, args);
         } catch(e) {
-            el.innerHTML = `<span class="nb-git-error">⚠ ${_esc(e.message)}</span>`;
+            _cbError(el, 'git', e.message, () => _loadGitBlock(el));
         }
         _initCollapseToggle(el);
     }
@@ -781,14 +803,9 @@
 
     function _buildGitOutput(el, text, repo, args) {
         el.innerHTML = '';
-        const hdr = document.createElement('div');
-        hdr.className = 'nb-git-header';
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _loadGitBlock(el));
-        hdr.innerHTML = `<span class="nb-git-meta"><span class="nb-git-repo" title="Open remote in browser">${_esc(repo)}</span> <code>git ${_esc(args)}</code></span>`;
-        const repoEl = hdr.querySelector('.nb-git-repo');
-        repoEl.addEventListener('click', async () => {
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'git', onRefresh: () => _loadGitBlock(el) });
+        meta.innerHTML = `<span class="nb-git-repo" title="Open remote in browser">${_esc(repo)}</span> <code>git ${_esc(args)}</code>`;
+        hdr.querySelector('.nb-git-repo').addEventListener('click', async () => {
             try {
                 const d = await fetch(
                     `/api/nb/git?repo=${encodeURIComponent(repo)}&args=${encodeURIComponent('remote get-url origin')}`
@@ -797,8 +814,6 @@
                 if (url) window.open(url, '_blank');
             } catch(e) { console.error('git remote:', e); }
         });
-        hdr.appendChild(refBtn);
-        hdr.insertBefore(_cbIcon('git'), hdr.firstChild);
         el.appendChild(hdr);
         const pre = document.createElement('pre');
         pre.className = 'nb-git-pre';
@@ -977,18 +992,14 @@
     function _buildHledgerLaunch(el, filePath, cmd) {
         const termCmd = `hledger-${cmd}${filePath ? ' -f ' + filePath : ''}`;
         el.classList.remove('nb-collapsed');
-        el.innerHTML = `
-            <div class="nb-hl-header">
-                <span class="nb-hl-meta">
-                    <span class="nb-hl-name" title="${_esc(termCmd)}">hledger</span>
-                    <code style="margin-left:4px;opacity:0.7">${_esc(cmd)}</code>
-                </span>
-            </div>
-            <div style="padding:6px 10px">
-                <button class="nb-tw-btn nb-hl-launch-btn" style="font-size:13px;padding:4px 12px">
-                    ▶ hledger-${_esc(cmd)}
-                </button>
-            </div>`;
+        el.innerHTML = '';
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'hledger', cls: 'hl' });
+        meta.innerHTML = `<span class="nb-hl-name" title="${_esc(termCmd)}">hledger</span><code style="margin-left:4px;opacity:0.7">${_esc(cmd)}</code>`;
+        el.appendChild(hdr);
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:6px 10px';
+        body.innerHTML = `<button class="nb-tw-btn nb-hl-launch-btn" style="font-size:13px;padding:4px 12px">▶ hledger-${_esc(cmd)}</button>`;
+        el.appendChild(body);
         el.querySelector('.nb-hl-launch-btn').addEventListener('click', () => {
             if (cmd === 'web') {
                 fetch('/api/hledger/launch', {method: 'POST'})
@@ -1061,7 +1072,7 @@
         try {
             const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}&notebook=${encodeURIComponent(_hlNotebook())}`);
             const d = await r.json();
-            if (d.error) { el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(d.error)}</span>`; return; }
+            if (d.error) { _cbError(el, 'hledger', d.error, () => _loadHledgerBlock(el)); return; }
             el.dataset.hlFile         = d.file            || '';
             el.dataset.hlJournal      = d.journal         || '';
             el.dataset.hlJournalSel   = d.journalSelector || '';
@@ -1081,7 +1092,7 @@
             else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q, launch);
             else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q, launch);
         } catch(e) {
-            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+            _cbError(el, 'hledger', e.message, () => _loadHledgerBlock(el));
         } finally {
             if (_initCollapsed) el.classList.add('nb-collapsed');
         }
@@ -1128,19 +1139,21 @@
     }
 
     function _hlHeader(el, q, refresh, launch, count = null) {
-        const hdr = document.createElement('div');
-        hdr.className = 'nb-hl-header';
         const countHtml = count != null ? `<span class="nb-hl-count">${count}</span>` : '';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
         const nameTitle = !launch                ? 'Configure launch in Settings → Codeblocks'
                         : launch.terminal        ? 'Run in terminal'
                         :                          'Open in hledger-web';
-        hdr.innerHTML = `<span class="nb-hl-meta nb-collapse-zone"><span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}</span>`;
-
-        const nameEl = hdr.querySelector('.nb-hl-name');
-        nameEl.addEventListener('click', async () => {
+        const { hdr, meta, acts, refBtn, helpBtn } = _buildBarHeader(el, {
+            lang: 'hledger', cls: 'hl', onRefresh: refresh, onHelp: _showHledgerHelp,
+        });
+        helpBtn.className += ' nb-hl-btn nb-hl-help-btn';
+        meta.className += ' nb-collapse-zone';
+        meta.innerHTML = `<span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}`;
+        meta.querySelector('.nb-hl-name').addEventListener('click', async () => {
             if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
             if (launch.terminal) { NbTerminal.run(launch.cmd); return; }
+            const nameEl = meta.querySelector('.nb-hl-name');
             nameEl.classList.add('nb-hl-name-launching');
             try {
                 const d = await fetch('/api/hledger/launch', {method: 'POST'}).then(r => r.json());
@@ -1151,11 +1164,8 @@
                     window.open(`${d.url}${hash}`, 'hledger-web');
                 }
             } catch(e) { console.error('hledger launch:', e); }
-            finally { nameEl.classList.remove('nb-hl-name-launching'); }
+            finally { meta.querySelector('.nb-hl-name')?.classList.remove('nb-hl-name-launching'); }
         });
-
-        const acts = document.createElement('span');
-        acts.className = 'nb-hl-actions';
 
         if (_cbCan(el, 'hledger', 'write')) {
             const editBtn = document.createElement('button');
@@ -1167,32 +1177,16 @@
                 const path = el.dataset.hlJournal;
                 NbMain.openNote(sel || path);
             });
-            acts.appendChild(editBtn);
+            acts.insertBefore(editBtn, helpBtn);
 
             const addBtn = document.createElement('button');
             addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
             addBtn.title = 'Add transaction';
             addBtn.textContent = '+';
             addBtn.addEventListener('click', () => _showHledgerAddForm(el, q, addBtn));
-            acts.appendChild(addBtn);
+            acts.insertBefore(addBtn, helpBtn);
         }
 
-        const helpBtn = document.createElement('button');
-        helpBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-help-btn';
-        helpBtn.title = 'Help';
-        helpBtn.textContent = '?';
-        helpBtn.addEventListener('click', () => _showHledgerHelp(helpBtn));
-        acts.appendChild(helpBtn);
-
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-refresh';
-        refBtn.title = 'Refresh';
-        refBtn.textContent = '↻';
-        refBtn.addEventListener('click', refresh);
-        acts.appendChild(refBtn);
-
-        hdr.appendChild(acts);
-        hdr.insertBefore(_cbIcon('hledger'), hdr.firstChild);
         el.appendChild(hdr);
         _initCollapseToggle(el);
     }
@@ -1500,18 +1494,24 @@
 
     // Parse: [nb1 nb2] field:value field2: field3:"" | Label
     // Leading bare words (no colon) = notebook scope; none = all notebooks.
-    function _frontParseQuery(raw) {
+    function _frontParseQuery(raw, currentSelector) {
         raw = (raw || '').trim();
         const pipeIdx = raw.indexOf(' |');
         const label   = pipeIdx >= 0 ? raw.slice(pipeIdx + 2).trim() : '';
         const qpart   = pipeIdx >= 0 ? raw.slice(0, pipeIdx).trim() : raw;
 
-        // Consume leading tokens with no colon as notebook names
+        // Consume leading tokens with no colon as notebook names; '.' resolves to current notebook
         const notebooks = [];
         const tokens    = qpart ? qpart.split(/\s+/) : [];
         let i = 0;
         while (i < tokens.length && !tokens[i].includes(':')) {
-            notebooks.push(tokens[i++]);
+            const tok = tokens[i++];
+            if (tok === '.') {
+                const colon = (currentSelector || '').indexOf(':');
+                if (colon >= 0) notebooks.push(currentSelector.slice(0, colon));
+            } else {
+                notebooks.push(tok);
+            }
         }
         const filterPart = tokens.slice(i).join(' ');
 
@@ -1723,7 +1723,7 @@
             await _loadFrontChanges(el);
             return;
         }
-        const parsed = _frontParseQuery(el.dataset.query || '');
+        const parsed = _frontParseQuery(el.dataset.query || '', NbMain?.activeSelector?.() || '');
         el.dataset.frontNotebooks = parsed.notebooks.join(',');
         el.dataset.frontFilters   = JSON.stringify(parsed.filters);
         el.dataset.frontLabel     = parsed.label;
@@ -1734,8 +1734,8 @@
         const notebooks  = el.dataset.frontNotebooks || '';
         const filters    = JSON.parse(el.dataset.frontFilters || '[]');
         const label      = el.dataset.frontLabel || '';
-        const wasOpen    = el.classList.contains('nb-front-open');
-        el.innerHTML     = '<span class="nb-spin">⟳</span>';
+        const wasCollapsed = el.classList.contains('nb-collapsed');
+        el.innerHTML       = '<span class="nb-spin">⟳</span>';
         try {
             const params = new URLSearchParams({ notebooks, filters: JSON.stringify(filters) });
             const _fr    = await fetch(`/api/front-query?${params}`);
@@ -1753,43 +1753,29 @@
             el.innerHTML = '';
 
             // ── Header ──────────────────────────────────────────────────────
-            const hdr = document.createElement('div');
-            hdr.className = 'nb-front-header';
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'front', onRefresh: () => _frontRender(el) });
 
             const toggle = document.createElement('span');
             toggle.className = 'nb-front-toggle';
+            meta.appendChild(toggle);
 
             const countEl = document.createElement('span');
             countEl.className = 'nb-front-count';
             countEl.textContent = notes.length ? String(notes.length) : 'No matches';
+            meta.appendChild(countEl);
 
-            const refBtn = document.createElement('button');
-            refBtn.className = 'nb-tw-btn nb-nav-refresh nb-front-refresh';
-            refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-            refBtn.addEventListener('click', e => { e.stopPropagation(); _frontRender(el); });
-
-            // Whole header is the click zone
-            hdr.addEventListener('click', () => {
-                el.classList.toggle('nb-front-open');
-                toggle.textContent = el.classList.contains('nb-front-open') ? '▼' : '▶';
-            });
-
-            hdr.appendChild(toggle);
-            hdr.appendChild(countEl);
             if (nbLabel) {
                 const nbEl = document.createElement('span');
                 nbEl.className = 'nb-front-nb';
                 nbEl.textContent = nbLabel;
-                hdr.appendChild(nbEl);
+                meta.appendChild(nbEl);
             }
             if (label) {
                 const lbl = document.createElement('span');
                 lbl.className = 'nb-front-label';
                 lbl.textContent = label;
-                hdr.appendChild(lbl);
+                meta.appendChild(lbl);
             }
-            hdr.appendChild(refBtn);
-            hdr.insertBefore(_cbIcon('front'), hdr.firstChild);
             el.appendChild(hdr);
 
             // ── List ────────────────────────────────────────────────────────
@@ -1822,19 +1808,29 @@
                 el.appendChild(list);
             }
 
-            // Default collapsed; restore open state on refresh
-            toggle.textContent = wasOpen ? '▼' : '▶';
-            if (wasOpen) el.classList.add('nb-front-open');
+            if (wasCollapsed) el.classList.add('nb-collapsed');
+            _initCollapseToggle(el);
 
         } catch (e) {
-            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+            _cbError(el, 'front', e.message, () => _frontRender(el));
         }
     }
 
     // ── nav codeblock ─────────────────────────────────────────────────────────
 
-    function _navParseQuery(raw) {
+    function _navParseQuery(raw, currentSelector) {
         raw = (raw || '').trim();
+        if (raw === '.') {
+            const colon = (currentSelector || '').indexOf(':');
+            if (colon >= 0) {
+                const nb   = currentSelector.slice(0, colon);
+                const rel  = currentSelector.slice(colon + 1);
+                const parts = rel.split('/');
+                const folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+                return { notebook: nb, folder };
+            }
+            return { notebook: '', folder: '' };
+        }
         if (/^[^/\s]+:/.test(raw)) {         // nb selector: notebook:folder/
             const colon = raw.indexOf(':');
             return { notebook: raw.slice(0, colon), folder: raw.slice(colon + 1).replace(/\/$/, '') };
@@ -1854,7 +1850,7 @@
     async function _loadNavBlock(el) {
         if (!_cbCan(el, 'nav', 'read')) { _cbDenyRead(el); return; }
         if (!el.dataset.navReady) {
-            const parsed = _navParseQuery(el.dataset.query || '');
+            const parsed = _navParseQuery(el.dataset.query || '', NbMain?.activeSelector?.() || '');
             if (parsed.rawPath !== undefined) {
                 el.dataset.navRawPath = parsed.rawPath;
             } else {
@@ -1911,26 +1907,12 @@
                 _navBuildNotes(el, notes, notebook, folder);
             }
         } catch (e) {
-            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+            _cbError(el, 'nav', e.message, () => _loadNavBlock(el));
         }
     }
 
-    function _navMakeHeader(el) {
-        const hdr  = document.createElement('div');
-        hdr.className = 'nb-nav-header';
-        const acts = document.createElement('span');
-        acts.className = 'nb-nav-acts';
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn nb-nav-refresh';
-        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', () => _loadNavBlock(el));
-        acts.appendChild(refBtn);
-        hdr.appendChild(acts);
-        return hdr;
-    }
-
     function _navHeader(el, notebook, folder) {
-        const hdr   = _navMakeHeader(el);
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'nav', onRefresh: () => _loadNavBlock(el) });
         const crumbs = document.createElement('span');
         crumbs.className = 'nb-nav-crumbs nb-collapse-zone';
 
@@ -1952,15 +1934,14 @@
                 crumbs.appendChild(mkCrumb(part, notebook, folderParts.slice(0, i + 1).join('/'), i === folderParts.length - 1));
             });
         }
-        hdr.prepend(crumbs);
-        hdr.insertBefore(_cbIcon('nav'), hdr.firstChild);
+        hdr.replaceChild(crumbs, meta);
         el.appendChild(hdr);
         _initCollapseToggle(el);
     }
 
     // Header for raw filesystem mode — breadcrumb shows path relative to .nb/
     function _navHeaderFs(el, absPath) {
-        const hdr    = _navMakeHeader(el);
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'nav', onRefresh: () => _loadNavBlock(el) });
         const crumbs = document.createElement('span');
         crumbs.className = 'nb-nav-crumbs nb-collapse-zone';
 
@@ -1986,8 +1967,7 @@
             crumbs.appendChild(b);
         });
 
-        hdr.prepend(crumbs);
-        hdr.insertBefore(_cbIcon('nav'), hdr.firstChild);
+        hdr.replaceChild(crumbs, meta);
         el.appendChild(hdr);
         _initCollapseToggle(el);
     }
@@ -2122,7 +2102,7 @@
         const { key, notebook, folder, treeMode, treeAttr } = _configParseQuery(el.dataset.query || '', currentSelector);
 
         if (!notebook) {
-            el.innerHTML = '<span class="nb-hl-error">⚠ config: no notebook resolved</span>';
+            _cbError(el, 'config', 'config: no notebook resolved', () => _loadConfigBlock(el));
             return;
         }
 
@@ -2152,7 +2132,7 @@
                 _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder);
             }
         } catch (e) {
-            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+            _cbError(el, 'config', e.message, () => _loadConfigBlock(el));
         }
     }
 
@@ -2192,10 +2172,12 @@
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
 
         // Header
-        const hdr = document.createElement('div');
-        hdr.className = 'nb-config-header nb-collapse-zone';
-        const meta = document.createElement('span');
-        meta.className = 'nb-config-meta';
+        const { hdr, meta, acts, refBtn, helpBtn } = _buildBarHeader(el, {
+            lang: 'config', collapseZone: true,
+            onRefresh: () => _loadConfigBlock(el), onHelp: _configHelpPopover,
+        });
+        helpBtn.className += ' nb-config-btn';
+        refBtn.className  += ' nb-config-btn';
         meta.innerHTML = 'config <code>tree</code>';
         if (attribute) {
             const k = document.createElement('code');
@@ -2203,21 +2185,6 @@
             meta.appendChild(document.createTextNode(' '));
             meta.appendChild(k);
         }
-        hdr.appendChild(meta);
-        const acts = document.createElement('span');
-        acts.className = 'nb-config-actions';
-        const helpBtn = document.createElement('button');
-        helpBtn.className = 'nb-tw-btn nb-config-btn';
-        helpBtn.title = 'Help'; helpBtn.textContent = '?';
-        helpBtn.addEventListener('click', e => { e.stopPropagation(); _configHelpPopover(helpBtn); });
-        acts.appendChild(helpBtn);
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn nb-config-btn';
-        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', e => { e.stopPropagation(); _loadConfigBlock(el); });
-        acts.appendChild(refBtn);
-        hdr.appendChild(acts);
-        hdr.insertBefore(_cbIcon('config'), hdr.firstChild);
         el.appendChild(hdr);
         if (!wasOpen) el.classList.add('nb-collapsed');
         _initCollapseToggle(el);
@@ -2304,11 +2271,12 @@
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
 
         // ── Header ──────────────────────────────────────────────────────────
-        const hdr = document.createElement('div');
-        hdr.className = 'nb-config-header nb-collapse-zone';
-
-        const meta = document.createElement('span');
-        meta.className = 'nb-config-meta';
+        const { hdr, meta, refBtn, helpBtn } = _buildBarHeader(el, {
+            lang: 'config', collapseZone: true,
+            onRefresh: () => _loadConfigBlock(el), onHelp: _configHelpPopover,
+        });
+        helpBtn.className += ' nb-config-btn';
+        refBtn.className  += ' nb-config-btn';
         meta.textContent = 'config';
         if (key) {
             const kspan = document.createElement('code');
@@ -2317,25 +2285,6 @@
             meta.appendChild(document.createTextNode(' '));
             meta.appendChild(kspan);
         }
-        hdr.appendChild(meta);
-
-        const acts = document.createElement('span');
-        acts.className = 'nb-config-actions';
-
-        const helpBtn = document.createElement('button');
-        helpBtn.className = 'nb-tw-btn nb-config-btn';
-        helpBtn.title = 'Help'; helpBtn.textContent = '?';
-        helpBtn.addEventListener('click', e => { e.stopPropagation(); _configHelpPopover(helpBtn); });
-        acts.appendChild(helpBtn);
-
-        const refBtn = document.createElement('button');
-        refBtn.className = 'nb-tw-btn nb-config-btn';
-        refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-        refBtn.addEventListener('click', e => { e.stopPropagation(); _loadConfigBlock(el); });
-        acts.appendChild(refBtn);
-
-        hdr.appendChild(acts);
-        hdr.insertBefore(_cbIcon('config'), hdr.firstChild);
         el.appendChild(hdr);
         if (!wasOpen) el.classList.add('nb-collapsed');
         _initCollapseToggle(el);
@@ -2872,57 +2821,94 @@
             const d = await fetch(`/api/gallery?${params}`).then(r => r.json());
             const images = d.images || [];
 
-            if (!images.length) { el.innerHTML = ''; return; }
-
             const wasCollapsed = el.classList.contains('nb-collapsed');
             el.innerHTML = '';
             if (wasCollapsed) el.classList.add('nb-collapsed');
 
-            const hdr = document.createElement('div');
-            hdr.className = 'nb-gallery-header';
-
-            const meta = document.createElement('span');
-            meta.className = 'nb-gallery-meta';
-            meta.innerHTML =
-                `<span class="nb-gallery-name">gallery</span>` +
-                `<span class="nb-gallery-count">${images.length}</span>` +
-                (pathArg ? ` <code>${_esc(pathArg)}</code>` : '');
-
-            const acts = document.createElement('span');
-            acts.className = 'nb-gallery-acts';
-            const refBtn = document.createElement('button');
-            refBtn.className = 'nb-tw-btn'; refBtn.title = 'Refresh'; refBtn.textContent = '↻';
-            refBtn.addEventListener('click', e => { e.stopPropagation(); _loadGalleryBlock(el); });
-            acts.appendChild(refBtn);
-
-            hdr.appendChild(meta);
-            hdr.appendChild(acts);
-
-            const grid = document.createElement('div');
-            grid.className = 'nb-gallery-grid';
-            grid.style.setProperty('--nb-gcell', cellPx + 'px');
-
-            for (const img of images) {
-                const cell = document.createElement('div');
-                cell.className = 'nb-gallery-cell';
-                const pic = document.createElement('img');
-                pic.className = 'nb-gallery-img';
-                pic.alt = img.name; pic.loading = 'lazy'; pic.src = img.url;
-                pic.addEventListener('click', () => _galleryLightbox(images, img.url));
-                const cap = document.createElement('div');
-                cap.className = 'nb-gallery-cap';
-                cap.textContent = img.name;
-                cell.appendChild(pic);
-                cell.appendChild(cap);
-                grid.appendChild(cell);
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'gallery', onRefresh: () => _loadGalleryBlock(el) });
+            if (images.length) {
+                meta.innerHTML =
+                    `<span class="nb-gallery-count">${images.length}</span>` +
+                    (pathArg ? ` <code>${_esc(pathArg)}</code>` : '');
+            } else {
+                meta.innerHTML = `<span class="nb-gallery-empty">${pathArg ? _esc(pathArg) + ' — ' : ''}no images</span>`;
             }
 
             el.appendChild(hdr);
-            el.appendChild(grid);
+
+            if (images.length) {
+                const grid = document.createElement('div');
+                grid.className = 'nb-gallery-grid';
+                grid.style.setProperty('--nb-gcell', cellPx + 'px');
+
+                for (const img of images) {
+                    const cell = document.createElement('div');
+                    cell.className = 'nb-gallery-cell';
+                    const pic = document.createElement('img');
+                    pic.className = 'nb-gallery-img';
+                    pic.alt = img.name; pic.loading = 'lazy'; pic.src = img.url;
+                    pic.addEventListener('click', () => _galleryLightbox(images, img.url));
+                    const cap = document.createElement('div');
+                    cap.className = 'nb-gallery-cap';
+                    cap.textContent = img.name;
+                    cell.appendChild(pic);
+                    cell.appendChild(cap);
+                    grid.appendChild(cell);
+                }
+                el.appendChild(grid);
+            }
             _initCollapseToggle(el);
         } catch (e) {
-            el.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
+            _cbError(el, 'gallery', e.message, () => _loadGalleryBlock(el));
         }
+    }
+
+    function _loadTocBlock(el) {
+        if (!_cbCan(el, 'toc', 'read')) { _cbDenyRead(el); return; }
+        el.innerHTML = '';
+        const pane = document.getElementById('nb-preview-content');
+        const headings = pane ? [...pane.querySelectorAll('h1,h2,h3,h4,h5,h6')] : [];
+
+        // Assign slug IDs to any headings that don't have them yet
+        const slugCount = {};
+        for (const h of headings) {
+            if (!h.id) {
+                let slug = h.textContent.trim().toLowerCase()
+                    .replace(/[^\w\s-]/g, '').replace(/[\s_]+/g, '-')
+                    .replace(/-+/g, '-').replace(/^-|-$/g, '') || 'section';
+                const n = slugCount[slug] ?? 0;
+                slugCount[slug] = n + 1;
+                h.id = n === 0 ? slug : `${slug}-${n}`;
+            }
+        }
+
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'toc', collapseZone: true });
+        meta.textContent = headings.length ? `${headings.length}` : 'empty';
+        el.appendChild(hdr);
+        _initCollapseToggle(el);
+
+        if (!headings.length) return;
+
+        const ul = document.createElement('ul');
+        ul.className = 'nb-toc-list';
+        for (const h of headings) {
+            const li = document.createElement('li');
+            li.className = `nb-toc-${h.tagName.toLowerCase()}`;
+            const a = document.createElement('a');
+            a.href = '#' + h.id;
+            a.textContent = h.textContent;
+            a.addEventListener('click', e => {
+                e.preventDefault();
+                pane.querySelector(`#${CSS.escape(h.id)}`)
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            li.appendChild(a);
+            ul.appendChild(li);
+        }
+        const body = document.createElement('div');
+        body.className = 'nb-toc-body';
+        body.appendChild(ul);
+        el.appendChild(body);
     }
 
     function _galleryLightbox(images, activeUrl) {
@@ -3162,6 +3148,16 @@
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
                     await Promise.all(blocks.map(async el => { try { await _loadGalleryBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
+                },
+            },
+            {
+                lang:   'toc',
+                html:   () => `<div class="nb-toc-block"><span class="nb-spin">⟳</span></div>`,
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-toc-block')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    blocks.forEach(el => { try { _loadTocBlock(el); } finally { NbWeb.statusPill?.tick(); } });
                 },
             },
         ],

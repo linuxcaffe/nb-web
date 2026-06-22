@@ -1493,10 +1493,14 @@ const NbMain = (() => {
         _enrichRendered(container, note);
         const tocBar = document.getElementById('nb-toc-bar');
         if (tocBar) tocBar.hidden = true;
-        if (note?.meta?.toc || note?.meta?.type === 'book') {
+        if (note?.meta?.toc) {
             _buildToc(container, note);
-            _markTocPartial(container);
-            _watchInlineTocRebuild(container, note);
+            if (NbWeb.getCodeblockRenderer?.('toc')) {
+                if (tocBar) tocBar.hidden = true;
+            } else {
+                _markTocPartial(container);
+                _watchInlineTocRebuild(container, note);
+            }
         }
         _buildTabs(note);
         _buildFmBlocks(note);
