@@ -1608,8 +1608,8 @@ const NbMain = (() => {
         for (const { block, renderer, fmKey } of blockData) {
             const wasOpen = localStorage.getItem(fmKey) === '1';
             if (renderer.renderOne && fu?.buildFmSkeleton) {
-                // Lazy: render body only on first expand
-                if (!wasOpen) block.classList.add('nb-collapsed');
+                // Lazy: always start collapsed; render body only on first expand
+                block.classList.add('nb-collapsed');
                 let rendered = false;
                 const doRender = async () => {
                     if (rendered) return;
@@ -1628,7 +1628,6 @@ const NbMain = (() => {
                         if (!nowCollapsed) doRender();
                     });
                 }
-                if (wasOpen) doRender();
             } else {
                 // Eager: render immediately (tui, check, no-renderOne renderers)
                 if (!wasOpen) block.classList.add('nb-collapsed');
