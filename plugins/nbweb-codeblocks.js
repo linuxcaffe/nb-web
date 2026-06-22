@@ -2978,6 +2978,7 @@
             {
                 lang:   'tw',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-tw-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => { const w = await NbWeb.checkWhich('task'); return w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md'); },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-tw-block')];
                     if (!blocks.length) return;
@@ -2998,6 +2999,7 @@
                     const {readLevel, writeLevel, query} = _cbParseGates(text.split('\n').filter(l => !/^#\s*collapsed\b/i.test(l.trim())).join('\n'));
                     return `<div class="nb-hl-block${collapsed ? ' nb-collapsed' : ''}"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"${collapsed ? ' data-init-collapsed' : ''}><span class="nb-spin">⟳</span></div>`;
                 },
+                renderOne: async el => { const w = await NbWeb.checkWhich('hledger'); return w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md'); },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-hl-block')];
                     if (!blocks.length) return;
@@ -3014,6 +3016,7 @@
             {
                 lang:   'nav',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-nav-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => _loadNavBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-nav-block')];
                     if (!blocks.length) return;
@@ -3024,6 +3027,7 @@
             {
                 lang:   'front',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-front-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => _loadFrontBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-front-block')];
                     if (!blocks.length) return;
@@ -3034,6 +3038,7 @@
             {
                 lang:   'config',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-config-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => _loadConfigBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-config-block')];
                     if (!blocks.length) return;
@@ -3044,6 +3049,7 @@
             {
                 lang:   't',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-t-block"${_cbGateAttrs(readLevel,writeLevel)} data-period="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => _loadTBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-t-block')];
                     if (!blocks.length) return;
@@ -3054,6 +3060,7 @@
             {
                 lang:   'nb',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-nb-block"${_cbGateAttrs(readLevel,writeLevel)} data-cmd="${query.toLowerCase().replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => _loadNbBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-nb-block')];
                     if (!blocks.length) return;
@@ -3064,6 +3071,7 @@
             {
                 lang:   'git',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-git-block"${_cbGateAttrs(readLevel,writeLevel)} data-cmd="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => _loadGitBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-git-block')];
                     if (!blocks.length) return;
@@ -3143,6 +3151,7 @@
             {
                 lang:   'gallery',
                 html:   text => { const {query} = _cbParseGates(text); return `<div class="nb-gallery-block" data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                renderOne: async el => _loadGalleryBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-gallery-block')];
                     if (!blocks.length) return;
@@ -3153,6 +3162,7 @@
             {
                 lang:   'toc',
                 html:   () => `<div class="nb-toc-block"><span class="nb-spin">⟳</span></div>`,
+                renderOne: el => _loadTocBlock(el),
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-toc-block')];
                     if (!blocks.length) return;
@@ -3166,6 +3176,15 @@
 
     // Export FM utilities so main.js can use them in the card-footer Changes button
     // without duplicating the helpers.
-    NbWeb.fmUtils = { parseFields: _fmParseFields, patch: _fmPatch, widget: _fmWidget };
+    NbWeb.fmUtils = {
+        parseFields: _fmParseFields, patch: _fmPatch, widget: _fmWidget,
+        buildFmSkeleton(block, lang) {
+            block.innerHTML = '';
+            block.dataset.fmLazy = '1';
+            const { hdr, meta } = _buildBarHeader(block, { lang, cls: lang === 'hledger' ? 'hl' : undefined });
+            meta.textContent = '…';
+            block.appendChild(hdr);
+        },
+    };
 
 })();

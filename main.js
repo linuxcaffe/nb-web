@@ -1571,32 +1571,28 @@ const NbMain = (() => {
         wrap.hidden = true;
         if (!note?.meta) return;
 
-        const frags = [];
+        const fu = NbWeb.fmUtils;
+        const blockData = []; // { block, renderer, fmKey }
+
         for (const [key, val] of Object.entries(note.meta)) {
-            if (key === 'check') continue; // directive, not a toolbar block
+            if (key === 'check') continue;
             const r = NbWeb.getCodeblockRenderer(key);
             if (!r) continue;
             const query = val === true ? '' : String(val ?? '').trim();
-            frags.push(r.html(query));
-        }
-        if (!frags.length) return;
-        wrap.innerHTML = frags.join('');
-        wrap.hidden = false;
-        await NbWeb.renderCodeblocks(wrap);
-
-        // FM blocks default closed. After render (so headers exist and
-        // _initCollapseToggle is wired), collapse any block the user hasn't
-        // explicitly opened before. Track open state in nb-fm: key.
-        for (const block of [...wrap.children]) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = r.html(query);
+            const block = tmp.firstElementChild;
+            if (!block) continue;
+            if (r.renderOne && fu?.buildFmSkeleton) fu.buildFmSkeleton(block, key);
+            wrap.appendChild(block);
             const bCls = [...block.classList].find(c => c.endsWith('-block')) || 'block';
             const bId  = block.dataset.cmd || block.dataset.query || block.dataset.period || '';
-            const fmKey = `nb-fm:${bCls}:${bId}`;
+            blockData.push({ block, renderer: r, fmKey: `nb-fm:${bCls}:${bId}` });
+        }
+        if (!blockData.length) return;
+        wrap.hidden = false;
 
-            if (localStorage.getItem(fmKey) !== '1') {
-                block.classList.add('nb-collapsed');
-            }
-
-            // Track when user opens/closes this FM block
+        const wireFm = (block, fmKey) => {
             const hdr = block.querySelector('[class*="-header"]');
             if (hdr && !hdr.dataset.fmWired) {
                 hdr.dataset.fmWired = '1';
@@ -1605,6 +1601,45 @@ const NbMain = (() => {
                         ? localStorage.removeItem(fmKey)
                         : localStorage.setItem(fmKey, '1');
                 }, 0));
+            }
+        };
+
+        const eagerRenderers = new Set();
+        for (const { block, renderer, fmKey } of blockData) {
+            const wasOpen = localStorage.getItem(fmKey) === '1';
+            if (renderer.renderOne && fu?.buildFmSkeleton) {
+                // Lazy: render body only on first expand
+                if (!wasOpen) block.classList.add('nb-collapsed');
+                let rendered = false;
+                const doRender = async () => {
+                    if (rendered) return;
+                    rendered = true;
+                    NbWeb.statusPill?.add(1);
+                    try { await renderer.renderOne(block); }
+                    finally { NbWeb.statusPill?.tick(); }
+                    wireFm(block, fmKey);
+                };
+                const skelHdr = block.querySelector('[class*="-header"]');
+                if (skelHdr && !skelHdr.dataset.fmWired) {
+                    skelHdr.dataset.fmWired = '1';
+                    skelHdr.addEventListener('click', () => {
+                        const nowCollapsed = block.classList.toggle('nb-collapsed');
+                        nowCollapsed ? localStorage.removeItem(fmKey) : localStorage.setItem(fmKey, '1');
+                        if (!nowCollapsed) doRender();
+                    });
+                }
+                if (wasOpen) doRender();
+            } else {
+                // Eager: render immediately (tui, check, no-renderOne renderers)
+                if (!wasOpen) block.classList.add('nb-collapsed');
+                eagerRenderers.add(renderer);
+            }
+        }
+
+        if (eagerRenderers.size) {
+            for (const r of eagerRenderers) await r.render(wrap);
+            for (const { block, renderer, fmKey } of blockData) {
+                if (!renderer.renderOne) wireFm(block, fmKey);
             }
         }
     }
