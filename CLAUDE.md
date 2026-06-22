@@ -62,6 +62,17 @@ Hidden files at `~/.nb/` root: `.users`, `.tools`, `.changes`, `.images`, `.rule
 
 `NbWeb.registerModule(id, { detect, label, codeblockRenderers, previewRenderer, listButtons, notebookSection, listDefaults, sortOptions, navButtons })` — IIFE pattern, loaded from plugin list in `nb-settings.json`. Core plugins in `plugins/`; external in `~/dev/nbweb-*/`.
 
+**`codeblockRenderers` entry shape:**
+```javascript
+{
+    lang:      'tw',                    // fenced language tag AND fm frontmatter key
+    html:      text => '<div ...>',     // synchronous; emits skeleton div with spinner
+    renderOne: async el => loader(el),  // per-block lazy loader — REQUIRED for FM lazy loading
+    render:    async container => { … } // batch renderer for body codeblocks
+}
+```
+`renderOne` is called by `_buildFmBlocks` on first expand of a collapsed FM block. Without it the block falls to the eager path (`render(wrap)` called immediately). `html()` + `renderOne()` is the contract for FM participation; `render()` handles body blocks and the eager fallback.
+
 ### Renderer registry
 
 Flat registry populated at load time by `registerRenderer(id, spec)`. `registerModule()` auto-populates it from `previewRenderers[]` and the single `previewRenderer` + `previewTypes` shorthand.
