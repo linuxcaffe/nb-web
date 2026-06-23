@@ -2636,7 +2636,12 @@
 
             const toggleBtn = document.createElement('button');
             toggleBtn.className = 'nb-subtest-toggle';
-            toggleBtn.textContent = label;
+            const iconHtml = _checkDomainIcon(script);
+            if (iconHtml) {
+                toggleBtn.innerHTML = iconHtml + _esc(label);
+            } else {
+                toggleBtn.textContent = label;
+            }
 
             const body = document.createElement('div');
             body.className = 'nb-subtest-body';
@@ -2708,6 +2713,24 @@
         return { text, meta, severity };
     }
 
+    // Map script domain prefix → inline icon HTML (img or chip span).
+    // Image domains match _CB_ICONS; others get a monospace chip until a logo lands.
+    function _checkDomainIcon(script) {
+        const img = (sel, alt, direct = false) =>
+            `<img src="${direct ? '/' + sel : '/api/file?selector=' + encodeURIComponent(sel)}" class="nb-check-icon" alt="${alt}">`;
+        const chip = t => `<span class="nb-check-icon nb-check-icon--chip">${t}</span>`;
+
+        if (script.startsWith('hl-'))    return img('.images:hledger-logo.png', 'hledger') + ' ';
+        if (script.startsWith('nb-'))    return img('nb-logo.png', 'nb', true) + ' ';
+        if (script.startsWith('note-'))  return img('nb-logo.png', 'nb', true) + ' ';
+        if (script.startsWith('tw-'))    return img('.images:tw-logo.png', 'Taskwarrior') + ' ';
+        if (script.startsWith('git-'))   return img('.images:git-logo.png', 'git') + ' ';
+        if (script.startsWith('flask-')) return chip('FLK') + ' ';
+        if (script.startsWith('sys-'))   return chip('SYS') + ' ';
+        if (script.startsWith('test-'))  return chip('TST') + ' ';
+        return '';
+    }
+
     function _severityClass(severity) {
         return severity === 'error' ? ' nb-test-fail' : severity === 'warn' ? ' nb-test-warn' : '';
     }
@@ -2771,6 +2794,14 @@
             el.innerHTML = '';
         });
         result.appendChild(dismiss);
+
+        const iconHtml = _checkDomainIcon(script);
+        if (iconHtml) {
+            const iconEl = document.createElement('span');
+            iconEl.className = 'nb-check-result-icon';
+            iconEl.innerHTML = iconHtml;
+            result.appendChild(iconEl);
+        }
 
         const wrap = document.createElement('div');
         wrap.className = 'nb-rendered' + _severityClass(severity);

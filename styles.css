@@ -2583,6 +2583,19 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-test-dismiss:hover { opacity: 1; color: var(--text); background: var(--bg3); }
 .nb-test-fail { border-left: 3px solid var(--red, #c0392b); padding-left: 10px; }
 .nb-test-warn { border-left: 3px solid var(--alert, #e67e22); padding-left: 10px; }
+.nb-check-icon { height: 1.1em; width: auto; vertical-align: -0.2em; display: inline; }
+.nb-check-icon--chip {
+  font-family: monospace; font-size: 0.65em; font-weight: 700; letter-spacing: 0.04em;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 3px;
+  padding: 1px 4px; vertical-align: 0.15em;
+}
+/* Single-check result: domain icon sits left of content, right of the left border */
+.nb-check-result-icon {
+  display: block; margin-bottom: 4px; line-height: 1;
+}
+/* Group toggle: icon + label sit inline */
+.nb-subtest-toggle .nb-check-icon,
+.nb-subtest-toggle .nb-check-icon--chip { margin-right: 4px; }
 .nb-alert-banner {
     background: var(--alert-bg);
     border: 1px solid var(--alert-border);
