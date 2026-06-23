@@ -363,7 +363,7 @@ from werkzeug.security import check_password_hash
 
 USERS_DIR  = NB_DIR / '.users'
 LEVELS     = ['guest', 'user', 'office', 'admin', 'tech']
-DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules', '.lib', '.test']
+DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules', '.lib', '.checks']
 
 _SECRET_FILE = Path(__file__).parent / '.flask_secret'
 
@@ -4315,7 +4315,7 @@ def api_note():
         'locked':   locked,
         'lock_reason': lock_reason,
         'effective_access': _effective_access(meta, nb_meta),
-        'effective_checks':  nb_meta.get('check'),
+        'effective_checks':  nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'parent_meta': parent_meta,
@@ -7867,6 +7867,7 @@ def api_check_run():
     env = {
         **os.environ,
         'NB_DIR':           str(NB_DIR),
+        'NB_APP_DIR':       str(Path(__file__).parent),
         'NB_NOTE_SELECTOR': selector,
         'NB_NOTEBOOK':      notebook,
         'NB_NOTE_PATH':     str(note_path) if note_path else '',
@@ -7937,6 +7938,7 @@ def api_check_batch():
     env = {
         **os.environ,
         'NB_DIR':           str(NB_DIR),
+        'NB_APP_DIR':       str(Path(__file__).parent),
         'NB_NOTE_SELECTOR': selector,
         'NB_NOTEBOOK':      notebook,
         'NB_NOTE_PATH':     str(note_path) if note_path else '',

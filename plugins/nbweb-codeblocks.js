@@ -1835,11 +1835,11 @@
             const colon = raw.indexOf(':');
             return { notebook: raw.slice(0, colon), folder: raw.slice(colon + 1).replace(/\/$/, '') };
         }
-        const m = raw.replace(/^~/, '').match(/\/\.nb\/([^/]+)(\/(.+))?$/);
+        const m = raw.replace(/^~/, '').replace(/\/$/, '').match(/\/\.nb\/([^/]+)(\/(.+))?$/);
         if (m) {
             const nb = m[1];
-            // Hidden dir (e.g. .test, .templates) — not an nb notebook, use raw fs listing
-            if (nb.startsWith('.')) return { rawPath: raw };
+            // Hidden dir (e.g. .checks, .lib) — not an nb notebook, use raw fs listing
+            if (nb.startsWith('.')) return { rawPath: raw.replace(/\/$/, '') };
             return { notebook: nb, folder: m[3] || '' };
         }
         if (raw) return { notebook: raw.replace(/^.*\//, ''), folder: '' };
@@ -2604,7 +2604,8 @@
             }
         }));
 
-        const failures = results.filter(r => r.exit_code !== 0 || (r.stdout || '').trim() || r.error);
+        const parsed  = results.map(r => ({ ...r, ..._parseCheckResult(r, r.script) }));
+        const failures = parsed.filter(r => r.severity !== 'pass' || r.text);
         if (!failures.length) { if (!btn) el.remove(); return; }
 
         const result  = document.createElement('div');
@@ -2617,18 +2618,18 @@
         dismiss.addEventListener('click', () => { el.innerHTML = ''; });
         result.appendChild(dismiss);
 
+        const worstSeverity = failures.some(r => r.severity === 'error') ? 'error' : 'warn';
         const wrap = document.createElement('div');
-        wrap.className = 'nb-rendered nb-group-result';
+        wrap.className = 'nb-rendered nb-group-result' + _severityClass(worstSeverity);
 
         const hdr = document.createElement('p');
         hdr.className = 'nb-group-hdr';
         hdr.textContent = `${failures.length} of ${scripts.length} check${scripts.length !== 1 ? 's' : ''} failed`;
         wrap.appendChild(hdr);
 
-        failures.forEach(({ script, stdout, error, exit_code }) => {
+        failures.forEach(({ script, text, severity }) => {
             const entry = scripts.find(s => s.script === script);
             const label = (entry && entry.label) || script;
-            const text  = (stdout || '').trim() || error || '';
 
             const row = document.createElement('div');
             row.className = 'nb-subtest';
@@ -2642,7 +2643,7 @@
             body.hidden = true;
 
             const inner = document.createElement('div');
-            inner.className = 'nb-rendered' + (exit_code !== 0 ? ' nb-test-fail' : '');
+            inner.className = 'nb-rendered' + _severityClass(severity);
             inner.innerHTML = NbMain.renderMarkdown(text, '');
             NbMain.enrichRendered(inner, null);
             body.appendChild(inner);
@@ -2682,9 +2683,56 @@
         el.appendChild(out);
     }
 
+    // Parse a raw check API response into { text, meta, severity }.
+    // Strips optional #! metadata first line; derives severity from exit code;
+    // injects fix: as a subtest link; auto-generates fallback text from script name.
+    function _parseCheckResult(d, script) {
+        let text = (d.stdout || '').trim();
+        const meta = {};
+
+        if (text.startsWith('#!')) {
+            const nl = text.indexOf('\n');
+            const header = nl >= 0 ? text.slice(0, nl) : text;
+            text = nl >= 0 ? text.slice(nl + 1).trimStart() : '';
+            header.slice(2).trim().split(/\s+/).forEach(pair => {
+                const i = pair.indexOf(':');
+                if (i > 0) meta[pair.slice(0, i)] = pair.slice(i + 1);
+            });
+        }
+
+        const severity = d.exit_code === 0 ? 'pass' : d.exit_code === 2 ? 'warn' : 'error';
+
+        if (meta.fix) text += (text ? '\n\n' : '') + `[→ run fix](subtest:${meta.fix})`;
+        if (!text && severity !== 'pass') text = d.error || `**${script}** check failed`;
+
+        return { text, meta, severity };
+    }
+
+    function _severityClass(severity) {
+        return severity === 'error' ? ' nb-test-fail' : severity === 'warn' ? ' nb-test-warn' : '';
+    }
+
+    // Snooze helpers — suppress a check for N minutes after dismiss.
+    // key: nb-snooze:<selector>:<script>  value: expiry ms timestamp
+    function _snoozeKey(selector, script) { return `nb-snooze:${selector}:${script}`; }
+    function _isSnoozed(selector, script) {
+        try {
+            const exp = parseInt(localStorage.getItem(_snoozeKey(selector, script)) || '0', 10);
+            return exp > Date.now();
+        } catch { return false; }
+    }
+    function _snooze(selector, script, minutes) {
+        try { localStorage.setItem(_snoozeKey(selector, script), String(Date.now() + minutes * 60000)); }
+        catch {}
+    }
+
     async function _runTest(el, script, btn, out, cachedResult = null) {
         const selector = NbMain.activeSelector() || '';
         const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
+
+        // Snooze: skip auto-runs while snooze is active (force/button click always runs)
+        if (!force && _isSnoozed(selector, script)) { el.remove(); return; }
+
         let d;
         if (cachedResult && !force) {
             d = cachedResult;
@@ -2701,28 +2749,31 @@
             }
         }
 
-        const stdout = (d.stdout || '').trim();
-        const pass   = d.exit_code === 0 && !stdout && !d.error;
+        const { text, severity } = _parseCheckResult(d, script);
+        const pass = severity === 'pass' && !text;
 
         if (pass) {
-            // Form 2: vanish; Form 1: button already resets in _buildTestBtn
             if (!btn) el.remove();
             return;
         }
 
-        const text = d.error && !stdout ? `⚠ ${d.error}` : stdout || d.error || '';
+        const snoozeMin = parseInt(NbMain.activeNote()?.meta?.check_timeout ?? 0, 10);
+
         const result = document.createElement('div');
         result.className = 'nb-test-result';
 
         const dismiss = document.createElement('button');
         dismiss.className = 'nb-test-dismiss';
-        dismiss.title = 'Dismiss until next render';
-        dismiss.textContent = '×';
-        dismiss.addEventListener('click', () => { el.innerHTML = ''; });
+        dismiss.title    = snoozeMin > 0 ? `Snooze ${snoozeMin} min` : 'Dismiss';
+        dismiss.textContent = snoozeMin > 0 ? '⏸' : '×';
+        dismiss.addEventListener('click', () => {
+            if (snoozeMin > 0) _snooze(selector, script, snoozeMin);
+            el.innerHTML = '';
+        });
         result.appendChild(dismiss);
 
         const wrap = document.createElement('div');
-        wrap.className = 'nb-rendered' + (d.exit_code !== 0 ? ' nb-test-fail' : '');
+        wrap.className = 'nb-rendered' + _severityClass(severity);
         wrap.innerHTML = NbMain.renderMarkdown(text, '');
         NbMain.enrichRendered(wrap, null);
         result.appendChild(wrap);
@@ -2783,10 +2834,11 @@
                     d = { error: String(e), exit_code: 1, stdout: '' };
                 }
 
-                const text = (d.stdout || '').trim() || d.error || '✓ Check passed.';
+                const { text: rText, severity: rSev } = _parseCheckResult(d, script);
+                const displayText = rText || (rSev === 'pass' ? '✓ Check passed.' : '');
                 const inner = document.createElement('div');
-                inner.className = 'nb-rendered' + (d.exit_code !== 0 ? ' nb-test-fail' : '');
-                inner.innerHTML = NbMain.renderMarkdown(text, '');
+                inner.className = 'nb-rendered' + _severityClass(rSev);
+                inner.innerHTML = NbMain.renderMarkdown(displayText, '');
                 NbMain.enrichRendered(inner, null);
                 body.appendChild(inner);
                 body.hidden = false;

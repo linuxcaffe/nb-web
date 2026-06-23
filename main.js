@@ -6806,6 +6806,7 @@ const NbMain = (() => {
              doPrint: _doPrint,
              clearNote,
              activeSelector: () => _activeSelector,
+             activeNote:     () => _activeNote,
              activeType:     () => _activeType,
              activeFilename: () => _activeFilename,
              selectedSelectors: () => _selectedSelectors,

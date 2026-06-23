@@ -40,6 +40,7 @@ Never embed bare aliases (`[[4f]]`) — the resolver matches title and filename 
 not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
 
 **NbMain.saveNote** is exported — call it before navigating away from an editor in plugins.
+**NbMain.activeNote()** returns the full current note object (meta, body, selector, etc.) — useful in plugin renderers that need FM values like `check_timeout`.
 
 ## Critical invariants — read before touching rendering or sync
 

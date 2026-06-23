@@ -2573,15 +2573,16 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-test-btn:hover  { color: var(--text); border-color: var(--accent); }
 .nb-test-btn:active { opacity: 0.7; }
 .nb-test-out    { margin-top: 4px; }
-.nb-test-result { position: relative; }
+.nb-test-result { position: relative; padding-right: 28px; }
 .nb-test-dismiss {
   position: absolute; top: 4px; right: 4px;
   background: none; border: none; cursor: pointer;
-  color: var(--text-dim); font-size: 0.9em; line-height: 1;
-  padding: 2px 5px; border-radius: 3px; opacity: 0.5;
+  color: var(--text-dim); font-size: 1em; line-height: 1;
+  padding: 2px 6px; border-radius: 3px; opacity: 0.75;
 }
-.nb-test-dismiss:hover { opacity: 1; color: var(--text); }
-.nb-test-fail { border-left: 3px solid var(--color-warn, #c0392b); padding-left: 10px; }
+.nb-test-dismiss:hover { opacity: 1; color: var(--text); background: var(--bg3); }
+.nb-test-fail { border-left: 3px solid var(--red, #c0392b); padding-left: 10px; }
+.nb-test-warn { border-left: 3px solid var(--alert, #e67e22); padding-left: 10px; }
 .nb-alert-banner {
     background: var(--alert-bg);
     border: 1px solid var(--alert-border);
@@ -2618,7 +2619,9 @@ span.nb-cb-icon.nb-cb-icon--large {
 }
 
 /* Group test result (multi-script block) */
-.nb-group-result { border-left: 3px solid var(--color-warn, #c0392b); padding-left: 10px; }
+.nb-group-result { padding-left: 10px; }
+.nb-group-result.nb-test-fail { border-left: 3px solid var(--red, #c0392b); }
+.nb-group-result.nb-test-warn { border-left: 3px solid var(--alert, #e67e22); }
 .nb-group-hdr { font-size: 0.85em; color: var(--text-muted); margin: 0 0 6px 0; }
 
 .nb-hl-help-pop {
