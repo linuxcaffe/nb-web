@@ -46,7 +46,7 @@
 
     function _cbError(el, lang, message, onRefresh) {
         el.innerHTML = '';
-        const cls = lang === 'hledger' ? 'hl' : lang;
+        const cls = lang === 'cfg' ? 'config' : lang;
         const { hdr, meta } = _buildBarHeader(el, { lang, cls, onRefresh });
         meta.innerHTML = `<span class="nb-cb-err">⚠ ${_esc(message)}</span>`;
         el.appendChild(hdr);
@@ -68,7 +68,7 @@
     // Image blocks: served from ~/.nb/.images/ via /api/file?selector=.images:*
     // Native blocks: short CAPS label styled as a monospace chip.
     const _CB_ICONS = {
-        hledger: { img: '.images:hledger-logo.png', alt: 'hledger' },
+        hl:      { img: '.images:hledger-logo.png', alt: 'hledger' },
         chart:   { img: '.images:pie-chart.svg',    alt: 'chart' },
         tw:      { img: '.images:tw-logo.png',      alt: 'Taskwarrior' },
         git:     { img: '.images:git-logo.png',     alt: 'git' },
@@ -76,8 +76,8 @@
         t:       { img: '.images:t-logo.png',       alt: 't' },
         tui:     { text: 'TUI' },
         nav:     { text: 'NAV' },
-        front:   { text: 'FM'  },
-        config:  { text: 'CFG' },
+        fm:      { text: 'FM'  },
+        cfg:     { text: 'CFG' },
         gallery: { text: 'GAL' },
         toc:     { text: 'TOC' },
         test:    { text: 'TST' },
@@ -153,7 +153,7 @@
 
     // Shared barblock header factory — icon + meta placeholder + acts (help? + refresh?).
     // Returns { hdr, meta, acts, refBtn, helpBtn } so callers can fill meta and prepend extra acts buttons.
-    // cls overrides lang for CSS class names when the icon key and CSS prefix differ (e.g. lang:'hledger', cls:'hl').
+    // cls overrides lang for CSS class names when the icon key and CSS prefix differ (e.g. lang:'cfg', cls:'config').
     function _buildBarHeader(el, { lang, cls, collapseZone = false, onRefresh, onHelp } = {}) {
         const blockCls = cls || lang;
         const hdr = document.createElement('div');
@@ -993,7 +993,7 @@
         const termCmd = `hledger-${cmd}${filePath ? ' -f ' + filePath : ''}`;
         el.classList.remove('nb-collapsed');
         el.innerHTML = '';
-        const { hdr, meta } = _buildBarHeader(el, { lang: 'hledger', cls: 'hl' });
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'hl' });
         meta.innerHTML = `<span class="nb-hl-name" title="${_esc(termCmd)}">hledger</span><code style="margin-left:4px;opacity:0.7">${_esc(cmd)}</code>`;
         el.appendChild(hdr);
         const body = document.createElement('div');
@@ -1025,7 +1025,7 @@
     }
 
     async function _loadHledgerBlock(el) {
-        if (!_cbCan(el, 'hledger', 'read')) { _cbDenyRead(el); return; }
+        if (!_cbCan(el, 'hl', 'read')) { _cbDenyRead(el); return; }
         const q = el.dataset.query || '';
 
         // Detect launch-mode commands before hitting the backend
@@ -1072,7 +1072,7 @@
         try {
             const r = await fetch(`/api/hledger-query?q=${encodeURIComponent(q)}&notebook=${encodeURIComponent(_hlNotebook())}`);
             const d = await r.json();
-            if (d.error) { _cbError(el, 'hledger', d.error, () => _loadHledgerBlock(el)); return; }
+            if (d.error) { _cbError(el, 'hl', d.error, () => _loadHledgerBlock(el)); return; }
             el.dataset.hlFile         = d.file            || '';
             el.dataset.hlJournal      = d.journal         || '';
             el.dataset.hlJournalSel   = d.journalSelector || '';
@@ -1092,7 +1092,7 @@
             else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q, launch);
             else _buildHledgerPre(el, JSON.stringify(d.data, null, 2), q, launch);
         } catch(e) {
-            _cbError(el, 'hledger', e.message, () => _loadHledgerBlock(el));
+            _cbError(el, 'hl', e.message, () => _loadHledgerBlock(el));
         } finally {
             if (_initCollapsed) el.classList.add('nb-collapsed');
         }
@@ -1145,7 +1145,7 @@
                         : launch.terminal        ? 'Run in terminal'
                         :                          'Open in hledger-web';
         const { hdr, meta, acts, refBtn, helpBtn } = _buildBarHeader(el, {
-            lang: 'hledger', cls: 'hl', onRefresh: refresh, onHelp: _showHledgerHelp,
+            lang: 'hl', onRefresh: refresh, onHelp: _showHledgerHelp,
         });
         helpBtn.className += ' nb-hl-btn nb-hl-help-btn';
         meta.className += ' nb-collapse-zone';
@@ -1167,7 +1167,7 @@
             finally { meta.querySelector('.nb-hl-name')?.classList.remove('nb-hl-name-launching'); }
         });
 
-        if (_cbCan(el, 'hledger', 'write')) {
+        if (_cbCan(el, 'hl', 'write')) {
             const editBtn = document.createElement('button');
             editBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-edit-btn';
             editBtn.title = 'Edit journal';
@@ -1617,15 +1617,15 @@
         const label     = pipeIdx >= 0 ? firstLine.slice(pipeIdx + 1).trim() : 'Changes';
 
         el.innerHTML = '';
-        el.classList.add('nb-front-changes');
+        el.classList.add('nb-fm-changes');
 
         const btn = document.createElement('button');
-        btn.className  = 'nb-front-changes-btn nb-tw-btn';
+        btn.className  = 'nb-fm-changes-btn nb-tw-btn';
         btn.textContent = label;
         el.appendChild(btn);
 
         const panel = document.createElement('div');
-        panel.className = 'nb-front-changes-panel';
+        panel.className = 'nb-fm-changes-panel';
         panel.hidden = true;
         el.appendChild(panel);
 
@@ -1650,13 +1650,13 @@
 
                 panel.innerHTML = '';
                 const form = document.createElement('div');
-                form.className = 'nb-front-changes-form';
+                form.className = 'nb-fm-changes-form';
 
                 for (const { key, value } of fields) {
                     const row = document.createElement('div');
-                    row.className = 'nb-front-changes-row';
+                    row.className = 'nb-fm-changes-row';
                     const lbl = document.createElement('label');
-                    lbl.className   = 'nb-front-changes-label';
+                    lbl.className   = 'nb-fm-changes-label';
                     lbl.textContent = key;
                     row.appendChild(lbl);
                     row.appendChild(_fmWidget(key, value, constraints[key]));
@@ -1664,7 +1664,7 @@
                 }
 
                 const actions = document.createElement('div');
-                actions.className = 'nb-front-changes-actions';
+                actions.className = 'nb-fm-changes-actions';
 
                 const _t = (key) => NbWeb.t(key);
                 const saveBtn = document.createElement('button');
@@ -1718,7 +1718,7 @@
     // ── front block dispatcher ─────────────────────────────────────────────────
 
     async function _loadFrontBlock(el) {
-        if (!_cbCan(el, 'front', 'read')) { _cbDenyRead(el); return; }
+        if (!_cbCan(el, 'fm', 'read')) { _cbDenyRead(el); return; }
         if ((el.dataset.query || '').trim().startsWith('changes')) {
             await _loadFrontChanges(el);
             return;
@@ -1753,26 +1753,26 @@
             el.innerHTML = '';
 
             // ── Header ──────────────────────────────────────────────────────
-            const { hdr, meta } = _buildBarHeader(el, { lang: 'front', onRefresh: () => _frontRender(el) });
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _frontRender(el) });
 
             const toggle = document.createElement('span');
-            toggle.className = 'nb-front-toggle';
+            toggle.className = 'nb-fm-toggle';
             meta.appendChild(toggle);
 
             const countEl = document.createElement('span');
-            countEl.className = 'nb-front-count';
+            countEl.className = 'nb-fm-count';
             countEl.textContent = notes.length ? String(notes.length) : 'No matches';
             meta.appendChild(countEl);
 
             if (nbLabel) {
                 const nbEl = document.createElement('span');
-                nbEl.className = 'nb-front-nb';
+                nbEl.className = 'nb-fm-nb';
                 nbEl.textContent = nbLabel;
                 meta.appendChild(nbEl);
             }
             if (label) {
                 const lbl = document.createElement('span');
-                lbl.className = 'nb-front-label';
+                lbl.className = 'nb-fm-label';
                 lbl.textContent = label;
                 meta.appendChild(lbl);
             }
@@ -1799,7 +1799,7 @@
                     li.appendChild(btn);
                     if (multiNb && n.notebook) {
                         const badge = document.createElement('span');
-                        badge.className = 'nb-front-nb-badge';
+                        badge.className = 'nb-fm-nb-badge';
                         badge.textContent = n.notebook;
                         li.appendChild(badge);
                     }
@@ -1812,7 +1812,7 @@
             _initCollapseToggle(el);
 
         } catch (e) {
-            _cbError(el, 'front', e.message, () => _frontRender(el));
+            _cbError(el, 'fm', e.message, () => _frontRender(el));
         }
     }
 
@@ -2096,13 +2096,13 @@
     }
 
     async function _loadConfigBlock(el) {
-        if (!_cbCan(el, 'config', 'read')) { _cbDenyRead(el); return; }
+        if (!_cbCan(el, 'cfg', 'read')) { _cbDenyRead(el); return; }
         const wasOpen = !el.classList.contains('nb-collapsed');
         const currentSelector = NbMain?.activeSelector?.() || '';
         const { key, notebook, folder, treeMode, treeAttr } = _configParseQuery(el.dataset.query || '', currentSelector);
 
         if (!notebook) {
-            _cbError(el, 'config', 'config: no notebook resolved', () => _loadConfigBlock(el));
+            _cbError(el, 'cfg', 'cfg: no notebook resolved', () => _loadConfigBlock(el));
             return;
         }
 
@@ -2132,7 +2132,7 @@
                 _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder);
             }
         } catch (e) {
-            _cbError(el, 'config', e.message, () => _loadConfigBlock(el));
+            _cbError(el, 'cfg', e.message, () => _loadConfigBlock(el));
         }
     }
 
@@ -2173,12 +2173,12 @@
 
         // Header
         const { hdr, meta, acts, refBtn, helpBtn } = _buildBarHeader(el, {
-            lang: 'config', collapseZone: true,
+            lang: 'cfg', cls: 'config', collapseZone: true,
             onRefresh: () => _loadConfigBlock(el), onHelp: _configHelpPopover,
         });
         helpBtn.className += ' nb-config-btn';
         refBtn.className  += ' nb-config-btn';
-        meta.innerHTML = 'config <code>tree</code>';
+        meta.innerHTML = 'cfg <code>tree</code>';
         if (attribute) {
             const k = document.createElement('code');
             k.className = 'nb-config-hdr-key'; k.textContent = attribute + ':';
@@ -2272,12 +2272,12 @@
 
         // ── Header ──────────────────────────────────────────────────────────
         const { hdr, meta, refBtn, helpBtn } = _buildBarHeader(el, {
-            lang: 'config', collapseZone: true,
+            lang: 'cfg', cls: 'config', collapseZone: true,
             onRefresh: () => _loadConfigBlock(el), onHelp: _configHelpPopover,
         });
         helpBtn.className += ' nb-config-btn';
         refBtn.className  += ' nb-config-btn';
-        meta.textContent = 'config';
+        meta.textContent = 'cfg';
         if (key) {
             const kspan = document.createElement('code');
             kspan.className = 'nb-config-hdr-key';
@@ -2993,7 +2993,7 @@
                 },
             },
             {
-                lang:   'hledger',
+                lang:   'hl',
                 html:   text => {
                     const collapsed = /^#\s*collapsed\b/im.test(text);
                     const {readLevel, writeLevel, query} = _cbParseGates(text.split('\n').filter(l => !/^#\s*collapsed\b/i.test(l.trim())).join('\n'));
@@ -3025,18 +3025,18 @@
                 },
             },
             {
-                lang:   'front',
-                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-front-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
+                lang:   'fm',
+                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-fm-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 renderOne: async el => _loadFrontBlock(el),
                 render: async container => {
-                    const blocks = [...container.querySelectorAll('.nb-front-block')];
+                    const blocks = [...container.querySelectorAll('.nb-fm-block')];
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
                     await Promise.all(blocks.map(async el => { try { await _loadFrontBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
-                lang:   'config',
+                lang:   'cfg',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-config-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 renderOne: async el => _loadConfigBlock(el),
                 render: async container => {
@@ -3181,7 +3181,7 @@
         buildFmSkeleton(block, lang) {
             block.innerHTML = '';
             block.dataset.fmLazy = '1';
-            const { hdr, meta } = _buildBarHeader(block, { lang, cls: lang === 'hledger' ? 'hl' : undefined });
+            const { hdr, meta } = _buildBarHeader(block, { lang, cls: lang === 'cfg' ? 'config' : undefined });
             meta.textContent = '…';
             block.appendChild(hdr);
         },

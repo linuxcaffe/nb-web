@@ -1934,7 +1934,7 @@ const NbMain = (() => {
 
     function _configFmToContent(meta, body) {
         const lines = ['---'];
-        const ORDER = ['config', 'type', 'title', 'date', 'access', 'pinned', 'prepend_date', 'check', 'tag_color'];
+        const ORDER = ['type', 'title', 'date', 'access', 'pinned', 'prepend_date', 'check', 'tag_color'];
         const handled = new Set();
         function emitYaml(key, v, indent) {
             const pad = ' '.repeat(indent);
@@ -2104,7 +2104,6 @@ const NbMain = (() => {
         container.innerHTML = `<div class="nb-config-form">
             ${headerBar}
             <div class="nb-cfg-fields">
-                ${row('config',       `<span class="nb-cfg-readonly">${_esc(m.config)}</span>`, false)}
                 ${row('access',       accessSel)}
                 ${row('pinned',       `<input class="nb-cfg-text" type="text" name="pinned" value="${_esc(m.pinned || '')}" placeholder="filename.md">`)}
                 ${row('prepend_date', pdSel)}
@@ -2173,13 +2172,13 @@ const NbMain = (() => {
 
             panel.innerHTML = '';
             const form = document.createElement('div');
-            form.className = 'nb-front-changes-form';
+            form.className = 'nb-fm-changes-form';
 
             for (const { key, value } of fields) {
                 const row = document.createElement('div');
-                row.className = 'nb-front-changes-row';
+                row.className = 'nb-fm-changes-row';
                 const lbl = document.createElement('label');
-                lbl.className   = 'nb-front-changes-label';
+                lbl.className   = 'nb-fm-changes-label';
                 lbl.textContent = key;
                 row.appendChild(lbl);
                 row.appendChild(fu.widget(key, value, constraints[key]));
@@ -2187,7 +2186,7 @@ const NbMain = (() => {
             }
 
             const actions = document.createElement('div');
-            actions.className = 'nb-front-changes-actions';
+            actions.className = 'nb-fm-changes-actions';
 
             const saveBtn = document.createElement('button');
             saveBtn.className   = 'nb-tw-btn';
