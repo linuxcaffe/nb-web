@@ -834,6 +834,10 @@ INDICATORS = {
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
 _FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile'})
 
+# FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
+# Used to propagate inherited values from notebook/folder config via effective_fm.
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'front', 'tw', 'hledger', 'git', 'gallery', 'config', 't', 'nb', 'tabs'})
+
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
     return fm if fm in _FM_TYPES else itype
@@ -4313,6 +4317,7 @@ def api_note():
         'effective_access': _effective_access(meta, nb_meta),
         'effective_checks':  nb_meta.get('check'),
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
+        'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
     })

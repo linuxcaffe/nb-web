@@ -1658,5 +1658,9 @@ const NbNav = (() => {
         setTagsQuery,
         updateOutputBar: _updateOutputBar,
         pollSyncStatus: (nb) => _pollNbSyncStatus(nb),
+        applyNotebookPrefs(nb, prefs) {
+            _nbStoredPrefs[nb] = { ...(_nbStoredPrefs[nb] || {}), ...prefs };
+            if (nb === _scope) { _applyNotebookDefaults(nb); renderOptsBar(); _executeCmd(); }
+        },
     };
 })();

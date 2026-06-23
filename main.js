@@ -1515,7 +1515,7 @@ const NbMain = (() => {
         bar.innerHTML = '';
         bar.hidden = true;
 
-        const rawTabs = note?.meta?.tabs;
+        const rawTabs = note?.meta?.tabs ?? note?.effective_fm?.tabs;
         if (!rawTabs) return;
         const entries = Array.isArray(rawTabs) ? rawTabs : String(rawTabs).split(',').map(s => s.trim()).filter(Boolean);
         if (!entries.length) return;
@@ -1535,32 +1535,33 @@ const NbMain = (() => {
             return nb + ':' + resolved.join('/');
         }
 
-        // Tab 0 — current note, always active
-        const makeTab = (label, sel, active) => {
-            const btn = document.createElement('button');
-            btn.className = 'nb-tab' + (active ? ' nb-tab--active' : '');
-            btn.textContent = label;
-            if (!active) btn.addEventListener('click', () => openNote(sel));
-            bar.appendChild(btn);
-        };
-
-        makeTab(note.meta?.title || note.title || note.filename || '…', note.selector, true);
-
         bar.hidden = false;
 
-        // Remaining tabs — fetch titles asynchronously
         for (const entry of entries) {
-            const sel = _resolveTabEntry(entry.trim());
+            const raw = entry.trim();
+            const isFolder = raw.endsWith('/');
+            const sel = _resolveTabEntry(raw);
+            const active = sel === note.selector;
             const btn = document.createElement('button');
-            btn.className = 'nb-tab';
-            btn.textContent = sel.split(':').pop().replace(/\.md$/, '');  // interim label
-            btn.addEventListener('click', () => openNote(sel));
+            btn.className = 'nb-tab' + (active ? ' nb-tab--active' : '');
+
+            if (isFolder) {
+                // Label: last non-empty path segment of the folder path
+                const segments = raw.replace(/\/$/, '').split(/[:/]/);
+                btn.textContent = segments.filter(Boolean).pop() || raw;
+                if (!active) btn.addEventListener('click', () => {
+                    const [nb, ...rest] = sel.split(':');
+                    NbNav.drillFolderInNotebook(nb, rest.join(':').replace(/\/$/, ''));
+                });
+            } else {
+                btn.textContent = sel.split(':').pop().replace(/\.md$/, '');  // interim label
+                if (!active) btn.addEventListener('click', () => openNote(sel));
+                fetch('/api/note?selector=' + encodeURIComponent(sel))
+                    .then(r => r.ok ? r.json() : null)
+                    .then(d => { if (d) btn.textContent = d.meta?.alias || d.title || d.filename || sel; })
+                    .catch(() => {});
+            }
             bar.appendChild(btn);
-            // Fetch real title
-            fetch('/api/note?selector=' + encodeURIComponent(sel))
-                .then(r => r.ok ? r.json() : null)
-                .then(d => { if (d) btn.textContent = d.meta?.alias || d.title || d.filename || sel; })
-                .catch(() => {});
         }
     }
 
@@ -1574,7 +1575,8 @@ const NbMain = (() => {
         const fu = NbWeb.fmUtils;
         const blockData = []; // { block, renderer, fmKey }
 
-        for (const [key, val] of Object.entries(note.meta)) {
+        const fmSource = { ...(note.effective_fm || {}), ...note.meta };
+        for (const [key, val] of Object.entries(fmSource)) {
             if (key === 'check') continue;
             const r = NbWeb.getCodeblockRenderer(key);
             if (!r) continue;
@@ -1605,6 +1607,7 @@ const NbMain = (() => {
         };
 
         const eagerRenderers = new Set();
+        const lazyRenders = [];
         for (const { block, renderer, fmKey } of blockData) {
             const wasOpen = localStorage.getItem(fmKey) === '1';
             if (renderer.renderOne && fu?.buildFmSkeleton) {
@@ -1628,6 +1631,7 @@ const NbMain = (() => {
                         if (!nowCollapsed) doRender();
                     });
                 }
+                lazyRenders.push(doRender);
             } else {
                 // Eager: render immediately (tui, check, no-renderOne renderers)
                 if (!wasOpen) block.classList.add('nb-collapsed');
@@ -1639,6 +1643,18 @@ const NbMain = (() => {
             for (const r of eagerRenderers) await r.render(wrap);
             for (const { block, renderer, fmKey } of blockData) {
                 if (!renderer.renderOne) wireFm(block, fmKey);
+            }
+        }
+
+        // Background render: populate bar metadata while idle so headers show real
+        // data (counts, balances, etc.) even if the user never opens a block.
+        // doRender() is idempotent — user clicks before idle fires win the race.
+        if (lazyRenders.length) {
+            const bgRender = async () => { for (const fn of lazyRenders) await fn(); };
+            if (typeof requestIdleCallback !== 'undefined') {
+                requestIdleCallback(() => bgRender(), { timeout: 8000 });
+            } else {
+                setTimeout(bgRender, 200);
             }
         }
     }
@@ -6067,6 +6083,7 @@ const NbMain = (() => {
                     });
                     const pd = await pr.json();
                     status.textContent = pd.success ? '✓ Saved' : ('Error: ' + (pd.error || '?'));
+                    if (pd.success) NbNav.applyNotebookPrefs(name, { default_sort: sort, default_list_type: listType });
                     setTimeout(() => { status.textContent = ''; }, 2000);
                 } finally {
                     btn.textContent = 'Save defaults'; btn.disabled = false;
