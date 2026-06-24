@@ -258,10 +258,14 @@
         const isBtn = trigger.tagName === 'BUTTON';
         if (isBtn) trigger.disabled = true;
         else trigger.classList.add('nb-lib-loading');
+        const sel      = NbMain.activeSelector() || '';
+        const notebook = sel.includes(':') ? sel.slice(0, sel.indexOf(':')) : '';
+        const note     = NbMain.activeNote();
+        const journal  = note?.effective_fm?.journal || note?.meta?.journal || '';
         fetch('/api/lib/block-open', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ lang }),
+            body: JSON.stringify({ lang, notebook, journal }),
         })
         .then(r => r.json())
         .then(d => {

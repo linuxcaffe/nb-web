@@ -791,6 +791,7 @@ INDICATORS = {
     'contact':     '🪪',
     'html':        '🌐',
     'archive':     '📦',
+    'journal':     '📒',
     'strip':       '🎞️',
     'shot':        '🎬',
     'scene':       '📜',
@@ -832,11 +833,11 @@ INDICATORS = {
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile'})
+_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile', 'journal'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
-_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs'})
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -2072,6 +2073,8 @@ def api_lib_block_open():
     user_level = user.get('level', 'guest')
     data       = request.get_json(silent=True) or {}
     lang       = data.get('lang', '').strip()
+    notebook   = data.get('notebook', '').strip()
+    journal    = data.get('journal', '').strip()
     if not lang or not re.match(r'^[a-z0-9_]+$', lang):
         return jsonify({'error': 'invalid lang'}), 400
 
@@ -2093,7 +2096,8 @@ def api_lib_block_open():
         r = subprocess.run(
             [str(script)],
             capture_output=True, text=True, timeout=10,
-            env={**os.environ, 'NB_DIR': str(NB_DIR)},
+            env={**os.environ, 'NB_DIR': str(NB_DIR),
+                 'NB_NOTEBOOK': notebook, 'NB_JOURNAL': journal},
         )
         stdout = r.stdout.strip()
         return jsonify({'output': stdout,
