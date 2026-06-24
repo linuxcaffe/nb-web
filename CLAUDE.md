@@ -78,6 +78,17 @@ Hidden files at `~/.nb/` root: `.users`, `.tools`, `.changes`, `.images`, `.rule
 
 **Codeblock lang IDs (current):** `tw`, `nb`, `git`, `hl` (accounting), `fm` (frontmatter filter), `cfg` (config tree), `nav`, `gallery`, `t`, `toc`, `test`, `chart`, `cine`. The `hl`/`fm`/`cfg` abbreviations match their barblock badge labels — the former long names (`hledger`, `front`, `config`) are retired.
 
+**`.lib/` block extras** — `~/.nb/.lib/` scripts extend barblocks at runtime:
+- `help-block-{lang}-{access}.md` → `?` button on that lang's header
+- `open-block-{lang}-{access}.sh` → title-click + `⎋` button routed through `_execLibOpen`
+
+Script stdout is parsed by `_dispatchLibOpen(out)` — one line, one action:
+```
+nb:<selector>   → NbMain.openNote()     file:<path>  → NbMain.openNote()
+term:<cmd>      → NbTerminal.run()      https://…    → window.open()
+```
+Title-click is lib-first: if `_blockExtras.open[lang]` exists, lib wins; otherwise falls back to the block's hardcoded default. `_blockExtras` is fetched once at plugin load from `/api/lib/block-extras`.
+
 ### Renderer registry
 
 Flat registry populated at load time by `registerRenderer(id, spec)`. `registerModule()` auto-populates it from `previewRenderers[]` and the single `previewRenderer` + `previewTypes` shorthand.
