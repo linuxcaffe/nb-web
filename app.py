@@ -3387,10 +3387,15 @@ def api_config_tree():
 
     def _node(level, cfg_path):
         raw = _read_contributes(cfg_path)
+        try:
+            rel = cfg_path.relative_to(nb_root)
+            sel = f"{notebook}:{rel}"
+        except ValueError:
+            sel = str(cfg_path)
         return {
             'level':       level,
             'path':        str(cfg_path),
-            'selector':    str(cfg_path),   # absolute path — /api/note handles it
+            'selector':    sel,
             'exists':      cfg_path.exists(),
             'contributes': _filter(raw),
         }
@@ -3469,16 +3474,21 @@ def api_config_tree_walk():
     root    = nb_root / folder if folder else nb_root
 
     def _cfg_meta(dir_path):
-        """Read the .{name}.md config in dir_path; return (exists, contributes)."""
+        """Read the .{name}.md config in dir_path; return (exists, meta, selector)."""
         name     = dir_path.name
         cfg_file = dir_path / f'.{name}.md'
         if cfg_file.exists():
             try:
+                rel_cfg = cfg_file.relative_to(nb_root)
+                cfg_sel = f"{notebook}:{rel_cfg}"
+            except ValueError:
+                cfg_sel = str(cfg_file)
+            try:
                 meta, _ = parse_frontmatter(cfg_file.read_text())
                 val = meta.get(attribute) if attribute else None
-                return True, meta, str(cfg_file)
+                return True, meta, cfg_sel
             except Exception:
-                return True, {}, str(cfg_file)
+                return True, {}, cfg_sel
         return False, {}, None
 
     def _walk(dir_path, rel, depth):
@@ -3577,8 +3587,13 @@ def api_config_create():
         leaf     = notebook
         cfg_path = nb_root / f'.{notebook}.md'
 
+    try:
+        cfg_sel = f"{notebook}:{cfg_path.relative_to(nb_root)}"
+    except ValueError:
+        cfg_sel = str(cfg_path)
+
     if cfg_path.exists():
-        return jsonify({'selector': str(cfg_path), 'created': False})
+        return jsonify({'selector': cfg_sel, 'created': False})
 
     # Load template
     tpl_path = NB_DIR / '.templates' / 'nb-config-folder.md'
@@ -3597,7 +3612,7 @@ def api_config_create():
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(content)
 
-    return jsonify({'selector': str(cfg_path), 'created': True})
+    return jsonify({'selector': cfg_sel, 'created': True})
 
 
 _all_notes_cache: dict = {}   # {'sig': tuple, 'data': list[dict]}
