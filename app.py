@@ -288,7 +288,9 @@ def _safe_notebook(name: str) -> str | None:
     """
     if not name or '/' in name or '\\' in name or name.startswith('.'):
         return None
-    # Reject any component that would traverse upward
+    # Reject quotes, shell metacharacters, and path traversal
+    if any(c in name for c in ('"', "'", '`', '$', '!', '?', '*', '&', '|', ';', '<', '>', '(', ')')):
+        return None
     if Path(name).parts != (name,):
         return None
     return name
