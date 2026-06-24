@@ -2096,9 +2096,7 @@ def api_lib_block_open():
             env={**os.environ, 'NB_DIR': str(NB_DIR)},
         )
         stdout = r.stdout.strip()
-        # If output looks like a URL, return it as a url field for the frontend to open
-        url = stdout if re.match(r'^https?://', stdout) else None
-        return jsonify({'output': stdout if not url else '', 'url': url or '',
+        return jsonify({'output': stdout,
                         'error': r.stderr.strip() if r.returncode else ''})
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'script timed out'}), 500

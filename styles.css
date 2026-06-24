@@ -2558,6 +2558,7 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-hl-btn-active  { color: var(--accent) !important; }
 .nb-hl-bar-total   { font-family: var(--font-mono); font-size: 0.85rem; font-weight: 700;
                      margin-left: 8px; color: var(--text); }
+.nb-lib-loading    { opacity: 0.45; pointer-events: none; }
 .nb-lib-open-btn   { opacity: 0.75; }
 .nb-lib-open-btn:hover { opacity: 1; }
 .nb-lib-btn-active { color: var(--accent) !important; }

@@ -246,8 +246,18 @@
         setTimeout(() => document.addEventListener('click', outside, true), 0);
     }
 
+    function _dispatchLibOpen(out) {
+        if (!out) return;
+        if (out.startsWith('nb:'))   { NbMain.openNote(out.slice(3)); return; }
+        if (out.startsWith('file:')) { NbMain.openNote(out.slice(5)); return; }
+        if (out.startsWith('term:')) { NbTerminal.run(out.slice(5)); return; }
+        if (/^https?:\/\//.test(out)) { window.open(out, '_blank'); return; }
+    }
+
     function _execLibOpen(trigger, lang) {
-        trigger.disabled = true;
+        const isBtn = trigger.tagName === 'BUTTON';
+        if (isBtn) trigger.disabled = true;
+        else trigger.classList.add('nb-lib-loading');
         fetch('/api/lib/block-open', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -255,11 +265,18 @@
         })
         .then(r => r.json())
         .then(d => {
-            if (d.url) { window.open(d.url, '_blank'); return; }
-            if (d.error) { trigger.title = d.error; trigger.textContent = '⚠'; setTimeout(() => { trigger.title = 'Open'; trigger.textContent = '⎋'; }, 3000); }
+            if (d.error) {
+                if (isBtn) { trigger.title = d.error; trigger.textContent = '⚠'; setTimeout(() => { trigger.title = 'Open'; trigger.textContent = '⎋'; }, 3000); }
+                else console.error('lib open:', lang, d.error);
+                return;
+            }
+            _dispatchLibOpen(d.output || '');
         })
-        .catch(e => { trigger.title = e.message; })
-        .finally(() => { trigger.disabled = false; });
+        .catch(e => { console.error('lib open:', e); })
+        .finally(() => {
+            if (isBtn) trigger.disabled = false;
+            else trigger.classList.remove('nb-lib-loading');
+        });
     }
 
     // ── t timeclock ───────────────────────────────────────────────────────────
@@ -512,6 +529,7 @@
         meta.innerHTML = `<span class="nb-tw-name" title="${twTitle}">task</span><span class="nb-tw-count">${tasks.length}</span>${filterHtml}`;
         const twNameEl = hdr.querySelector('.nb-tw-name');
         twNameEl.addEventListener('click', async () => {
+            if (_blockExtras?.open?.tw) { _execLibOpen(twNameEl, 'tw'); return; }
             if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
             if (launch.terminal) { NbTerminal.run(launch.cmd); return; }
             twNameEl.classList.add('nb-tw-name-launching');
@@ -1232,9 +1250,10 @@
         meta.className += ' nb-collapse-zone';
         meta.innerHTML = `<span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}${totalHtml}`;
         meta.querySelector('.nb-hl-name').addEventListener('click', async () => {
+            const nameEl = meta.querySelector('.nb-hl-name');
+            if (_blockExtras?.open?.hl) { _execLibOpen(nameEl, 'hl'); return; }
             if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
             if (launch.terminal) { NbTerminal.run(launch.cmd); return; }
-            const nameEl = meta.querySelector('.nb-hl-name');
             nameEl.classList.add('nb-hl-name-launching');
             try {
                 const d = await fetch('/api/hledger/launch', {method: 'POST'}).then(r => r.json());
