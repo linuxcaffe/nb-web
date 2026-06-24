@@ -836,7 +836,7 @@ _FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
-_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs'})
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -2022,6 +2022,88 @@ def api_hledger_regen():
         return jsonify({'message': r.stdout.strip().splitlines()[-1] if r.stdout.strip() else 'done'})
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'script timed out'}), 500
+
+
+# ── .lib barblock extras ──────────────────────────────────────────────────────
+# Naming convention: help-block-{lang}-{access}.md  and  open-block-{lang}-{access}.sh
+# {access} is the minimum access level required to see the button.
+# Files are gated identically to other .lib files — non-qualifying users get no entry.
+
+@app.route('/api/lib/block-extras')
+def api_lib_block_extras():
+    user       = session.get('user', {})
+    user_level = user.get('level', 'guest')
+    lib_dir    = NB_DIR / '.lib'
+    result     = {'help': {}, 'open': {}}
+
+    if not lib_dir.is_dir():
+        return jsonify(result)
+
+    # Parse help-block-{lang}-{access}.md
+    for p in sorted(lib_dir.glob('help-block-*.md')):
+        parts = p.stem.split('-')   # ['help', 'block', lang, access]
+        if len(parts) < 3:
+            continue
+        lang   = parts[2]
+        access = parts[3] if len(parts) > 3 else 'guest'
+        if access not in LEVELS:
+            continue
+        if _level_gte(user_level, access):
+            result['help'][lang] = f'.lib:{p.name}'
+
+    # Parse open-block-{lang}-{access}.sh
+    for p in sorted(lib_dir.glob('open-block-*.sh')):
+        parts = p.stem.split('-')
+        if len(parts) < 3:
+            continue
+        lang   = parts[2]
+        access = parts[3] if len(parts) > 3 else 'guest'
+        if access not in LEVELS:
+            continue
+        if _level_gte(user_level, access):
+            result['open'][lang] = f'.lib:{p.name}'
+
+    return jsonify(result)
+
+
+@app.route('/api/lib/block-open', methods=['POST'])
+def api_lib_block_open():
+    user       = session.get('user', {})
+    user_level = user.get('level', 'guest')
+    data       = request.get_json(silent=True) or {}
+    lang       = data.get('lang', '').strip()
+    if not lang or not re.match(r'^[a-z0-9_]+$', lang):
+        return jsonify({'error': 'invalid lang'}), 400
+
+    lib_dir = NB_DIR / '.lib'
+    script  = None
+    access  = 'guest'
+    for p in sorted(lib_dir.glob(f'open-block-{lang}-*.sh')):
+        parts = p.stem.split('-')
+        lvl = parts[3] if len(parts) > 3 else 'guest'
+        if lvl in LEVELS and _level_gte(user_level, lvl):
+            script = p
+            access = lvl
+            break
+
+    if not script or not script.exists():
+        return jsonify({'error': 'not found'}), 404
+
+    try:
+        r = subprocess.run(
+            [str(script)],
+            capture_output=True, text=True, timeout=10,
+            env={**os.environ, 'NB_DIR': str(NB_DIR)},
+        )
+        stdout = r.stdout.strip()
+        # If output looks like a URL, return it as a url field for the frontend to open
+        url = stdout if re.match(r'^https?://', stdout) else None
+        return jsonify({'output': stdout if not url else '', 'url': url or '',
+                        'error': r.stderr.strip() if r.returncode else ''})
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'script timed out'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/hledger/launch', methods=['POST'])

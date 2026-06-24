@@ -74,6 +74,10 @@ Hidden files at `~/.nb/` root: `.users`, `.tools`, `.changes`, `.images`, `.rule
 ```
 `renderOne` is called by `_buildFmBlocks` on first expand of a collapsed FM block. Without it the block falls to the eager path (`render(wrap)` called immediately). `html()` + `renderOne()` is the contract for FM participation; `render()` handles body blocks and the eager fallback.
 
+**`_FM_BLOCK_KEYS`** (`app.py`) — frozenset of lang IDs (and companion config keys) that participate in FM-mode and propagate via `effective_fm`: `{'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs'}`. When a notebook or folder config declares one of these keys, the note API response includes `effective_fm: {key: value}` for any key not already set in the note's own frontmatter. `_buildFmBlocks` merges `effective_fm` into the source before building the FM strip. Add a new lang to this set whenever a renderer should support config-chain propagation.
+
+**Codeblock lang IDs (current):** `tw`, `nb`, `git`, `hl` (accounting), `fm` (frontmatter filter), `cfg` (config tree), `nav`, `gallery`, `t`, `toc`, `test`, `chart`, `cine`. The `hl`/`fm`/`cfg` abbreviations match their barblock badge labels — the former long names (`hledger`, `front`, `config`) are retired.
+
 ### Renderer registry
 
 Flat registry populated at load time by `registerRenderer(id, spec)`. `registerModule()` auto-populates it from `previewRenderers[]` and the single `previewRenderer` + `previewTypes` shorthand.

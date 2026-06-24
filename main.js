@@ -1464,7 +1464,15 @@ const NbMain = (() => {
 
         const summary = document.createElement('summary');
         summary.className = 'nb-toc-header';
-        summary.innerHTML = `<span class="nb-toc-label">TOC</span>`;
+        const sel = note.selector || '';
+        const raw = sel.includes(':') ? sel.slice(sel.indexOf(':') + 1) : sel;
+        const parts = raw ? raw.split('/') : [];
+        const file   = parts[parts.length - 1] || '';
+        const parent = parts.length > 1 ? parts[parts.length - 2] : '';
+        const notePath = parent ? `~/..${parent}/${file}` : (file ? `~/${file}` : '');
+        summary.innerHTML = `<span class="nb-toc-label">TOC</span>`
+            + (notePath ? `<span class="nb-toc-path">${notePath}</span>` : '')
+            + `<span class="nb-toc-meta">${headings.length} ↑</span>`;
         tocBar.innerHTML = '';
         tocBar.appendChild(summary);
 
@@ -1544,6 +1552,10 @@ const NbMain = (() => {
             const active = sel === note.selector;
             const btn = document.createElement('button');
             btn.className = 'nb-tab' + (active ? ' nb-tab--active' : '');
+            if (active && note.tag_color) {
+                const tc = _matchTagColor(note.tag_color, note.tags);
+                if (tc) btn.style.setProperty('--tab-active-color', tc);
+            }
 
             if (isFolder) {
                 // Label: last non-empty path segment of the folder path
@@ -1576,8 +1588,14 @@ const NbMain = (() => {
         const blockData = []; // { block, renderer, fmKey }
 
         const fmSource = { ...(note.effective_fm || {}), ...note.meta };
+        const _tocMin = fmSource.toc_min != null ? Number(fmSource.toc_min) : null;
         for (const [key, val] of Object.entries(fmSource)) {
             if (key === 'check') continue;
+            if (key === 'toc' && _tocMin != null) {
+                const pane = document.getElementById('nb-preview-content');
+                const hCount = pane ? pane.querySelectorAll('h1,h2,h3,h4,h5,h6').length : 0;
+                if (hCount < _tocMin) continue;
+            }
             const r = NbWeb.getCodeblockRenderer(key);
             if (!r) continue;
             const query = val === true ? '' : String(val ?? '').trim();
@@ -6817,7 +6835,8 @@ const NbMain = (() => {
              enrichRendered:  (container, note) => _enrichRendered(container, note),
              wireContainer:   (container, note) => _wireContainer(container, note),
              fetchContainer:  (container, note) => _fetchContainer(container, note),
-             bustNoteCache:   sel => { if (sel) _noteCache.delete(sel); else _noteCache.clear(); } };
+             bustNoteCache:   sel => { if (sel) _noteCache.delete(sel); else _noteCache.clear(); },
+             matchTagColor:   _matchTagColor };
 })();
 
 // ── Terminal + Settings-in-preview ────────────────────────────────

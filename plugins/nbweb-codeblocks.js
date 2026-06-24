@@ -16,6 +16,13 @@
     let _cbAccess = {};
     fetch('/api/nb-settings').then(r => r.json()).then(s => { _cbAccess = s.codeblock_access || {}; }).catch(() => {});
 
+    // ── .lib barblock extras — ? help and Open buttons ────────────────────────
+    // Populated by /api/lib/block-extras on load. Shape: {help:{lang:selector}, open:{lang:selector}}
+    // Absent = no file exists for that lang (button invisible).
+
+    let _blockExtras = {};
+    fetch('/api/lib/block-extras').then(r => r.json()).then(d => { _blockExtras = d || {}; }).catch(() => {});
+
     function _cbParseGates(text) {
         let readLevel = null, writeLevel = null;
         const lines = text.split('\n').filter(l => {
@@ -164,13 +171,26 @@
         hdr.appendChild(meta);
         const acts = document.createElement('span');
         acts.className = 'nb-barblock-acts';
+
+        // Lib-based help overrides hardcoded onHelp; lib-based Open is always additive
+        const libHelp = lang ? _blockExtras?.help?.[lang] : null;
+        const libOpen = lang ? _blockExtras?.open?.[lang] : null;
+        const effectiveHelp = libHelp ? btn => _showLibHelp(btn, lang, libHelp) : onHelp;
+
         let helpBtn = null;
-        if (onHelp) {
+        if (effectiveHelp) {
             helpBtn = document.createElement('button');
             helpBtn.className = 'nb-tw-btn';
             helpBtn.title = 'Help'; helpBtn.textContent = '?';
-            helpBtn.addEventListener('click', e => { e.stopPropagation(); onHelp(helpBtn); });
+            helpBtn.addEventListener('click', e => { e.stopPropagation(); effectiveHelp(helpBtn); });
             acts.appendChild(helpBtn);
+        }
+        if (libOpen) {
+            const openBtn = document.createElement('button');
+            openBtn.className = 'nb-tw-btn nb-lib-open-btn';
+            openBtn.title = 'Open'; openBtn.textContent = '⎋';
+            openBtn.addEventListener('click', e => { e.stopPropagation(); _execLibOpen(openBtn, lang); });
+            acts.appendChild(openBtn);
         }
         let refBtn = null;
         if (onRefresh) {
@@ -182,6 +202,64 @@
         }
         hdr.appendChild(acts);
         return { hdr, meta, acts, refBtn, helpBtn };
+    }
+
+    function _showLibHelp(trigger, lang, selector) {
+        if (trigger._libHelpPop) {
+            trigger._libHelpPop.remove();
+            trigger._libHelpPop = null;
+            trigger.classList.remove('nb-lib-btn-active');
+            return;
+        }
+        trigger.classList.add('nb-lib-btn-active');
+        const pop = document.createElement('div');
+        pop.className = 'nb-lib-help-pop';
+        pop.innerHTML = '<span class="nb-spin">⟳</span>';
+        document.body.appendChild(pop);
+        const rect = trigger.getBoundingClientRect();
+        pop.style.top  = (rect.bottom + 4) + 'px';
+        pop.style.left = rect.left + 'px';
+
+        fetch(`/api/note?selector=${encodeURIComponent(selector)}`)
+            .then(r => r.json())
+            .then(d => {
+                const body = d.body || '';
+                pop.innerHTML = body
+                    ? (typeof marked !== 'undefined' ? marked.parse(body) : `<pre>${_esc(body)}</pre>`)
+                    : '<em style="padding:8px;display:block;color:var(--muted)">No content</em>';
+                const pr = pop.getBoundingClientRect();
+                if (pr.right > window.innerWidth - 8)
+                    pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
+                if (pr.bottom > window.innerHeight - 8)
+                    pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
+            })
+            .catch(() => { pop.innerHTML = '<em style="padding:8px;display:block">Error loading help</em>'; });
+
+        trigger._libHelpPop = pop;
+        const dismiss = () => {
+            pop.remove();
+            trigger._libHelpPop = null;
+            trigger.classList.remove('nb-lib-btn-active');
+            document.removeEventListener('click', outside, true);
+        };
+        const outside = e => { if (!pop.contains(e.target) && e.target !== trigger) dismiss(); };
+        setTimeout(() => document.addEventListener('click', outside, true), 0);
+    }
+
+    function _execLibOpen(trigger, lang) {
+        trigger.disabled = true;
+        fetch('/api/lib/block-open', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ lang }),
+        })
+        .then(r => r.json())
+        .then(d => {
+            if (d.url) { window.open(d.url, '_blank'); return; }
+            if (d.error) { trigger.title = d.error; trigger.textContent = '⚠'; setTimeout(() => { trigger.title = 'Open'; trigger.textContent = '⎋'; }, 3000); }
+        })
+        .catch(e => { trigger.title = e.message; })
+        .finally(() => { trigger.disabled = false; });
     }
 
     // ── t timeclock ───────────────────────────────────────────────────────────
@@ -1015,7 +1093,7 @@
     function _hlNotebook() {
         // Prefer the active note's notebook so hledger blocks resolve the right
         // journal when the nav scope is '_all' or a different notebook.
-        const sel = window.NbMain?.activeSelector?.();
+        const sel = NbMain.activeSelector();
         if (sel) {
             const colon = sel.indexOf(':');
             if (colon > 0) return sel.slice(0, colon);
@@ -1138,9 +1216,12 @@
         return total < -0.001 ? 'nb-hl-neg' : total > 0.001 ? 'nb-hl-pos' : 'nb-hl-zero';
     }
 
-    function _hlHeader(el, q, refresh, launch, count = null) {
+    function _hlHeader(el, q, refresh, launch, count = null, total = null) {
         const countHtml = count != null ? `<span class="nb-hl-count">${count}</span>` : '';
         const filterHtml = q ? ` <code>${_esc(q)}</code>` : '';
+        const totalHtml = total
+            ? ` <span class="nb-hl-bar-total ${_esc(total.cls || '')}">= ${_esc(total.text)}</span>`
+            : '';
         const nameTitle = !launch                ? 'Configure launch in Settings → Codeblocks'
                         : launch.terminal        ? 'Run in terminal'
                         :                          'Open in hledger-web';
@@ -1149,7 +1230,7 @@
         });
         helpBtn.className += ' nb-hl-btn nb-hl-help-btn';
         meta.className += ' nb-collapse-zone';
-        meta.innerHTML = `<span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}`;
+        meta.innerHTML = `<span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}${totalHtml}`;
         meta.querySelector('.nb-hl-name').addEventListener('click', async () => {
             if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
             if (launch.terminal) { NbTerminal.run(launch.cmd); return; }
@@ -1364,8 +1445,10 @@
     function _buildHledgerBalance(el, data, q, launch) {
         const rows   = Array.isArray(data?.[0]) ? data[0] : [];
         const totals = Array.isArray(data?.[1]) ? data[1] : [];
+        const barTotal = totals.length
+            ? { text: _hlFmtAmts(totals), cls: _hlAmtCls(totals) } : null;
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), launch, rows.length);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), launch, rows.length, barTotal);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No accounts matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -1391,8 +1474,12 @@
     function _buildHledgerRegister(el, data, q, launch) {
         const rows = Array.isArray(data) ? data : [];
         const txnCount = rows.filter(r => r[0] != null).length;
+        // Last row's running balance = account balance at end of register period
+        const lastBal = rows.length ? rows[rows.length - 1]?.[4] : null;
+        const barTotal = lastBal?.length
+            ? { text: _hlFmtAmts(lastBal), cls: _hlAmtCls(lastBal) } : null;
         el.innerHTML = '';
-        _hlHeader(el, q, () => _loadHledgerBlock(el), launch, txnCount);
+        _hlHeader(el, q, () => _loadHledgerBlock(el), launch, txnCount, barTotal);
         if (!rows.length) { el.insertAdjacentHTML('beforeend', '<div class="nb-hl-empty">No transactions matched</div>'); return; }
 
         const tbody = rows.map(r => {
@@ -2034,6 +2121,10 @@
             const btn = document.createElement('button');
             btn.className = 'nb-nav-link';
             btn.textContent = n.title || n.filename || n.selector;
+            if (n.tag_color) {
+                const tc = NbMain.matchTagColor(n.tag_color, n.tags);
+                if (tc) btn.style.color = tc;
+            }
             if (isFolder) {
                 const sub = folder ? `${folder}/${n.filename}` : n.filename;
                 btn.addEventListener('click', () => _navGo(el, notebook, sub));
@@ -2966,7 +3057,17 @@
         }
 
         const { hdr, meta } = _buildBarHeader(el, { lang: 'toc', collapseZone: true });
-        meta.textContent = headings.length ? `${headings.length}` : 'empty';
+        const sel = NbMain.activeSelector() || '';
+        const notePath = (() => {
+            const raw = sel.includes(':') ? sel.slice(sel.indexOf(':') + 1) : sel;
+            if (!raw) return '';
+            const parts = raw.split('/');
+            const file  = parts[parts.length - 1];
+            const parent = parts.length > 1 ? parts[parts.length - 2] : '';
+            return parent ? `~/..${parent}/${file}` : `~/${file}`;
+        })();
+        const countPart = headings.length ? ` · ${headings.length} ↑` : '';
+        meta.textContent = notePath ? `${notePath}${countPart}` : (headings.length ? `${headings.length}` : 'empty');
         el.appendChild(hdr);
         _initCollapseToggle(el);
 
