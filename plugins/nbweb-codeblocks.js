@@ -254,14 +254,14 @@
         if (/^https?:\/\//.test(out)) { window.open(out, '_blank'); return; }
     }
 
-    function _execLibOpen(trigger, lang) {
+    function _execLibOpen(trigger, lang, { journal: journalOverride } = {}) {
         const isBtn = trigger.tagName === 'BUTTON';
         if (isBtn) trigger.disabled = true;
         else trigger.classList.add('nb-lib-loading');
         const sel      = NbMain.activeSelector() || '';
         const notebook = sel.includes(':') ? sel.slice(0, sel.indexOf(':')) : '';
         const note     = NbMain.activeNote();
-        const journal  = note?.effective_fm?.journal || note?.meta?.journal || '';
+        const journal  = journalOverride ?? note?.effective_fm?.journal ?? note?.meta?.journal ?? '';
         fetch('/api/lib/block-open', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1255,7 +1255,7 @@
         meta.innerHTML = `<span class="nb-hl-name" title="${nameTitle}">hledger</span>${countHtml}${filterHtml}${totalHtml}`;
         meta.querySelector('.nb-hl-name').addEventListener('click', async () => {
             const nameEl = meta.querySelector('.nb-hl-name');
-            if (_blockExtras?.open?.hl) { _execLibOpen(nameEl, 'hl'); return; }
+            if (_blockExtras?.open?.hl) { _execLibOpen(nameEl, 'hl', { journal: el.dataset.hlJournalSel || '' }); return; }
             if (!launch) { NbTerminal.openSettings('sec-codeblocks'); return; }
             if (launch.terminal) { NbTerminal.run(launch.cmd); return; }
             nameEl.classList.add('nb-hl-name-launching');
