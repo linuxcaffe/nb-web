@@ -2649,22 +2649,19 @@ def api_hledger_clear_account_notes():
     if not nb_root.is_dir():
         return jsonify({'error': f'notebook {notebook!r} not found'}), 404
 
-    accounts_dir = nb_root / 'accounts'
+    accounts_dir = nb_root / 'accounting' / 'accounts'
     files = []
     if accounts_dir.is_dir():
         files = [f.name for f in accounts_dir.glob('*.md') if not f.name.startswith('.')]
         try:
-            shutil.rmtree(str(accounts_dir))
+            for f in accounts_dir.glob('*.md'):
+                if not f.name.startswith('.'):
+                    f.unlink()
+            index_path = accounts_dir / '.index'
+            if index_path.exists():
+                index_path.write_text('')
         except OSError as e:
             return jsonify({'error': str(e)}), 500
-
-    # Scrub any accounts/xxx.md entries the old buggy code left in the root .index
-    root_index = nb_root / '.index'
-    if root_index.exists():
-        lines = root_index.read_text(errors='replace').splitlines()
-        cleaned = [l for l in lines if not l.startswith('accounts/')]
-        if len(cleaned) != len(lines):
-            root_index.write_text('\n'.join(cleaned) + '\n')
 
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
     subprocess.run(['git', 'add', '-A'], cwd=str(nb_root), capture_output=True, env=env)
