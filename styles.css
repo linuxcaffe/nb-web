@@ -2664,14 +2664,24 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-test-out    { margin-top: 4px; }
 
 /* check list — script browser */
-.nb-check-list { display: flex; flex-direction: column; gap: 2px; }
-.nb-check-list-row { display: flex; flex-direction: column; }
-.nb-check-list-btn {
-  text-align: left;
-  font-family: var(--font-mono);
-  font-size: 0.82em;
-  padding: 3px 10px;
+.nb-check-list       { display: flex; flex-direction: column; gap: 2px; }
+.nb-check-list-row   { display: flex; flex-direction: column; }
+.nb-check-list-ctrl  { display: flex; align-items: center; gap: 4px; }
+.nb-check-list-icon-btn {
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 6px; cursor: pointer; flex-shrink: 0;
+  transition: border-color 0.15s, opacity 0.15s;
+  line-height: 1;
 }
+.nb-check-list-icon-btn:hover  { border-color: var(--accent); }
+.nb-check-list-icon-btn:active { opacity: 0.6; }
+.nb-check-list-name-btn {
+  background: none; border: none; padding: 2px 4px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 0.82em;
+  color: var(--text-muted); text-align: left;
+  transition: color 0.15s;
+}
+.nb-check-list-name-btn:hover { color: var(--accent); }
 .nb-test-result { position: relative; padding-right: 28px; }
 .nb-test-dismiss {
   position: absolute; top: 4px; right: 4px;

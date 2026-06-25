@@ -2611,21 +2611,38 @@
             const script = name.replace(/\.sh$/, '');
             const row    = document.createElement('div');
             row.className = 'nb-check-list-row';
-            const btn = document.createElement('button');
-            btn.className  = 'nb-test-btn nb-check-list-btn';
-            btn.innerHTML  = _checkDomainIcon(script) + _esc(script);
+
+            // Icon button — runs the check against the current note
+            const iconBtn = document.createElement('button');
+            iconBtn.className = 'nb-check-list-icon-btn';
+            iconBtn.innerHTML = _checkDomainIcon(script) || '▶';
+            iconBtn.title     = `Run ${script}`;
+
+            // Name button — opens the script in preview
+            const nameBtn = document.createElement('button');
+            nameBtn.className   = 'nb-check-list-name-btn';
+            nameBtn.textContent = script;
+            nameBtn.title       = 'Open script';
+            nameBtn.addEventListener('click', () => NbMain.openNote(`.checks:${name}`));
+
+            const ctrl = document.createElement('div');
+            ctrl.className = 'nb-check-list-ctrl';
+            ctrl.appendChild(iconBtn);
+            ctrl.appendChild(nameBtn);
+
             const out = document.createElement('div');
-            out.className  = 'nb-test-out';
-            btn.addEventListener('click', async () => {
-                btn.disabled = true;
-                const orig = btn.innerHTML;
-                btn.innerHTML = _checkDomainIcon(script) + '⟳ …';
+            out.className = 'nb-test-out';
+
+            iconBtn.addEventListener('click', async () => {
+                iconBtn.disabled = true;
+                nameBtn.disabled = true;
                 out.innerHTML = '';
-                await _runTest(row, script, btn, out);
-                btn.disabled = false;
-                btn.innerHTML = orig;
+                await _runTest(row, script, iconBtn, out);
+                iconBtn.disabled = false;
+                nameBtn.disabled = false;
             });
-            row.appendChild(btn);
+
+            row.appendChild(ctrl);
             row.appendChild(out);
             list.appendChild(row);
         });
