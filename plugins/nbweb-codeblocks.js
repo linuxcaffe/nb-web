@@ -2637,13 +2637,31 @@
                 iconBtn.disabled = true;
                 nameBtn.disabled = true;
                 out.innerHTML = '<span class="nb-spin">⟳</span>';
-                await _runTest(row, script, iconBtn, out);
+                try {
+                    const r = await fetch('/api/check/run', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ script, selector: NbMain.activeSelector() || '', force: true, demo: true }),
+                    });
+                    const d = await r.json();
+                    const { text, severity } = _parseCheckResult(d, script);
+                    if (!text) {
+                        out.innerHTML = '<span class="nb-check-list-pass">no --demo output</span>';
+                        setTimeout(() => { out.innerHTML = ''; }, 2000);
+                    } else {
+                        const result = document.createElement('div');
+                        result.className = 'nb-test-result' + _severityClass(severity);
+                        result.innerHTML = NbMain.renderMarkdown(text, '');
+                        NbMain.enrichRendered(result, null);
+                        _enrichSubtests(result);
+                        out.innerHTML = '';
+                        out.appendChild(result);
+                    }
+                } catch (e) {
+                    out.textContent = String(e);
+                }
                 iconBtn.disabled = false;
                 nameBtn.disabled = false;
-                if (out.querySelector('.nb-spin')) {
-                    out.innerHTML = '<span class="nb-check-list-pass">✓ pass</span>';
-                    setTimeout(() => { out.innerHTML = ''; }, 1500);
-                }
             });
 
             row.appendChild(ctrl);

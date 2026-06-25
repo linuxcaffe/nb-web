@@ -7939,6 +7939,7 @@ def api_check_run():
     script_name = (data.get('script') or '').strip()
     selector    = (data.get('selector') or '').strip()
     force       = bool(data.get('force', False))
+    demo        = bool(data.get('demo', False))
 
     if not script_name:
         return jsonify({'error': 'no script name', 'exit_code': 1}), 400
@@ -7972,8 +7973,11 @@ def api_check_run():
         'NO_COLOR':         '1',
     }
     try:
+        cmd = ['bash', str(script_path)]
+        if demo:
+            cmd.append('--demo')
         result = subprocess.run(
-            ['bash', str(script_path)],
+            cmd,
             capture_output=True, text=True,
             env=env, timeout=30,
         )
