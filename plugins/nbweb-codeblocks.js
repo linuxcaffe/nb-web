@@ -300,22 +300,38 @@
         if (id) { clearInterval(id); _tTimers.delete(el); }
         el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
-        const period = el.dataset.period || 'today';
+        const period  = el.dataset.period || 'today';
+        const dotMode = el.dataset.dotMode === '1';
+        // FM file overrides (note.meta.timelog_file / note.meta.timedot_file)
+        const meta    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.()?.meta || {} : {};
+        const tcFile  = meta.timelog_file || null;
+        const tdFile  = meta.timedot_file || null;
+        const tcQ     = tcFile ? `&file=${encodeURIComponent(tcFile)}` : '';
+        const tdQ     = tdFile ? `&file=${encodeURIComponent(tdFile)}` : '';
         try {
-            const [status, report] = await Promise.all([
-                fetch('/api/t/status').then(r => r.json()),
-                period
-                    ? fetch(`/api/t/report?period=${encodeURIComponent(period)}`).then(r => r.json())
-                    : Promise.resolve(null),
-            ]);
-            _buildTBlock(el, status, report, period);
+            if (dotMode) {
+                const [tdStatus, tdReport, tcReport] = await Promise.all([
+                    fetch(`/api/t/timedot/status?period=${encodeURIComponent(period)}${tdQ}`).then(r => r.json()),
+                    fetch(`/api/t/timedot/report?period=${encodeURIComponent(period)}${tdQ}`).then(r => r.json()),
+                    fetch(`/api/t/report?period=${encodeURIComponent(period)}${tcQ}`).then(r => r.json()),
+                ]);
+                _buildTBlock(el, null, tdReport, period, { dotMode: true, tdStatus, tcReport });
+            } else {
+                const [status, tcReport, tdReport] = await Promise.all([
+                    fetch(`/api/t/status?${tcQ.slice(1)}`).then(r => r.json()),
+                    fetch(`/api/t/report?period=${encodeURIComponent(period)}${tcQ}`).then(r => r.json()),
+                    fetch(`/api/t/timedot/report?period=${encodeURIComponent(period)}${tdQ}`).then(r => r.json()),
+                ]);
+                _buildTBlock(el, status, tcReport, period, { dotMode: false, tdReport });
+            }
         } catch(e) {
             el.innerHTML = `<span class="nb-t-error">⚠ ${_esc(e.message)}</span>`;
         }
         _initCollapseToggle(el);
     }
 
-    function _buildTBlock(el, status, report, period) {
+    function _buildTBlock(el, status, report, period, opts = {}) {
+        const { dotMode = false, tdStatus = null, tdReport = null, tcReport = null } = opts;
         el.innerHTML = '';
 
         const hdr = document.createElement('div');
@@ -324,14 +340,26 @@
         const statusEl = document.createElement('div');
         statusEl.className = 'nb-t-status';
 
-        if (status.state === 'in') {
+        if (dotMode) {
+            // Dot mode: show last timedot entry
+            const s = tdStatus || {};
+            if (s.state === 'has_entries') {
+                statusEl.innerHTML =
+                    `<span class="nb-t-dot nb-t-dot-td">◦</span>` +
+                    `<span class="nb-t-account">${_esc(s.account)}</span>` +
+                    `<span class="nb-t-desc">${_esc(s.time)}</span>` +
+                    `<span class="nb-t-elapsed">${_esc(s.date || '')}</span>`;
+            } else {
+                statusEl.innerHTML = `<span class="nb-t-dot nb-t-dot-out">◦</span><span class="nb-t-desc">No timedot entries</span>`;
+            }
+        } else if (status?.state === 'in') {
             const elapsed = status.elapsed_seconds || 0;
             statusEl.innerHTML =
                 `<span class="nb-t-dot nb-t-dot-in">⏱</span>` +
                 `<span class="nb-t-account">${_esc(status.account)}</span>` +
                 (status.desc ? `<span class="nb-t-desc">${_esc(status.desc)}</span>` : '') +
                 `<span class="nb-t-elapsed" data-start="${Date.now() - elapsed * 1000}">${_fmtSeconds(elapsed)}</span>`;
-        } else if (status.state === 'out') {
+        } else if (status?.state === 'out') {
             statusEl.innerHTML =
                 `<span class="nb-t-dot nb-t-dot-out">◌</span>` +
                 `<span class="nb-t-out-label">OUT</span>` +
@@ -343,24 +371,41 @@
         const acts = document.createElement('div');
         acts.className = 'nb-t-actions';
 
-        if (status.state === 'in') {
-            const outBtn = document.createElement('button');
-            outBtn.className = 'nb-tw-btn nb-t-btn nb-t-out-btn';
-            outBtn.title = 'Clock out';
-            outBtn.textContent = '◼ Out';
-            outBtn.addEventListener('click', async () => {
-                outBtn.disabled = true;
-                const d = await fetch('/api/t/out', { method: 'POST' }).then(r => r.json()).catch(() => ({}));
-                if (d.success) _loadTBlock(el); else outBtn.disabled = false;
-            });
-            acts.appendChild(outBtn);
-        } else {
-            const inBtn = document.createElement('button');
-            inBtn.className = 'nb-tw-btn nb-t-btn nb-t-in-btn';
-            inBtn.title = 'Clock in';
-            inBtn.textContent = '⏱ In';
-            inBtn.addEventListener('click', () => _showTClockInForm(el, status, inBtn));
-            acts.appendChild(inBtn);
+        // Dot-mode toggle button
+        const dotBtn = document.createElement('button');
+        dotBtn.className = 'nb-tw-btn nb-t-btn nb-t-dot-toggle' + (dotMode ? ' active' : '');
+        dotBtn.title = dotMode ? 'Switch to timeclock mode' : 'Switch to timedot mode';
+        dotBtn.textContent = dotMode ? 'tc' : '.';
+        dotBtn.addEventListener('click', () => {
+            el.dataset.dotMode = dotMode ? '0' : '1';
+            _loadTBlock(el);
+        });
+        acts.appendChild(dotBtn);
+
+        if (!dotMode) {
+            if (status?.state === 'in') {
+                const outBtn = document.createElement('button');
+                outBtn.className = 'nb-tw-btn nb-t-btn nb-t-out-btn';
+                outBtn.title = 'Clock out';
+                outBtn.textContent = '◼ Out';
+                outBtn.addEventListener('click', async () => {
+                    outBtn.disabled = true;
+                    const meta = typeof NbMain !== 'undefined' ? NbMain.activeNote?.()?.meta || {} : {};
+                    const body = meta.timelog_file ? JSON.stringify({ file: meta.timelog_file }) : '{}';
+                    const d = await fetch('/api/t/out', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+                    }).then(r => r.json()).catch(() => ({}));
+                    if (d.success) _loadTBlock(el); else outBtn.disabled = false;
+                });
+                acts.appendChild(outBtn);
+            } else {
+                const inBtn = document.createElement('button');
+                inBtn.className = 'nb-tw-btn nb-t-btn nb-t-in-btn';
+                inBtn.title = 'Clock in';
+                inBtn.textContent = '⏱ In';
+                inBtn.addEventListener('click', () => _showTClockInForm(el, status, inBtn));
+                acts.appendChild(inBtn);
+            }
         }
 
         const refBtn = document.createElement('button');
@@ -374,23 +419,55 @@
         hdr.insertBefore(_cbIcon('t'), hdr.firstChild);
         el.appendChild(hdr);
 
-        if (report?.rows?.length) {
+        // Report rows (timeclock in tc-mode, timedot in dot-mode)
+        const activeReport = dotMode ? report : report;  // both paths use `report` arg
+        if (activeReport?.rows?.length) {
             const rpt = document.createElement('div');
             rpt.className = 'nb-t-report';
-            report.rows.forEach(row => {
+            activeReport.rows.forEach(row => {
                 const r = document.createElement('div');
                 r.className = 'nb-t-row';
-                r.innerHTML = `<span class="nb-t-r-acct">${_esc(row.account)}</span><span class="nb-t-r-time">${_fmtSeconds(row.seconds)}</span>`;
+                if (dotMode) {
+                    const hrs = row.hours || 0;
+                    r.innerHTML = `<span class="nb-t-r-acct">${_esc(row.account)}</span><span class="nb-t-r-time">${hrs.toFixed(1)}h</span>`;
+                } else {
+                    r.innerHTML = `<span class="nb-t-r-acct">${_esc(row.account)}</span><span class="nb-t-r-time">${_fmtSeconds(row.seconds)}</span>`;
+                }
                 rpt.appendChild(r);
             });
+
+            // Combined total footer: tc total + td total when both have data
+            const tcTotalSecs  = dotMode ? (tcReport?.total_seconds || 0) : (activeReport?.total_seconds || 0);
+            const tdTotalHrs   = dotMode ? (activeReport?.total_hours || 0) : (tdReport?.total_hours || 0);
+            const hasBoth      = tcTotalSecs > 0 && tdTotalHrs > 0;
+
             const tot = document.createElement('div');
             tot.className = 'nb-t-row nb-t-total';
-            tot.innerHTML = `<span class="nb-t-r-acct">${period || 'today'} total</span><span class="nb-t-r-time">${_fmtSeconds(report.total_seconds)}</span>`;
+            if (dotMode) {
+                const dHrs = (activeReport.total_hours || 0).toFixed(1);
+                tot.innerHTML = `<span class="nb-t-r-acct">${period || 'today'} (td)</span><span class="nb-t-r-time">${dHrs}h</span>`;
+            } else {
+                tot.innerHTML = `<span class="nb-t-r-acct">${period || 'today'} (tc)</span><span class="nb-t-r-time">${_fmtSeconds(activeReport.total_seconds)}</span>`;
+            }
             rpt.appendChild(tot);
+
+            if (hasBoth) {
+                const tcH = tcTotalSecs / 3600;
+                const combined = document.createElement('div');
+                combined.className = 'nb-t-row nb-t-combined';
+                const tcStr = dotMode ? `${tcH.toFixed(1)}h tc` : _fmtSeconds(tcTotalSecs) + ' tc';
+                const tdStr = `${tdTotalHrs.toFixed(1)}h td`;
+                const sumH  = tcH + tdTotalHrs;
+                combined.innerHTML =
+                    `<span class="nb-t-r-acct">${tcStr} + ${tdStr}</span>` +
+                    `<span class="nb-t-r-time">${sumH.toFixed(1)}h</span>`;
+                rpt.appendChild(combined);
+            }
+
             el.appendChild(rpt);
         }
 
-        if (status.state === 'in') {
+        if (!dotMode && status?.state === 'in') {
             const startMs = Date.now() - (status.elapsed_seconds || 0) * 1000;
             const tid = setInterval(() => {
                 const elapsedEl = el.querySelector('.nb-t-elapsed');
@@ -406,7 +483,9 @@
         if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('active'); return; }
         trigger?.classList.add('active');
 
-        const accounts = await fetch('/api/t/accounts').then(r => r.json()).then(d => d.accounts || []).catch(() => []);
+        const tcFile   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.()?.meta?.timelog_file || null : null;
+        const fileQ    = tcFile ? `?file=${encodeURIComponent(tcFile)}` : '';
+        const accounts = await fetch(`/api/t/accounts${fileQ}`).then(r => r.json()).then(d => d.accounts || []).catch(() => []);
 
         const form = document.createElement('div');
         form.className = 'nb-t-clock-in-form';
@@ -449,9 +528,11 @@
             const account = customInput.value.trim() || sel.value;
             if (!account) { customInput.focus(); return; }
             goBtn.disabled = true;
+            const payload = { account, desc: descInput.value.trim() };
+            if (tcFile) payload.file = tcFile;
             const d = await fetch('/api/t/in', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ account, desc: descInput.value.trim() }),
+                body: JSON.stringify(payload),
             }).then(r => r.json()).catch(() => ({}));
             if (d.success) { dismiss(); _loadTBlock(el); }
             else { goBtn.disabled = false; if (d.error) alert(d.error); }
@@ -3406,9 +3487,28 @@
         }).join('\n');
     }
 
-    // Append new entry lines to the timedot fenced block in the note source.
+    // Append new entry lines — inline (PUT note) or external (POST /api/t/timedot/append).
     async function _timedotAppend(el, newLines) {
-        const selector = typeof NbMain !== 'undefined' ? NbMain.activeSelector?.() : null;
+        const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const tdFile  = note?.meta?.timedot_file || null;
+
+        if (tdFile) {
+            // External file: append via API
+            const r = await fetch('/api/t/timedot/append', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file: tdFile, lines: newLines }),
+            });
+            const d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Append failed');
+            // Refresh el.dataset.src from the file so re-render is accurate
+            const cr = await fetch(`/api/t/timedot/content?file=${encodeURIComponent(tdFile)}`);
+            const cd = await cr.json();
+            if (cd.exists) el.dataset.src = cd.content;
+            return;
+        }
+
+        // Inline: splice into note's fenced block
+        const selector = note?.selector || (typeof NbMain !== 'undefined' ? NbMain.activeSelector?.() : null);
         if (!selector) throw new Error('No active note');
         const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
         const d = await r.json();
@@ -3524,12 +3624,23 @@
     }
 
     async function _loadTimedotBlock(el) {
-        const raw     = el.dataset.src || '';
         const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
         const meta    = note?.meta || {};
         const project = meta.project || null;
         const rate    = parseFloat(meta.rate) || null;
         const filter  = el.dataset.filter || 'all';
+
+        // External file: fetch content, update dataset.src for consistent downstream use
+        const tdFile  = meta.timedot_file || null;
+        if (tdFile && !el.dataset.externalLoaded) {
+            try {
+                const r = await fetch(`/api/t/timedot/content?file=${encodeURIComponent(tdFile)}`);
+                const d = await r.json();
+                if (d.exists) { el.dataset.src = d.content; el.dataset.externalLoaded = '1'; }
+            } catch { /* fallback to inline */ }
+        }
+
+        const raw     = el.dataset.src || '';
 
         const rewritten = _timedotRewrite(raw, project);
         const sections  = _timedotGroup(_timedotSegment(rewritten));

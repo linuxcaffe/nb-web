@@ -839,7 +839,7 @@ _FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
-_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot'})
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot', 'timelog_file', 'timedot_file'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -2542,8 +2542,10 @@ def api_hledger_aliases_set():
 # API: t timeclock (time tracking)
 # ---------------------------------------------------------------------------
 
-def _t_tc_file() -> Path:
-    """Return Path to the active timeclock file (from timelog.rc config)."""
+def _t_tc_file(override: str | None = None) -> Path:
+    """Return Path to the active timeclock file (override > rc > default)."""
+    if override:
+        return Path(os.path.expanduser(override.strip()))
     rc = Path.home() / '.task/config/timelog.rc'
     default = Path.home() / '.task/time/tw.timeclock'
     if not rc.exists():
@@ -2553,6 +2555,97 @@ def _t_tc_file() -> Path:
             val = line.split('=', 1)[1].strip()
             return Path(os.path.expanduser(val))
     return default
+
+
+def _t_td_file(override: str | None = None) -> Path:
+    """Return Path to the active timedot file (override > rc > default)."""
+    if override:
+        return Path(os.path.expanduser(override.strip()))
+    rc = Path.home() / '.task/config/timelog.rc'
+    default = _t_tc_file().parent / 'tw.timedot'
+    if not rc.exists():
+        return default
+    for line in rc.read_text().splitlines():
+        if line.startswith('timelog.timedot_file'):
+            val = line.split('=', 1)[1].strip()
+            return Path(os.path.expanduser(val))
+    return default
+
+
+def _t_timedot_last(td_file: Path) -> dict:
+    """Return last entry info from a timedot file."""
+    if not td_file.exists():
+        return {'state': 'none'}
+    last_date = last_acct = last_time = None
+    for line in td_file.read_text().splitlines():
+        t = line.strip()
+        if not t or t.startswith((';', '#', '*', '//')):
+            continue
+        dm = re.match(r'^(\d{4})[/-](\d{2})[/-](\d{2})', t)
+        if dm:
+            last_date = f'{dm.group(1)}-{dm.group(2)}-{dm.group(3)}'
+            continue
+        em = re.match(r'^(.+?)\s{2,}([.\s\d]+[hm]?)\s*(?:;.*)?$', t)
+        if em:
+            last_acct = em.group(1).rstrip()
+            last_time = em.group(2).strip()
+    if last_acct:
+        return {'state': 'has_entries', 'account': last_acct,
+                'time': last_time, 'date': last_date}
+    return {'state': 'empty'}
+
+
+def _t_timedot_parse_report(td_file: Path, period: str) -> dict:
+    """Parse a timedot file and return hours-by-account for the period."""
+    from datetime import date as _date, timedelta as _td
+    if not td_file.exists():
+        return {'rows': [], 'total_hours': 0}
+    today = _date.today()
+    if period in ('today', ''):
+        cutoff = today
+    elif period in ('thisweek', 'week'):
+        cutoff = today - _td(days=today.weekday())
+    elif period in ('thismonth', 'month'):
+        cutoff = today.replace(day=1)
+    else:
+        cutoff = today
+
+    by_account: dict = {}
+    cur_date = None
+    for line in td_file.read_text().splitlines():
+        t = line.strip()
+        if not t or t.startswith((';', '#', '*', '//')):
+            continue
+        dm = re.match(r'^(\d{4})[/-](\d{2})[/-](\d{2})', t)
+        if dm:
+            from datetime import date as _date2
+            try:
+                cur_date = _date2(int(dm.group(1)), int(dm.group(2)), int(dm.group(3)))
+            except ValueError:
+                cur_date = None
+            continue
+        if cur_date is None or cur_date < cutoff:
+            continue
+        em = re.match(r'^(.+?)\s{2,}([.\s\d]+[hm]?)\s*(?:;.*)?$', t)
+        if not em:
+            continue
+        acct = em.group(1).rstrip()
+        raw  = em.group(2).strip()
+        # Parse time: dots=0.25h each, Nh, Nm, decimal
+        if raw.endswith('h'):
+            hrs = float(raw[:-1]) if raw[:-1] else 0
+        elif raw.endswith('m'):
+            hrs = float(raw[:-1]) / 60 if raw[:-1] else 0
+        elif re.match(r'^\d+(\.\d+)?$', raw):
+            hrs = float(raw)
+        else:
+            hrs = raw.count('.') * 0.25
+        if hrs > 0:
+            by_account[acct] = by_account.get(acct, 0) + hrs
+
+    rows = sorted([{'account': k, 'hours': round(v, 4)} for k, v in by_account.items()],
+                  key=lambda r: r['account'])
+    return {'rows': rows, 'total_hours': round(sum(r['hours'] for r in rows), 4)}
 
 
 def _t_parse_status(tc_file: Path) -> dict:
@@ -2971,18 +3064,18 @@ def api_hledger_chart():
 
 @app.route('/api/t/status')
 def api_t_status():
-    return jsonify(_t_parse_status(_t_tc_file()))
+    return jsonify(_t_parse_status(_t_tc_file(request.args.get('file'))))
 
 
 @app.route('/api/t/report')
 def api_t_report():
     period = request.args.get('period', 'today').strip()
-    return jsonify(_t_parse_report(_t_tc_file(), period))
+    return jsonify(_t_parse_report(_t_tc_file(request.args.get('file')), period))
 
 
 @app.route('/api/t/accounts')
 def api_t_accounts():
-    tc = _t_tc_file()
+    tc = _t_tc_file(request.args.get('file'))
     if not tc.exists():
         return jsonify({'accounts': []})
     accounts = sorted({l.split()[3] for l in tc.read_text().splitlines()
@@ -2997,16 +3090,14 @@ def api_t_in():
     desc    = data.get('desc', '').strip()
     if not account:
         return jsonify({'success': False, 'error': 'account required'}), 400
-    tc = _t_tc_file()
+    tc = _t_tc_file(data.get('file'))
     tc.parent.mkdir(parents=True, exist_ok=True)
     if not tc.exists():
         tc.touch()
-    # Check already clocked in to same account
     status = _t_parse_status(tc)
     if status['state'] == 'in':
         if status['account'] == account:
             return jsonify({'success': False, 'error': f'Already clocked in to {account}'}), 409
-        # Clock out of current before clocking in to new
         now_str = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
         with open(tc, 'a') as f:
             f.write(f'o {now_str}\n')
@@ -3021,7 +3112,8 @@ def api_t_in():
 
 @app.route('/api/t/out', methods=['POST'])
 def api_t_out():
-    tc = _t_tc_file()
+    data = request.get_json(silent=True) or {}
+    tc = _t_tc_file(data.get('file'))
     status = _t_parse_status(tc)
     if status['state'] != 'in':
         return jsonify({'success': False, 'error': 'Not clocked in'}), 409
@@ -3029,6 +3121,38 @@ def api_t_out():
     with open(tc, 'a') as f:
         f.write(f'o {now_str}\n')
     return jsonify({'success': True})
+
+
+@app.route('/api/t/timedot/status')
+def api_t_timedot_status():
+    return jsonify(_t_timedot_last(_t_td_file(request.args.get('file'))))
+
+
+@app.route('/api/t/timedot/report')
+def api_t_timedot_report():
+    period = request.args.get('period', 'today').strip()
+    return jsonify(_t_timedot_parse_report(_t_td_file(request.args.get('file')), period))
+
+
+@app.route('/api/t/timedot/content')
+def api_t_timedot_content():
+    td = _t_td_file(request.args.get('file'))
+    if not td.exists():
+        return jsonify({'content': '', 'exists': False, 'path': str(td)})
+    return jsonify({'content': td.read_text(), 'exists': True, 'path': str(td)})
+
+
+@app.route('/api/t/timedot/append', methods=['POST'])
+def api_t_timedot_append():
+    data  = request.get_json(silent=True) or {}
+    td    = _t_td_file(data.get('file'))
+    lines = (data.get('lines') or '').strip()
+    if not lines:
+        return jsonify({'success': False, 'error': 'lines required'}), 400
+    td.parent.mkdir(parents=True, exist_ok=True)
+    with open(td, 'a') as f:
+        f.write('\n' + lines + '\n')
+    return jsonify({'success': True, 'path': str(td)})
 
 
 @app.route('/api/version')

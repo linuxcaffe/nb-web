@@ -3112,6 +3112,7 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-t-dot { font-size: 15px; flex-shrink: 0; }
 .nb-t-dot-in  { color: var(--green, #22c55e); }
 .nb-t-dot-out { color: var(--text-muted); }
+.nb-t-dot-td  { color: var(--accent, #6366f1); }
 .nb-t-account { font-weight: 600; color: var(--accent, #6366f1); white-space: nowrap; }
 .nb-t-out-label { font-weight: 600; color: var(--text-muted); }
 .nb-t-elapsed {
@@ -3136,7 +3137,11 @@ span.nb-cb-icon.nb-cb-icon--large {
   padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border);
 }
 .nb-t-row:last-child { border-bottom: none; }
-.nb-t-total { font-weight: 600; border-top: 1px solid var(--border); margin-top: 2px; padding-top: 5px; }
+.nb-t-total    { font-weight: 600; border-top: 1px solid var(--border); margin-top: 2px; padding-top: 5px; }
+.nb-t-combined { color: var(--text-dim); font-style: italic; border-top: 1px dashed var(--border); margin-top: 2px; }
+.nb-t-combined .nb-t-r-time { color: var(--text); font-weight: 600; font-style: normal; }
+.nb-t-dot-toggle        { font-family: var(--font-mono); font-size: 0.9em; min-width: 2.2em; }
+.nb-t-dot-toggle.active { color: var(--accent); font-weight: 600; }
 .nb-t-r-acct { color: var(--text); font-family: var(--font-mono); font-size: 11px; }
 .nb-t-r-time { font-family: var(--font-mono); font-size: 12px; color: var(--accent, #6366f1); }
 
