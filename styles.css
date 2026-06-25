@@ -3348,3 +3348,73 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-cfg-row--inherited .nb-cfg-label,
 .nb-cfg-row--inherited .nb-cfg-select,
 .nb-cfg-row--inherited .nb-cfg-text { opacity: 0.55; }
+
+/* ── timedot codeblock ──────────────────────────────────────────────────────── */
+.nb-timedot-block  { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin: 0.5em 0; }
+.nb-timedot-header { font-family: var(--font-mono, monospace); }
+.nb-timedot-project { font-weight: 600; color: var(--text); }
+.nb-timedot-hours   { color: var(--text-muted); }
+.nb-timedot-amount  { color: var(--accent); }
+.nb-timedot-body    { padding: 0.4em 0; }
+.nb-timedot-empty   { padding: 0.5em 1em; color: var(--text-dim); font-style: italic; font-size: 0.9em; }
+.nb-timedot-table   { width: 100%; border-collapse: collapse; font-size: 0.88em; font-family: var(--font-mono, monospace); }
+.nb-timedot-table tr:hover { background: var(--bg2); }
+.nb-timedot-acct  { padding: 2px 12px; color: var(--text-muted); }
+.nb-timedot-h     { padding: 2px 12px; text-align: right; color: var(--text); white-space: nowrap; }
+.nb-timedot-amt   { padding: 2px 12px; text-align: right; color: var(--accent); white-space: nowrap; }
+.nb-timedot-total { border-top: 1px solid var(--border); font-weight: 600; }
+.nb-timedot-total .nb-timedot-acct { color: var(--text); }
+.nb-timedot-addform {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  padding: 6px 8px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  font-size: 0.85em;
+}
+.nb-timedot-time    { width: 7em; }
+.nb-timedot-sub     { width: 12em; }
+.nb-timedot-comment { flex: 1; min-width: 10em; }
+.nb-timedot-status  { color: var(--accent-neg, #e74c3c); font-size: 0.85em; }
+
+/* timedot total button (clickable meta area → summary popover) */
+.nb-timedot-total-btn {
+  background: none; border: none; cursor: pointer; padding: 0;
+  color: inherit; font: inherit; text-align: left;
+}
+.nb-timedot-total-btn:hover .nb-timedot-hours,
+.nb-timedot-total-btn:hover .nb-timedot-amount { text-decoration: underline; }
+
+/* timedot filter cycle button */
+.nb-timedot-filter-btn { font-size: 0.8em; min-width: 2.2em; }
+.nb-timedot-filter-btn.active { color: var(--accent); font-weight: 600; }
+
+/* accordion sections */
+.nb-timedot-section { border-top: 1px solid var(--border); }
+.nb-timedot-section:first-child { border-top: none; }
+.nb-timedot-section-hdr {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 8px; cursor: pointer; user-select: none;
+  font-size: 0.88em; font-family: var(--font-mono, monospace);
+}
+.nb-timedot-section-hdr:hover { background: var(--bg2); }
+.nb-timedot-toggle { font-size: 0.7em; color: var(--text-dim); flex-shrink: 0; }
+.nb-timedot-section-title { font-weight: 600; color: var(--text); }
+.nb-timedot-section-hrs { margin-left: auto; color: var(--text-dim); white-space: nowrap; }
+.nb-timedot-section--lv3 .nb-timedot-section-title { font-weight: 500; }
+.nb-timedot-section--lv4 .nb-timedot-section-title { font-weight: 400; color: var(--text-muted); }
+.nb-timedot-section-body { padding: 0 0 4px 0; }
+
+/* summary popover */
+.nb-timedot-summary-pop {
+  position: fixed; z-index: 9999;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  padding: 8px 4px 6px 4px; min-width: 180px;
+}
+.nb-timedot-pop-title {
+  font-size: 0.78em; color: var(--text-dim);
+  padding: 0 8px 4px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.nb-timedot-pop-table { margin-bottom: 4px; }
+.nb-timedot-pop-close {
+  display: block; margin: 2px 4px 0 auto;
+  font-size: 0.8em; padding: 1px 5px;
+}

@@ -839,7 +839,7 @@ _FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
-_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal'})
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()

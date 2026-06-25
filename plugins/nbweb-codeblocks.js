@@ -75,19 +75,20 @@
     // Image blocks: served from ~/.nb/.images/ via /api/file?selector=.images:*
     // Native blocks: short CAPS label styled as a monospace chip.
     const _CB_ICONS = {
-        hl:      { img: '.images:hledger-logo.png', alt: 'hledger' },
-        chart:   { img: '.images:pie-chart.svg',    alt: 'chart' },
-        tw:      { img: '.images:tw-logo.png',      alt: 'Taskwarrior' },
-        git:     { img: '.images:git-logo.png',     alt: 'git' },
-        nb:      { img: 'nb-logo.png',              alt: 'nb', direct: true },
-        t:       { img: '.images:t-logo.png',       alt: 't' },
-        tui:     { text: 'TUI' },
-        nav:     { text: 'NAV' },
-        fm:      { text: 'FM'  },
-        cfg:     { text: 'CFG' },
-        gallery: { text: 'GAL' },
-        toc:     { text: 'TOC' },
-        test:    { text: 'TST' },
+        hl:       { img: '.images:hledger-logo.png', alt: 'hledger' },
+        chart:    { img: '.images:pie-chart.svg',    alt: 'chart' },
+        tw:       { img: '.images:tw-logo.png',      alt: 'Taskwarrior' },
+        git:      { img: '.images:git-logo.png',     alt: 'git' },
+        nb:       { img: 'nb-logo.png',              alt: 'nb', direct: true },
+        t:        { img: '.images:t-logo.png',       alt: 't' },
+        tui:      { text: 'TUI' },
+        nav:      { text: 'NAV' },
+        fm:       { text: 'FM'  },
+        cfg:      { text: 'CFG' },
+        gallery:  { text: 'GAL' },
+        toc:      { text: 'TOC' },
+        test:     { text: 'TST' },
+        timedot:  { text: 'TDT' },
     };
 
     function _cbIcon(blockType) {
@@ -3295,6 +3296,384 @@
         show(cur);
     }
 
+    // ── timedot ───────────────────────────────────────────────────────────────
+    // Extended timedot spec (Simon Michael / timedot-vim):
+    //   YYYY/MM/DD or YYYY-MM-DD  — date boundary
+    //   ##-/###-/####-  text      — section headings (level 2/3/4)
+    //   account  <2+ spaces>  time  [; comment]  — entry (2+ space separator)
+    //   *  ...                — task item (skipped)
+    //   ; or // ...           — comment/modeline (skipped)
+    //   time formats: .... .... .. (dots=15min), 1.5h, 90m, 1.5 (decimal hours)
+
+    function _timedotParseTime(str) {
+        if (!str) return 0;
+        str = str.trim();
+        if (str.endsWith('h')) return parseFloat(str) || 0;
+        if (str.endsWith('m')) return (parseFloat(str) || 0) / 60;
+        if (/^\d+(\.\d+)?$/.test(str)) return parseFloat(str) || 0;
+        return (str.match(/\./g) || []).length * 0.25;
+    }
+
+    // Returns { account, time } or null.
+    // Extended spec: 2+ spaces separates account (may contain single spaces) from time.
+    function _timedotParseLine(trimmed) {
+        const m = trimmed.match(/^(.+?)\s{2,}([. ]+|\d+(?:\.\d+)?[hm]?)\s*(?:;.*)?$/);
+        if (m) return { account: m[1].trimEnd(), time: m[2].trim() };
+        const b = trimmed.match(/^([. ]+|\d+(?:\.\d+)?[hm]?)\s*(?:;.*)?$/);
+        if (b && /[.\d]/.test(b[1])) return { account: null, time: b[1].trim() };
+        return null;
+    }
+
+    // Parse text into typed segments, tracking the current date.
+    // Returns [{type:'heading'|'entry'|'date', level, title, account, hrs, date}]
+    function _timedotSegment(text) {
+        const segs = [];
+        let currentDate = null;
+        for (const line of text.split('\n')) {
+            const t = line.trim();
+            if (!t || t.startsWith(';') || t.startsWith('*') || t.startsWith('//')) continue;
+            // Section headings: ##-, ###-, ####-  or ## text
+            const hm = t.match(/^(#{2,4})-?\s*(.*)$/);
+            if (hm) { segs.push({ type: 'heading', level: hm[1].length, title: hm[2].trim() }); continue; }
+            // Date line
+            const dm = t.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+            if (dm) { currentDate = `${dm[1]}-${dm[2]}-${dm[3]}`; continue; }
+            // Entry line
+            const entry = _timedotParseLine(t);
+            if (entry && entry.account) {
+                const hrs = _timedotParseTime(entry.time);
+                if (hrs > 0) segs.push({ type: 'entry', account: entry.account, hrs, date: currentDate });
+            }
+        }
+        return segs;
+    }
+
+    // Group segments into sections: [{level, title, entries:[]}]
+    // Entries before any heading go into a default untitled section.
+    function _timedotGroup(segs) {
+        const sections = [];
+        let cur = { level: 2, title: '', entries: [] };
+        sections.push(cur);
+        for (const seg of segs) {
+            if (seg.type === 'heading') { cur = { level: seg.level, title: seg.title, entries: [] }; sections.push(cur); }
+            else if (seg.type === 'entry') cur.entries.push(seg);
+        }
+        return sections;
+    }
+
+    // True if dateStr falls within the current filter window.
+    function _timedotInRange(dateStr, filter) {
+        if (filter === 'all' || !dateStr) return true;
+        const now = new Date();
+        const d = new Date(dateStr + 'T00:00:00');
+        if (filter === 'month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+        if (filter === 'week') {
+            const mon = new Date(now);
+            mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+            mon.setHours(0, 0, 0, 0);
+            const sun = new Date(mon); sun.setDate(mon.getDate() + 7);
+            return d >= mon && d < sun;
+        }
+        return true;
+    }
+
+    // Compute {totals: {account→hrs}, totalHrs} across all sections, respecting filter.
+    function _timedotTotals(sections, filter) {
+        const totals = {};
+        let totalHrs = 0;
+        for (const sec of sections) {
+            for (const e of sec.entries) {
+                if (!_timedotInRange(e.date, filter)) continue;
+                totals[e.account] = (totals[e.account] || 0) + e.hrs;
+                totalHrs += e.hrs;
+            }
+        }
+        return { totals, totalHrs };
+    }
+
+    // Apply FM project: prefix to stored timedot content.
+    // Bare dots/time → project; :sub → project:sub; full account → pass through.
+    function _timedotRewrite(text, project) {
+        if (!project) return text;
+        return text.split('\n').map(line => {
+            const t = line.trim();
+            if (!t || t.startsWith(';') || t.startsWith('#') || t.startsWith('*') || t.startsWith('//')) return line;
+            if (/^\d{4}[-/]\d{2}[-/]\d{2}/.test(t)) return line;
+            if (/^[. ]+$|^[. ]+\s*;|^\d+(?:\.\d+)?[hm]?(\s|$)/.test(t) && !t.match(/\S.{1,}\s{2,}/))
+                return line.replace(/^(\s*)/, `$1${project}  `);
+            if (t.startsWith(':')) return line.replace(/^(\s*):/, `$1${project}:`);
+            return line;
+        }).join('\n');
+    }
+
+    // Append new entry lines to the timedot fenced block in the note source.
+    async function _timedotAppend(el, newLines) {
+        const selector = typeof NbMain !== 'undefined' ? NbMain.activeSelector?.() : null;
+        if (!selector) throw new Error('No active note');
+        const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
+        const d = await r.json();
+        let raw = d.raw || d.body || '';
+        const hosts = [...document.querySelectorAll('.nb-timedot-block')];
+        const idx = hosts.indexOf(el);
+        let blockIdx = 0, replaced = false;
+        raw = raw.replace(/```timedot\n([\s\S]*?)```/g, (match, content) => {
+            if (blockIdx++ !== idx) return match;
+            replaced = true;
+            return '```timedot\n' + content.trimEnd() + '\n' + newLines + '\n```';
+        });
+        if (!replaced) throw new Error('Block not found in source');
+        const wr = await fetch('/api/note', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selector, content: raw }),
+        });
+        const wd = await wr.json();
+        if (!wd.success) throw new Error(wd.stderr || 'Save failed');
+        const newBlock = raw.match(/```timedot\n([\s\S]*?)```/g)?.[idx];
+        if (newBlock) el.dataset.src = newBlock.replace(/^```timedot\n/, '').replace(/\n```$/, '');
+    }
+
+    // Floating summary popover: per-account breakdown for current filter.
+    function _showTimedotSummary(trigger, totals, rate, filterLabel) {
+        document.querySelectorAll('.nb-timedot-summary-pop').forEach(p => p.remove());
+        const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+        const totalHrs = entries.reduce((s, [, h]) => s + h, 0);
+        const totalAmt = rate ? totalHrs * rate : null;
+        const pop = document.createElement('div');
+        pop.className = 'nb-timedot-summary-pop';
+        let html = `<div class="nb-timedot-pop-title">${_esc(filterLabel)}</div>`;
+        html += `<table class="nb-timedot-table nb-timedot-pop-table">`;
+        for (const [acct, hrs] of entries) {
+            const amt = rate ? hrs * rate : null;
+            html += `<tr><td class="nb-timedot-acct">${_esc(acct)}</td>` +
+                `<td class="nb-timedot-h">${hrs.toFixed(2)}h</td>` +
+                (amt !== null ? `<td class="nb-timedot-amt">$${amt.toFixed(2)}</td>` : '') + '</tr>';
+        }
+        if (entries.length > 1) {
+            html += `<tr class="nb-timedot-total"><td>Total</td><td>${totalHrs.toFixed(2)}h</td>` +
+                (totalAmt !== null ? `<td>$${totalAmt.toFixed(2)}</td>` : '') + '</tr>';
+        }
+        html += '</table><button class="nb-timedot-pop-close nb-tw-btn">✕</button>';
+        pop.innerHTML = html;
+        document.body.appendChild(pop);
+        const rect = trigger.getBoundingClientRect();
+        const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        let top = rect.bottom + 4, left = rect.left;
+        if (top + ph > window.innerHeight) top = rect.top - ph - 4;
+        if (left + pw > window.innerWidth) left = window.innerWidth - pw - 8;
+        pop.style.top = top + 'px'; pop.style.left = left + 'px';
+        pop.querySelector('.nb-timedot-pop-close').addEventListener('click', () => pop.remove());
+        setTimeout(() => document.addEventListener('click', e => {
+            if (!pop.contains(e.target) && e.target !== trigger) pop.remove();
+        }, { once: true, capture: true }), 0);
+    }
+
+    function _showTimedotAddForm(el, trigger, project) {
+        const existing = trigger._cbForm || el.querySelector('.nb-timedot-addform');
+        if (existing) { existing.remove(); trigger._cbForm = null; trigger.classList.remove('active'); return; }
+        trigger.classList.add('active');
+
+        const today = _localDateStr();
+        const raw = el.dataset.src || '';
+        const subAccts = new Set();
+        for (const line of raw.split('\n')) {
+            const t = line.trim();
+            const entry = _timedotParseLine(t);
+            if (!entry?.account) continue;
+            const acct = entry.account;
+            if (project && acct.startsWith(project + ':')) subAccts.add(':' + acct.slice(project.length + 1));
+            else if (acct.startsWith(':')) subAccts.add(acct);
+        }
+
+        const dlId = 'nb-timedot-dl-' + Math.random().toString(36).slice(2);
+        const dlOpts = [...subAccts].map(a => `<option value="${_esc(a)}">`).join('');
+        const form = document.createElement('div');
+        form.className = 'nb-timedot-addform';
+        form.innerHTML = `
+            <datalist id="${dlId}">${dlOpts}</datalist>
+            <input type="date" class="nb-hl-inp nb-timedot-date" value="${today}">
+            <input type="text" class="nb-hl-inp nb-timedot-time" placeholder=".... or 1.5h" size="8" autocomplete="off" spellcheck="false">
+            <input type="text" class="nb-hl-inp nb-timedot-sub" placeholder=":sub-account" list="${dlId}" autocomplete="off" spellcheck="false">
+            <input type="text" class="nb-hl-inp nb-timedot-comment" placeholder="; comment" autocomplete="off" spellcheck="false">
+            <button class="nb-btn-primary nb-timedot-save">Add</button>
+            <button class="nb-tw-btn nb-timedot-cancel">✕</button>
+            <span class="nb-timedot-status"></span>`;
+
+        const dismiss = _cbFormAttach(form, trigger, el,
+            f => el.querySelector('.nb-timedot-header').insertAdjacentElement('afterend', f));
+
+        form.querySelector('.nb-timedot-cancel').addEventListener('click', dismiss);
+        form.querySelector('.nb-timedot-save').addEventListener('click', async () => {
+            const status  = form.querySelector('.nb-timedot-status');
+            const date    = form.querySelector('.nb-timedot-date').value;
+            const time    = form.querySelector('.nb-timedot-time').value.trim();
+            const sub     = form.querySelector('.nb-timedot-sub').value.trim();
+            const comment = form.querySelector('.nb-timedot-comment').value.trim();
+            if (!date || !time) { status.textContent = 'Date and time required'; return; }
+            if (!_timedotParseTime(time)) { status.textContent = 'Invalid time (use .... or 1.5h)'; return; }
+            const acct = sub.startsWith(':') ? sub : (sub && !sub.startsWith(':') ? sub : '');
+            const commentPart = comment ? `    ; ${comment.replace(/^;\s*/, '')}` : '';
+            const entryLine = acct ? `  ${acct}  ${time}${commentPart}` : `  ${time}${commentPart}`;
+            status.textContent = 'Saving…';
+            try {
+                await _timedotAppend(el, `${date}\n${entryLine}`);
+                dismiss();
+                await _loadTimedotBlock(el);
+            } catch(e) { status.textContent = '✗ ' + e.message; }
+        });
+        setTimeout(() => form.querySelector('.nb-timedot-time').focus(), 50);
+    }
+
+    async function _loadTimedotBlock(el) {
+        const raw     = el.dataset.src || '';
+        const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const meta    = note?.meta || {};
+        const project = meta.project || null;
+        const rate    = parseFloat(meta.rate) || null;
+        const filter  = el.dataset.filter || 'all';
+
+        const rewritten = _timedotRewrite(raw, project);
+        const sections  = _timedotGroup(_timedotSegment(rewritten));
+        const { totals, totalHrs } = _timedotTotals(sections, filter);
+        const totalAmt = rate && totalHrs ? totalHrs * rate : null;
+
+        const _FILTER_LABEL = { all: 'All time', month: 'This month', week: 'This week' };
+        const _FILTER_BADGE = { all: 'all', month: 'mo', week: 'wk' };
+        const _FILTER_NEXT  = { all: 'month', month: 'week', week: 'all' };
+
+        el.innerHTML = '';
+        const { hdr, meta: metaEl, acts } = _buildBarHeader(el, { lang: 'timedot', onRefresh: () => _loadTimedotBlock(el) });
+
+        // Filter cycle button (inserted before ↻)
+        const filterBtn = document.createElement('button');
+        filterBtn.className = 'nb-tw-btn nb-timedot-filter-btn' + (filter !== 'all' ? ' active' : '');
+        filterBtn.title = 'Filter: ' + _FILTER_LABEL[filter];
+        filterBtn.textContent = _FILTER_BADGE[filter];
+        filterBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            el.dataset.filter = _FILTER_NEXT[filter];
+            _loadTimedotBlock(el);
+        });
+        acts.insertBefore(filterBtn, acts.firstChild);
+
+        // + entry button
+        const addBtn = document.createElement('button');
+        addBtn.className = 'nb-tw-btn nb-timedot-add-btn';
+        addBtn.title = 'Add time entry';
+        addBtn.textContent = '+';
+        addBtn.addEventListener('click', e => { e.stopPropagation(); _showTimedotAddForm(el, addBtn, project); });
+        acts.insertBefore(addBtn, acts.firstChild);
+
+        // Clickable meta: totals → summary popover
+        const totalBtn = document.createElement('button');
+        totalBtn.className = 'nb-timedot-total-btn';
+        totalBtn.title = 'Show summary';
+        totalBtn.innerHTML =
+            (project ? `<span class="nb-timedot-project">${_esc(project)}</span> · ` : '') +
+            `<span class="nb-timedot-hours">${totalHrs.toFixed(1)}h</span>` +
+            (totalAmt !== null ? ` · <span class="nb-timedot-amount">$${totalAmt.toFixed(2)}</span>` : '');
+        totalBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            if (Object.keys(totals).length) _showTimedotSummary(totalBtn, totals, rate, _FILTER_LABEL[filter]);
+        });
+        metaEl.appendChild(totalBtn);
+
+        el.appendChild(hdr);
+        _initCollapseToggle(el);
+
+        const body = document.createElement('div');
+        body.className = 'nb-timedot-body';
+
+        const hasHeadings = sections.some(s => s.title);
+        const visibleSections = hasHeadings
+            ? sections.filter(s => s.entries.some(e => _timedotInRange(e.date, filter)))
+            : sections;
+        const hasEntries = Object.keys(totals).length > 0;
+
+        if (!hasEntries) {
+            const empty = filter === 'month' ? 'No entries this month'
+                        : filter === 'week'  ? 'No entries this week'
+                        : 'No entries yet';
+            body.innerHTML = `<div class="nb-timedot-empty">${empty}</div>`;
+        } else if (hasHeadings) {
+            // Accordion sections
+            const selector = el.closest('[data-selector]')?.dataset.selector || '';
+            visibleSections.forEach((sec, si) => {
+                const filteredEntries = sec.entries.filter(e => _timedotInRange(e.date, filter));
+                if (!filteredEntries.length) return;
+
+                const secTotals = {};
+                for (const e of filteredEntries) secTotals[e.account] = (secTotals[e.account] || 0) + e.hrs;
+                const secHrs = Object.values(secTotals).reduce((s, h) => s + h, 0);
+                const secAmt = rate ? secHrs * rate : null;
+
+                const storeKey = `nb-tdt-sec:${selector}:${si}`;
+                const defaultOpen = sec.level <= 2;
+                const saved = localStorage.getItem(storeKey);
+                const isOpen = saved !== null ? saved === '1' : defaultOpen;
+
+                const section = document.createElement('div');
+                section.className = `nb-timedot-section nb-timedot-section--lv${sec.level}`;
+
+                const secHdr = document.createElement('div');
+                secHdr.className = 'nb-timedot-section-hdr';
+                secHdr.innerHTML =
+                    `<span class="nb-timedot-toggle">${isOpen ? '▾' : '▸'}</span>` +
+                    `<span class="nb-timedot-section-title">${_esc(sec.title || '(entries)')}</span>` +
+                    `<span class="nb-timedot-section-hrs">${secHrs.toFixed(1)}h` +
+                    (secAmt !== null ? ` · $${secAmt.toFixed(2)}` : '') + '</span>';
+
+                const secBody = document.createElement('div');
+                secBody.className = 'nb-timedot-section-body';
+                if (!isOpen) secBody.style.display = 'none';
+
+                const table = document.createElement('table');
+                table.className = 'nb-timedot-table';
+                for (const [acct, hrs] of Object.entries(secTotals)) {
+                    const amt = rate ? hrs * rate : null;
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td class="nb-timedot-acct">${_esc(acct)}</td>` +
+                        `<td class="nb-timedot-h">${hrs.toFixed(1)}h</td>` +
+                        (amt !== null ? `<td class="nb-timedot-amt">$${amt.toFixed(2)}</td>` : '');
+                    table.appendChild(tr);
+                }
+                secBody.appendChild(table);
+
+                secHdr.addEventListener('click', () => {
+                    const nowOpen = secBody.style.display !== 'none';
+                    secBody.style.display = nowOpen ? 'none' : '';
+                    secHdr.querySelector('.nb-timedot-toggle').textContent = nowOpen ? '▸' : '▾';
+                    localStorage.setItem(storeKey, nowOpen ? '0' : '1');
+                });
+
+                section.appendChild(secHdr);
+                section.appendChild(secBody);
+                body.appendChild(section);
+            });
+        } else {
+            // No headings — flat table
+            const table = document.createElement('table');
+            table.className = 'nb-timedot-table';
+            for (const [acct, hrs] of Object.entries(totals)) {
+                const amt = rate ? hrs * rate : null;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td class="nb-timedot-acct">${_esc(acct)}</td>` +
+                    `<td class="nb-timedot-h">${hrs.toFixed(1)}h</td>` +
+                    (amt !== null ? `<td class="nb-timedot-amt">$${amt.toFixed(2)}</td>` : '');
+                table.appendChild(tr);
+            }
+            if (Object.keys(totals).length > 1) {
+                const tr = document.createElement('tr');
+                tr.className = 'nb-timedot-total';
+                tr.innerHTML = `<td>Total</td><td>${totalHrs.toFixed(1)}h</td>` +
+                    (totalAmt !== null ? `<td>$${totalAmt.toFixed(2)}</td>` : '');
+                table.appendChild(tr);
+            }
+            body.appendChild(table);
+        }
+
+        el.appendChild(body);
+    }
+
     // ── Plugin registration ───────────────────────────────────────────────────
 
     NbWeb.registerModule('codeblocks', {
@@ -3340,6 +3719,20 @@
                             finally { NbWeb.statusPill?.tick(); }
                         }));
                     } catch { blocks.forEach(() => NbWeb.statusPill?.tick()); }
+                },
+            },
+            {
+                lang:      'timedot',
+                html:      text => `<div class="nb-timedot-block" data-src="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                renderOne: async el => _loadTimedotBlock(el),
+                render:    async container => {
+                    const blocks = [...container.querySelectorAll('.nb-timedot-block')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => {
+                        try { await _loadTimedotBlock(el); }
+                        finally { NbWeb.statusPill?.tick(); }
+                    }));
                 },
             },
             {
