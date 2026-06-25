@@ -2653,6 +2653,7 @@ span.nb-cb-icon.nb-cb-icon--large {
 
 /* test codeblock */
 .nb-test-block  { margin: 4px 0; }
+.nb-test-name { font-weight: 600; color: var(--text-muted); margin-right: 4px; }
 .nb-test-btn {
   background: none; border: 1px solid var(--border); border-radius: 4px;
   padding: 2px 10px; cursor: pointer;

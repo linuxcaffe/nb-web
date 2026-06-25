@@ -2599,79 +2599,117 @@
 
     async function _buildCheckList(el, prefix) {
         if (!_cbCan(el, 'check', 'read')) { el.remove(); return; }
+        const _initCollapsed = el.hasAttribute('data-init-collapsed');
+        el.classList.remove('nb-collapsed');
         el.innerHTML = '<span class="nb-spin">⟳</span>';
-        const names = await _resolveTestGlob(prefix);
-        if (!names.length) {
-            el.innerHTML = `<span class="nb-hl-muted">No scripts match${prefix ? ' ' + _esc(prefix) + '*' : ''}.</span>`;
-            return;
-        }
-        const list = document.createElement('div');
-        list.className = 'nb-check-list';
-        names.forEach(name => {
-            const script = name.replace(/\.sh$/, '');
-            const row    = document.createElement('div');
-            row.className = 'nb-check-list-row';
 
-            // Icon button — runs the check against the current note
-            const iconBtn = document.createElement('button');
-            iconBtn.className = 'nb-check-list-icon-btn';
-            iconBtn.innerHTML = _checkDomainIcon(script) || '▶';
-            iconBtn.title     = `Run ${script}`;
+        const load = async () => {
+            el.querySelectorAll('.nb-check-list-body').forEach(n => n.remove());
+            let names;
+            try {
+                names = await _resolveTestGlob(prefix);
+            } catch (e) {
+                const body = document.createElement('div');
+                body.className = 'nb-check-list-body';
+                body.innerHTML = `<span class="nb-hl-muted">⚠ ${_esc(e.message)}</span>`;
+                el.appendChild(body);
+                return;
+            }
 
-            // Name button — opens the script in preview
-            const nameBtn = document.createElement('button');
-            nameBtn.className   = 'nb-check-list-name-btn';
-            nameBtn.textContent = script;
-            nameBtn.title       = 'Open script';
-            nameBtn.addEventListener('click', () => NbMain.openNote(`.checks:${name}`));
+            const metaEl = el.querySelector('.nb-test-meta');
+            if (metaEl) {
+                const filterHtml = prefix ? ` <code>${_esc(prefix)}*</code>` : '';
+                metaEl.innerHTML = `<span class="nb-test-name">check list</span><span class="nb-tw-count">${names.length}</span>${filterHtml}`;
+            }
 
-            const ctrl = document.createElement('div');
-            ctrl.className = 'nb-check-list-ctrl';
-            ctrl.appendChild(iconBtn);
-            ctrl.appendChild(nameBtn);
+            const body = document.createElement('div');
+            body.className = 'nb-check-list-body';
 
-            const out = document.createElement('div');
-            out.className = 'nb-test-out';
+            if (!names.length) {
+                body.innerHTML = `<span class="nb-hl-muted">No scripts match${prefix ? ' ' + _esc(prefix) + '*' : ''}.</span>`;
+                el.appendChild(body);
+                return;
+            }
 
-            iconBtn.addEventListener('click', async () => {
-                if (out.childElementCount) { out.innerHTML = ''; iconBtn.classList.remove('nb-active'); return; }
-                iconBtn.disabled = true;
-                nameBtn.disabled = true;
-                out.innerHTML = '<span class="nb-spin">⟳</span>';
-                try {
-                    const r = await fetch('/api/check/run', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ script, selector: NbMain.activeSelector() || '', force: true, demo: true }),
-                    });
-                    const d = await r.json();
-                    const { text, severity } = _parseCheckResult(d, script);
-                    if (!text) {
-                        out.innerHTML = '<span class="nb-check-list-pass">no --demo output</span>';
-                        setTimeout(() => { out.innerHTML = ''; iconBtn.classList.remove('nb-active'); }, 2000);
-                    } else {
-                        const result = document.createElement('div');
-                        result.className = 'nb-test-result' + _severityClass(severity);
-                        result.innerHTML = NbMain.renderMarkdown(text, '');
-                        NbMain.enrichRendered(result, null);
-                        _enrichSubtests(result);
-                        out.innerHTML = '';
-                        out.appendChild(result);
-                        iconBtn.classList.add('nb-active');
+            const list = document.createElement('div');
+            list.className = 'nb-check-list';
+            names.forEach(name => {
+                const script = name.replace(/\.sh$/, '');
+                const row    = document.createElement('div');
+                row.className = 'nb-check-list-row';
+
+                const iconBtn = document.createElement('button');
+                iconBtn.className = 'nb-check-list-icon-btn';
+                iconBtn.innerHTML = _checkDomainIcon(script) || '▶';
+                iconBtn.title     = `Demo ${script}`;
+
+                const nameBtn = document.createElement('button');
+                nameBtn.className   = 'nb-check-list-name-btn';
+                nameBtn.textContent = script;
+                nameBtn.title       = 'Open script';
+                nameBtn.addEventListener('click', () => NbMain.openNote(`.checks:${name}`));
+
+                const ctrl = document.createElement('div');
+                ctrl.className = 'nb-check-list-ctrl';
+                ctrl.appendChild(iconBtn);
+                ctrl.appendChild(nameBtn);
+
+                const out = document.createElement('div');
+                out.className = 'nb-test-out';
+
+                iconBtn.addEventListener('click', async () => {
+                    if (out.childElementCount) { out.innerHTML = ''; iconBtn.classList.remove('nb-active'); return; }
+                    iconBtn.disabled = true;
+                    nameBtn.disabled = true;
+                    out.innerHTML = '<span class="nb-spin">⟳</span>';
+                    try {
+                        const r = await fetch('/api/check/run', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ script, selector: NbMain.activeSelector() || '', force: true, demo: true }),
+                        });
+                        const d = await r.json();
+                        const { text, severity } = _parseCheckResult(d, script);
+                        if (!text) {
+                            out.innerHTML = '<span class="nb-check-list-pass">no --demo output</span>';
+                            setTimeout(() => { out.innerHTML = ''; iconBtn.classList.remove('nb-active'); }, 2000);
+                        } else {
+                            const result = document.createElement('div');
+                            result.className = 'nb-test-result' + _severityClass(severity);
+                            result.innerHTML = NbMain.renderMarkdown(text, '');
+                            NbMain.enrichRendered(result, null);
+                            _enrichSubtests(result);
+                            out.innerHTML = '';
+                            out.appendChild(result);
+                            iconBtn.classList.add('nb-active');
+                        }
+                    } catch (e) {
+                        out.innerHTML = `<span class="nb-hl-muted">⚠ ${_esc(e.message)}</span>`;
                     }
-                } catch (e) {
-                    out.textContent = String(e);
-                }
-                iconBtn.disabled = false;
-                nameBtn.disabled = false;
-            });
+                    iconBtn.disabled = false;
+                    nameBtn.disabled = false;
+                });
 
-            row.appendChild(ctrl);
-            row.appendChild(out);
-            list.appendChild(row);
-        });
+                row.appendChild(ctrl);
+                row.appendChild(out);
+                list.appendChild(row);
+            });
+            body.appendChild(list);
+            el.appendChild(body);
+        };
+
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'test', onRefresh: load });
+        const filterHtml = prefix ? ` <code>${_esc(prefix)}*</code>` : '';
+        meta.innerHTML = `<span class="nb-test-name">check list</span><span class="nb-tw-count">…</span>${filterHtml}`;
         el.innerHTML = '';
-        el.appendChild(list);
+        el.appendChild(hdr);
+
+        try {
+            await load();
+        } finally {
+            _initCollapseToggle(el);
+            if (_initCollapsed) el.classList.add('nb-collapsed');
+        }
     }
 
     async function _loadTestBlock(el, batchMap = new Map()) {
@@ -3418,7 +3456,13 @@
             },
             {
                 lang:   'check',
-                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-test-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"></div>`; },
+                html:   text => {
+                    const {readLevel,writeLevel,query} = _cbParseGates(text);
+                    const isList = /^list(\s|$)/.test(query.trim());
+                    const extraCls = isList ? ' nb-collapsed' : '';
+                    const extraAttr = isList ? ' data-init-collapsed' : '';
+                    return `<div class="nb-test-block${extraCls}"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"${extraAttr}></div>`;
+                },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-test-block')];
                     if (!blocks.length) return;
