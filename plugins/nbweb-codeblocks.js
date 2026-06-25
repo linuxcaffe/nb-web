@@ -2597,6 +2597,42 @@
         } catch { return []; }
     }
 
+    async function _buildCheckList(el, prefix) {
+        if (!_cbCan(el, 'check', 'read')) { el.remove(); return; }
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        const names = await _resolveTestGlob(prefix);
+        if (!names.length) {
+            el.innerHTML = `<span class="nb-hl-muted">No scripts match${prefix ? ' ' + _esc(prefix) + '*' : ''}.</span>`;
+            return;
+        }
+        const list = document.createElement('div');
+        list.className = 'nb-check-list';
+        names.forEach(name => {
+            const script = name.replace(/\.sh$/, '');
+            const row    = document.createElement('div');
+            row.className = 'nb-check-list-row';
+            const btn = document.createElement('button');
+            btn.className  = 'nb-test-btn nb-check-list-btn';
+            btn.innerHTML  = _checkDomainIcon(script) + _esc(script);
+            const out = document.createElement('div');
+            out.className  = 'nb-test-out';
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                const orig = btn.innerHTML;
+                btn.innerHTML = _checkDomainIcon(script) + '⟳ …';
+                out.innerHTML = '';
+                await _runTest(row, script, btn, out);
+                btn.disabled = false;
+                btn.innerHTML = orig;
+            });
+            row.appendChild(btn);
+            row.appendChild(out);
+            list.appendChild(row);
+        });
+        el.innerHTML = '';
+        el.appendChild(list);
+    }
+
     async function _loadTestBlock(el, batchMap = new Map()) {
         const raw   = (el.dataset.query || '').trim();
         const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
@@ -2608,6 +2644,13 @@
             const token  = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
             const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
             if (!token) { el.remove(); return; }
+
+            // "list" or "list prefix-" — check script browser
+            if (token === 'list' || token.startsWith('list ')) {
+                const prefix = token === 'list' ? '' : token.slice(5).trim();
+                await _buildCheckList(el, prefix);
+                return;
+            }
 
             // Dangling dash — resolve to a group
             if (token.endsWith('-')) {

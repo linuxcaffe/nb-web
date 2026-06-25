@@ -2662,6 +2662,16 @@ span.nb-cb-icon.nb-cb-icon--large {
 .nb-test-btn:hover  { color: var(--text); border-color: var(--accent); }
 .nb-test-btn:active { opacity: 0.7; }
 .nb-test-out    { margin-top: 4px; }
+
+/* check list — script browser */
+.nb-check-list { display: flex; flex-direction: column; gap: 2px; }
+.nb-check-list-row { display: flex; flex-direction: column; }
+.nb-check-list-btn {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  padding: 3px 10px;
+}
 .nb-test-result { position: relative; padding-right: 28px; }
 .nb-test-dismiss {
   position: absolute; top: 4px; right: 4px;

@@ -7999,9 +7999,7 @@ def api_check_glob():
     safe characters — no path separators or dots beyond the .sh extension.
     """
     prefix = request.args.get('prefix', '').strip()
-    if not prefix:
-        return jsonify({'error': 'prefix required'}), 400
-    if not prefix.endswith('-'):
+    if prefix and not prefix.endswith('-'):
         return jsonify({'error': 'prefix must end with -'}), 400
     if '/' in prefix or '\\' in prefix or prefix.startswith('.'):
         return jsonify({'error': 'invalid prefix'}), 400
