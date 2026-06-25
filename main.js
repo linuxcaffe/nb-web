@@ -738,8 +738,6 @@ const NbMain = (() => {
             _sheetInstance = null;
             document.getElementById('nb-editor-wrap').hidden = true;
             document.getElementById('nb-editor').hidden = false;
-            document.querySelectorAll('#nb-editor-toolbar [data-fmt]')
-                .forEach(b => b.hidden = false);
             const sb = document.getElementById('nb-save-btn');
             if (sb) sb.onclick = null;
         }
@@ -2508,7 +2506,6 @@ const NbMain = (() => {
         // Show Save/Cancel synchronously — don't rely on async onload
         document.getElementById('nb-editor-wrap').hidden = false;
         document.getElementById('nb-editor').hidden = true;
-        document.querySelectorAll('#nb-editor-toolbar [data-fmt]').forEach(b => b.hidden = true);
         document.getElementById('nb-save-btn').onclick = () => _saveSheet();
         document.getElementById('nb-cancel-btn').onclick = () => openNote(_activeSelector);
 
@@ -4026,12 +4023,34 @@ const NbMain = (() => {
             });
         }
 
-        // Format toolbar
-        document.querySelectorAll('[data-fmt]').forEach(btn => {
-            btn.addEventListener('click', () => _applyFmt(btn.dataset.fmt));
-        });
-        document.querySelectorAll('[data-ann-fmt]').forEach(btn => {
-            btn.addEventListener('click', () => _applyFmt(btn.dataset.annFmt, document.getElementById('nb-ann-editor')));
+        // Markdown reference modal
+        const _mkdModal = document.getElementById('nb-mkd-modal');
+        function _toggleMkdModal() { _mkdModal.hidden = !_mkdModal.hidden; }
+        document.getElementById('nb-mkd-ref-btn').addEventListener('click', _toggleMkdModal);
+        document.getElementById('nb-mkd-modal-close').addEventListener('click', () => { _mkdModal.hidden = true; });
+        document.querySelectorAll('.nb-mkd-ref-trigger').forEach(b => b.addEventListener('click', _toggleMkdModal));
+        _mkdModal.addEventListener('click', e => { if (e.target === _mkdModal) _mkdModal.hidden = true; });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && !_mkdModal.hidden) _mkdModal.hidden = true; });
+
+        // Line number toggle
+        const _lnBtn    = document.getElementById('nb-ln-btn');
+        const _lnGutter = document.getElementById('nb-ln-gutter');
+        const _ta       = document.getElementById('nb-editor');
+        let _lnActive   = false;
+
+        function _syncLineNumbers() {
+            const count = _ta.value.split('\n').length;
+            _lnGutter.textContent = Array.from({length: count}, (_, i) => i + 1).join('\n');
+            _lnGutter.scrollTop = _ta.scrollTop;
+        }
+        _ta.addEventListener('input',  () => { if (_lnActive) _syncLineNumbers(); });
+        _ta.addEventListener('scroll', () => { if (_lnActive) _lnGutter.scrollTop = _ta.scrollTop; });
+
+        _lnBtn.addEventListener('click', () => {
+            _lnActive = !_lnActive;
+            _lnGutter.hidden = !_lnActive;
+            _lnBtn.classList.toggle('nb-active', _lnActive);
+            if (_lnActive) _syncLineNumbers();
         });
     }
 

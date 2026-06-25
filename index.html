@@ -112,32 +112,48 @@
     <!-- Inline editor (hidden until Edit clicked) -->
     <div id="nb-editor-wrap" hidden>
       <div id="nb-editor-toolbar">
-        <button class="nb-tool-btn" data-fmt="bold">B</button>
-        <button class="nb-tool-btn" data-fmt="italic">I</button>
-        <button class="nb-tool-btn" data-fmt="heading">#</button>
-        <button class="nb-tool-btn" data-fmt="link">🔗</button>
-        <button class="nb-tool-btn" data-fmt="tag">#tag</button>
+        <button id="nb-mkd-ref-btn"  class="nb-tool-btn" title="Markdown quick reference">mkd ref</button>
+        <button id="nb-ln-btn"       class="nb-tool-btn" title="Toggle line numbers">ln#</button>
         <span class="nb-spacer"></span>
         <button id="nb-save-btn"   class="nb-tool-btn nb-btn-primary" data-i18n="btn_save">Save</button>
         <button id="nb-cancel-btn" class="nb-tool-btn" data-i18n="btn_cancel">Cancel</button>
       </div>
-      <textarea id="nb-editor" spellcheck="true"></textarea>
+      <div id="nb-editor-area">
+        <pre id="nb-ln-gutter" hidden aria-hidden="true"></pre>
+        <textarea id="nb-editor" spellcheck="true"></textarea>
+      </div>
     </div>
 
     <!-- Annotation split-editor (hidden until annotation Edit/Add clicked) -->
     <div id="nb-ann-editor-wrap" hidden>
       <div id="nb-ann-drag-handle"></div>
       <div id="nb-ann-editor-toolbar">
-        <button class="nb-tool-btn" data-ann-fmt="bold">B</button>
-        <button class="nb-tool-btn" data-ann-fmt="italic">I</button>
-        <button class="nb-tool-btn" data-ann-fmt="heading">#</button>
-        <button class="nb-tool-btn" data-ann-fmt="link">🔗</button>
-        <button class="nb-tool-btn" data-ann-fmt="tag">#tag</button>
+        <button class="nb-tool-btn nb-mkd-ref-trigger" title="Markdown quick reference">mkd ref</button>
         <span class="nb-spacer"></span>
         <button id="nb-ann-save-btn"   class="nb-tool-btn nb-btn-primary" data-i18n="btn_save">Save</button>
         <button id="nb-ann-cancel-btn" class="nb-tool-btn" data-i18n="btn_cancel">Cancel</button>
       </div>
       <textarea id="nb-ann-editor" spellcheck="true" placeholder="Markdown supported…"></textarea>
+    </div>
+
+    <!-- Markdown quick reference modal -->
+    <div id="nb-mkd-modal" hidden role="dialog" aria-modal="true" aria-label="Markdown reference">
+      <div id="nb-mkd-modal-box">
+        <button id="nb-mkd-modal-close" class="nb-tool-btn" aria-label="Close">×</button>
+        <h3>Markdown Quick Reference</h3>
+        <table class="nb-mkd-ref-table">
+          <tr><td><code># H1</code> <code>## H2</code> <code>### H3</code></td><td>headings</td></tr>
+          <tr><td><code>**bold**</code> <code>_italic_</code> <code>~~strike~~</code></td><td>inline</td></tr>
+          <tr><td><code>`code`</code> <code>```lang … ```</code></td><td>code</td></tr>
+          <tr><td><code>[text](url)</code> <code>![alt](url)</code></td><td>link / image</td></tr>
+          <tr><td><code>[[Page Title]]</code></td><td>wikilink</td></tr>
+          <tr><td><code>- item</code> <code>1. item</code></td><td>lists</td></tr>
+          <tr><td><code>&gt; text</code></td><td>blockquote</td></tr>
+          <tr><td><code>| col | col |</code> <code>| --- | --- |</code></td><td>table</td></tr>
+          <tr><td><code>---</code></td><td>horizontal rule</td></tr>
+        </table>
+        <a href="https://commonmark.org/help/" target="_blank" rel="noopener" class="nb-mkd-ref-link">Full reference ↗</a>
+      </div>
     </div>
   </main>
 
