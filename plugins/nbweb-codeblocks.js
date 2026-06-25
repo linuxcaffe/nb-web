@@ -2612,11 +2612,17 @@
             const row    = document.createElement('div');
             row.className = 'nb-check-list-row';
 
-            // Icon button — runs the check against the current note
+            // Icon button — toggles --demo output
             const iconBtn = document.createElement('button');
             iconBtn.className = 'nb-check-list-icon-btn';
             iconBtn.innerHTML = _checkDomainIcon(script) || '▶';
-            iconBtn.title     = `Run ${script}`;
+            iconBtn.title     = 'Preview demo output';
+
+            // Run button — runs the real check against the current note
+            const runBtn = document.createElement('button');
+            runBtn.className   = 'nb-test-btn nb-check-list-run-btn';
+            runBtn.textContent = '▶';
+            runBtn.title       = 'Run against current note';
 
             // Name button — opens the script in preview
             const nameBtn = document.createElement('button');
@@ -2628,14 +2634,30 @@
             const ctrl = document.createElement('div');
             ctrl.className = 'nb-check-list-ctrl';
             ctrl.appendChild(iconBtn);
+            ctrl.appendChild(runBtn);
             ctrl.appendChild(nameBtn);
 
             const out = document.createElement('div');
             out.className = 'nb-test-out';
 
+            runBtn.addEventListener('click', async () => {
+                out.innerHTML = '';
+                iconBtn.classList.remove('nb-active');
+                runBtn.disabled = true; nameBtn.disabled = true; iconBtn.disabled = true;
+                runBtn.textContent = '⟳';
+                await _runTest(row, script, runBtn, out);
+                runBtn.disabled = false; nameBtn.disabled = false; iconBtn.disabled = false;
+                runBtn.textContent = '▶';
+                if (out.querySelector('.nb-spin')) {
+                    out.innerHTML = '<span class="nb-check-list-pass">✓ pass</span>';
+                    setTimeout(() => { out.innerHTML = ''; }, 1500);
+                }
+            });
+
             iconBtn.addEventListener('click', async () => {
                 if (out.childElementCount) { out.innerHTML = ''; iconBtn.classList.remove('nb-active'); return; }
                 iconBtn.disabled = true;
+                runBtn.disabled  = true;
                 nameBtn.disabled = true;
                 out.innerHTML = '<span class="nb-spin">⟳</span>';
                 try {
@@ -2663,6 +2685,7 @@
                     out.textContent = String(e);
                 }
                 iconBtn.disabled = false;
+                runBtn.disabled  = false;
                 nameBtn.disabled = false;
             });
 
