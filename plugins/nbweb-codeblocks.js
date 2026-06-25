@@ -2636,10 +2636,14 @@
             iconBtn.addEventListener('click', async () => {
                 iconBtn.disabled = true;
                 nameBtn.disabled = true;
-                out.innerHTML = '';
+                out.innerHTML = '<span class="nb-spin">⟳</span>';
                 await _runTest(row, script, iconBtn, out);
                 iconBtn.disabled = false;
                 nameBtn.disabled = false;
+                if (out.querySelector('.nb-spin')) {
+                    out.innerHTML = '<span class="nb-check-list-pass">✓ pass</span>';
+                    setTimeout(() => { out.innerHTML = ''; }, 1500);
+                }
             });
 
             row.appendChild(ctrl);
