@@ -2415,29 +2415,83 @@ const NbMain = (() => {
         const blocks = container.querySelectorAll('pre > code.language-csv');
         if (!blocks.length) return;
 
-        blocks.forEach((code) => {
-            const pre  = code.parentElement;
-            const raw  = code.textContent.trim();
-            const rows = raw.split('\n').filter(r => r.trim() !== '').map(r =>
-                r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"'))
-            );
+        blocks.forEach((code, blockIdx) => {
+            const pre = code.parentElement;
+            const raw = code.textContent.trim();
+            const allRows = raw.split('\n')
+                .filter(r => r.trim() !== '')
+                .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
+
+            // Row 0 is always column headers
+            const [headerRow = [], ...dataRows] = allRows;
+            const columns = headerRow.map(h => ({ title: h, width: 120 }));
+
+            // Barblock wrapper
+            const wrap = document.createElement('div');
+            wrap.className = 'nb-csv-wrap';
+
+            // Header bar
+            const hdr = document.createElement('div');
+            hdr.className = 'nb-barblock nb-csv-header';
+
+            const icon = document.createElement('span');
+            icon.className = 'nb-cb-icon';
+            icon.textContent = 'CSV';
+            icon.setAttribute('aria-label', 'csv');
+            hdr.appendChild(icon);
+
+            const meta = document.createElement('span');
+            meta.className = 'nb-csv-meta';
+            meta.innerHTML = `<span class="nb-csv-name">csv</span> <span class="nb-csv-count">${dataRows.length}</span>`;
+            hdr.appendChild(meta);
+
+            const acts = document.createElement('span');
+            acts.className = 'nb-barblock-acts';
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'nb-tw-btn nb-csv-save-btn';
+            saveBtn.title = 'Save';
+            saveBtn.textContent = '↓';
+            acts.appendChild(saveBtn);
+            hdr.appendChild(acts);
+            wrap.appendChild(hdr);
+
+            // Collapse toggle with localStorage persistence
+            const collapseKey = `nb-collapse:nb-csv-wrap:${blockIdx}`;
+            if (localStorage.getItem(collapseKey) === '1') wrap.classList.add('nb-collapsed');
+            hdr.addEventListener('click', e => {
+                if (saveBtn.contains(e.target)) return;
+                const collapsed = wrap.classList.toggle('nb-collapsed');
+                collapsed ? localStorage.setItem(collapseKey, '1') : localStorage.removeItem(collapseKey);
+            });
+
+            // Body
+            const body = document.createElement('div');
+            body.className = 'nb-csv-body';
             const host = document.createElement('div');
             host.className = 'nb-csv-block';
-            pre.replaceWith(host);
+            host.dataset.csvHeaders = JSON.stringify(headerRow);
+            body.appendChild(host);
+            wrap.appendChild(body);
+            pre.replaceWith(wrap);
+
             jspreadsheet(host, {
-                worksheets: [{ data: rows.length ? rows : [['']] }],
+                worksheets: [{
+                    data: dataRows.length ? dataRows : [Array(Math.max(headerRow.length, 1)).fill('')],
+                    columns: columns.length ? columns : undefined,
+                }],
+            });
+
+            saveBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                _saveCsvBlocks(saveBtn);
             });
         });
-
-        // Show Save button in preview toolbar for embedded blocks
-        const btn = document.getElementById('nb-sheet-save-btn');
-        if (btn) { btn.hidden = false; btn.onclick = () => _saveCsvBlocks(); }
     }
 
-    async function _saveCsvBlocks() {
+    async function _saveCsvBlocks(triggerBtn) {
         if (!_activeSelector) return;
-        const btn = document.getElementById('nb-sheet-save-btn');
-        btn.textContent = _t('status_saving');
+        const origText = triggerBtn?.textContent;
+        if (triggerBtn) triggerBtn.textContent = _t('status_saving');
         try {
             const r  = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector));
             const d  = await r.json();
@@ -2448,8 +2502,10 @@ const NbMain = (() => {
             raw = raw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
                 const host = hosts[blockIdx++];
                 if (!host?.spreadsheet) return match;
+                const headers = host.dataset.csvHeaders ? JSON.parse(host.dataset.csvHeaders) : [];
                 const data = host.spreadsheet.worksheets[0].getData();
-                const csv  = data.map(row =>
+                const allRows = headers.length ? [headers, ...data] : data;
+                const csv = allRows.map(row =>
                     row.map(cell => {
                         const s = String(cell ?? '');
                         return s.includes(',') || s.includes('"') || s.includes('\n')
@@ -2467,15 +2523,17 @@ const NbMain = (() => {
             const wd = await wr.json();
             if (wd.success) {
                 _noteCache.delete(_activeSelector);
-                btn.textContent = _t('status_saved');
-                setTimeout(() => { btn.textContent = _t('btn_save'); }, 1200);
+                if (triggerBtn) {
+                    triggerBtn.textContent = _t('status_saved');
+                    setTimeout(() => { triggerBtn.textContent = origText; }, 1200);
+                }
             } else {
                 alert('Save failed: ' + (wd.stderr || 'unknown'));
             }
         } catch(e) {
             alert('Save error: ' + e);
         } finally {
-            if (btn.textContent === _t('status_saving')) btn.textContent = _t('btn_save');
+            if (triggerBtn?.textContent === _t('status_saving')) triggerBtn.textContent = origText;
         }
     }
 
