@@ -1008,7 +1008,6 @@ const NbMain = (() => {
                 };
                 pw.addEventListener('keydown', e => { if (e.key === 'Enter') doUnlock(); });
                 content.querySelector('#nb-enc-unlock-btn').addEventListener('click', doUnlock);
-                setTimeout(() => pw.focus(), 50);
             }
             return;
         } else {
@@ -3839,6 +3838,8 @@ const NbMain = (() => {
                     case 'ArrowDown': e.preventDefault(); previewContent.scrollBy(0,  step); break;
                     case 'PageUp':    e.preventDefault(); previewContent.scrollBy(0, -previewContent.clientHeight * 0.85); break;
                     case 'PageDown':  e.preventDefault(); previewContent.scrollBy(0,  previewContent.clientHeight * 0.85); break;
+                    case 'Home':      e.preventDefault(); previewContent.scrollTo(0, 0); break;
+                    case 'End':       e.preventDefault(); previewContent.scrollTo(0, previewContent.scrollHeight); break;
                     case 'ArrowLeft': e.preventDefault(); _setKbPane('list'); break;
                     case 'Enter': {
                         const doneBtn = document.getElementById('nb-done-btn');
@@ -4133,10 +4134,13 @@ const NbMain = (() => {
             previewActions.hidden = true;
             editorWrap.hidden     = false;
             previewContent.hidden = true;
+            document.getElementById('nb-fm-blocks').hidden = true;
+            document.getElementById('nb-tabs-bar').hidden  = true;
         } else {
             previewActions.hidden = false;
             editorWrap.hidden     = true;
             previewContent.hidden = false;
+            if (_activeNote) { _buildFmBlocks(_activeNote); _buildTabs(_activeNote); }
         }
     }
 
