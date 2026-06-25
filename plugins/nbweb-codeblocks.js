@@ -2634,6 +2634,7 @@
             out.className = 'nb-test-out';
 
             iconBtn.addEventListener('click', async () => {
+                if (out.childElementCount) { out.innerHTML = ''; iconBtn.classList.remove('nb-active'); return; }
                 iconBtn.disabled = true;
                 nameBtn.disabled = true;
                 out.innerHTML = '<span class="nb-spin">⟳</span>';
@@ -2647,7 +2648,7 @@
                     const { text, severity } = _parseCheckResult(d, script);
                     if (!text) {
                         out.innerHTML = '<span class="nb-check-list-pass">no --demo output</span>';
-                        setTimeout(() => { out.innerHTML = ''; }, 2000);
+                        setTimeout(() => { out.innerHTML = ''; iconBtn.classList.remove('nb-active'); }, 2000);
                     } else {
                         const result = document.createElement('div');
                         result.className = 'nb-test-result' + _severityClass(severity);
@@ -2656,6 +2657,7 @@
                         _enrichSubtests(result);
                         out.innerHTML = '';
                         out.appendChild(result);
+                        iconBtn.classList.add('nb-active');
                     }
                 } catch (e) {
                     out.textContent = String(e);
