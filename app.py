@@ -808,6 +808,7 @@ INDICATORS = {
     'materials':   '📦',
     'transport':   '🚗',
     'quote':       '📋',
+    'budget':      '💰',
     'project':     '🏗️',
     'invoice':     '🧾',
     'note':        '',
@@ -842,11 +843,11 @@ INDICATORS = {
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
 _FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile', 'journal',
-                       'tools', 'materials', 'transport', 'quote', 'project', 'invoice'})
+                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'invoice'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
-_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot', 'timelog_file', 'timedot_file'})
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot', 'timelog_file', 'timedot_file', 'csv'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()

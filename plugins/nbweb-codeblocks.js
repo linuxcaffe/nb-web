@@ -3377,6 +3377,72 @@
         show(cur);
     }
 
+    // ── csv catalog barblock ─────────────────────────────────────────────────
+
+    function _csvToTable(csvText) {
+        const lines = csvText.trim().split('\n').filter(l => l.trim() && l.trim() !== 'contents');
+        if (lines.length < 2) return '';
+        const headers = lines[0].split(',').map(h => h.trim()).filter(Boolean);
+        const thHtml  = headers.map(h => `<th>${_esc(h)}</th>`).join('');
+        const trHtml  = lines.slice(1).map(r => {
+            const cells = r.split(',').map(c => c.trim());
+            return `<tr>${cells.map(c => `<td>${_esc(c)}</td>`).join('')}</tr>`;
+        }).join('');
+        return `<table class="nb-catalog-table"><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table>`;
+    }
+
+    function _csvRenderBody(body) {
+        let html = '';
+        const lines = body.split('\n');
+        let i = 0;
+        while (i < lines.length) {
+            const line = lines[i];
+            if (/^#+\s/.test(line)) {
+                const level = Math.min(line.match(/^#+/)[0].length + 1, 6);
+                html += `<h${level} class="nb-catalog-heading">${_esc(line.replace(/^#+\s*/, ''))}</h${level}>`;
+                i++;
+            } else if (line.startsWith('```csv')) {
+                i++;
+                const csvLines = [];
+                while (i < lines.length && !lines[i].startsWith('```')) { csvLines.push(lines[i]); i++; }
+                i++;
+                html += _csvToTable(csvLines.join('\n'));
+            } else {
+                i++;
+            }
+        }
+        return html;
+    }
+
+    async function _loadCsvCatalogBlock(el) {
+        const tokens = (el.dataset.csvTokens || '').split(',').map(t => t.trim()).filter(Boolean);
+        const note   = NbMain.activeNote();
+        el.innerHTML = '';
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'csv' });
+        meta.textContent = tokens.join(', ') || '—';
+        el.appendChild(hdr);
+        if (!tokens.length || !note) return;
+        const nb     = note.notebook || '';
+        const sel    = note.selector || '';
+        const rel    = sel.includes(':') ? sel.split(':').slice(1).join(':') : '';
+        const folder = rel.includes('/') ? rel.split('/').slice(0, -1).join('/') : '';
+        for (const token of tokens) {
+            const panel = document.createElement('div');
+            panel.className = 'nb-csv-panel';
+            el.appendChild(panel);
+            try {
+                const r = await fetch(`/api/csv/source?notebook=${encodeURIComponent(nb)}&folder=${encodeURIComponent(folder)}&token=${encodeURIComponent(token)}`);
+                const d = await r.json();
+                if (!d.found) { panel.textContent = `No ${token} catalog in this notebook.`; continue; }
+                const nr = await fetch(`/api/note?selector=${encodeURIComponent(d.selector)}`);
+                const nd = await nr.json();
+                panel.innerHTML = `<div class="nb-catalog-heading">${_esc(token)}</div>` + _csvRenderBody(nd.body || '');
+            } catch(e) {
+                panel.textContent = `Error loading ${token} catalog.`;
+            }
+        }
+    }
+
     // ── timedot ───────────────────────────────────────────────────────────────
     // Extended timedot spec (Simon Michael / timedot-vim):
     //   YYYY/MM/DD or YYYY-MM-DD  — date boundary
@@ -4008,6 +4074,11 @@
                     NbWeb.statusPill?.add(blocks.length);
                     blocks.forEach(el => { try { _loadTocBlock(el); } finally { NbWeb.statusPill?.tick(); } });
                 },
+            },
+            {
+                lang:      'csv',
+                html:      text => `<div class="nb-csv-catalog" data-csv-tokens="${_esc(text)}"></div>`,
+                renderOne: async el => _loadCsvCatalogBlock(el),
             },
         ],
 

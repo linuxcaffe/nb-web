@@ -918,6 +918,17 @@ body {
     font-size: 0.88em;
 }
 .nb-specialty-icon  { font-size: 1.15em; line-height: 1; }
+.nb-specialty-today {
+    margin-left: auto;
+    padding: 2px 8px;
+    font-size: 0.85em;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.nb-specialty-today:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .nb-specialty-label { font-weight: 600; color: var(--text); }
 .nb-specialty-pill  {
     padding: 1px 7px;
@@ -928,12 +939,9 @@ body {
     font-size: 0.9em;
 }
 
-/* Catalog reference panel (details/summary, sourced via walk-up) */
-.nb-catalog-ref { margin: 0 0 12px 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.nb-catalog-ref-header { border-radius: 0; cursor: pointer; list-style: none; }
-.nb-catalog-ref-header::-webkit-details-marker { display: none; }
-.nb-catalog-ref-hint { color: var(--text-dim); font-style: italic; }
-.nb-catalog-ref-body { padding: 8px 12px; overflow-x: auto; }
+/* Catalog reference panel (csv FM barblock body) */
+.nb-csv-panel { padding: 4px 12px 12px; }
+.nb-csv-panel + .nb-csv-panel { border-top: 1px solid var(--border-faint, var(--border)); }
 .nb-catalog-heading { margin: 8px 0 4px; font-size: 0.85em; color: var(--text-muted); font-weight: 600; }
 .nb-catalog-table { border-collapse: collapse; font-size: 0.82em; width: 100%; }
 .nb-catalog-table th { background: var(--bg2); color: var(--text-muted); font-weight: 600;
