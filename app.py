@@ -2077,7 +2077,7 @@ def api_lib_csv_template():
     path = NB_DIR / '.lib' / f'{name}.csv'
     if not path.is_file():
         return jsonify({'error': f'template not found: {name}.csv'}), 404
-    return jsonify({'content': path.read_text(errors='replace')})
+    return jsonify({'content': path.read_text(errors='replace'), 'path': str(path)})
 
 @app.route('/api/lib/block-open', methods=['POST'])
 def api_lib_block_open():

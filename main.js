@@ -2525,6 +2525,12 @@ const NbMain = (() => {
             } else {
                 headerRow = tmplRows[0] || [];
             }
+            if (d.path) {
+                const nameEl = meta.querySelector('.nb-csv-name');
+                nameEl.classList.add('nb-csv-name-linked');
+                nameEl.title = d.path;
+                nameEl.addEventListener('click', e => { e.stopPropagation(); NbMain.openNote(d.path); });
+            }
         } catch(e) {
             body.innerHTML = `<div style="padding:12px;color:var(--red)">Template error: ${_esc(String(e))}</div>`;
             return;
