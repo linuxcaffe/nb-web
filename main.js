@@ -2537,9 +2537,20 @@ const NbMain = (() => {
         host.dataset.csvFooterCount = String(footerRows.length);
         body.appendChild(host);
 
+        // Rewrite footer formula ranges to match actual data row count,
+        // preventing circular references when the footer lands inside =SUM(X1:XN).
+        const dataCount = Math.max(dataRows.length, 1);
+        const adjustedFooter = footerRows.map(row => row.map(cell => {
+            const s = String(cell);
+            if (!s.startsWith('=')) return cell;
+            return s.replace(/([A-Z]+)(\d+):([A-Z]+)(\d+)/g, (_, c1, r1, c2) =>
+                r1 === '1' ? `${c1}1:${c2}${dataCount}` : `${c1}${r1}:${c2}${dataCount}`
+            );
+        }));
+
         const sheetData = [
             ...(dataRows.length ? dataRows : [Array(Math.max(headerRow.length, 1)).fill('')]),
-            ...footerRows,
+            ...adjustedFooter,
         ];
 
         jspreadsheet(host, {
