@@ -986,6 +986,11 @@ body {
     font-weight: 600; cursor: default;
 }
 
+/* ── Foldable headings ──────────────────────────────────────────────── */
+.nb-fold-toggle { display: inline-block; width: 1.1em; color: var(--text-dim);
+                  font-size: 0.75em; user-select: none; transition: color 0.1s; }
+.nb-rendered :is(h1,h2,h3,h4,h5,h6):hover .nb-fold-toggle { color: var(--accent); }
+
 .nb-toc { margin: 0 0 1.5em;
           background: var(--bg2, rgba(255,255,255,0.03));
           border: 1px solid var(--border-dim, #333); border-radius: 6px;

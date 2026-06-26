@@ -1437,6 +1437,64 @@ const NbMain = (() => {
     function _enrichRendered(container, note) {
         _wireContainer(container, note);
         _fetchContainer(container, note);
+        _applyFoldableHeadings(container, note);
+    }
+
+    function _applyFoldableHeadings(container, note) {
+        const raw = note?.meta?.foldable ?? note?.effective_fm?.foldable;
+        if (!raw) return;
+        const patterns = (Array.isArray(raw) ? raw : [raw])
+            .map(p => { try { return new RegExp(String(p), 'i'); } catch(_) { return null; } })
+            .filter(Boolean);
+        if (!patterns.length) return;
+
+        const rendered = container.querySelector('.nb-rendered');
+        if (!rendered) return;
+        const headings = [...rendered.querySelectorAll('h1,h2,h3,h4,h5,h6')];
+
+        for (const h of headings) {
+            const level  = parseInt(h.tagName[1]);
+            const raw    = '#'.repeat(level) + ' ' + h.textContent.trim();
+            if (!patterns.some(re => re.test(raw))) continue;
+
+            // Collect fold content — siblings until next heading of equal or higher level
+            const getFoldEls = () => {
+                const els = [];
+                let el = h.nextElementSibling;
+                while (el) {
+                    if (el.matches('h1,h2,h3,h4,h5,h6') && parseInt(el.tagName[1]) <= level) break;
+                    els.push(el);
+                    el = el.nextElementSibling;
+                }
+                return els;
+            };
+
+            const key     = `nb-fold:${note?.selector || ''}:${raw}`;
+            const toggle  = document.createElement('span');
+            toggle.className  = 'nb-fold-toggle';
+            toggle.setAttribute('aria-label', 'toggle section');
+            h.prepend(toggle);
+
+            const applyState = folded => {
+                toggle.textContent = folded ? '▸' : '▾';
+                toggle.classList.toggle('nb-fold-closed', folded);
+                getFoldEls().forEach(el => { el.hidden = folded; });
+                localStorage.setItem(key, folded ? '1' : '0');
+            };
+
+            const stored = localStorage.getItem(key);
+            applyState(stored === '1');
+
+            toggle.addEventListener('click', e => {
+                e.stopPropagation();
+                applyState(!toggle.classList.contains('nb-fold-closed'));
+            });
+            h.style.cursor = 'pointer';
+            h.addEventListener('click', e => {
+                if (e.target === toggle) return;
+                applyState(!toggle.classList.contains('nb-fold-closed'));
+            });
+        }
     }
 
     function _buildToc(container, note) {
