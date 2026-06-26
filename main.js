@@ -2410,67 +2410,83 @@ const NbMain = (() => {
         }
     }
 
-    function _renderCsvBlocks(container) {
-        const blocks = container.querySelectorAll('pre > code.language-csv');
-        if (!blocks.length) return;
+    function _buildCsvBarblock(label, rowCount, blockIdx, addBtnFn) {
+        const wrap = document.createElement('div');
+        wrap.className = 'nb-csv-wrap';
 
-        blocks.forEach((code, blockIdx) => {
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-barblock nb-csv-header';
+
+        const icon = document.createElement('span');
+        icon.className = 'nb-cb-icon';
+        icon.textContent = 'CSV';
+        icon.setAttribute('aria-label', 'csv');
+        hdr.appendChild(icon);
+
+        const meta = document.createElement('span');
+        meta.className = 'nb-csv-meta';
+        meta.innerHTML = `<span class="nb-csv-name">${_esc(label)}</span> <span class="nb-csv-count">${rowCount}</span>`;
+        hdr.appendChild(meta);
+
+        const acts = document.createElement('span');
+        acts.className = 'nb-barblock-acts';
+
+        if (addBtnFn !== undefined) {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'nb-tw-btn nb-csv-add-btn';
+            addBtn.title = 'Add row';
+            addBtn.textContent = '+';
+            if (addBtnFn) addBtn.addEventListener('click', e => { e.stopPropagation(); addBtnFn(addBtn); });
+            acts.appendChild(addBtn);
+        }
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'nb-tw-btn nb-csv-save-btn';
+        saveBtn.title = 'Save';
+        saveBtn.textContent = '↓';
+        saveBtn.addEventListener('click', e => { e.stopPropagation(); _saveCsvBlocks(saveBtn); });
+        acts.appendChild(saveBtn);
+        hdr.appendChild(acts);
+        wrap.appendChild(hdr);
+
+        const collapseKey = `nb-collapse:nb-csv-wrap:${blockIdx}`;
+        if (localStorage.getItem(collapseKey) === '1') wrap.classList.add('nb-collapsed');
+        hdr.addEventListener('click', e => {
+            if (acts.contains(e.target)) return;
+            const collapsed = wrap.classList.toggle('nb-collapsed');
+            collapsed ? localStorage.setItem(collapseKey, '1') : localStorage.removeItem(collapseKey);
+        });
+
+        const body = document.createElement('div');
+        body.className = 'nb-csv-body';
+        wrap.appendChild(body);
+
+        return { wrap, body, meta };
+    }
+
+    function _renderCsvBlocks(container) {
+        const blocks     = [...container.querySelectorAll('pre > code.language-csv')];
+        const tmplBlocks = [...container.querySelectorAll('.nb-csv-tmpl-pending')];
+        if (!blocks.length && !tmplBlocks.length) return;
+
+        let blockIdx = 0;
+
+        blocks.forEach(code => {
             const pre = code.parentElement;
             const raw = code.textContent.trim();
             const allRows = raw.split('\n')
                 .filter(r => r.trim() !== '')
                 .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
 
-            // Row 0 is always column headers
             const [headerRow = [], ...dataRows] = allRows;
             const columns = headerRow.map(h => ({ title: h, width: 120 }));
 
-            // Barblock wrapper
-            const wrap = document.createElement('div');
-            wrap.className = 'nb-csv-wrap';
+            const { wrap, body } = _buildCsvBarblock('csv', dataRows.length, blockIdx++, undefined);
 
-            // Header bar
-            const hdr = document.createElement('div');
-            hdr.className = 'nb-barblock nb-csv-header';
-
-            const icon = document.createElement('span');
-            icon.className = 'nb-cb-icon';
-            icon.textContent = 'CSV';
-            icon.setAttribute('aria-label', 'csv');
-            hdr.appendChild(icon);
-
-            const meta = document.createElement('span');
-            meta.className = 'nb-csv-meta';
-            meta.innerHTML = `<span class="nb-csv-name">csv</span> <span class="nb-csv-count">${dataRows.length}</span>`;
-            hdr.appendChild(meta);
-
-            const acts = document.createElement('span');
-            acts.className = 'nb-barblock-acts';
-            const saveBtn = document.createElement('button');
-            saveBtn.className = 'nb-tw-btn nb-csv-save-btn';
-            saveBtn.title = 'Save';
-            saveBtn.textContent = '↓';
-            acts.appendChild(saveBtn);
-            hdr.appendChild(acts);
-            wrap.appendChild(hdr);
-
-            // Collapse toggle with localStorage persistence
-            const collapseKey = `nb-collapse:nb-csv-wrap:${blockIdx}`;
-            if (localStorage.getItem(collapseKey) === '1') wrap.classList.add('nb-collapsed');
-            hdr.addEventListener('click', e => {
-                if (saveBtn.contains(e.target)) return;
-                const collapsed = wrap.classList.toggle('nb-collapsed');
-                collapsed ? localStorage.setItem(collapseKey, '1') : localStorage.removeItem(collapseKey);
-            });
-
-            // Body
-            const body = document.createElement('div');
-            body.className = 'nb-csv-body';
             const host = document.createElement('div');
             host.className = 'nb-csv-block';
             host.dataset.csvHeaders = JSON.stringify(headerRow);
             body.appendChild(host);
-            wrap.appendChild(body);
             pre.replaceWith(wrap);
 
             jspreadsheet(host, {
@@ -2479,12 +2495,72 @@ const NbMain = (() => {
                     columns: columns.length ? columns : undefined,
                 }],
             });
-
-            saveBtn.addEventListener('click', e => {
-                e.stopPropagation();
-                _saveCsvBlocks(saveBtn);
-            });
         });
+
+        tmplBlocks.forEach(pending => _renderCsvTmplBlock(pending, blockIdx++));
+    }
+
+    async function _renderCsvTmplBlock(pending, blockIdx) {
+        const token      = pending.dataset.token;
+        const bodyText   = decodeURIComponent(pending.dataset.content || '');
+        const dataRows   = bodyText.split('\n')
+            .filter(r => r.trim() !== '')
+            .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
+
+        const { wrap, body, meta } = _buildCsvBarblock(token, dataRows.length, blockIdx, null);
+        pending.replaceWith(wrap);
+
+        let headerRow = [], footerRows = [];
+        try {
+            const r = await fetch(`/api/lib/csv-template?name=${encodeURIComponent(token)}`);
+            if (!r.ok) throw new Error((await r.json()).error || r.status);
+            const d = await r.json();
+            const tmplRows = d.content.trim().split('\n')
+                .filter(r => r.trim() !== '')
+                .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
+            const ci = tmplRows.findIndex(r => r.length === 1 && r[0].trim().toLowerCase() === 'contents');
+            if (ci >= 0) {
+                headerRow  = tmplRows[0] || [];
+                footerRows = tmplRows.slice(ci + 1);
+            } else {
+                headerRow = tmplRows[0] || [];
+            }
+        } catch(e) {
+            body.innerHTML = `<div style="padding:12px;color:var(--red)">Template error: ${_esc(String(e))}</div>`;
+            return;
+        }
+
+        const host = document.createElement('div');
+        host.className = 'nb-csv-block';
+        host.dataset.csvToken       = token;
+        host.dataset.csvHeaders     = JSON.stringify(headerRow);
+        host.dataset.csvFooterCount = String(footerRows.length);
+        body.appendChild(host);
+
+        const sheetData = [
+            ...(dataRows.length ? dataRows : [Array(Math.max(headerRow.length, 1)).fill('')]),
+            ...footerRows,
+        ];
+
+        jspreadsheet(host, {
+            worksheets: [{
+                data: sheetData,
+                columns: headerRow.length ? headerRow.map(h => ({ title: h, width: 120 })) : undefined,
+            }],
+        });
+
+        // Update count badge now that template and data are both known
+        meta.querySelector('.nb-csv-count').textContent = dataRows.length;
+    }
+
+    function _csvRowsToCsv(rows) {
+        return rows.map(row =>
+            row.map(cell => {
+                const s = String(cell ?? '');
+                return s.includes(',') || s.includes('"') || s.includes('\n')
+                    ? `"${s.replace(/"/g, '""')}"` : s;
+            }).join(',')
+        ).join('\n');
     }
 
     async function _saveCsvBlocks(triggerBtn) {
@@ -2496,22 +2572,28 @@ const NbMain = (() => {
             const d  = await r.json();
             let raw  = d.raw || d.body || '';
 
-            const hosts = [...document.querySelectorAll('.nb-csv-block')];
-            let blockIdx = 0;
+            // Template csv blocks: ```csv token\n...\n``` — save only user data rows
+            const tmplHosts = [...document.querySelectorAll('.nb-csv-block[data-csv-token]')];
+            let tmplIdx = 0;
+            raw = raw.replace(/```csv ([\w-]+)\n([\s\S]*?)```/g, (match, token) => {
+                const host = tmplHosts[tmplIdx++];
+                if (!host?.spreadsheet) return match;
+                const footerCount = parseInt(host.dataset.csvFooterCount || '0', 10);
+                const allData = host.spreadsheet.worksheets[0].getData();
+                const dataRows = footerCount > 0 ? allData.slice(0, -footerCount) : allData;
+                return `\`\`\`csv ${token}\n${_csvRowsToCsv(dataRows)}\n\`\`\``;
+            });
+
+            // Plain csv blocks: ```csv\n...\n``` — save header + all rows
+            const plainHosts = [...document.querySelectorAll('.nb-csv-block:not([data-csv-token])')];
+            let plainIdx = 0;
             raw = raw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
-                const host = hosts[blockIdx++];
+                const host = plainHosts[plainIdx++];
                 if (!host?.spreadsheet) return match;
                 const headers = host.dataset.csvHeaders ? JSON.parse(host.dataset.csvHeaders) : [];
-                const data = host.spreadsheet.worksheets[0].getData();
+                const data    = host.spreadsheet.worksheets[0].getData();
                 const allRows = headers.length ? [headers, ...data] : data;
-                const csv = allRows.map(row =>
-                    row.map(cell => {
-                        const s = String(cell ?? '');
-                        return s.includes(',') || s.includes('"') || s.includes('\n')
-                            ? `"${s.replace(/"/g, '""')}"` : s;
-                    }).join(',')
-                ).join('\n');
-                return '```csv\n' + csv + '\n```';
+                return '```csv\n' + _csvRowsToCsv(allRows) + '\n```';
             });
 
             const wr = await fetch('/api/note', {
@@ -2923,6 +3005,12 @@ const NbMain = (() => {
                 })
                 .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
                     `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
+        // Pre-process csv template blocks (```csv token) into placeholder divs before
+        // marked sees them — marked drops all but the first word of the info string.
+        body = body.replace(/```csv ([\w-]+)\n([\s\S]*?)```/g, (_, token, content) =>
+            `<div class="nb-csv-tmpl-pending" data-token="${token}" data-content="${encodeURIComponent(content.trimEnd())}"></div>`
+        );
+
         const _codeParts = body.split(/(````[\s\S]*?````|```[\s\S]*?```|`[^`\n]+`)/g);
         let processed = _codeParts.map((part, i) => i % 2 === 0 ? _processInline(part) : part).join('');
         let html = marked.parse(processed);

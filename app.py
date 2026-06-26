@@ -2069,6 +2069,16 @@ def api_lib_block_extras():
     return jsonify(result)
 
 
+@app.route('/api/lib/csv-template')
+def api_lib_csv_template():
+    name = request.args.get('name', '')
+    if not re.match(r'^[\w-]+$', name):
+        return jsonify({'error': 'invalid name'}), 400
+    path = NB_DIR / '.lib' / f'{name}.csv'
+    if not path.is_file():
+        return jsonify({'error': f'template not found: {name}.csv'}), 404
+    return jsonify({'content': path.read_text(errors='replace')})
+
 @app.route('/api/lib/block-open', methods=['POST'])
 def api_lib_block_open():
     user       = session.get('user', {})

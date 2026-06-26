@@ -914,6 +914,8 @@ body {
 .nb-csv-count::after { content: ' rows'; }
 .nb-csv-body  { overflow: auto; }
 .nb-csv-block { overflow: auto; }
+.nb-csv-add-btn { opacity: 0.6; }
+.nb-csv-add-btn:hover { opacity: 1; }
 
 /* ── Media rendering ────────────────────────────────────────────── */
 
