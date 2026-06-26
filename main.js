@@ -775,9 +775,10 @@ const NbMain = (() => {
                 _rEl.appendChild(btn);
             }
         }
-        const _pluginHtml = _activeRend
+        const _pluginRaw  = _activeRend
             ? _activeRend.render(note)
             : (NbWeb.getPreviewRenderer(note.notebook)?.(note) ?? null);
+        const _pluginHtml = (_pluginRaw instanceof Promise) ? await _pluginRaw : _pluginRaw;
 
         // ── Lock / Unlock UI ───────────────────────────────────────────────
         document.getElementById('nb-unlock-btn')?.remove();

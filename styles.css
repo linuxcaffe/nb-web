@@ -928,6 +928,19 @@ body {
     font-size: 0.9em;
 }
 
+/* Catalog reference panel (details/summary, sourced via walk-up) */
+.nb-catalog-ref { margin: 0 0 12px 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.nb-catalog-ref-header { border-radius: 0; cursor: pointer; list-style: none; }
+.nb-catalog-ref-header::-webkit-details-marker { display: none; }
+.nb-catalog-ref-hint { color: var(--text-dim); font-style: italic; }
+.nb-catalog-ref-body { padding: 8px 12px; overflow-x: auto; }
+.nb-catalog-heading { margin: 8px 0 4px; font-size: 0.85em; color: var(--text-muted); font-weight: 600; }
+.nb-catalog-table { border-collapse: collapse; font-size: 0.82em; width: 100%; }
+.nb-catalog-table th { background: var(--bg2); color: var(--text-muted); font-weight: 600;
+    padding: 3px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.nb-catalog-table td { padding: 2px 8px; border-bottom: 1px solid var(--border-faint, var(--border)); color: var(--text); }
+.nb-catalog-table tr:last-child td { border-bottom: none; }
+
 /* Embedded CSV block in markdown notes */
 .nb-csv-wrap  { border: 1px solid var(--border); border-radius: 6px; margin: 1em 0; overflow: hidden; }
 .nb-csv-header { font-family: var(--font-mono, monospace); border-radius: 0; }

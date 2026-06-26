@@ -2086,6 +2086,37 @@ def api_lib_csv_template():
         return jsonify({'error': f'template not found: {name}.csv'}), 404
     return jsonify({'content': path.read_text(errors='replace'), 'path': str(path)})
 
+@app.route('/api/csv/source')
+def api_csv_source():
+    """Walk up the folder tree from notebook:folder looking for a note with type: <token>.
+    Returns {found, selector} or {found: false}.
+    Used by specialty note renderers to locate root-level catalog files (materials, tools, transport).
+    """
+    notebook = request.args.get('notebook', '').strip()
+    folder   = request.args.get('folder', '').strip()
+    token    = request.args.get('token', '').strip()
+    if not _safe_notebook(notebook) or not re.match(r'^[\w-]+$', token):
+        return jsonify({'error': 'invalid params'}), 400
+    nb_path = nb_dir_for(notebook)
+    parts = [p for p in folder.replace('\\', '/').split('/') if p and not p.startswith('.')]
+    while True:
+        current = nb_path.joinpath(*parts) if parts else nb_path
+        if current.is_dir():
+            for md in sorted(current.glob('*.md')):
+                if md.name.startswith('.'):
+                    continue
+                try:
+                    meta, _ = parse_frontmatter(md.read_text(errors='replace'))
+                    if meta.get('type') == token:
+                        rel = md.relative_to(nb_path).as_posix()
+                        return jsonify({'found': True, 'selector': f'{notebook}:{rel}'})
+                except Exception:
+                    continue
+        if not parts:
+            break
+        parts.pop()
+    return jsonify({'found': False})
+
 @app.route('/api/lib/block-open', methods=['POST'])
 def api_lib_block_open():
     user       = session.get('user', {})
