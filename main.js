@@ -413,7 +413,8 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁',
+                       tools:'🔧', materials:'📦', transport:'🚗', quote:'📋', project:'🏗️', invoice:'🧾'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -1032,9 +1033,13 @@ const NbMain = (() => {
                     .catch(e => { if (_activeNote !== note) return; content.innerHTML = `<div style="padding:40px;color:var(--red)">Render error: ${_esc(e.message)}</div>`; });
                 return;
             }
-            // Unknown types (plugin types like 'account', 'contact', etc.) render as markdown.
-            // Only raw-display if there's genuinely no body to render.
-            html = _renderFmFallback(note.meta) + _renderMarkdown(_virtualTestPrefix(note) + (note.body || ''), note.selector);
+            if (['tools', 'materials', 'transport', 'quote', 'project', 'invoice'].includes(note.type)) {
+                html = _renderSpecialtyNote(note);
+            } else {
+                // Unknown types (plugin types like 'account', 'contact', etc.) render as markdown.
+                // Only raw-display if there's genuinely no body to render.
+                html = _renderFmFallback(note.meta) + _renderMarkdown(_virtualTestPrefix(note) + (note.body || ''), note.selector);
+            }
         }
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
@@ -3151,6 +3156,28 @@ const NbMain = (() => {
             `<button class="nb-fm-empty-toggle nb-tw-btn" title="Toggle empty fields">` +
             `${showEmpty ? 'Hide empty' : 'Show empty'}</button>` +
             `</div>`;
+    }
+
+    function _renderSpecialtyNote(note) {
+        const cfg = {
+            tools:     { icon: '🔧', label: 'Tool Inventory' },
+            materials: { icon: '📦', label: 'Materials Catalog' },
+            transport: { icon: '🚗', label: 'Transport' },
+            quote:     { icon: '📋', label: 'Quote' },
+            project:   { icon: '🏗️', label: 'Project' },
+            invoice:   { icon: '🧾', label: 'Invoice' },
+        };
+        const { icon, label } = cfg[note.type] || { icon: '📋', label: note.type };
+        const pills = [];
+        if (note.meta?.status)       pills.push(note.meta.status);
+        if (note.meta?.billing_type) pills.push(note.meta.billing_type);
+        if (note.meta?.client)       pills.push(String(note.meta.client).replace(/^contacts:/, '').replace(/\.md$/, ''));
+        const pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
+        return `<div class="nb-specialty-header">
+            <span class="nb-specialty-icon">${icon}</span>
+            <span class="nb-specialty-label">${_esc(label)}</span>
+            ${pillsHtml}
+        </div>` + _renderMarkdown(note.body || '', note.selector);
     }
 
     function _renderBookmark(note) {
