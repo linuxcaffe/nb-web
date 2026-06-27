@@ -3292,8 +3292,8 @@ def api_t_timedot_write():
     content = data.get('content', '')
     td.parent.mkdir(parents=True, exist_ok=True)
     td.write_text(content)
-    # Ensure all files included by the sibling master journal exist
     _ensure_journal_stubs(td.with_suffix('.journal'))
+    _hledger_cache.clear()
     return jsonify({'success': True, 'path': str(td)})
 
 
@@ -3389,6 +3389,7 @@ def api_t_journal_from_csv():
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text('\n'.join(jlines))
+    _hledger_cache.clear()
     return jsonify({'success': True, 'path': str(out_path)})
 
 
