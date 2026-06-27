@@ -1280,7 +1280,7 @@
             const cmd = d.cmd || 'balance';
             const BALANCE   = new Set(['balance','bal','b']);
             const REGISTER  = new Set(['register','reg','r']);
-            const SECTIONED = new Set(['incomestatement','is','balancesheet','bs','cashflow','cf']);
+            const SECTIONED = new Set(['incomestatement','is','balancesheet','bs','balancesheetequity','bse','cashflow','cf']);
             if (BALANCE.has(cmd))        _buildHledgerBalance(el, d.data, q, launch);
             else if (REGISTER.has(cmd))  _buildHledgerRegister(el, d.data, q, launch);
             else if (SECTIONED.has(cmd)) _buildHledgerSectioned(el, d.data, q, launch);
@@ -1293,9 +1293,9 @@
     }
 
     function _accountFromQuery(q) {
-        const CMDS     = new Set(['reg','register','bal','balance','bs','is','cf','print',
+        const CMDS     = new Set(['reg','register','bal','balance','bs','bse','is','cf','print',
                                   'check','accounts','activity','stats','aregister','areg',
-                                  'incomestatement','balancesheet','cashflow']);
+                                  'incomestatement','balancesheet','balancesheetequity','cashflow']);
         const QUERY_RE = /^(date2?|payee|desc|note|cur|amt|tag|acct|code|status|type|not|inacct|real|depth):/i;
         for (const tok of (q || '').split(/\s+/)) {
             if (!tok || tok.startsWith('-'))                         continue; // flag
