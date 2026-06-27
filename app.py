@@ -3272,6 +3272,19 @@ def api_t_timedot_append():
     return jsonify({'success': True, 'path': str(td)})
 
 
+def _ensure_journal_stubs(journal_path: Path):
+    """Touch any files named in include directives of journal_path that don't exist yet."""
+    if not journal_path or not journal_path.exists():
+        return
+    import re as _re
+    text = journal_path.read_text(errors='replace')
+    for m in _re.finditer(r'^include\s+(\S+)', text, _re.MULTILINE):
+        inc = (journal_path.parent / m.group(1)).resolve()
+        if not inc.exists():
+            inc.parent.mkdir(parents=True, exist_ok=True)
+            inc.write_text('; stub — populated automatically on first block save\n')
+
+
 @app.route('/api/t/timedot/write', methods=['POST'])
 def api_t_timedot_write():
     data    = request.get_json(silent=True) or {}
@@ -3279,6 +3292,8 @@ def api_t_timedot_write():
     content = data.get('content', '')
     td.parent.mkdir(parents=True, exist_ok=True)
     td.write_text(content)
+    # Ensure all files included by the sibling master journal exist
+    _ensure_journal_stubs(td.with_suffix('.journal'))
     return jsonify({'success': True, 'path': str(td)})
 
 
