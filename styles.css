@@ -1001,6 +1001,16 @@ body {
 }
 .nb-pill-due  { background: #fff3cd; border-color: #ffc107; color: #856404; }
 .nb-pill-paid { background: #d4edda; border-color: #28a745; color: #155724; }
+.nb-invoiced-marker {
+    color: #c0392b;
+    background: #fdf2f0;
+    border-left: 3px solid #c0392b;
+    padding: 3px 10px;
+    font-size: 0.88em;
+    font-family: monospace;
+    margin: 10px 0;
+    border-radius: 0 4px 4px 0;
+}
 
 /* Catalog reference panel (csv FM barblock body) */
 .nb-csv-panel { padding: 4px 12px 12px; }
