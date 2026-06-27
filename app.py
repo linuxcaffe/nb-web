@@ -3403,15 +3403,21 @@ def api_t_journal_from_csv():
 
 def _parse_labour_entries(journal_key: str):
     """Parse labour journal into per-entry dicts. Returns (entries, total_cad).
-    Each entry: {date, hours, description, amount}"""
+    Each entry: {date, hours, description, amount}
+    Only returns entries after the last INVOICED marker (if any)."""
     if not journal_key:
         return [], 0.0
     jpath = Path(os.path.expanduser(journal_key))
     labour_j = jpath.with_name(jpath.stem + '.labour.journal')
     if not labour_j.exists():
         return [], 0.0
+    text = labour_j.read_text(errors='replace')
+    # Only parse entries after the last invoice cutoff marker
+    marker_pos = text.rfind('\n; === INVOICED:')
+    if marker_pos >= 0:
+        text = text[marker_pos:]
     entries, total, cur = [], 0.0, None
-    for line in labour_j.read_text(errors='replace').splitlines():
+    for line in text.splitlines():
         m = re.match(r'^(\d{4}-\d{2}-\d{2})\s+\S.*?—\s*([\d.]+)h\s*@\s*\$[\d.]+(?:\s*;\s*(.+))?', line)
         if m:
             cur = {'date': m.group(1), 'hours': float(m.group(2)),
@@ -3732,13 +3738,23 @@ invoice_num: {invoice_num}
         with open(index_path, 'a') as f:
             f.write(inv_filename + '\n')
 
+    # Append invoice cutoff marker to labour journal so next invoice starts fresh
+    jpath      = Path(os.path.expanduser(journal_key))
+    labour_j   = jpath.with_name(jpath.stem + '.labour.journal')
+    extra_files = []
+    if labour_j.exists():
+        with open(labour_j, 'a') as f:
+            f.write(f'\n; === INVOICED: {invoice_num}  {inv_date} ===\n')
+        extra_files.append(str(labour_j.relative_to(nb_root)))
+
     rel_in_nb  = inv_path.relative_to(nb_root)
     index_rel  = index_path.relative_to(nb_root)
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
-    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)],
+    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)] + extra_files,
                    cwd=str(nb_root), capture_output=True, env=env)
     subprocess.run(['git', 'commit', '-m', f'[nb] Added: {inv_filename}'],
                    cwd=str(nb_root), capture_output=True, env=env)
+    _hledger_cache.clear()
 
     inv_rel = inv_path.relative_to(nb_root)
     return jsonify({'success': True,
