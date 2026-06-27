@@ -3344,36 +3344,50 @@ def api_t_journal_from_csv():
     bank_acct     = 'Assets:Bank:Business:Chequing'
     itc_acct      = 'Assets:HST:InputTaxCredits'
 
-    # Extract the csv block for this token
+    # Find ALL csv blocks for this token and combine their data rows.
+    # Raw note text has no header row (headers come from .lib/ template); col[0]=name, col[4]=total.
     import re as _re
-    block_m = _re.search(r'```csv ' + _re.escape(token) + r'\n([\s\S]*?)```', body)
-    if not block_m:
+    all_block_texts = _re.findall(r'```csv ' + _re.escape(token) + r'\n([\s\S]*?)```', body)
+    if not all_block_texts:
         return jsonify({'success': False, 'error': f'no csv {token} block found'}), 404
 
-    csv_text = block_m.group(1).strip()
-    rows = [r for r in csv_text.splitlines() if r.strip() and r.strip().lower() != 'contents']
-    if len(rows) < 2:
-        return jsonify({'success': False, 'error': 'csv block has no data rows'}), 400
+    raw_lines = []
+    for block_text in all_block_texts:
+        for line in block_text.splitlines():
+            s = line.strip()
+            if s and s.lower() != 'contents':
+                raw_lines.append(line)
 
-    reader   = _csv.reader(_io.StringIO('\n'.join(rows)))
-    all_rows = list(reader)
-    headers  = [h.strip().lower() for h in all_rows[0]]
-    total    = 0.0
+    reader = _csv.reader(_io.StringIO('\n'.join(raw_lines)))
+    parsed = [r for r in reader if any(c.strip() for c in r)]
+    if not parsed:
+        return jsonify({'success': False, 'error': f'csv {token} block has no data rows'}), 400
+
+    total      = 0.0
     desc_lines = []
-    for row in all_rows[1:]:
-        if not row or not any(c.strip() for c in row):
-            continue
-        d = {headers[i]: row[i].strip() for i in range(min(len(headers), len(row)))}
+    for row in parsed:
         lt = 0.0
-        if 'total' in d:
-            try: lt = float(d['total'].replace(',', ''))
+        # Try col[4] (total column) first
+        if len(row) > 4:
+            try: lt = float(row[4].replace(',', ''))
             except ValueError: pass
-        if not lt and 'qty' in d and 'unit cost' in d:
-            try: lt = float(d['qty']) * float(d['unit cost'].replace(',', ''))
-            except ValueError: pass
+        # Fallback: formula cell — multiply all numeric values in the row (qty × rate)
+        if not lt:
+            nums = []
+            for c in row:
+                c = c.strip()
+                if c and not c.startswith('='):
+                    try: nums.append(float(c.replace(',', '')))
+                    except ValueError: pass
+            if len(nums) >= 2:
+                lt = nums[0]
+                for n in nums[1:]: lt *= n
+            elif len(nums) == 1:
+                lt = nums[0]
+        lt = round(lt, 2)
         if lt:
             total += lt
-            item = d.get('item', d.get('description', '?'))
+            item = row[0].strip() if row else '?'
             desc_lines.append(f'  ; {item}: ${lt:.2f}')
 
     total = round(total, 2)
@@ -3451,19 +3465,26 @@ def _parse_labour_entries(journal_key: str):
 
 
 def _invoice_journal_totals(journal_key: str):
-    """Read labour + materials totals. Returns (labour_total, mat_subtotal, mat_gross)."""
+    """Read labour + all csv-token expense journals.
+    Returns (labour_total, expense_dict) where expense_dict = {token: (subtotal, gross)}.
+    Discovers tokens by globbing {stem}.*.journal, skipping labour."""
     _, labour_total = _parse_labour_entries(journal_key)
-    materials_subtotal = materials_gross = 0.0
+    expense_dict = {}
     if journal_key:
         jpath = Path(os.path.expanduser(journal_key))
-        mat_j = jpath.with_name(jpath.stem + '.materials.journal')
-        if mat_j.exists():
-            for line in mat_j.read_text(errors='replace').splitlines():
-                m = re.match(r'\s+Expenses:Materials:\S+\s+([\d.]+)\s+CAD', line)
-                if m: materials_subtotal += float(m.group(1))
+        for p in sorted(jpath.parent.glob(f'{jpath.stem}.*.journal')):
+            token = p.name[len(jpath.stem) + 1:].removesuffix('.journal')
+            if token == 'labour':
+                continue
+            sub = gross = 0.0
+            for line in p.read_text(errors='replace').splitlines():
+                m = re.match(r'\s+Expenses:\S+\s+([\d.]+)\s+CAD', line)
+                if m: sub += float(m.group(1))
                 m2 = re.match(r'\s+Assets:Bank:\S+\s+-([\d.]+)\s+CAD', line)
-                if m2: materials_gross += float(m2.group(1))
-    return round(labour_total, 2), round(materials_subtotal, 2), round(materials_gross, 2)
+                if m2: gross += float(m2.group(1))
+            if sub > 0:
+                expense_dict[token] = (round(sub, 2), round(gross, 2))
+    return round(labour_total, 2), expense_dict
 
 
 def _lookup_contact(client_ref: str, project_str: str) -> str:
@@ -3552,7 +3573,9 @@ def api_t_invoice_preflight():
     client     = client_raw.replace('contacts:', '').replace('.md', '')
     journal_key = str(meta.get('journal', '')).strip()
 
-    labour_total, mat_sub, mat_gross = _invoice_journal_totals(journal_key)
+    labour_total, expense_dict = _invoice_journal_totals(journal_key)
+    mat_sub   = sum(v[0] for v in expense_dict.values())
+    mat_gross = sum(v[1] for v in expense_dict.values())
     labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
 
     today = _dt.date.today()
@@ -3571,6 +3594,7 @@ def api_t_invoice_preflight():
         'rate':              rate,
         'labour_hours':      labour_hours,
         'labour_total':      labour_total,
+        'expense_totals':    {t: {'subtotal': s, 'gross': g} for t, (s, g) in expense_dict.items()},
         'materials_subtotal': mat_sub,
         'materials_gross':   mat_gross,
     })
@@ -3604,7 +3628,9 @@ def api_t_invoice_generate():
     journal_key = str(meta.get('journal', '')).strip()
     timedot_key = str(meta.get('timedot_file', '')).strip()
 
-    labour_total, mat_sub, mat_gross = _invoice_journal_totals(journal_key)
+    labour_total, expense_dict = _invoice_journal_totals(journal_key)
+    mat_sub   = sum(v[0] for v in expense_dict.values())
+    mat_gross = sum(v[1] for v in expense_dict.values())
     labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
 
     # Derive notebook + relative folder
@@ -3678,8 +3704,10 @@ def api_t_invoice_generate():
         return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${rate:.2f} | ${e['amount']:.2f} |"
     labour_lines = '\n'.join(_labour_row(e) for e in entries) if entries else \
         f"| — | Labour | {labour_hours:.1f} | ${rate:.2f} | ${labour_total:.2f} |"
-    if mat_gross > 0:
-        labour_lines += f"\n| — | Materials | — | cost | ${mat_gross:.2f} |"
+    expense_lines = '\n'.join(
+        f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
+        for token, (_, gross) in expense_dict.items()
+    )
 
     notes_section = f'\n\n**Notes:** {notes}' if notes else ''
 
@@ -3696,6 +3724,7 @@ def api_t_invoice_generate():
             '{{issued}}':           inv_date,
             '{{due}}':              due,
             '{{labour_lines}}':     labour_lines,
+            '{{expense_lines}}':    expense_lines,
             '{{total_line}}':       total_display,
             '{{subtotal}}':         f'{round(labour_total + mat_sub, 2):.2f}',
             '{{hst}}':              f'{total_hst:.2f}',

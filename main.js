@@ -2687,12 +2687,13 @@ const NbMain = (() => {
             const wd = await wr.json();
             if (wd.success) {
                 _noteCache.delete(_activeSelector);
-                // Sync domain journals for each named csv block
+                // Sync domain journals — one call per unique token (note may have multiple blocks)
                 const tokenHosts = [...document.querySelectorAll('.nb-csv-block[data-csv-token]')];
-                await Promise.all(tokenHosts.map(h =>
+                const uniqueTokens = [...new Set(tokenHosts.map(h => h.dataset.csvToken))];
+                await Promise.all(uniqueTokens.map(token =>
                     fetch('/api/t/journal/from-csv', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ selector: _activeSelector, token: h.dataset.csvToken }),
+                        body: JSON.stringify({ selector: _activeSelector, token }),
                     }).catch(() => {})
                 ));
                 // Clear journals for any csv token removed from the note body
@@ -4362,6 +4363,26 @@ const NbMain = (() => {
         ta.focus();
     }
 
+    function _foldableImpliesDates(foldable) {
+        if (!foldable) return false;
+        const patterns = Array.isArray(foldable) ? foldable : [foldable];
+        const probe = '## 2026-01-01';
+        return patterns.some(p => { try { return new RegExp(p, 'i').test(probe); } catch(_) { return false; } });
+    }
+
+    async function _ensureTodayHeading(sel, d) {
+        const today = new Date().toISOString().slice(0, 10);
+        const body  = d.raw || d.body || '';
+        if (body.includes(`## ${today}`)) return;
+        const updated = body.trimEnd() + `\n\n## ${today}\n`;
+        const r  = await fetch('/api/note', {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ selector: sel, content: updated }),
+        });
+        const wd = await r.json();
+        if (wd.success) { d.raw = updated; d.body = updated; _noteCache.delete(sel); }
+    }
+
     function _openEditor(targetSelector) {
         const sel = targetSelector || _activeSelector;
         if (!sel) return;
@@ -4396,7 +4417,11 @@ const NbMain = (() => {
         if (_saveBtn) _saveBtn.disabled = true;
         fetch('/api/note?selector=' + encodeURIComponent(sel))
             .then(r => r.json())
-            .then(d => { if (_saveBtn) _saveBtn.disabled = false; _populateEditor(sel, d.raw || d.body || '', _saveNote, d); })
+            .then(async d => {
+                if (_saveBtn) _saveBtn.disabled = false;
+                if (d.meta?.date_headers || _foldableImpliesDates(d.meta?.foldable)) await _ensureTodayHeading(sel, d);
+                _populateEditor(sel, d.raw || d.body || '', _saveNote, d);
+            })
             .catch(() => { if (_saveBtn) _saveBtn.disabled = false; });
     }
 
