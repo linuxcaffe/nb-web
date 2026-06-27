@@ -1878,7 +1878,7 @@ def api_inline_query():
             journal = None
             if selector:
                 try:
-                    _np, _ = _resolve_note_path(selector)
+                    _np = _resolve_to_nb_path(selector)
                     if _np and _np.exists():
                         _m, _ = parse_frontmatter(_np.read_text(errors='replace'))
                         _jkey = _m.get('journal', '').strip()
@@ -3317,7 +3317,7 @@ def api_t_journal_from_csv():
     if not selector or not token:
         return jsonify({'success': False, 'error': 'selector and token required'}), 400
 
-    note_path, _ = _resolve_note_path(selector)
+    note_path = _resolve_to_nb_path(selector)
     if not note_path or not note_path.exists():
         return jsonify({'success': False, 'error': 'note not found'}), 404
 
@@ -3330,6 +3330,13 @@ def api_t_journal_from_csv():
 
     journal_path  = Path(os.path.expanduser(journal_key))
     out_path      = journal_path.with_name(f'{journal_path.stem}.{token}.journal')
+
+    # clear=true: block was removed from note — write empty stub so journal is blank
+    if data.get('clear'):
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(f'; {project} {token} journal — cleared (block removed)\n')
+        _hledger_cache.clear()
+        return jsonify({'success': True, 'cleared': True, 'path': str(out_path)})
 
     mat_acct      = f'Expenses:{token.capitalize()}:{project}'
     bank_acct     = 'Assets:Bank:Business:Chequing'
@@ -3392,6 +3399,277 @@ def api_t_journal_from_csv():
     out_path.write_text('\n'.join(jlines))
     _hledger_cache.clear()
     return jsonify({'success': True, 'path': str(out_path)})
+
+
+def _parse_labour_entries(journal_key: str):
+    """Parse labour journal into per-entry dicts. Returns (entries, total_cad).
+    Each entry: {date, hours, description, amount}"""
+    if not journal_key:
+        return [], 0.0
+    jpath = Path(os.path.expanduser(journal_key))
+    labour_j = jpath.with_name(jpath.stem + '.labour.journal')
+    if not labour_j.exists():
+        return [], 0.0
+    entries, total, cur = [], 0.0, None
+    for line in labour_j.read_text(errors='replace').splitlines():
+        m = re.match(r'^(\d{4}-\d{2}-\d{2})\s+\S.*?—\s*([\d.]+)h\s*@\s*\$[\d.]+(?:\s*;\s*(.+))?', line)
+        if m:
+            cur = {'date': m.group(1), 'hours': float(m.group(2)),
+                   'description': (m.group(3) or '').strip(), 'amount': 0.0}
+            entries.append(cur)
+        elif cur:
+            m2 = re.match(r'\s+Assets:AR:\S+\s+([\d.]+)\s+CAD', line)
+            if m2:
+                cur['amount'] = float(m2.group(1))
+                total += cur['amount']
+    return entries, round(total, 2)
+
+
+def _invoice_journal_totals(journal_key: str):
+    """Read labour + materials totals. Returns (labour_total, mat_subtotal, mat_gross)."""
+    _, labour_total = _parse_labour_entries(journal_key)
+    materials_subtotal = materials_gross = 0.0
+    if journal_key:
+        jpath = Path(os.path.expanduser(journal_key))
+        mat_j = jpath.with_name(jpath.stem + '.materials.journal')
+        if mat_j.exists():
+            for line in mat_j.read_text(errors='replace').splitlines():
+                m = re.match(r'\s+Expenses:Materials:\S+\s+([\d.]+)\s+CAD', line)
+                if m: materials_subtotal += float(m.group(1))
+                m2 = re.match(r'\s+Assets:Bank:\S+\s+-([\d.]+)\s+CAD', line)
+                if m2: materials_gross += float(m2.group(1))
+    return round(labour_total, 2), round(materials_subtotal, 2), round(materials_gross, 2)
+
+
+def _find_invoice_template(notebook: str, btype: str) -> 'Path | None':
+    """Look for invoice-{btype}.md then invoice.md in notebook then global templates."""
+    for name in (f'invoice-{btype}.md', 'invoice.md'):
+        for base in (NB_DIR / notebook / '.templates', NB_DIR / '.templates'):
+            p = base / name
+            if p.exists():
+                return p
+    return None
+
+
+@app.route('/api/t/invoice/preflight')
+def api_t_invoice_preflight():
+    import datetime as _dt
+    selector = request.args.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    note_path = _resolve_to_nb_path(selector)
+    if not note_path or not note_path.exists():
+        return jsonify({'error': 'note not found'}), 404
+
+    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
+    project    = str(meta.get('project', note_path.stem))
+    rate       = float(meta.get('rate', 0) or 0)
+    btype      = str(meta.get('billing_type', 't&m')).strip()
+    client_raw = str(meta.get('client', '')).strip()
+    client     = client_raw.replace('contacts:', '').replace('.md', '')
+    journal_key = str(meta.get('journal', '')).strip()
+
+    labour_total, mat_sub, mat_gross = _invoice_journal_totals(journal_key)
+    labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
+
+    today = _dt.date.today()
+    year  = today.year
+    existing = sorted(f.stem for f in note_path.parent.glob(f'INV-{year}-*.md'))
+    next_num = (int(existing[-1].split('-')[-1]) + 1) if existing else 1
+
+    return jsonify({
+        'suggested_num':     f'INV-{year}-{next_num:03d}',
+        'date':              str(today),
+        'due':               'on receipt' if btype == 'cash' else 'net 30',
+        'billing_type':      btype,
+        'project':           project,
+        'client':            client,
+        'client_raw':        client_raw,
+        'rate':              rate,
+        'labour_hours':      labour_hours,
+        'labour_total':      labour_total,
+        'materials_subtotal': mat_sub,
+        'materials_gross':   mat_gross,
+    })
+
+
+@app.route('/api/t/invoice/generate', methods=['POST'])
+def api_t_invoice_generate():
+    import datetime as _dt
+    HST = 0.13
+
+    data        = request.get_json(silent=True) or {}
+    selector    = data.get('selector', '').strip()
+    invoice_num = data.get('invoice_num', '').strip()
+    inv_date    = data.get('date', str(_dt.date.today()))
+    due         = data.get('due', 'on receipt')
+    notes       = data.get('notes', '').strip()
+
+    if not selector or not invoice_num:
+        return jsonify({'error': 'selector and invoice_num required'}), 400
+
+    note_path = _resolve_to_nb_path(selector)
+    if not note_path or not note_path.exists():
+        return jsonify({'error': 'note not found'}), 404
+
+    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
+    project    = str(meta.get('project', note_path.stem))
+    rate       = float(meta.get('rate', 0) or 0)
+    btype      = str(meta.get('billing_type', 't&m')).strip()
+    client_raw = str(meta.get('client', '')).strip()
+    client     = client_raw.replace('contacts:', '').replace('.md', '')
+    journal_key = str(meta.get('journal', '')).strip()
+
+    labour_total, mat_sub, mat_gross = _invoice_journal_totals(journal_key)
+    labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
+
+    # Derive notebook + relative folder
+    notebook = selector.split(':')[0] if ':' in selector else 'home'
+    nb_root  = NB_DIR / notebook
+    project_dir = note_path.parent
+    rel_folder  = str(project_dir.relative_to(nb_root))
+    reports_sel = f'{notebook}:{rel_folder}/{note_path.name}'
+
+    # Accounts
+    ar_acct     = f'Assets:AR:{project}'
+    income_acct = f'Income:Services:Hourly:{project}'
+    hst_acct    = 'Liabilities:HST:Collected'
+    W = 48  # column width for ledger alignment
+
+    if btype == 'cash':
+        # Cash: flat amount invoiced, no HST collected from client.
+        # Full amount recorded as income; HST obligation handled at filing time.
+        ar_total      = round(labour_total + mat_gross, 2)
+        total_income  = ar_total
+        total_hst     = 0.0
+        hst_comment   = 'cash — HST at filing time'
+        total_display = f'**Total: ${ar_total:.2f}** *(cash — no HST collected)*'
+        payment_acct  = 'Assets:Cash'
+        payment_label = 'cash received'
+        ledger_block = f'''; {invoice_num} — {hst_comment}
+
+{inv_date} {invoice_num} — {client} (due)
+    {ar_acct:<{W}} {ar_total:.2f} CAD
+    {income_acct:<{W}}-{ar_total:.2f} CAD
+
+; ── Record payment when received: ──
+; YYYY-MM-DD {invoice_num} — {payment_label}
+;     {payment_acct:<{W-4}} {ar_total:.2f} CAD
+;     {ar_acct:<{W-4}}-{ar_total:.2f} CAD'''
+    else:
+        # t&m: HST collected on top of subtotal
+        subtotal      = round(labour_total + mat_sub, 2)
+        total_hst     = round(subtotal * HST, 2)
+        ar_total      = round(subtotal + total_hst, 2)
+        total_income  = subtotal
+        hst_comment   = f't&m — HST ${total_hst:.2f} collected'
+        total_display = f'**Subtotal: ${subtotal:.2f} + HST ${total_hst:.2f} = Total: ${ar_total:.2f}**'
+        payment_acct  = 'Assets:Bank:Business:Chequing'
+        payment_label = 'payment received'
+        ledger_block = f'''; {invoice_num} — {hst_comment}
+
+{inv_date} {invoice_num} — {client} (due)
+    {ar_acct:<{W}} {ar_total:.2f} CAD
+    {income_acct:<{W}}-{total_income:.2f} CAD
+    {hst_acct:<{W}}-{total_hst:.2f} CAD
+
+; ── Record payment when received: ──
+; YYYY-MM-DD {invoice_num} — {payment_label}
+;     {payment_acct:<{W-4}} {ar_total:.2f} CAD
+;     {ar_acct:<{W-4}}-{ar_total:.2f} CAD'''
+
+    # Per-day labour rows
+    entries, _ = _parse_labour_entries(journal_key)
+    def _labour_row(e):
+        desc = (e['description'] or '—')[:60]
+        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${rate:.2f} | ${e['amount']:.2f} |"
+    labour_lines = '\n'.join(_labour_row(e) for e in entries) if entries else \
+        f"| — | Labour | {labour_hours:.1f} | ${rate:.2f} | ${labour_total:.2f} |"
+    if mat_gross > 0:
+        labour_lines += f"\n| — | Materials | — | cost | ${mat_gross:.2f} |"
+
+    notes_section = f'\n\n**Notes:** {notes}' if notes else ''
+
+    tmpl_path = _find_invoice_template(notebook, btype)
+    if tmpl_path:
+        content = tmpl_path.read_text(errors='replace')
+        for k, v in {
+            '{{invoice_num}}':      invoice_num,
+            '{{client}}':           client,
+            '{{client_raw}}':       client_raw,
+            '{{project}}':          project,
+            '{{reports_selector}}': reports_sel,
+            '{{rate}}':             str(rate),
+            '{{issued}}':           inv_date,
+            '{{due}}':              due,
+            '{{labour_lines}}':     labour_lines,
+            '{{total_line}}':       total_display,
+            '{{ledger_block}}':     ledger_block,
+            '{{notes_section}}':    notes_section,
+        }.items():
+            content = content.replace(k, v)
+    else:
+        # Fallback inline content (no template found)
+        notes_md   = f'\n**Notes:** {notes}\n' if notes else ''
+        labour_row = f'| Labour | {labour_hours:.1f} h × ${rate:.2f} | ${labour_total:.2f} |\n'
+        mat_row    = f'| Materials | cost + HST | ${mat_gross:.2f} |\n' if mat_gross > 0 else ''
+        content = f'''---
+title: "{invoice_num} — {client}"
+type: invoice
+project: {project}
+client: "{client_raw}"
+reports: "{reports_sel}"
+billing_type: {btype}
+rate: {rate}
+issued: "{inv_date}"
+due: "{due}"
+status: due
+invoice_num: {invoice_num}
+---
+# {invoice_num}
+
+**Issued:** {inv_date} · **Due:** {due}
+
+**Bill to:** {client}
+
+---
+
+## Services
+
+| Description | Detail | Amount |
+|---|---|---|
+{labour_row}{mat_row}
+{total_display}{notes_md}
+
+---
+
+```ledger
+{ledger_block}
+```
+'''
+
+    inv_filename = f'{invoice_num}.md'
+    inv_path     = project_dir / inv_filename
+    if inv_path.exists():
+        return jsonify({'error': f'{inv_filename} already exists'}), 409
+
+    inv_path.write_text(content)
+
+    # Index + git commit
+    index_path = project_dir / '.index'
+    rel_in_nb  = inv_path.relative_to(nb_root)
+    index_rel  = index_path.relative_to(nb_root)
+    with open(index_path, 'a') as f:
+        f.write(inv_filename + '\n')
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)],
+                   cwd=str(nb_root), capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m', f'[nb] Added: {inv_filename}'],
+                   cwd=str(nb_root), capture_output=True, env=env)
+
+    return jsonify({'success': True,
+                    'selector': f'{notebook}:{rel_folder}/{inv_filename}',
+                    'path': str(inv_path)})
 
 
 @app.route('/api/version')

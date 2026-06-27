@@ -3606,7 +3606,7 @@
     function _timedotExtractLabourJournal(raw, project, rate) {
         if (!project || !rate) return '';
         const PAD = 46;
-        const ar  = `Assets:AccountsReceivable:${project}`;
+        const ar  = `Assets:AR:${project}`;
         const inc = `Income:Services:Hourly:${project}`;
         let body = raw;
         if (raw.startsWith('---')) {
@@ -3836,6 +3836,18 @@
             const _labourFile = _syncFile.replace(/\.timedot$/, '.labour.journal');
             if (_rate && _labourFile !== _syncFile)
                 await _write(_labourFile, _timedotExtractLabourJournal(raw, _proj, _rate));
+        }
+
+        // Clear journals for any csv token listed in FM but no longer in the note body
+        const _csvTokens = [].concat(_syncNote?.meta?.csv || []);
+        if (_csvTokens.length && selector) {
+            await Promise.all(_csvTokens
+                .filter(t => !new RegExp('```csv ' + t + '\\b').test(raw))
+                .map(t => fetch('/api/t/journal/from-csv', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector, token: t, clear: true }),
+                }).catch(() => {}))
+            );
         }
     }
 

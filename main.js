@@ -2695,6 +2695,16 @@ const NbMain = (() => {
                         body: JSON.stringify({ selector: _activeSelector, token: h.dataset.csvToken }),
                     }).catch(() => {})
                 ));
+                // Clear journals for any csv token removed from the note body
+                const presentTokens  = new Set(tokenHosts.map(h => h.dataset.csvToken));
+                const expectedTokens = [].concat(d.meta?.csv || []);
+                await Promise.all(expectedTokens
+                    .filter(t => !presentTokens.has(t))
+                    .map(t => fetch('/api/t/journal/from-csv', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ selector: _activeSelector, token: t, clear: true }),
+                    }).catch(() => {}))
+                );
                 if (triggerBtn) {
                     triggerBtn.textContent = _t('status_saved');
                     setTimeout(() => { triggerBtn.textContent = origText; }, 1200);
