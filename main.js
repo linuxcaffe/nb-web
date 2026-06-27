@@ -1740,17 +1740,24 @@ const NbMain = (() => {
     // Dotfiles are the SOURCE of config — never self-inject.
     function _virtualTestPrefix(note) {
         if (note?.meta?.type === 'dotfile') return '';
-        // Per-note FM wins; fall back to effective value from config chain
+        // Per-note FM check: wins; fall back to effective value from config chain
         const raw = (note?.meta?.check !== undefined)
             ? note.meta.check
             : note?.effective_checks;
-        // null (tests:), undefined, or empty string (tests: "") all suppress
-        if (raw == null || raw === '' || raw === false) return '';
-        const prefixes = Array.isArray(raw)
-            ? raw.map(s => String(s).trim()).filter(Boolean)
-            : String(raw).trim().split(/[\s,]+/).filter(Boolean);
-        if (!prefixes.length) return '';
-        return prefixes.map(p => `\`\`\`check\n${p}\n\`\`\``).join('\n') + '\n\n';
+        // null, undefined, or empty string all suppress the base set
+        const base = (raw == null || raw === '' || raw === false) ? [] :
+            Array.isArray(raw)
+                ? raw.map(s => String(s).trim()).filter(Boolean)
+                : String(raw).trim().split(/[\s,]+/).filter(Boolean);
+
+        // check_add: unions from note FM + every config level (never overrides)
+        const addRaw = [note?.meta?.check_add, note?.effective_check_add]
+            .filter(Boolean).join(' ');
+        const adds = addRaw.trim().split(/[\s,]+/).filter(Boolean);
+
+        const all = [...new Set([...base, ...adds])];
+        if (!all.length) return '';
+        return all.map(p => `\`\`\`check\n${p}\n\`\`\``).join('\n') + '\n\n';
     }
 
     const _ACCESS_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];

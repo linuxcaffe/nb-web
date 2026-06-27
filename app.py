@@ -444,6 +444,60 @@ def _global_config():
         return {}
 
 
+def _collect_check_add(notebook, note_path):
+    """Union all check_add: values from global → notebook → folder configs.
+
+    Unlike check: (which overrides), check_add: accumulates across every
+    level so more-specific configs extend rather than replace the base set.
+    Returns a deduplicated space-separated string of prefixes/names.
+    """
+    def _read_raw(path):
+        try:
+            meta, _ = parse_frontmatter(Path(path).read_text())
+            return meta
+        except Exception:
+            return {}
+
+    def _extract(meta):
+        val = meta.get('check_add')
+        if not val:
+            return []
+        if isinstance(val, list):
+            return [str(v).strip() for v in val if v]
+        return str(val).strip().split()
+
+    tokens = []
+    tokens.extend(_extract(_read_raw(NB_DIR / '.nb.md')))
+
+    nb_cfg = NB_DIR / notebook / f'.{notebook}.md'
+    tokens.extend(_extract(_read_raw(nb_cfg)))
+
+    nb_root = NB_DIR / notebook
+    try:
+        folder = Path(note_path)
+        if folder.is_file():
+            folder = folder.parent
+        folder_layers = []
+        current = folder
+        while True:
+            if not str(current).startswith(str(nb_root)) or current == nb_root:
+                break
+            cfg_file = current / f'.{current.name}.md'
+            if cfg_file.exists():
+                folder_layers.append(_extract(_read_raw(cfg_file)))
+            current = current.parent
+        for layer in reversed(folder_layers):
+            tokens.extend(layer)
+    except Exception:
+        pass
+
+    seen = {}
+    for t in tokens:
+        if t:
+            seen[t] = None
+    return ' '.join(seen.keys())
+
+
 def _notebook_config(notebook):
     """Read ~/.nb/{notebook}/.{notebook}.md merged over global config."""
     base = _global_config()
@@ -4596,7 +4650,8 @@ def api_note():
         'locked':   locked,
         'lock_reason': lock_reason,
         'effective_access': _effective_access(meta, nb_meta),
-        'effective_checks':  nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
+        'effective_checks':     nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
+        'effective_check_add':  _collect_check_add(note_notebook, fpath) if note_notebook else '',
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'parent_meta': parent_meta,
