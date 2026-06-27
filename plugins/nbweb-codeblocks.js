@@ -3601,6 +3601,65 @@
         return out.join('\n').trimEnd() + '\n';
     }
 
+    // Generate hledger labour journal entries (CAD) from all body timedot blocks.
+    // Mirrors _timedotExtractFile but produces double-entry income/AR transactions.
+    function _timedotExtractLabourJournal(raw, project, rate) {
+        if (!project || !rate) return '';
+        const PAD = 46;
+        const ar  = `Assets:AccountsReceivable:${project}`;
+        const inc = `Income:Services:Hourly:${project}`;
+        let body = raw;
+        if (raw.startsWith('---')) {
+            const end = raw.indexOf('\n---', 3);
+            if (end >= 0) body = raw.slice(end + 4).replace(/^\n+/, '');
+        }
+        const out = [
+            `; ${project} labour journal — auto-synced from note timedot blocks`,
+            ``,
+            `account ${ar}`,
+            `account ${inc}`,
+            ``,
+        ];
+        const lines = body.split('\n');
+        let curDate = null, inBlock = false, blockLines = [];
+        for (const line of lines) {
+            if (!inBlock) {
+                const dm = line.match(/^#{1,6}\s+(\d{4}[-/]\d{2}[-/]\d{2})/);
+                if (dm) { curDate = dm[1]; continue; }
+                if (/^```timedot\b/.test(line)) { inBlock = true; blockLines = []; continue; }
+                continue;
+            }
+            if (/^```\s*$/.test(line)) {
+                if (blockLines.length) {
+                    let blockDate = curDate;
+                    const rewritten = _timedotRewrite(blockLines.join('\n'), project);
+                    for (const bline of rewritten.split('\n')) {
+                        const t = bline.trim();
+                        if (!t) continue;
+                        const dm2 = t.match(/^(\d{4}[-/]\d{2}[-/]\d{2})\s*$/);
+                        if (dm2) { blockDate = dm2[1]; continue; }
+                        const entry = _timedotParseLine(t);
+                        if (!entry) continue;
+                        const hrs = _timedotParseTime(entry.time);
+                        if (!hrs || !blockDate) continue;
+                        const amount = Math.round(hrs * rate * 100) / 100;
+                        const descLine = entry.comment
+                            ? `${blockDate} ${project} — ${hrs}h @ $${rate}  ; ${entry.comment}`
+                            : `${blockDate} ${project} — ${hrs}h @ $${rate}`;
+                        out.push(descLine);
+                        out.push(`    ${ar.padEnd(PAD)} ${amount.toFixed(2)} CAD`);
+                        out.push(`    ${inc}`);
+                        out.push('');
+                    }
+                }
+                inBlock = false;
+                continue;
+            }
+            blockLines.push(line);
+        }
+        return out.join('\n').trimEnd() + '\n';
+    }
+
     // Append new entry lines — inline (PUT note) or external (POST /api/t/timedot/append).
     async function _timedotAppend(el, newLines) {
         const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
@@ -3763,15 +3822,20 @@
         if (!wd.success) throw new Error(wd.stderr || 'Save failed');
         el.dataset.src = newContent.trimEnd();
 
-        // Sync timedot_file: if set on this note, rebuild from all body blocks
-        const _syncNote = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
-        const _syncFile = _syncNote?.meta?.timedot_file;
+        // Sync timedot_file: + labour journal when set on this note
+        const _syncNote    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const _syncFile    = _syncNote?.meta?.timedot_file;
         if (_syncFile) {
-            const _syncContent = _timedotExtractFile(raw, _syncNote?.meta?.project || null);
-            await fetch('/api/t/timedot/write', {
+            const _proj    = _syncNote?.meta?.project || null;
+            const _rate    = parseFloat(_syncNote?.meta?.rate) || null;
+            const _write   = (file, content) => fetch('/api/t/timedot/write', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file: _syncFile, content: _syncContent }),
+                body: JSON.stringify({ file, content }),
             });
+            await _write(_syncFile, _timedotExtractFile(raw, _proj));
+            const _labourFile = _syncFile.replace(/\.timedot$/, '.labour.journal');
+            if (_rate && _labourFile !== _syncFile)
+                await _write(_labourFile, _timedotExtractLabourJournal(raw, _proj, _rate));
         }
     }
 

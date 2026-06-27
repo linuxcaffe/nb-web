@@ -3268,6 +3268,101 @@ def api_t_timedot_write():
     return jsonify({'success': True, 'path': str(td)})
 
 
+@app.route('/api/t/journal/from-csv', methods=['POST'])
+def api_t_journal_from_csv():
+    """Generate a domain hledger journal from a named csv block in a note.
+
+    Body: { selector, token }
+    Reads journal: + project: + rate: from note FM.
+    Derives journal path: dirname(journal:)/{stem}.{token}.journal
+    Writes the file and returns { success, path }.
+    """
+    import csv as _csv, io as _io
+    HST = 0.13
+    PAD = 46
+
+    data     = request.get_json(silent=True) or {}
+    selector = data.get('selector', '').strip()
+    token    = data.get('token', '').strip()
+    if not selector or not token:
+        return jsonify({'success': False, 'error': 'selector and token required'}), 400
+
+    note_path, _ = _resolve_note_path(selector)
+    if not note_path or not note_path.exists():
+        return jsonify({'success': False, 'error': 'note not found'}), 404
+
+    text          = note_path.read_text(errors='replace')
+    meta, body    = parse_frontmatter(text)
+    project       = meta.get('project', note_path.stem)
+    journal_key   = meta.get('journal', '')
+    if not journal_key:
+        return jsonify({'success': False, 'error': 'journal: FM key not set'}), 400
+
+    journal_path  = Path(os.path.expanduser(journal_key))
+    out_path      = journal_path.with_name(f'{journal_path.stem}.{token}.journal')
+
+    mat_acct      = f'Expenses:{token.capitalize()}:{project}'
+    bank_acct     = 'Assets:Bank:Business:Chequing'
+    itc_acct      = 'Assets:HST:InputTaxCredits'
+
+    # Extract the csv block for this token
+    import re as _re
+    block_m = _re.search(r'```csv ' + _re.escape(token) + r'\n([\s\S]*?)```', body)
+    if not block_m:
+        return jsonify({'success': False, 'error': f'no csv {token} block found'}), 404
+
+    csv_text = block_m.group(1).strip()
+    rows = [r for r in csv_text.splitlines() if r.strip() and r.strip().lower() != 'contents']
+    if len(rows) < 2:
+        return jsonify({'success': False, 'error': 'csv block has no data rows'}), 400
+
+    reader   = _csv.reader(_io.StringIO('\n'.join(rows)))
+    all_rows = list(reader)
+    headers  = [h.strip().lower() for h in all_rows[0]]
+    total    = 0.0
+    desc_lines = []
+    for row in all_rows[1:]:
+        if not row or not any(c.strip() for c in row):
+            continue
+        d = {headers[i]: row[i].strip() for i in range(min(len(headers), len(row)))}
+        lt = 0.0
+        if 'total' in d:
+            try: lt = float(d['total'].replace(',', ''))
+            except ValueError: pass
+        if not lt and 'qty' in d and 'unit cost' in d:
+            try: lt = float(d['qty']) * float(d['unit cost'].replace(',', ''))
+            except ValueError: pass
+        if lt:
+            total += lt
+            item = d.get('item', d.get('description', '?'))
+            desc_lines.append(f'  ; {item}: ${lt:.2f}')
+
+    total = round(total, 2)
+    hst   = round(total * HST, 2)
+    gross = round(total + hst, 2)
+
+    # Use note started: or today as transaction date
+    from datetime import date as _date
+    txn_date = meta.get('started') or str(_date.today())
+
+    jlines = [
+        f'; {project} {token} journal — auto-synced from note csv block on save',
+        f'',
+        f'account {mat_acct}',
+        f'',
+        f'{txn_date} {project} — {token}',
+    ] + desc_lines + [
+        f'    {mat_acct:<{PAD}} {total:.2f} CAD',
+        f'    {itc_acct:<{PAD}} {hst:.2f} CAD',
+        f'    {bank_acct:<{PAD}} {-gross:.2f} CAD',
+        f'',
+    ]
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text('\n'.join(jlines))
+    return jsonify({'success': True, 'path': str(out_path)})
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})

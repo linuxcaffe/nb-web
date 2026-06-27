@@ -2687,6 +2687,14 @@ const NbMain = (() => {
             const wd = await wr.json();
             if (wd.success) {
                 _noteCache.delete(_activeSelector);
+                // Sync domain journals for each named csv block
+                const tokenHosts = [...document.querySelectorAll('.nb-csv-block[data-csv-token]')];
+                await Promise.all(tokenHosts.map(h =>
+                    fetch('/api/t/journal/from-csv', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ selector: _activeSelector, token: h.dataset.csvToken }),
+                    }).catch(() => {})
+                ));
                 if (triggerBtn) {
                     triggerBtn.textContent = _t('status_saved');
                     setTimeout(() => { triggerBtn.textContent = origText; }, 1200);
