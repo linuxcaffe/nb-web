@@ -1866,14 +1866,28 @@ def api_inline_query():
     provider = request.args.get('provider', '').strip().lower()
     query    = request.args.get('query',    '').strip()
     notebook = request.args.get('notebook', '').strip()
+    selector = request.args.get('selector', '').strip()
 
     if not provider or not query:
         return jsonify({'error': 'provider and query required'}), 400
 
     try:
         if provider == 'hledger':
-            config  = _hledger_config_for_notebook(notebook)
-            journal = _hledger_journal_path(config)
+            # Note-level journal: FM key overrides notebook config when selector provided
+            journal = None
+            if selector:
+                try:
+                    _np, _ = _resolve_note_path(selector)
+                    if _np and _np.exists():
+                        _m, _ = parse_frontmatter(_np.read_text(errors='replace'))
+                        _jkey = _m.get('journal', '').strip()
+                        if _jkey:
+                            journal = Path(os.path.expanduser(_jkey))
+                except Exception:
+                    pass
+            if not journal or not journal.exists():
+                config  = _hledger_config_for_notebook(notebook)
+                journal = _hledger_journal_path(config)
             if not journal or not journal.exists():
                 return jsonify({'error': 'journal not found'}), 404
             args = shlex.split(query)

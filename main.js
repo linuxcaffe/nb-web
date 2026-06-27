@@ -1096,7 +1096,7 @@ const NbMain = (() => {
             }
             // Non-inline queries are cheap single-value lookups — fire in parallel
             nonInlineCount++;
-            fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`, { signal })
+            fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}&selector=${encodeURIComponent(note?.selector || '')}`, { signal })
                 .then(r => r.json())
                 .then(d => {
                     if (d.error) {
@@ -1124,7 +1124,7 @@ const NbMain = (() => {
                                     });
                                 } catch (_) {}
                                 try {
-                                    const r2 = await fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}`);
+                                    const r2 = await fetch(`/api/inline-query?provider=${encodeURIComponent(provider)}&query=${encodeURIComponent(query)}&notebook=${encodeURIComponent(nb)}&selector=${encodeURIComponent(note?.selector || '')}`);
                                     const d2 = await r2.json();
                                     val.textContent = d2.error ? `{{${provider}: ${query}}}` : d2.result;
                                 } catch (_) {
