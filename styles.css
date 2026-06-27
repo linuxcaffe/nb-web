@@ -3465,13 +3465,16 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-timedot-section--lv4 .nb-timedot-section-title { font-weight: 400; color: var(--text-muted); }
 .nb-timedot-section-body { padding: 0 0 4px 0; }
 
-/* verbatim body block */
+/* verbatim body block — raw mode */
+.nb-timedot-body--raw { padding: 0; }        /* remove default 0.4em gap under header */
 .nb-timedot-raw {
   font-family: var(--font-mono, monospace);
   font-size: 0.85em; color: var(--text);
   white-space: pre; padding: 8px 12px;
   margin: 0; overflow-x: auto;
+  cursor: pointer;
 }
+.nb-timedot-raw:hover { background: color-mix(in srgb, var(--bg2) 60%, transparent); }
 .nb-timedot-edit-ta {
   display: block; width: 100%; box-sizing: border-box;
   font-family: var(--font-mono, monospace); font-size: 0.85em;
@@ -3481,6 +3484,18 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 }
 .nb-timedot-edit-btns { display: flex; gap: 6px; padding: 6px 8px 8px; }
 .nb-timedot-err { color: var(--accent-neg, #e74c3c); font-size: 0.85em; padding: 4px 8px; }
+
+/* FM log view */
+.nb-timedot-log-body { padding: 0; }
+.nb-timedot-log-date-row td { padding: 4px 12px 2px; font-weight: 600; font-size: 0.82em;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;
+  border-top: 1px solid var(--border); }
+.nb-timedot-log-date-row:first-child td { border-top: none; }
+.nb-timedot-log-anchor { color: var(--text-muted); text-decoration: none; }
+.nb-timedot-log-anchor:hover { color: var(--accent); text-decoration: underline; }
+.nb-timedot-log-date-sum { text-align: right; white-space: nowrap; color: var(--accent) !important; }
+.nb-timedot-log-entry .nb-timedot-acct { padding-left: 20px; }
+.nb-timedot-log-comment { padding: 2px 12px; color: var(--text-dim); font-style: italic; font-size: 0.88em; }
 
 /* summary popover */
 .nb-timedot-summary-pop {

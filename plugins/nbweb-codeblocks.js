@@ -3462,13 +3462,13 @@
         return (str.match(/\./g) || []).length * 0.25;
     }
 
-    // Returns { account, time } or null.
+    // Returns { account, time, comment } or null.
     // Extended spec: 2+ spaces separates account (may contain single spaces) from time.
     function _timedotParseLine(trimmed) {
-        const m = trimmed.match(/^(.+?)\s{2,}([. ]+|\d+(?:\.\d+)?[hm]?)\s*(?:;.*)?$/);
-        if (m) return { account: m[1].trimEnd(), time: m[2].trim() };
-        const b = trimmed.match(/^([. ]+|\d+(?:\.\d+)?[hm]?)\s*(?:;.*)?$/);
-        if (b && /[.\d]/.test(b[1])) return { account: null, time: b[1].trim() };
+        const m = trimmed.match(/^(.+?)\s{2,}([. ]+|\d+(?:\.\d+)?[hm]?)\s*(?:;\s*(.*))?$/);
+        if (m) return { account: m[1].trimEnd(), time: m[2].trim(), comment: m[3] || '' };
+        const b = trimmed.match(/^([. ]+|\d+(?:\.\d+)?[hm]?)\s*(?:;\s*(.*))?$/);
+        if (b && /[.\d]/.test(b[1])) return { account: null, time: b[1].trim(), comment: b[2] || '' };
         return null;
     }
 
@@ -3490,7 +3490,7 @@
             const entry = _timedotParseLine(t);
             if (entry && entry.account) {
                 const hrs = _timedotParseTime(entry.time);
-                if (hrs > 0) segs.push({ type: 'entry', account: entry.account, hrs, date: currentDate });
+                if (hrs > 0) segs.push({ type: 'entry', account: entry.account, hrs, date: currentDate, comment: entry.comment || '' });
             }
         }
         return segs;
@@ -3717,7 +3717,11 @@
 
     // Body codeblock: verbatim display with inline textarea editing.
     async function _loadTimedotRawBlock(el) {
-        const raw = el.dataset.src || '';
+        const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const meta    = note?.meta || {};
+        const project = meta.project || null;
+        const rate    = parseFloat(meta.rate) || null;
+        const raw     = el.dataset.src || '';
         el.innerHTML = '';
 
         const { hdr, meta: metaEl, acts } = _buildBarHeader(el, {
@@ -3731,25 +3735,28 @@
         editBtn.textContent = '✎';
         acts.insertBefore(editBtn, acts.firstChild);
 
-        const lineCount = raw ? raw.split('\n').filter(l => l.trim()).length : 0;
-        metaEl.textContent = lineCount ? `${lineCount} entries` : 'empty';
+        // Header meta: total hours + billing (parse now, costs nothing on empty blocks)
+        const { totalHrs } = _timedotTotals(_timedotGroup(_timedotSegment(_timedotRewrite(raw, project))), 'all');
+        const totalAmt = rate && totalHrs ? totalHrs * rate : null;
+        metaEl.textContent = totalHrs > 0
+            ? totalHrs.toFixed(1) + 'h' + (totalAmt !== null ? ' · $' + totalAmt.toFixed(2) : '')
+            : 'empty';
 
         el.appendChild(hdr);
         _initCollapseToggle(el);
 
+        // nb-timedot-body--raw removes the default 0.4em top/bottom padding
+        // that creates a visible gap between header and the pre block.
         const body = document.createElement('div');
-        body.className = 'nb-timedot-body';
+        body.className = 'nb-timedot-body nb-timedot-body--raw';
         el.appendChild(body);
 
-        const showRaw = () => {
-            body.innerHTML = '';
-            const pre = document.createElement('pre');
-            pre.className = 'nb-timedot-raw';
-            pre.textContent = raw || '';
-            body.appendChild(pre);
-        };
+        let editing = false;
 
-        const showEdit = () => {
+        const enterEdit = () => {
+            if (editing) return;
+            editing = true;
+            editBtn.textContent = '✕';
             body.innerHTML = '';
             const ta = document.createElement('textarea');
             ta.className = 'nb-timedot-edit-ta';
@@ -3774,7 +3781,6 @@
                     saveBtn.disabled = true;
                     saveBtn.textContent = '…';
                     await _timedotSaveInlineBlock(el, ta.value);
-                    editBtn.textContent = '✎';
                     _loadTimedotRawBlock(el);
                 } catch (e) {
                     saveBtn.disabled = false;
@@ -3785,24 +3791,170 @@
                     body.appendChild(err);
                 }
             });
-            cancelBtn.addEventListener('click', () => {
-                editBtn.textContent = '✎';
-                showRaw();
-            });
+            cancelBtn.addEventListener('click', exitEdit);
+        };
+
+        const exitEdit = () => {
+            editing = false;
+            editBtn.textContent = '✎';
+            showRaw();
+        };
+
+        const showRaw = () => {
+            body.innerHTML = '';
+            const pre = document.createElement('pre');
+            pre.className = 'nb-timedot-raw';
+            pre.textContent = raw || '';
+            pre.title = 'Click to edit';
+            pre.addEventListener('click', () => enterEdit());
+            body.appendChild(pre);
         };
 
         editBtn.addEventListener('click', e => {
             e.stopPropagation();
-            if (editBtn.textContent === '✎') {
-                editBtn.textContent = '✕';
-                showEdit();
-            } else {
-                editBtn.textContent = '✎';
-                showRaw();
-            }
+            editing ? exitEdit() : enterEdit();
         });
 
         showRaw();
+    }
+
+    // FM barblock (no timedot_file): date-ordered log of all body block entries,
+    // with comments and per-date subtotals; date rows link to heading anchors.
+    async function _loadTimedotLogBlock(el) {
+        const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const meta    = note?.meta || {};
+        const project = meta.project || null;
+        const rate    = parseFloat(meta.rate) || null;
+
+        el.innerHTML = '';
+        const { hdr, meta: metaEl, acts } = _buildBarHeader(el, {
+            lang: 'timedot',
+            onRefresh: () => _loadTimedotLogBlock(el),
+        });
+        el.appendChild(hdr);
+        _initCollapseToggle(el);
+
+        const body = document.createElement('div');
+        body.className = 'nb-timedot-body nb-timedot-log-body';
+        el.appendChild(body);
+
+        // Collect entries from body blocks, resolving date from DOM headings when
+        // no inline date line is present (project diary pattern: ## YYYY-MM-DD).
+        const preview = document.getElementById('nb-preview-content');
+        if (!preview) { body.innerHTML = '<div class="nb-timedot-empty">Preview not ready</div>'; return; }
+
+        const allEntries = [];
+        for (const block of preview.querySelectorAll('.nb-timedot-block')) {
+            // Find the nearest heading above this block for date + anchor context.
+            let headingDate = null, headingId = null;
+            let sib = block.previousElementSibling;
+            while (sib) {
+                if (/^H[1-6]$/.test(sib.tagName)) {
+                    const dm = sib.textContent.match(/(\d{4}-\d{2}-\d{2})/);
+                    if (dm) { headingDate = dm[1]; headingId = sib.id; }
+                    break;
+                }
+                sib = sib.previousElementSibling;
+            }
+
+            const raw = block.dataset.src || '';
+            if (!raw.trim()) continue;
+
+            const segs = _timedotSegment(_timedotRewrite(raw, project));
+            for (const seg of segs) {
+                if (seg.type !== 'entry') continue;
+                allEntries.push({
+                    date:      seg.date || headingDate,
+                    headingId: seg.date ? null : headingId,   // anchor only for heading-sourced dates
+                    account:   seg.account,
+                    hrs:       seg.hrs,
+                    comment:   seg.comment || '',
+                });
+            }
+        }
+
+        // Sort oldest-first; entries without a date sink to the bottom.
+        allEntries.sort((a, b) => {
+            if (!a.date && !b.date) return 0;
+            if (!a.date) return 1;
+            if (!b.date) return -1;
+            return a.date.localeCompare(b.date);
+        });
+
+        // Grand total for header meta.
+        const grandHrs = allEntries.reduce((s, e) => s + e.hrs, 0);
+        const grandAmt = rate && grandHrs ? grandHrs * rate : null;
+        metaEl.textContent = grandHrs > 0
+            ? grandHrs.toFixed(1) + 'h' + (grandAmt !== null ? ' · $' + grandAmt.toFixed(2) : '')
+            : 'empty';
+
+        if (!allEntries.length) {
+            body.innerHTML = '<div class="nb-timedot-empty">No entries yet</div>';
+            return;
+        }
+
+        // Render date-grouped table.
+        const table = document.createElement('table');
+        table.className = 'nb-timedot-table nb-timedot-log-table';
+
+        // Group by date (preserves sorted order via Map).
+        const byDate = new Map();
+        for (const e of allEntries) {
+            const k = e.date || '—';
+            if (!byDate.has(k)) byDate.set(k, { headingId: e.headingId, entries: [] });
+            byDate.get(k).entries.push(e);
+        }
+
+        for (const [date, { headingId, entries }] of byDate) {
+            const dateHrs = entries.reduce((s, e) => s + e.hrs, 0);
+            const dateAmt = rate ? dateHrs * rate : null;
+
+            // Date header row — clickable link scrolls to heading anchor.
+            const dateTr = document.createElement('tr');
+            dateTr.className = 'nb-timedot-log-date-row';
+            const dateTd = document.createElement('td');
+            dateTd.colSpan = 3;
+            if (headingId) {
+                const a = document.createElement('a');
+                a.className = 'nb-timedot-log-anchor';
+                a.href = '#' + headingId;
+                a.textContent = date;
+                a.addEventListener('click', ev => {
+                    ev.preventDefault();
+                    document.getElementById(headingId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+                dateTd.appendChild(a);
+            } else {
+                dateTd.textContent = date;
+            }
+            const dateSumTd = document.createElement('td');
+            dateSumTd.className = 'nb-timedot-log-date-sum';
+            dateSumTd.textContent = dateHrs.toFixed(1) + 'h' + (dateAmt !== null ? ' · $' + dateAmt.toFixed(2) : '');
+            dateTr.appendChild(dateTd);
+            dateTr.appendChild(dateSumTd);
+            table.appendChild(dateTr);
+
+            // Entry rows.
+            for (const e of entries) {
+                const tr = document.createElement('tr');
+                tr.className = 'nb-timedot-log-entry';
+                const acctTd = document.createElement('td');
+                acctTd.className = 'nb-timedot-acct';
+                acctTd.textContent = e.account;
+                const hrsTd = document.createElement('td');
+                hrsTd.className = 'nb-timedot-h';
+                hrsTd.textContent = e.hrs.toFixed(1) + 'h';
+                const cmtTd = document.createElement('td');
+                cmtTd.className = 'nb-timedot-log-comment';
+                cmtTd.textContent = e.comment;
+                tr.appendChild(acctTd);
+                tr.appendChild(hrsTd);
+                tr.appendChild(cmtTd);
+                table.appendChild(tr);
+            }
+        }
+
+        body.appendChild(table);
     }
 
     async function _loadTimedotBlock(el) {
@@ -4028,7 +4180,12 @@
             {
                 lang:      'timedot',
                 html:      text => `<div class="nb-timedot-block" data-src="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                renderOne: async el => _loadTimedotBlock(el),   // FM barblock: aggregate summary
+                renderOne: async el => {                          // FM barblock: log or aggregate
+                    const note = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+                    return note?.meta?.timedot_file
+                        ? _loadTimedotBlock(el)     // external file: aggregate + filter + add form
+                        : _loadTimedotLogBlock(el); // inline: date log with comments + anchors
+                },
                 render:    async container => {                  // body codeblock: verbatim + edit
                     const blocks = [...container.querySelectorAll('.nb-timedot-block')];
                     if (!blocks.length) return;
