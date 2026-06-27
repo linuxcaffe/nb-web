@@ -88,7 +88,7 @@
         gallery:  { text: 'GAL' },
         toc:      { text: 'TOC' },
         test:     { text: 'TST' },
-        timedot:  { text: 'TDT' },
+        timedot:  { text: '⏱', emoji: true },
     };
 
     function _cbIcon(blockType) {
@@ -103,7 +103,8 @@
             el.title = spec.alt || blockType;
         } else {
             el.textContent = spec?.text || blockType.slice(0, 3).toUpperCase();
-            if (spec?.large) el.classList.add('nb-cb-icon--large');
+            if (spec?.large)  el.classList.add('nb-cb-icon--large');
+            if (spec?.emoji)  el.classList.add('nb-cb-icon--emoji');
             el.setAttribute('aria-label', blockType);
         }
         return el;
@@ -3689,6 +3690,121 @@
         setTimeout(() => form.querySelector('.nb-timedot-time').focus(), 50);
     }
 
+    // Replace the entire content of a body timedot fenced block in the note.
+    async function _timedotSaveInlineBlock(el, newContent) {
+        const selector = typeof NbMain !== 'undefined' ? NbMain.activeSelector?.() : null;
+        if (!selector) throw new Error('No active note');
+        const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
+        const d = await r.json();
+        let raw = d.raw || d.body || '';
+        const hosts = [...document.querySelectorAll('.nb-timedot-block')];
+        const idx = hosts.indexOf(el);
+        let blockIdx = 0, replaced = false;
+        raw = raw.replace(/```timedot\n([\s\S]*?)```/g, (match) => {
+            if (blockIdx++ !== idx) return match;
+            replaced = true;
+            return '```timedot\n' + newContent.trimEnd() + '\n```';
+        });
+        if (!replaced) throw new Error('Block not found in source');
+        const wr = await fetch('/api/note', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selector, content: raw }),
+        });
+        const wd = await wr.json();
+        if (!wd.success) throw new Error(wd.stderr || 'Save failed');
+        el.dataset.src = newContent.trimEnd();
+    }
+
+    // Body codeblock: verbatim display with inline textarea editing.
+    async function _loadTimedotRawBlock(el) {
+        const raw = el.dataset.src || '';
+        el.innerHTML = '';
+
+        const { hdr, meta: metaEl, acts } = _buildBarHeader(el, {
+            lang: 'timedot',
+            onRefresh: () => _loadTimedotRawBlock(el),
+        });
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'nb-tw-btn nb-timedot-edit-btn';
+        editBtn.title = 'Edit inline';
+        editBtn.textContent = '✎';
+        acts.insertBefore(editBtn, acts.firstChild);
+
+        const lineCount = raw ? raw.split('\n').filter(l => l.trim()).length : 0;
+        metaEl.textContent = lineCount ? `${lineCount} entries` : 'empty';
+
+        el.appendChild(hdr);
+        _initCollapseToggle(el);
+
+        const body = document.createElement('div');
+        body.className = 'nb-timedot-body';
+        el.appendChild(body);
+
+        const showRaw = () => {
+            body.innerHTML = '';
+            const pre = document.createElement('pre');
+            pre.className = 'nb-timedot-raw';
+            pre.textContent = raw || '';
+            body.appendChild(pre);
+        };
+
+        const showEdit = () => {
+            body.innerHTML = '';
+            const ta = document.createElement('textarea');
+            ta.className = 'nb-timedot-edit-ta';
+            ta.value = raw;
+            ta.rows = Math.max(4, (raw.split('\n').length || 1) + 1);
+            const btns = document.createElement('div');
+            btns.className = 'nb-timedot-edit-btns';
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'nb-tw-btn nb-timedot-save-btn';
+            saveBtn.textContent = 'Save';
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'nb-tw-btn';
+            cancelBtn.textContent = 'Cancel';
+            btns.appendChild(saveBtn);
+            btns.appendChild(cancelBtn);
+            body.appendChild(ta);
+            body.appendChild(btns);
+            ta.focus();
+
+            saveBtn.addEventListener('click', async () => {
+                try {
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = '…';
+                    await _timedotSaveInlineBlock(el, ta.value);
+                    editBtn.textContent = '✎';
+                    _loadTimedotRawBlock(el);
+                } catch (e) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save';
+                    const err = document.createElement('div');
+                    err.className = 'nb-timedot-err';
+                    err.textContent = e.message || 'Save failed';
+                    body.appendChild(err);
+                }
+            });
+            cancelBtn.addEventListener('click', () => {
+                editBtn.textContent = '✎';
+                showRaw();
+            });
+        };
+
+        editBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            if (editBtn.textContent === '✎') {
+                editBtn.textContent = '✕';
+                showEdit();
+            } else {
+                editBtn.textContent = '✎';
+                showRaw();
+            }
+        });
+
+        showRaw();
+    }
+
     async function _loadTimedotBlock(el) {
         const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
         const meta    = note?.meta || {};
@@ -3704,6 +3820,15 @@
                 const d = await r.json();
                 if (d.exists) { el.dataset.src = d.content; el.dataset.externalLoaded = '1'; }
             } catch { /* fallback to inline */ }
+        }
+
+        // FM barblock with no external file and no inline data: aggregate from body blocks.
+        // isAggregation=true means "+" add button is suppressed (no single target to write to).
+        let isAggregation = false;
+        if (!el.dataset.src && !tdFile) {
+            const bodyBlocks = [...document.querySelectorAll('#nb-preview-content .nb-timedot-block')];
+            const combined = bodyBlocks.map(b => b.dataset.src || '').filter(Boolean).join('\n');
+            if (combined) { el.dataset.src = combined; isAggregation = true; }
         }
 
         const raw     = el.dataset.src || '';
@@ -3732,13 +3857,15 @@
         });
         acts.insertBefore(filterBtn, acts.firstChild);
 
-        // + entry button
-        const addBtn = document.createElement('button');
-        addBtn.className = 'nb-tw-btn nb-timedot-add-btn';
-        addBtn.title = 'Add time entry';
-        addBtn.textContent = '+';
-        addBtn.addEventListener('click', e => { e.stopPropagation(); _showTimedotAddForm(el, addBtn, project); });
-        acts.insertBefore(addBtn, acts.firstChild);
+        // + entry button — hidden in aggregation mode (no single inline target to write to)
+        if (!isAggregation) {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'nb-tw-btn nb-timedot-add-btn';
+            addBtn.title = 'Add time entry';
+            addBtn.textContent = '+';
+            addBtn.addEventListener('click', e => { e.stopPropagation(); _showTimedotAddForm(el, addBtn, project); });
+            acts.insertBefore(addBtn, acts.firstChild);
+        }
 
         // Clickable meta: totals → summary popover
         const totalBtn = document.createElement('button');
@@ -3901,13 +4028,13 @@
             {
                 lang:      'timedot',
                 html:      text => `<div class="nb-timedot-block" data-src="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`,
-                renderOne: async el => _loadTimedotBlock(el),
-                render:    async container => {
+                renderOne: async el => _loadTimedotBlock(el),   // FM barblock: aggregate summary
+                render:    async container => {                  // body codeblock: verbatim + edit
                     const blocks = [...container.querySelectorAll('.nb-timedot-block')];
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
                     await Promise.all(blocks.map(async el => {
-                        try { await _loadTimedotBlock(el); }
+                        try { await _loadTimedotRawBlock(el); }
                         finally { NbWeb.statusPill?.tick(); }
                     }));
                 },
