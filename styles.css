@@ -930,6 +930,21 @@ body {
 }
 .nb-specialty-today:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .nb-specialty-label { font-weight: 600; color: var(--text); }
+.nb-specialty-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+}
+.nb-specialty-action {
+    padding: 2px 8px;
+    font-size: 0.85em;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.nb-specialty-action:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .nb-specialty-pill  {
     padding: 1px 7px;
     border-radius: 10px;
