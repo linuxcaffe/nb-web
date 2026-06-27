@@ -3523,8 +3523,10 @@ def _timedot_categories(timedot_path: str, project: str) -> list:
 
 
 def _find_invoice_template(notebook: str, btype: str) -> 'Path | None':
-    """Look for invoice-{btype}.md then invoice.md in notebook then global templates."""
-    for name in (f'invoice-{btype}.md', 'invoice.md'):
+    """Look for invoice-{btype}.md then invoice.md in notebook then global templates.
+    Normalises btype so 't&m' maps to filename 'invoice-tm.md'."""
+    slug = btype.replace('&', '').replace(' ', '-').strip('-')
+    for name in (f'invoice-{slug}.md', f'invoice-{btype}.md', 'invoice.md'):
         for base in (NB_DIR / notebook / '.templates', NB_DIR / '.templates'):
             p = base / name
             if p.exists():
