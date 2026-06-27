@@ -3436,7 +3436,7 @@ def _parse_labour_entries(journal_key: str):
         m = re.match(r'^(\d{4}-\d{2}-\d{2})\s+\S.*?—\s*([\d.]+)h\s*@\s*\$[\d.]+(?:\s*;\s*(.+))?', line)
         if m:
             entry_date = m.group(1)
-            if cutoff and entry_date <= cutoff:
+            if cutoff and entry_date < cutoff:
                 cur = None
                 continue
             cur = {'date': entry_date, 'hours': float(m.group(2)),
