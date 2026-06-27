@@ -3580,7 +3580,8 @@
         const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
         const d = await r.json();
         let raw = d.raw || d.body || '';
-        const hosts = [...document.querySelectorAll('.nb-timedot-block')];
+        const preview = document.getElementById('nb-preview-content');
+        const hosts = [...(preview || document).querySelectorAll('.nb-timedot-block')];
         const idx = hosts.indexOf(el);
         let blockIdx = 0, replaced = false;
         raw = raw.replace(/```timedot\n([\s\S]*?)```/g, (match, content) => {
@@ -3697,7 +3698,8 @@
         const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
         const d = await r.json();
         let raw = d.raw || d.body || '';
-        const hosts = [...document.querySelectorAll('.nb-timedot-block')];
+        const preview = document.getElementById('nb-preview-content');
+        const hosts = [...(preview || document).querySelectorAll('.nb-timedot-block')];
         const idx = hosts.indexOf(el);
         let blockIdx = 0, replaced = false;
         raw = raw.replace(/```timedot\n([\s\S]*?)```/g, (match) => {
