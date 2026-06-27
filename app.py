@@ -3401,26 +3401,43 @@ def api_t_journal_from_csv():
     return jsonify({'success': True, 'path': str(out_path)})
 
 
+def _last_invoice_cutoff(journal_key: str) -> str:
+    """Read the project diary alongside the journal and return the date of the
+    last INVOICED marker, or '' if none. Diary lives at ../name.md relative to
+    the journals/ folder (e.g. journals/nathan.journal → ../nathan.md)."""
+    if not journal_key:
+        return ''
+    jpath = Path(os.path.expanduser(journal_key))
+    diary = jpath.parent.parent / f'{jpath.stem}.md'
+    if not diary.exists():
+        return ''
+    for line in reversed(diary.read_text(errors='replace').splitlines()):
+        m = re.search(r'INVOICED:\s+\S+\s+(\d{4}-\d{2}-\d{2})', line)
+        if m:
+            return m.group(1)
+    return ''
+
+
 def _parse_labour_entries(journal_key: str):
     """Parse labour journal into per-entry dicts. Returns (entries, total_cad).
     Each entry: {date, hours, description, amount}
-    Only returns entries after the last INVOICED marker (if any)."""
+    Only returns entries after the last INVOICED marker in the project diary."""
     if not journal_key:
         return [], 0.0
     jpath = Path(os.path.expanduser(journal_key))
     labour_j = jpath.with_name(jpath.stem + '.labour.journal')
     if not labour_j.exists():
         return [], 0.0
-    text = labour_j.read_text(errors='replace')
-    # Only parse entries after the last invoice cutoff marker
-    marker_pos = text.rfind('\n; === INVOICED:')
-    if marker_pos >= 0:
-        text = text[marker_pos:]
+    cutoff = _last_invoice_cutoff(journal_key)
     entries, total, cur = [], 0.0, None
-    for line in text.splitlines():
+    for line in labour_j.read_text(errors='replace').splitlines():
         m = re.match(r'^(\d{4}-\d{2}-\d{2})\s+\S.*?—\s*([\d.]+)h\s*@\s*\$[\d.]+(?:\s*;\s*(.+))?', line)
         if m:
-            cur = {'date': m.group(1), 'hours': float(m.group(2)),
+            entry_date = m.group(1)
+            if cutoff and entry_date <= cutoff:
+                cur = None
+                continue
+            cur = {'date': entry_date, 'hours': float(m.group(2)),
                    'description': (m.group(3) or '').strip(), 'amount': 0.0}
             entries.append(cur)
         elif cur:
@@ -3738,14 +3755,15 @@ invoice_num: {invoice_num}
         with open(index_path, 'a') as f:
             f.write(inv_filename + '\n')
 
-    # Append invoice cutoff marker to labour journal so next invoice starts fresh
+    # Append invoice marker to project diary — source of truth for billing cutoff.
+    # Delete this line from the diary to regenerate the same invoice period.
     jpath      = Path(os.path.expanduser(journal_key))
-    labour_j   = jpath.with_name(jpath.stem + '.labour.journal')
+    diary_path = jpath.parent.parent / f'{jpath.stem}.md'
     extra_files = []
-    if labour_j.exists():
-        with open(labour_j, 'a') as f:
-            f.write(f'\n; === INVOICED: {invoice_num}  {inv_date} ===\n')
-        extra_files.append(str(labour_j.relative_to(nb_root)))
+    if diary_path.exists():
+        with open(diary_path, 'a') as f:
+            f.write(f'\n<!-- INVOICED: {invoice_num}  {inv_date}  ${ar_total:.2f} {btype} -->\n')
+        extra_files.append(str(diary_path.relative_to(nb_root)))
 
     rel_in_nb  = inv_path.relative_to(nb_root)
     index_rel  = index_path.relative_to(nb_root)
