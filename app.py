@@ -3762,7 +3762,7 @@ invoice_num: {invoice_num}
     extra_files = []
     if diary_path.exists():
         with open(diary_path, 'a') as f:
-            f.write(f'\n<!-- INVOICED: {invoice_num}  {inv_date}  ${ar_total:.2f} {btype} -->\n')
+            f.write(f'\n> INVOICED: {invoice_num}  {inv_date}  ${ar_total:.2f} {btype}\n')
         extra_files.append(str(diary_path.relative_to(nb_root)))
 
     rel_in_nb  = inv_path.relative_to(nb_root)
