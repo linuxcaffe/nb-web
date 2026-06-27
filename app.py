@@ -3530,7 +3530,7 @@ def api_t_invoice_preflight():
 
     today = _dt.date.today()
     year  = today.year
-    existing = sorted(f.stem for f in (note_path.parent / 'invoices').glob(f'INV-{year}-*.md'))
+    existing = sorted(f.stem for f in (note_path.parent.parent / 'invoices').glob(f'INV-{year}-*.md'))
     next_num = (int(existing[-1].split('-')[-1]) + 1) if existing else 1
 
     return jsonify({
@@ -3717,7 +3717,7 @@ invoice_num: {invoice_num}
 '''
 
     inv_filename = f'{invoice_num}.md'
-    inv_dir      = project_dir / 'invoices'
+    inv_dir      = project_dir.parent / 'invoices'
     inv_dir.mkdir(exist_ok=True)
     inv_path     = inv_dir / inv_filename
     if inv_path.exists():
