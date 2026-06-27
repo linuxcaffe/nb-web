@@ -4077,7 +4077,12 @@
             },
             {
                 lang:      'csv',
-                html:      text => `<div class="nb-csv-catalog" data-csv-tokens="${_esc(text)}"></div>`,
+                // Body codeblocks contain multi-line CSV data; FM values are single-line
+                // token lists.  Return false for body blocks so marked falls through to
+                // <pre><code class="language-csv"> which _renderCsvBlocks in main.js picks up.
+                html:      text => text.includes('\n')
+                    ? false
+                    : `<div class="nb-csv-catalog" data-csv-tokens="${_esc(text)}"></div>`,
                 renderOne: async el => _loadCsvCatalogBlock(el),
             },
         ],
