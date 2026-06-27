@@ -3565,6 +3565,42 @@
         }).join('\n');
     }
 
+    // Rebuild a timedot file from all ```timedot blocks in raw note text.
+    // Date context comes from heading lines (## YYYY-MM-DD).
+    // :sub shortcuts are expanded via _timedotRewrite.
+    function _timedotExtractFile(raw, project) {
+        let body = raw;
+        if (raw.startsWith('---')) {
+            const end = raw.indexOf('\n---', 3);
+            if (end >= 0) body = raw.slice(end + 4).replace(/^\n+/, '');
+        }
+        const lines = body.split('\n');
+        const out = [];
+        let curDate = null, inBlock = false, blockLines = [];
+        for (const line of lines) {
+            if (!inBlock) {
+                const dm = line.match(/^#{1,6}\s+(\d{4}[-/]\d{2}[-/]\d{2})/);
+                if (dm) { curDate = dm[1]; continue; }
+                if (/^```timedot\b/.test(line)) { inBlock = true; blockLines = []; continue; }
+                continue;
+            }
+            if (/^```\s*$/.test(line)) {
+                if (blockLines.length) {
+                    const content = _timedotRewrite(blockLines.join('\n'), project);
+                    // Only prepend heading date if the block has no internal date line
+                    const hasDate = blockLines.some(l => /^\d{4}[-/]\d{2}[-/]\d{2}/.test(l.trim()));
+                    if (!hasDate && curDate) out.push(curDate);
+                    out.push(content);
+                    out.push('');
+                }
+                inBlock = false;
+                continue;
+            }
+            blockLines.push(line);
+        }
+        return out.join('\n').trimEnd() + '\n';
+    }
+
     // Append new entry lines — inline (PUT note) or external (POST /api/t/timedot/append).
     async function _timedotAppend(el, newLines) {
         const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
@@ -3726,6 +3762,17 @@
         const wd = await wr.json();
         if (!wd.success) throw new Error(wd.stderr || 'Save failed');
         el.dataset.src = newContent.trimEnd();
+
+        // Sync timedot_file: if set on this note, rebuild from all body blocks
+        const _syncNote = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const _syncFile = _syncNote?.meta?.timedot_file;
+        if (_syncFile) {
+            const _syncContent = _timedotExtractFile(raw, _syncNote?.meta?.project || null);
+            await fetch('/api/t/timedot/write', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file: _syncFile, content: _syncContent }),
+            });
+        }
     }
 
     // Body codeblock: verbatim display with inline textarea editing.

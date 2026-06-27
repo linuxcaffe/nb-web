@@ -3204,6 +3204,16 @@ def api_t_timedot_append():
     return jsonify({'success': True, 'path': str(td)})
 
 
+@app.route('/api/t/timedot/write', methods=['POST'])
+def api_t_timedot_write():
+    data    = request.get_json(silent=True) or {}
+    td      = _t_td_file(data.get('file'))
+    content = data.get('content', '')
+    td.parent.mkdir(parents=True, exist_ok=True)
+    td.write_text(content)
+    return jsonify({'success': True, 'path': str(td)})
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
