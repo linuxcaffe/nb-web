@@ -3530,7 +3530,7 @@ def api_t_invoice_preflight():
 
     today = _dt.date.today()
     year  = today.year
-    existing = sorted(f.stem for f in note_path.parent.glob(f'INV-{year}-*.md'))
+    existing = sorted(f.stem for f in (note_path.parent / 'invoices').glob(f'INV-{year}-*.md'))
     next_num = (int(existing[-1].split('-')[-1]) + 1) if existing else 1
 
     return jsonify({
