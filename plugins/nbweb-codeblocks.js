@@ -1209,7 +1209,18 @@
 
     async function _loadHledgerBlock(el) {
         if (!_cbCan(el, 'hl', 'read')) { _cbDenyRead(el); return; }
-        const q = el.dataset.query || '';
+        let q = el.dataset.query || '';
+
+        // Inject journal: FM key as positional path when no file already in query.
+        const _fmNote   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const _fmJournal = _fmNote?.meta?.journal || '';
+        if (_fmJournal) {
+            const _qt = q.trim();
+            const _firstTok = _qt.split(/\s+/)[0]?.toLowerCase() || '';
+            const _hasFile  = /^[~/]/.test(_qt) || /(?:^|\s)(?:-f|--file)[=\s]/.test(_qt);
+            if (!_hasFile && !['regen', 'ui', 'web'].includes(_firstTok))
+                q = _fmJournal + ' ' + q;
+        }
 
         // Detect launch-mode commands before hitting the backend
         const tokens = q.trim().split(/\s+/);
