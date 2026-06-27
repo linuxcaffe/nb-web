@@ -3441,6 +3441,62 @@ def _invoice_journal_totals(journal_key: str):
     return round(labour_total, 2), round(materials_subtotal, 2), round(materials_gross, 2)
 
 
+def _lookup_contact(client_ref: str, project_str: str) -> str:
+    """Build a To: block from a contacts notebook entry.
+    Tries contacts/{stem}.md from client_ref first, then the project prefix."""
+    def _try(stem):
+        p = NB_DIR / 'contacts' / f'{stem}.md'
+        if not p.exists():
+            return None
+        meta, _ = parse_frontmatter(p.read_text(errors='replace'))
+        lines = []
+        name = str(meta.get('name', '') or '').strip()
+        given = str(meta.get('given', '') or '').strip()
+        family = str(meta.get('family', '') or '').strip()
+        full_name = name or ' '.join(filter(None, [given, family]))
+        org = str(meta.get('org', '') or '').strip()
+        addr = str(meta.get('address', '') or '').strip()
+        if full_name and full_name.lower() != stem.lower():
+            lines.append(full_name)
+        if org:
+            lines.append(org)
+        if addr:
+            lines.append(addr)
+        return '\n'.join(lines) if lines else None
+
+    # Try the contact ref stem
+    ref_stem = client_ref.replace('contacts:', '').replace('.md', '').strip()
+    result = _try(ref_stem) if ref_stem else None
+    if not result:
+        # Fall back to the project prefix (e.g. "gbct" from "gbct:nathan")
+        proj_prefix = project_str.split(':')[0] if ':' in project_str else project_str
+        result = _try(proj_prefix)
+    return result or ref_stem or project_str
+
+
+def _timedot_categories(timedot_path: str, project: str) -> list:
+    """Extract unique sub-category labels from a timedot file.
+    e.g. 'gbct:nathan:flooring' → 'flooring' (strips project prefix)."""
+    if not timedot_path:
+        return []
+    p = Path(os.path.expanduser(timedot_path))
+    if not p.exists():
+        return []
+    prefix = project.rstrip(':') + ':'
+    seen, cats = set(), []
+    for line in p.read_text(errors='replace').splitlines():
+        line = line.strip()
+        if not line or line[0].isdigit() or line.startswith(';'):
+            continue
+        acct = line.split()[0] if line.split() else ''
+        if acct.startswith(prefix):
+            sub = acct[len(prefix):]
+            if sub and sub not in seen:
+                seen.add(sub)
+                cats.append(sub)
+    return cats
+
+
 def _find_invoice_template(notebook: str, btype: str) -> 'Path | None':
     """Look for invoice-{btype}.md then invoice.md in notebook then global templates."""
     for name in (f'invoice-{btype}.md', 'invoice.md'):
@@ -3516,19 +3572,29 @@ def api_t_invoice_generate():
     project    = str(meta.get('project', note_path.stem))
     rate       = float(meta.get('rate', 0) or 0)
     btype      = str(meta.get('billing_type', 't&m')).strip()
-    client_raw = str(meta.get('client', '')).strip()
-    client     = client_raw.replace('contacts:', '').replace('.md', '')
+    client_raw  = str(meta.get('client', '')).strip()
+    client      = client_raw.replace('contacts:', '').replace('.md', '')
     journal_key = str(meta.get('journal', '')).strip()
+    timedot_key = str(meta.get('timedot_file', '')).strip()
 
     labour_total, mat_sub, mat_gross = _invoice_journal_totals(journal_key)
     labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
 
     # Derive notebook + relative folder
-    notebook = selector.split(':')[0] if ':' in selector else 'home'
-    nb_root  = NB_DIR / notebook
+    notebook    = selector.split(':')[0] if ':' in selector else 'home'
+    nb_root     = NB_DIR / notebook
     project_dir = note_path.parent
     rel_folder  = str(project_dir.relative_to(nb_root))
     reports_sel = f'{notebook}:{rel_folder}/{note_path.name}'
+
+    # Contact lookup for To: block
+    to_lines   = _lookup_contact(client_raw, project)
+    to_block   = '**To:** ' + '  \n'.join(to_lines.splitlines()) if to_lines else f'**To:** {client}'
+
+    # Re: line — project stem + timedot categories
+    proj_stem  = project.split(':')[-1] if ':' in project else project
+    categories = _timedot_categories(timedot_key, project)
+    re_line    = f'project: {proj_stem} ({", ".join(categories)})' if categories else f'project: {proj_stem}'
 
     # Accounts
     ar_acct     = f'Assets:AR:{project}'
@@ -3606,6 +3672,8 @@ def api_t_invoice_generate():
             '{{total_line}}':       total_display,
             '{{ledger_block}}':     ledger_block,
             '{{notes_section}}':    notes_section,
+            '{{to_block}}':         to_block,
+            '{{re_line}}':          re_line,
         }.items():
             content = content.replace(k, v)
     else:
@@ -3649,26 +3717,32 @@ invoice_num: {invoice_num}
 '''
 
     inv_filename = f'{invoice_num}.md'
-    inv_path     = project_dir / inv_filename
+    inv_dir      = project_dir / 'invoices'
+    inv_dir.mkdir(exist_ok=True)
+    inv_path     = inv_dir / inv_filename
     if inv_path.exists():
         return jsonify({'error': f'{inv_filename} already exists'}), 409
 
     inv_path.write_text(content)
 
-    # Index + git commit
-    index_path = project_dir / '.index'
+    # Ensure invoices/.index exists and contains this file
+    index_path = inv_dir / '.index'
+    existing   = index_path.read_text().splitlines() if index_path.exists() else []
+    if inv_filename not in existing:
+        with open(index_path, 'a') as f:
+            f.write(inv_filename + '\n')
+
     rel_in_nb  = inv_path.relative_to(nb_root)
     index_rel  = index_path.relative_to(nb_root)
-    with open(index_path, 'a') as f:
-        f.write(inv_filename + '\n')
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
     subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)],
                    cwd=str(nb_root), capture_output=True, env=env)
     subprocess.run(['git', 'commit', '-m', f'[nb] Added: {inv_filename}'],
                    cwd=str(nb_root), capture_output=True, env=env)
 
+    inv_rel = inv_path.relative_to(nb_root)
     return jsonify({'success': True,
-                    'selector': f'{notebook}:{rel_folder}/{inv_filename}',
+                    'selector': f'{notebook}:{inv_rel}',
                     'path': str(inv_path)})
 
 
