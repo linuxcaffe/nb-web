@@ -916,11 +916,6 @@ const NbMain = (() => {
                 });
             }
             return;
-        } else if (note.type === 'dotfile' && note.meta?.config) {
-            content.innerHTML = '<div class="nb-rendered nb-config-wrap"></div>';
-            _buildConfigForm(content.querySelector('.nb-config-wrap'), note);
-            _finishRendered(content, note);
-            return;
         } else if (_pluginHtml !== null) {
             html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
         } else if (note.type === 'sheet') {
@@ -3441,6 +3436,7 @@ const NbMain = (() => {
                 'sep',
                 { label: 'Rename…',              disabled: !hasNote, action: () => NbDialog.open('rename') },
                 { label: 'Move to…',             disabled: !hasNote, action: () => NbDialog.open('move') },
+                { label: 'Copy to…',             disabled: !hasNote, action: () => NbDialog.open('copy') },
                 { label: '📋 Save as template…', disabled: !hasNote, action: _doSaveAsTemplate },
                 'sep',
                 { label: '↩ Undo last edit',
@@ -7270,8 +7266,8 @@ const NbDialog = (() => {
         header.className = 'nb-dlg-header';
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
-        const allTabs = [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move'], ['rename','✏ Rename']];
-        const tabDefs = _bulkSelectors ? allTabs.filter(([id]) => id === 'export' || id === 'move') : allTabs;
+        const allTabs = [['import','📥 Import'], ['export','⬇ Export'], ['move','→ Move'], ['copy','⎘ Copy'], ['rename','✏ Rename']];
+        const tabDefs = _bulkSelectors ? allTabs.filter(([id]) => id === 'export' || id === 'move' || id === 'copy') : allTabs;
         tabDefs.forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
@@ -7309,9 +7305,11 @@ const NbDialog = (() => {
         if (_tab === 'import')          _renderImport();
         else if (_tab === 'export')     _renderExport();
         else if (_tab === 'move')       _renderMove();
+        else if (_tab === 'copy')       _renderCopy();
         else if (_tab === 'rename')     _renderRename();
         else if (_tab === 'f-rename')   _renderFolderRename();
         else if (_tab === 'f-move')     _renderFolderMove();
+        else if (_tab === 'f-copy')     _renderFolderCopy();
         else if (_tab === 'f-delete')   _renderFolderDelete();
         else if (_tab === 'f-lock')     _renderFolderLock();
     }
@@ -7335,7 +7333,7 @@ const NbDialog = (() => {
         header.className = 'nb-dlg-header';
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
-        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-delete','🗑 Delete'], ['f-lock','🔒 Lock']].forEach(([id, label]) => {
+        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-copy','⎘ Copy'], ['f-delete','🗑 Delete'], ['f-lock','🔒 Lock']].forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
             btn.dataset.tab = id; btn.textContent = label;
@@ -7448,6 +7446,59 @@ const NbDialog = (() => {
         });
 
         body.append(destRow, btnRow);
+        nbSel.focus();
+    }
+
+    async function _renderFolderCopy() {
+        const body  = _body();
+        const curNb = _folderSelector.split(':')[0];
+
+        body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
+        const nbSel = await _buildNbPicker(curNb);
+        let folderSel = await _buildFolderPicker(curNb, _folderName);
+        body.innerHTML = '';
+
+        const info = document.createElement('p');
+        info.className = 'nb-dlg-info';
+        info.textContent = `Copy "${_folderName}" and all its contents to:`;
+        const destRow = _row('Into:', nbSel, folderSel);
+        nbSel.addEventListener('change', async () => {
+            const exclude = nbSel.value === curNb ? _folderName : null;
+            const next = await _buildFolderPicker(nbSel.value, exclude);
+            destRow.replaceChild(next, folderSel);
+            folderSel = next;
+        });
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'nb-tool-btn nb-btn-primary'; copyBtn.textContent = 'Copy folder';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(copyBtn, cancelBtn);
+        cancelBtn.addEventListener('click', close);
+
+        copyBtn.addEventListener('click', async () => {
+            const dest = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
+            copyBtn.textContent = 'Copying…'; copyBtn.disabled = true;
+            try {
+                const r = await fetch('/api/folder/copy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: _folderSelector, dest }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    close();
+                    NbNav.reexecute();
+                } else {
+                    alert('Copy failed: ' + (d.stderr || 'unknown'));
+                    copyBtn.textContent = 'Copy folder'; copyBtn.disabled = false;
+                }
+            } catch { copyBtn.textContent = 'Copy folder'; copyBtn.disabled = false; }
+        });
+
+        body.append(info, destRow, btnRow);
         nbSel.focus();
     }
 
@@ -8154,6 +8205,81 @@ const NbDialog = (() => {
                 close();
                 NbMain.clearSelection?.();
                 NbMain.clearNote(isBulk ? `${count} items moved.` : 'Note moved.');
+                NbNav.reexecute();
+            }
+        });
+
+        body.append(destRow, btnRow);
+        nbSel.focus();
+    }
+
+    // ── Copy tab ───────────────────────────────────────────────
+    async function _renderCopy() {
+        const body      = _body();
+        const selectors = _bulkSelectors?.length ? _bulkSelectors
+                        : NbMain.activeSelector()  ? [NbMain.activeSelector()]
+                        : null;
+        if (!selectors) {
+            body.innerHTML = '<p class="nb-dlg-empty">No note selected — open a note first.</p>';
+            return;
+        }
+        const isBulk = selectors.length > 1;
+        const count  = selectors.length;
+
+        body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
+        const curNb = selectors[0].split(':')[0];
+        const nbSel = await _buildNbPicker(curNb);
+        let folderSel = await _buildFolderPicker(curNb);
+        body.innerHTML = '';
+
+        const destRow = _row('Into:', nbSel, folderSel);
+        nbSel.addEventListener('change', async () => {
+            const next = await _buildFolderPicker(nbSel.value);
+            destRow.replaceChild(next, folderSel);
+            folderSel = next;
+        });
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'nb-tool-btn nb-btn-primary';
+        copyBtn.textContent = isBulk ? `Copy ${count} items` : 'Copy';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'nb-tool-btn'; cancelBtn.textContent = 'Cancel';
+        const btnRow = document.createElement('div');
+        btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
+        btnRow.append(copyBtn, cancelBtn);
+        cancelBtn.addEventListener('click', close);
+
+        copyBtn.addEventListener('click', async () => {
+            const destPrefix = folderSel.value ? `${nbSel.value}:${folderSel.value}/` : `${nbSel.value}:`;
+            copyBtn.textContent = 'Copying…'; copyBtn.disabled = true;
+            let failed = 0;
+            const failReasons = [];
+            for (const sel of selectors) {
+                const filename = sel.split(':').slice(1).join(':').split('/').pop();
+                const dest = destPrefix + filename;
+                if (dest === sel) { failed++; failReasons.push('Source and destination are the same.'); continue; }
+                try {
+                    const resp = await fetch('/api/note/copy', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ selector: sel, dest }),
+                    });
+                    const rd = await resp.json();
+                    if (!rd.success) {
+                        failed++;
+                        const msg = rd.stderr || '';
+                        failReasons.push(msg.includes('already exists')
+                            ? `A note named "${filename}" already exists at that destination.`
+                            : (msg || 'unknown error'));
+                    }
+                } catch(e) { failed++; failReasons.push(String(e)); }
+            }
+            if (failed) {
+                alert(failReasons.join('\n') || `${failed} copy${failed !== 1 ? 's' : ''} failed.`);
+                copyBtn.textContent = isBulk ? `Copy ${count} items` : 'Copy';
+                copyBtn.disabled = false;
+            } else {
+                close();
                 NbNav.reexecute();
             }
         });

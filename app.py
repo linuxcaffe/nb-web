@@ -868,6 +868,7 @@ INDICATORS = {
     'project':     '🏗️',
     'reports':     '📊',
     'invoice':     '🧾',
+    'dashboard':   '🗂️',
     'note':        '',
     'dotfile':     '⚙',
     'code':        '📋',
@@ -900,7 +901,7 @@ INDICATORS = {
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
 _FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile', 'journal',
-                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice'})
+                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
@@ -5007,7 +5008,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
                     try:
                         raw_f = dotfile.read_text(errors='replace')
                         meta_f, body_f = parse_frontmatter(raw_f)
-                        dtitle  = meta_f.get('title') or meta_f.get('config') or note_title(dotfile.name, body_f)
+                        dtitle  = meta_f.get('title') or note_title(dotfile.name, body_f)
                         excerpt = next((ln.strip()[:120] for ln in body_f.splitlines()
                                         if ln.strip() and not _RE_HEADING.match(ln.strip())), '')
                         itype   = _apply_meta_type(classify(dotfile.name, notebook), meta_f)
@@ -5168,17 +5169,8 @@ def api_note():
     locked      = lk is not None
     lock_reason = lk.read_text(errors='replace').strip() or None if locked else None
 
-    # For config dotfiles, provide the parent chain (excluding this file) so the
-    # frontend can show inherited vs own values in the config form.
     parent_meta = {}
     parent_meta_sources = {}
-    if itype == 'dotfile' and meta.get('config') and note_notebook:
-        try:
-            parent_dir = Path(fpath).parent.parent
-            parent_meta, parent_meta_sources = _folder_config_sources(note_notebook, str(parent_dir))
-        except Exception:
-            parent_meta = {}
-            parent_meta_sources = {}
 
     return jsonify({
         'selector': selector,
@@ -5281,6 +5273,18 @@ def _folder_selector_to_dir(selector: str) -> 'Path | None':
     except ValueError:
         return None
     return p if p.is_dir() else None
+
+
+def _rebuild_dir_indexes(root: Path):
+    """Write .index files throughout root from filesystem state (tmp+rename to avoid inode glitch)."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dp = Path(dirpath)
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
+        children = list(dirnames) + sorted(f for f in filenames if not f.startswith('.'))
+        content = '\n'.join(children) + '\n' if children else ''
+        tmp = dp / '.index.tmp'
+        tmp.write_text(content)
+        tmp.rename(dp / '.index')
 
 
 def _sidecar_parent(fname: str) -> str | None:
@@ -8963,6 +8967,40 @@ def api_move():
     return jsonify({'success': True, 'ann_moved': ann_moved})
 
 
+@app.route('/api/note/copy', methods=['POST'])
+def api_copy():
+    """Copy a note (and its annotation sidecar) to a new notebook/folder."""
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()
+    dest     = data.get('dest', '').strip()   # e.g. "work:" or "tasks:folder/"
+    if not selector or not dest:
+        return jsonify({'error': 'selector and dest required'}), 400
+
+    fpath_r  = run_nb('show', selector, '--path')
+    fpath    = Path(fpath_r['stdout'].strip()) if nb_ok(fpath_r) else None
+    ann_path = _annotation_path(str(fpath)) if fpath else None
+
+    r = run_nb('copy', selector, dest)
+    if not nb_ok(r):
+        return jsonify({'success': False, 'stderr': strip_ansi(r['stderr'])})
+
+    # Copy annotation sidecar to the destination directory (non-fatal; source copy stays)
+    ann_copied = False
+    if ann_path and ann_path.exists() and fpath:
+        try:
+            import shutil as _shutil
+            dest_dir = _resolve_dest_dir(dest)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            new_ann = dest_dir / f'.{fpath.name}.annotations.md'
+            _shutil.copy2(ann_path, new_ann)
+            ann_copied = True
+        except OSError:
+            pass
+
+    _sidecar_scan_cache.clear()
+    return jsonify({'success': True, 'ann_copied': ann_copied})
+
+
 @app.route('/api/note/export-bulk', methods=['POST'])
 def api_export_bulk():
     import io
@@ -9014,6 +9052,47 @@ def api_folder_move():
         return jsonify({'error': 'selector and dest required'}), 400
     r = run_nb('move', selector, dest, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+
+@app.route('/api/folder/copy', methods=['POST'])
+def api_folder_copy():
+    """Copy an entire folder tree to a new location, rebuilding indexes properly."""
+    data     = request.get_json() or {}
+    selector = data.get('selector', '').strip()   # e.g. "acct_ref:hledger/"
+    dest     = data.get('dest', '').strip()        # e.g. "home:" or "home:reference/"
+    if not selector or not dest:
+        return jsonify({'error': 'selector and dest required'}), 400
+
+    src_dir = _folder_selector_to_dir(selector)
+    if not src_dir:
+        return jsonify({'error': 'source folder not found'}), 404
+
+    dest_parent = _resolve_dest_dir(dest)
+    dest_copy   = dest_parent / src_dir.name
+    if dest_copy.exists():
+        return jsonify({'success': False, 'stderr': f'"{src_dir.name}" already exists at the destination.'}), 400
+
+    try:
+        shutil.copytree(src_dir, dest_copy, ignore=shutil.ignore_patterns('.git'))
+        _rebuild_dir_indexes(dest_copy)
+
+        # Also add the new folder to the parent's .index
+        parent_index = dest_parent / '.index'
+        if parent_index.exists():
+            existing = parent_index.read_text().splitlines()
+            if src_dir.name not in existing:
+                parent_index.write_text('\n'.join(existing + [src_dir.name]) + '\n')
+
+        dest_nb    = dest.split(':')[0]
+        dest_nb_dir = NB_DIR / dest_nb
+        import subprocess as _sp
+        _sp.run(['git', 'add', '-A'], cwd=dest_nb_dir, capture_output=True)
+        _sp.run(['git', 'commit', '-m', f'[nb] Copy {selector} → {dest}'],
+                cwd=dest_nb_dir, capture_output=True)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'stderr': str(e)})
 
 
 @app.route('/api/folder', methods=['DELETE'])
