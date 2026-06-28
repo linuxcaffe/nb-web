@@ -876,11 +876,11 @@ const NbMain = (() => {
             content.innerHTML = `<embed src="${fileUrl}" type="application/pdf" class="nb-pdf-embed">`;
             _appendAnnotation(content, note);
             return;
-        } else if (note.type === 'code') {
+        } else if (note.type === 'code' || note.type === 'timedot') {
             const ext  = (note.filename || '').split('.').pop().toLowerCase();
             const _langMap = {
                 sh:'bash', bash:'bash', zsh:'bash', fish:'bash',
-                journal:'ledger', ledger:'ledger', hledger:'ledger',
+                journal:'ledger', ledger:'ledger', hledger:'ledger', timedot:'ledger',
                 hs:'haskell', lhs:'haskell',
                 py:'python', pyw:'python',
                 js:'javascript', mjs:'javascript', cjs:'javascript',

@@ -804,6 +804,7 @@ def classify(filename, notebook=None):
     if ext == '.txt':                                  return 'code'
     if ext in ('.sh', '.bash', '.zsh', '.fish'):         return 'code'
     if ext in ('.journal', '.ledger', '.hledger'):       return 'code'
+    if ext == '.timedot':                                return 'timedot'
     if ext in ('.hs', '.lhs'):                           return 'code'
     if ext in ('.py', '.pyw'):                           return 'code'
     if ext in ('.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx'): return 'code'
@@ -848,6 +849,7 @@ INDICATORS = {
     'html':        '🌐',
     'archive':     '📦',
     'journal':     '📒',
+    'timedot':     '⏱️',
     'strip':       '🎞️',
     'shot':        '🎬',
     'scene':       '📜',
