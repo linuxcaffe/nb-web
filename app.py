@@ -9075,11 +9075,50 @@ def api_folder_rename():
 def api_folder_move():
     data     = request.get_json() or {}
     selector = data.get('selector', '').strip()
-    dest     = data.get('dest', '').strip()   # e.g. "work:"
+    dest     = data.get('dest', '').strip()
     if not selector or not dest:
         return jsonify({'error': 'selector and dest required'}), 400
-    r = run_nb('move', selector, dest, '--force')
-    return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
+
+    src_dir = _folder_selector_to_dir(selector)
+    if not src_dir:
+        return jsonify({'error': 'source folder not found'}), 404
+
+    dest_parent = _resolve_dest_dir(dest)
+    dest_dir    = dest_parent / src_dir.name
+    if dest_dir.exists():
+        return jsonify({'success': False, 'stderr': f'"{src_dir.name}" already exists at the destination.'}), 400
+
+    try:
+        shutil.move(str(src_dir), str(dest_dir))
+        _rebuild_dir_indexes(dest_dir)
+
+        # Remove from source parent's .index
+        src_index = src_dir.parent / '.index'
+        if src_index.exists():
+            lines = [l for l in src_index.read_text().splitlines() if l != src_dir.name]
+            src_index.write_text('\n'.join(lines) + '\n' if lines else '')
+
+        # Add to dest parent's .index
+        dest_index = dest_parent / '.index'
+        if dest_index.exists():
+            existing = dest_index.read_text().splitlines()
+            if src_dir.name not in existing:
+                dest_index.write_text('\n'.join(existing + [src_dir.name]) + '\n')
+
+        env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+        src_nb  = selector.split(':')[0]
+        dest_nb = dest.split(':')[0]
+        subprocess.run(['git', 'add', '-A'], cwd=str(NB_DIR / src_nb), capture_output=True, env=env)
+        subprocess.run(['git', 'commit', '-m', f'[nb] Move {selector} → {dest}'],
+                       cwd=str(NB_DIR / src_nb), capture_output=True, env=env)
+        if dest_nb != src_nb:
+            subprocess.run(['git', 'add', '-A'], cwd=str(NB_DIR / dest_nb), capture_output=True, env=env)
+            subprocess.run(['git', 'commit', '-m', f'[nb] Move {selector} → {dest}'],
+                           cwd=str(NB_DIR / dest_nb), capture_output=True, env=env)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'stderr': str(e)})
 
 
 @app.route('/api/folder/copy', methods=['POST'])
