@@ -5538,6 +5538,7 @@ def api_create_note():
             nb_root = NB_DIR / nb_name
             env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
             seed_files = []
+            index_path = nb_root / '.index'
             for tpl_name, fname in [
                 ('notebook-dashboard.md', f'{nb_name}.md'),
                 ('notebook-config.md',    f'.{nb_name}.md'),
@@ -5547,9 +5548,11 @@ def api_create_note():
                     seeded = _resolve_template_vars(
                         tpl_path.read_text(errors='replace'), title=nb_name)
                     (nb_root / fname).write_text(seeded)
+                    with open(index_path, 'a') as f:
+                        f.write(fname + '\n')
                     seed_files.append(fname)
             if seed_files:
-                subprocess.run(['git', 'add'] + seed_files,
+                subprocess.run(['git', 'add', '.index'] + seed_files,
                                cwd=str(nb_root), capture_output=True, env=env)
                 subprocess.run(['git', 'commit', '-m', f'[nb] Seed: {", ".join(seed_files)}'],
                                cwd=str(nb_root), capture_output=True, env=env)
