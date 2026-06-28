@@ -221,6 +221,7 @@ def _resolve_template_vars(text: str, title: str = '', tags: str = '', content: 
     now = datetime.now()
     subs = {
         '{{title}}':   title,
+        '{{name}}':    title,   # alias used in notebook-scoped templates
         '{{input}}':   title,   # same value — name signals "inject the user's input here"
         '{{tags}}':    tags,
         '{{content}}': content,
@@ -5528,8 +5529,32 @@ def api_create_note():
         folder_name = (title or 'newfolder').strip().strip('/')
         r = run_nb('folders', 'add', target + folder_name)
     elif ntype == 'notebook':
-        nb_name = (title or 'notebook').strip()
+        user = session.get('user', {})
+        if not _level_gte(user.get('level', ''), 'admin'):
+            return jsonify({'error': 'forbidden'}), 403
+        nb_name = re.sub(r'[^\w\-]', '_', (title or 'notebook').strip()).strip('_')
         r = run_nb('notebooks', 'add', nb_name)
+        if nb_ok(r):
+            nb_root = NB_DIR / nb_name
+            env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+            seed_files = []
+            for tpl_name, fname in [
+                ('notebook-dashboard.md', f'{nb_name}.md'),
+                ('notebook-config.md',    f'.{nb_name}.md'),
+            ]:
+                tpl_path = NB_DIR / '.templates' / tpl_name
+                if tpl_path.exists():
+                    seeded = _resolve_template_vars(
+                        tpl_path.read_text(errors='replace'), title=nb_name)
+                    (nb_root / fname).write_text(seeded)
+                    seed_files.append(fname)
+            if seed_files:
+                subprocess.run(['git', 'add'] + seed_files,
+                               cwd=str(nb_root), capture_output=True, env=env)
+                subprocess.run(['git', 'commit', '-m', f'[nb] Seed: {", ".join(seed_files)}'],
+                               cwd=str(nb_root), capture_output=True, env=env)
+            return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
+                            'selector': f'{nb_name}:{nb_name}.md'})
     else:
         # Resolve template vars in Python so {{date}}, {{weather}} etc. work
         # for any template, not just daily-template.

@@ -840,7 +840,8 @@ const NbNav = (() => {
     function _makeChipRow(items, activeVal, onChange) {
         const row = document.createElement('div');
         row.className = 'nb-opts-chips';
-        items.forEach(({ val, label }) => {
+        items.forEach(({ val, label, minLevel }) => {
+            if (minLevel && !window.NbAuth?.is(minLevel)) return;
             const chip = _makeChip(label, val === activeVal, () => {
                 row.querySelectorAll('.nb-opt-chip').forEach(c => c.classList.remove('active'));
                 chip.classList.add('active');
