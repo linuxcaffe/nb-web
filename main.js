@@ -5175,9 +5175,9 @@ const NbMain = (() => {
                 if (found) _previewTemplate(found.path, found.name, found.scope);
             }
 
-            // Plugin templates — grouped by module; all enabled plugins always shown
+            // Plugin templates — only from modules active for this notebook
             const nbObj = NbWeb.notebooks().find(n => n.name === nb) || { name: nb };
-            const pluginTemplates = NbWeb.getTemplatesForNotebook(nb);
+            const pluginTemplates = NbWeb.getTemplatesForNotebook(nb).filter(t => t.activeForNotebook);
             if (pluginTemplates.length) {
                 // Group by module
                 const byModule = new Map();
@@ -5323,8 +5323,8 @@ const NbMain = (() => {
                 list.appendChild(li);
             });
 
-            // Plugin templates (read-only preview — managed via plugin UI)
-            const pluginTemplates = NbWeb.getTemplatesForNotebook(nb);
+            // Plugin templates (read-only preview — only from modules active for this notebook)
+            const pluginTemplates = NbWeb.getTemplatesForNotebook(nb).filter(t => t.activeForNotebook);
             if (pluginTemplates.length) {
                 const byModule = new Map();
                 pluginTemplates.forEach(t => {
