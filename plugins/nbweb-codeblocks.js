@@ -3468,10 +3468,19 @@
         const tokens = (el.dataset.csvTokens || '').split(',').map(t => t.trim()).filter(Boolean);
         const limit  = parseInt(el.dataset.csvLimit || '8', 10);
         const note   = NbMain.activeNote();
-        el.innerHTML = '';
-        const { hdr, meta } = _buildBarHeader(el, { lang: 'csv' });
-        meta.textContent = tokens.join(', ') || '—';
-        el.appendChild(hdr);
+        // In FM mode buildFmSkeleton already built the header — don't clobber it.
+        // In body mode (no fmLazy marker) build the header ourselves.
+        const isFm = el.dataset.fmLazy === '1';
+        if (!isFm) {
+            el.innerHTML = '';
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'csv' });
+            meta.textContent = tokens.join(', ') || '—';
+            el.appendChild(hdr);
+        } else {
+            // Update the skeleton meta text with resolved token names
+            const meta = el.querySelector('[class*="-meta"]');
+            if (meta) meta.textContent = tokens.join(', ') || '—';
+        }
         if (!tokens.length || !note) return;
         const nb     = note.notebook || '';
         const sel    = note.selector || '';
