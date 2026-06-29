@@ -615,9 +615,15 @@ const NbMain = (() => {
             el.classList.toggle('active', el.dataset.selector === selector);
         });
 
-        if (pushHistory && _activeSelector && _activeSelector !== selector) {
-            _history.push({ sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 });
-            _future.length = 0;   // new navigation invalidates forward history
+        if (pushHistory) {
+            const _CMD_PAGES = new Set(['account','plugins','nb-notebooks','templates','contacts']);
+            if (_activeSelector && _activeSelector !== selector) {
+                _history.push({ sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 });
+                _future.length = 0;
+            } else if (!_activeSelector && _CMD_PAGES.has(NbNav.activeCmd)) {
+                _history.push({ cmd: NbNav.activeCmd });
+                _future.length = 0;
+            }
         }
         _activeSelector = selector;
         _updateNavBtns();
@@ -4222,24 +4228,32 @@ const NbMain = (() => {
         if (fwd)  fwd.hidden  = _future.length === 0;
     }
 
-    function _goBack() {
-        if (!_history.length) return;
-        const pane = document.getElementById('nb-preview-content');
-        _future.push({ sel: _activeSelector, scrollTop: pane?.scrollTop || 0 });
-        const entry = _history.pop();
+    function _currentHistoryEntry() {
+        if (_activeSelector) return { sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 };
+        if (_activeCmd)      return { cmd: _activeCmd };
+        return null;
+    }
+
+    function _restoreEntry(entry) {
+        if (!entry) return;
+        if (entry.cmd) { NbNav.activateCmd(entry.cmd); return; }
         const sel = typeof entry === 'object' ? entry.sel : entry;
         const top = typeof entry === 'object' ? entry.scrollTop : 0;
         openNote(sel, false, top ? { restoreScrollTop: top } : {});
     }
 
+    function _goBack() {
+        if (!_history.length) return;
+        const cur = _currentHistoryEntry();
+        if (cur) _future.push(cur);
+        _restoreEntry(_history.pop());
+    }
+
     function _goForward() {
         if (!_future.length) return;
-        const pane = document.getElementById('nb-preview-content');
-        _history.push({ sel: _activeSelector, scrollTop: pane?.scrollTop || 0 });
-        const entry = _future.pop();
-        const sel = typeof entry === 'object' ? entry.sel : entry;
-        const top = typeof entry === 'object' ? entry.scrollTop : 0;
-        openNote(sel, false, top ? { restoreScrollTop: top } : {});
+        const cur = _currentHistoryEntry();
+        if (cur) _history.push(cur);
+        _restoreEntry(_future.pop());
     }
 
     function _bindPreviewActions() {
