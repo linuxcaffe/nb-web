@@ -362,7 +362,7 @@ def parse_frontmatter(text):
 # Auth — session login; users are .md files in ~/.nb/.users/
 # ---------------------------------------------------------------------------
 
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 USERS_DIR  = NB_DIR / '.users'
 LEVELS     = ['guest', 'user', 'office', 'admin', 'tech']
@@ -717,6 +717,75 @@ def api_me():
     if not user:
         return jsonify(error='Not authenticated'), 401
     return jsonify(user)
+
+
+@app.route('/api/me', methods=['PUT'])
+def api_me_update():
+    user = session.get('user')
+    if not user:
+        return jsonify({'error': 'not authenticated'}), 401
+    data = request.get_json() or {}
+    username = user['username']
+    path = USERS_DIR / f'{username}.md'
+    if not path.exists():
+        return jsonify({'error': 'user card not found'}), 404
+
+    meta, body = parse_frontmatter(path.read_text(errors='replace'))
+
+    new_name = data.get('name', '').strip()
+    current_pw = data.get('current_password', '')
+    new_pw = data.get('new_password', '')
+
+    if new_pw:
+        if not current_pw:
+            return jsonify({'error': 'current password required'}), 400
+        if not check_password_hash(meta.get('password_hash', ''), current_pw):
+            return jsonify({'error': 'current password incorrect'}), 400
+        meta['password_hash'] = generate_password_hash(new_pw)
+
+    if new_name:
+        meta['name'] = new_name
+
+    fm_lines = '\n'.join(f'{k}: {_yaml.dump(v, default_flow_style=True).strip()}' for k, v in meta.items())
+    path.write_text(f'---\n{fm_lines}\n---\n{body}', encoding='utf-8')
+
+    # Refresh session
+    fresh = _load_user(username)
+    if fresh:
+        s = dict(session['user'])
+        s['name']  = fresh['name']
+        s['level'] = fresh['level']
+        session['user'] = s
+
+    return jsonify({'success': True, 'name': meta.get('name', username)})
+
+
+@app.route('/api/me/exclusive')
+def api_me_exclusive():
+    """Notes where access: <username> — visible only to this user."""
+    user = session.get('user')
+    if not user:
+        return jsonify({'error': 'not authenticated'}), 401
+    username = user['username']
+    notebooks = user.get('notebooks') or []
+    results = []
+    for nb in notebooks:
+        nb_dir = NB_DIR / nb
+        if not nb_dir.is_dir():
+            continue
+        for md in nb_dir.rglob('*.md'):
+            try:
+                meta, _ = parse_frontmatter(md.read_text(errors='replace'))
+                if str(meta.get('access', '')) == username:
+                    rel = str(md.relative_to(nb_dir))
+                    results.append({
+                        'selector': f'{nb}:{rel}',
+                        'title': meta.get('title') or md.stem,
+                        'notebook': nb,
+                    })
+            except Exception:
+                pass
+    return jsonify({'notes': results})
 
 
 # Dotfolders readable by all authenticated users (client-side data-min-level handles tiering)

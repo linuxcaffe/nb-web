@@ -7097,6 +7097,144 @@ const NbMain = (() => {
         } catch { return null; }
     }
 
+    // ── Account page ────────────────────────────────────────────────
+
+    const _LEVEL_DESC = {
+        guest:  'Read-only access to public notes.',
+        user:   'Create and edit notes in assigned notebooks.',
+        office: 'Extended access: accounting features and reports.',
+        admin:  'Full admin: manage notebooks, users, and settings.',
+        tech:   'Unrestricted system access.',
+    };
+
+    async function runAccount() {
+        const content = document.getElementById('nb-preview-content');
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-list-empty').hidden = true;
+        document.getElementById('nb-count').textContent = '';
+        content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+
+        try {
+            const [meRes, exRes] = await Promise.all([
+                fetch('/api/me'),
+                fetch('/api/me/exclusive'),
+            ]);
+            const me = await meRes.json();
+            const ex = exRes.ok ? (await exRes.json()).notes || [] : [];
+
+            const levelDesc = _LEVEL_DESC[me.level] || me.level;
+            const nbs = (me.notebooks || []);
+
+            const exRows = ex.length
+                ? ex.map(n => `<li><a href="#" class="nb-acct-excl" data-sel="${_esc(n.selector)}">${_esc(n.title)}</a> <span style="color:var(--text-dim);font-size:11px">${_esc(n.notebook)}</span></li>`).join('')
+                : '<li style="color:var(--text-dim)">None found.</li>';
+
+            content.innerHTML = `
+<div class="nb-account-page" style="padding:28px 32px;max-width:520px">
+
+  <h2 style="margin:0 0 20px;font-size:18px">Account</h2>
+
+  <section class="nb-acct-section" style="margin-bottom:24px">
+    <div style="display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:13px;align-items:baseline">
+      <span style="color:var(--text-dim)">Name</span>      <strong id="nb-acct-name-display">${_esc(me.name || me.username)}</strong>
+      <span style="color:var(--text-dim)">Username</span>  <code>${_esc(me.username)}</code>
+      <span style="color:var(--text-dim)">Level</span>     <span><code>${_esc(me.level)}</code> <span style="color:var(--text-dim);font-size:11px">— ${_esc(levelDesc)}</span></span>
+      <span style="color:var(--text-dim)">Notebooks</span> <span>${nbs.length ? nbs.map(n => `<code style="margin-right:4px">${_esc(n)}</code>`).join('') : '<span style="color:var(--text-dim)">all</span>'}</span>
+    </div>
+  </section>
+
+  <section class="nb-acct-section" style="margin-bottom:24px">
+    <h3 style="font-size:13px;font-weight:600;margin:0 0 10px">Edit name</h3>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="nb-acct-name" type="text" value="${_esc(me.name || me.username)}"
+             style="flex:1;padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+      <button id="nb-acct-name-save" class="nb-btn" style="font-size:12px">Save</button>
+    </div>
+    <div id="nb-acct-name-msg" style="font-size:11px;margin-top:4px;min-height:14px"></div>
+  </section>
+
+  <section class="nb-acct-section" style="margin-bottom:24px">
+    <h3 style="font-size:13px;font-weight:600;margin:0 0 10px">Change password</h3>
+    <div style="display:grid;gap:6px">
+      <input id="nb-acct-pw-cur"  type="password" placeholder="Current password"
+             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+      <input id="nb-acct-pw-new"  type="password" placeholder="New password"
+             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+      <input id="nb-acct-pw-new2" type="password" placeholder="Confirm new password"
+             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+      <button id="nb-acct-pw-save" class="nb-btn" style="font-size:12px;width:max-content">Change password</button>
+    </div>
+    <div id="nb-acct-pw-msg" style="font-size:11px;margin-top:4px;min-height:14px"></div>
+  </section>
+
+  <section class="nb-acct-section">
+    <h3 style="font-size:13px;font-weight:600;margin:0 0 8px">Your exclusive notes <span style="font-weight:normal;color:var(--text-dim);font-size:11px">— access: ${_esc(me.username)}</span></h3>
+    <ul style="list-style:none;padding:0;margin:0;font-size:12px;display:grid;gap:4px">${exRows}</ul>
+  </section>
+
+</div>`;
+
+            // Name save
+            content.querySelector('#nb-acct-name-save').addEventListener('click', async () => {
+                const name = content.querySelector('#nb-acct-name').value.trim();
+                const msg  = content.querySelector('#nb-acct-name-msg');
+                if (!name) { msg.textContent = 'Name cannot be empty.'; msg.style.color = 'var(--error,red)'; return; }
+                const r = await fetch('/api/me', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    msg.textContent = 'Saved.';
+                    msg.style.color = 'var(--success,green)';
+                    content.querySelector('#nb-acct-name-display').textContent = name;
+                    NbAuth?.bust?.();
+                } else {
+                    msg.textContent = d.error || 'Error.';
+                    msg.style.color = 'var(--error,red)';
+                }
+            });
+
+            // Password save
+            content.querySelector('#nb-acct-pw-save').addEventListener('click', async () => {
+                const cur  = content.querySelector('#nb-acct-pw-cur').value;
+                const pw1  = content.querySelector('#nb-acct-pw-new').value;
+                const pw2  = content.querySelector('#nb-acct-pw-new2').value;
+                const msg  = content.querySelector('#nb-acct-pw-msg');
+                if (!cur || !pw1) { msg.textContent = 'Fill in current and new password.'; msg.style.color = 'var(--error,red)'; return; }
+                if (pw1 !== pw2)  { msg.textContent = 'New passwords do not match.';       msg.style.color = 'var(--error,red)'; return; }
+                const r = await fetch('/api/me', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ current_password: cur, new_password: pw1 }),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    msg.textContent = 'Password changed.';
+                    msg.style.color = 'var(--success,green)';
+                    content.querySelector('#nb-acct-pw-cur').value  = '';
+                    content.querySelector('#nb-acct-pw-new').value  = '';
+                    content.querySelector('#nb-acct-pw-new2').value = '';
+                } else {
+                    msg.textContent = d.error || 'Error.';
+                    msg.style.color = 'var(--error,red)';
+                }
+            });
+
+            // Exclusive note links
+            content.querySelectorAll('.nb-acct-excl').forEach(a => {
+                a.addEventListener('click', e => {
+                    e.preventDefault();
+                    openNote(a.dataset.sel);
+                });
+            });
+
+        } catch(e) {
+            content.innerHTML = `<div style="padding:40px;color:var(--error,red)">Failed to load account: ${_esc(String(e))}</div>`;
+        }
+    }
+
     function setFoldersFirst(val) {
         _foldersFirst = val;
         localStorage.setItem('nb-folders-first', val);
@@ -7105,7 +7243,7 @@ const NbMain = (() => {
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
              showAddForm, addNote, addEncryptedNote, encPassword: () => _encPassword,
-             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, loadTemplatesForAdd,
+             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, runAccount, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor, saveNote: _saveNote,
              isEditing: () => _editing,
              setFoldersFirst,
