@@ -3444,11 +3444,9 @@
 
         if (!groups.length) return '<span style="color:var(--text-dim);font-size:12px">No items.</span>';
 
-        const totalItems = groups.reduce((n, g) => n + g.items.length, 0);
-        const scrollable = totalItems > limit;
-        const scrollStyle = scrollable
-            ? `max-height:${limit * ITEM_H}px;overflow-y:auto;`
-            : '';
+        // Always cap height — browser only shows scrollbar when content overflows.
+        // Use 28px per row to account for group heading margins (not just item rows).
+        const maxH = limit * ITEM_H;
 
         let inner = '';
         for (const g of groups) {
@@ -3461,7 +3459,7 @@
                        + `</div>`;
             }
         }
-        return `<div class="nb-cat-list" style="${scrollStyle}">${inner}</div>`;
+        return `<div class="nb-cat-scroll" style="max-height:${maxH}px;overflow-y:auto;"><div class="nb-cat-list">${inner}</div></div>`;
     }
 
     async function _loadCsvCatalogBlock(el) {
