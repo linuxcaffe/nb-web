@@ -2556,12 +2556,13 @@ const NbMain = (() => {
             body.appendChild(host);
             pre.replaceWith(wrap);
 
-            jspreadsheet(host, {
+            const jssP = jspreadsheet(host, {
                 worksheets: [{
                     data: dataRows.length ? dataRows : [Array(Math.max(headerRow.length, 1)).fill('')],
                     columns: columns.length ? columns : undefined,
                 }],
             });
+            host._csvSheet = Array.isArray(jssP) ? jssP[0] : (jssP?.worksheets?.[0] ?? jssP);
         });
 
         tmplBlocks.forEach(pending => _renderCsvTmplBlock(pending, blockIdx++));
@@ -2626,12 +2627,14 @@ const NbMain = (() => {
             ...adjustedFooter,
         ];
 
-        jspreadsheet(host, {
+        const jss = jspreadsheet(host, {
             worksheets: [{
                 data: sheetData,
                 columns: headerRow.length ? headerRow.map(h => ({ title: h, width: 120 })) : undefined,
             }],
         });
+        // Normalise worksheet access across jspreadsheet v9 (array) and v10 (object)
+        host._csvSheet = Array.isArray(jss) ? jss[0] : (jss?.worksheets?.[0] ?? jss);
 
         // Update count badge now that template and data are both known
         meta.querySelector('.nb-csv-count').textContent = dataRows.length;
@@ -2687,7 +2690,7 @@ const NbMain = (() => {
             const nd = await (await fetch(`/api/note?selector=${encodeURIComponent(d.selector)}`)).json();
             const groups = _parseCatalogFull(nd.body || '');
 
-            const sheet       = host.jspreadsheet?.[0];
+            const sheet       = host._csvSheet;
             const currentData = sheet ? sheet.getData() : [];
             const footerCount = parseInt(host.dataset.csvFooterCount || '0', 10);
             const dataRows    = currentData.slice(0, currentData.length - footerCount);
@@ -2798,7 +2801,7 @@ const NbMain = (() => {
             let tmplIdx = 0;
             raw = raw.replace(/```csv ([\w-]+)\n([\s\S]*?)```/g, (match, token) => {
                 const host = tmplHosts[tmplIdx++];
-                const ws = host?.jspreadsheet?.[0];
+                const ws = host?._csvSheet;
                 if (!ws) return match;
                 const footerCount = parseInt(host.dataset.csvFooterCount || '0', 10);
                 const allData = ws.getData();
@@ -2811,7 +2814,7 @@ const NbMain = (() => {
             let plainIdx = 0;
             raw = raw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
                 const host = plainHosts[plainIdx++];
-                const ws = host?.jspreadsheet?.[0];
+                const ws = host?._csvSheet;
                 if (!ws) return match;
                 const headers = host.dataset.csvHeaders ? JSON.parse(host.dataset.csvHeaders) : [];
                 const data    = ws.getData();
