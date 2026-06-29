@@ -2368,18 +2368,21 @@
 
     function _configParseQuery(raw, currentSelector) {
         raw = (raw || '').trim();
-        let key = '', target = '', treeMode = false, orgMode = false, treeAttr = '';
+        let key = '', target = '', treeMode = false, orgMode = false, treeAttrs = [];
 
         // tree/org mode: first token is 'tree' or 'org'
         if (/^tree\b/i.test(raw) || /^org\b/i.test(raw)) {
             orgMode  = /^org\b/i.test(raw);
             treeMode = !orgMode;
             const rest = raw.replace(/^(?:tree|org)\s*/i, '').trim();
-            // tokens: words without ':' = attribute; word with ':' suffix = notebook
             const tokens = rest.split(/\s+/).filter(Boolean).map(t => t.replace(/^["']|["']$/g, ''));
             for (const tok of tokens) {
-                if (tok.endsWith(':')) target = tok;          // notebook:
-                else if (!treeAttr)   treeAttr = tok;        // first non-colon = attribute
+                if (tok.endsWith(':')) target = tok;
+                else if (!treeAttrs.length) {
+                    // comma-separated or [bracketed] attr list
+                    const clean = tok.replace(/^\[|\]$/g, '');
+                    treeAttrs = clean.split(/\s*,\s*/).filter(Boolean);
+                }
             }
             // Org mode: auto-scope to current notebook (not subfolder)
             if (orgMode && !target) {
@@ -2409,14 +2412,15 @@
         const notebook = tc >= 0 ? target.slice(0, tc) : target.replace(/\/$/, '');
         const folder   = tc >= 0 ? target.slice(tc + 1).replace(/\/$/, '') : '';
 
-        return { key, notebook, folder, treeMode, orgMode, treeAttr };
+        return { key, notebook, folder, treeMode, orgMode, treeAttrs };
     }
 
     async function _loadConfigBlock(el) {
         if (!_cbCan(el, 'cfg', 'read')) { _cbDenyRead(el); return; }
         const wasOpen = !el.classList.contains('nb-collapsed');
         const currentSelector = NbMain?.activeSelector?.() || '';
-        const { key, notebook, folder, treeMode, orgMode, treeAttr } = _configParseQuery(el.dataset.query || '', currentSelector);
+        const { key, notebook, folder, treeMode, orgMode, treeAttrs } = _configParseQuery(el.dataset.query || '', currentSelector);
+        const treeAttr = treeAttrs[0] || '';  // single-attr for tree mode and legacy
 
         if (!notebook) {
             _cbError(el, 'cfg', 'cfg: no notebook resolved', () => _loadConfigBlock(el));
@@ -2428,15 +2432,15 @@
         try {
             if (treeMode || orgMode) {
                 const params = new URLSearchParams({ notebook });
-                if (treeAttr)  params.set('attribute', treeAttr);
-                if (folder)    params.set('folder', folder);
-                if (orgMode)   params.set('with_global', '1');
+                if (treeMode && treeAttr) params.set('attribute', treeAttr);  // tree: server-prune
+                if (folder)               params.set('folder', folder);
+                if (orgMode)              params.set('with_global', '1');
                 const r = await fetch(`/api/config-tree-walk?${params}`);
                 if (r.status === 403) { _cbDenyRead(el); return; }
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 const tree = await r.json();
                 if (tree.error) throw new Error(tree.error);
-                if (orgMode) _configOrgRender(el, tree, treeAttr, notebook, wasOpen);
+                if (orgMode) _configOrgRender(el, tree, treeAttrs, notebook, wasOpen);
                 else         _configTreeRender(el, tree, treeAttr, notebook, wasOpen);
             } else {
                 const params = new URLSearchParams({ notebook });
@@ -2585,7 +2589,7 @@
         el.appendChild(body);
     }
 
-    function _configOrgRender(el, tree, attribute, notebook, wasOpen) {
+    function _configOrgRender(el, tree, treeAttrs, notebook, wasOpen) {
         el.innerHTML = '';
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
 
@@ -2596,20 +2600,13 @@
         helpBtn.className += ' nb-config-btn';
         refBtn.className  += ' nb-config-btn';
         meta.innerHTML = 'cfg <code>org</code>';
-        if (attribute) {
-            const k = document.createElement('code');
-            k.className = 'nb-config-hdr-key'; k.textContent = attribute + ':';
-            meta.appendChild(document.createTextNode(' '));
-            meta.appendChild(k);
-        }
         el.appendChild(hdr);
         if (!wasOpen) el.classList.add('nb-collapsed');
         _initCollapseToggle(el);
 
         // Layout constants — left-to-right flow
-        const NW = 128, NH = attribute ? 36 : 26, GX = 44, GY = 4, PAD = 14, PAD_BOT = 24;
+        const NW = 128, NH = 26, GX = 44, GY = 4, PAD = 14, PAD_BOT = 24;
 
-        // _h = total vertical span of subtree
         function _measure(node) {
             if (!node.children?.length) { node._h = NH; return; }
             node.children.forEach(_measure);
@@ -2617,7 +2614,6 @@
             node._h = Math.max(NH, total);
         }
 
-        // x = left edge of node rect; cy = vertical centre of subtree
         function _place(node, x, cy) {
             node._x = x;
             node._y = cy - NH / 2;
@@ -2648,8 +2644,8 @@
         function _drawEdges(node) {
             for (const c of (node.children || [])) {
                 const edge = document.createElementNS(NS, 'path');
-                const x1 = node._x + NW, y1 = node._y + NH / 2;  // right-centre of parent
-                const x2 = c._x,         y2 = c._y  + NH / 2;    // left-centre of child
+                const x1 = node._x + NW, y1 = node._y + NH / 2;
+                const x2 = c._x,         y2 = c._y  + NH / 2;
                 const mx = (x1 + x2) / 2;
                 edge.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
                 edge.setAttribute('fill', 'none');
@@ -2664,10 +2660,12 @@
             g.setAttribute('transform', `translate(${node._x},${node._y})`);
             g.setAttribute('class', 'nb-config-org-node'
                 + (node.level === 'global' ? ' nb-config-org-global' : '')
-                + (node.has_attr   ? ' nb-config-org-has-attr' : '')
-                + (node.has_config ? ' nb-config-org-has-cfg'  : ' nb-config-org-no-cfg'));
+                + (node.has_config ? ' nb-config-org-has-cfg' : ' nb-config-org-no-cfg'));
 
-            // SVG tooltip
+            // Tag with all FM keys present — used by filter bar
+            const cfgKeys = Object.keys(node.contributes || {}).filter(k => !k.startsWith('_'));
+            g.dataset.cfgKeys = cfgKeys.join(',');
+
             const tip = document.createElementNS(NS, 'title');
             tip.textContent = node.has_config ? node.name : `${node.name} — click to create config`;
             g.appendChild(tip);
@@ -2679,37 +2677,22 @@
             rect.setAttribute('class', 'nb-config-org-rect');
             g.appendChild(rect);
 
-            // Marker ●/○/▶
             const marker = document.createElementNS(NS, 'text');
             marker.setAttribute('x', 7);
-            marker.setAttribute('y', attribute && node.has_attr ? NH / 2 - 1 : NH / 2 + 4);
+            marker.setAttribute('y', NH / 2 + 4);
             marker.setAttribute('class', 'nb-config-org-marker');
-            marker.textContent = node.has_attr ? '▶' : (node.has_config ? '●' : '○');
+            marker.textContent = node.has_config ? '●' : '○';
             g.appendChild(marker);
 
-            // Name label — truncate long names
             const label = document.createElementNS(NS, 'text');
-            const maxCh = 13;
             label.setAttribute('x', NW / 2 + 5);
-            label.setAttribute('y', attribute && node.has_attr ? NH / 2 - 1 : NH / 2 + 4);
+            label.setAttribute('y', NH / 2 + 4);
             label.setAttribute('text-anchor', 'middle');
             label.setAttribute('class', 'nb-config-org-label');
+            const maxCh = 13;
             label.textContent = node.name.length > maxCh ? node.name.slice(0, maxCh - 1) + '…' : node.name;
             g.appendChild(label);
 
-            // Attribute value subtitle (attribute mode only, on has_attr nodes)
-            if (attribute && node.has_attr && node.contributes?.[attribute] != null) {
-                const val = document.createElementNS(NS, 'text');
-                val.setAttribute('x', NW / 2 + 5);
-                val.setAttribute('y', NH - 5);
-                val.setAttribute('text-anchor', 'middle');
-                val.setAttribute('class', 'nb-config-org-val');
-                const raw = String(node.contributes[attribute]);
-                val.textContent = raw.length > 16 ? raw.slice(0, 15) + '…' : raw;
-                g.appendChild(val);
-            }
-
-            // Click: open config if it exists, otherwise create it
             if (node.has_config) {
                 g.style.cursor = 'pointer';
                 g.addEventListener('click', () => NbMain.openNote(node.cfg_path));
@@ -2741,6 +2724,48 @@
 
         const wrap = document.createElement('div');
         wrap.className = 'nb-config-org-wrap';
+
+        // Filter bar — shown when attrs are declared in the codeblock
+        if (treeAttrs.length) {
+            const bar = document.createElement('div');
+            bar.className = 'nb-config-org-filterbar';
+
+            const lbl = document.createElement('span');
+            lbl.className = 'nb-config-org-filterlabel';
+            lbl.textContent = 'Configs:';
+            bar.appendChild(lbl);
+
+            function _applyFilter(activeKey) {
+                bar.querySelectorAll('.nb-config-org-chip').forEach(c => {
+                    c.classList.toggle('nb-config-org-chip-active',
+                        c.dataset.key === (activeKey || 'all'));
+                });
+                svg.querySelectorAll('.nb-config-org-node').forEach(g => {
+                    if (!activeKey) {
+                        g.classList.remove('nb-config-org-dim', 'nb-config-org-active');
+                        return;
+                    }
+                    const keys = (g.dataset.cfgKeys || '').split(',').filter(Boolean);
+                    const hit  = keys.includes(activeKey);
+                    g.classList.toggle('nb-config-org-dim',    !hit);
+                    g.classList.toggle('nb-config-org-active',  hit);
+                });
+            }
+
+            function _chip(keyVal, labelText, startActive) {
+                const c = document.createElement('span');
+                c.className = 'nb-config-org-chip' + (startActive ? ' nb-config-org-chip-active' : '');
+                c.dataset.key = keyVal;
+                c.textContent = labelText;
+                c.addEventListener('click', () => _applyFilter(keyVal === 'all' ? null : keyVal));
+                bar.appendChild(c);
+            }
+
+            _chip('all', 'all', true);
+            treeAttrs.forEach(attr => _chip(attr, attr, false));
+            wrap.appendChild(bar);
+        }
+
         wrap.appendChild(svg);
         el.appendChild(wrap);
     }

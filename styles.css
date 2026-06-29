@@ -2528,6 +2528,15 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-org-node.nb-config-org-global .nb-config-org-rect   { stroke: var(--text-dim); stroke-dasharray: none; opacity: 1; fill: var(--bg1, #1a1a1a); }
 .nb-config-org-node.nb-config-org-global .nb-config-org-label  { fill: var(--text-dim); font-style: italic; }
 .nb-config-org-node.nb-config-org-global .nb-config-org-marker { fill: var(--text-dim); }
+/* Filter states */
+.nb-config-org-node.nb-config-org-dim    { opacity: 0.18; transition: opacity 0.15s; }
+.nb-config-org-node.nb-config-org-active .nb-config-org-rect { stroke: var(--accent, #4a9eff); stroke-width: 2.5; filter: brightness(1.25); }
+/* Filter bar */
+.nb-config-org-filterbar  { display: flex; align-items: center; gap: 6px; padding: 4px 2px 8px; flex-wrap: wrap; }
+.nb-config-org-filterlabel { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono, monospace); white-space: nowrap; }
+.nb-config-org-chip        { font-size: 11px; padding: 2px 9px; border-radius: 10px; background: var(--bg3); color: var(--text-dim); border: 1px solid var(--border); cursor: pointer; user-select: none; transition: color 0.1s, border-color 0.1s; }
+.nb-config-org-chip:hover  { color: var(--text); border-color: var(--accent, #4a9eff); }
+.nb-config-org-chip-active { background: color-mix(in srgb, var(--accent, #4a9eff) 15%, var(--bg2)); color: var(--accent, #4a9eff); border-color: var(--accent, #4a9eff); }
 
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }
