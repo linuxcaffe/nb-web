@@ -7125,6 +7125,10 @@ const NbMain = (() => {
             const levelDesc = _LEVEL_DESC[me.level] || me.level;
             const nbs = (me.notebooks || []);
 
+            const contactLink = me.contact_selector
+                ? ` <a href="#" class="nb-acct-contact" data-sel="${_esc(me.contact_selector)}" style="font-size:11px;color:var(--text-dim)">→ contact</a>`
+                : '';
+
             const exRows = ex.length
                 ? ex.map(n => `<li><a href="#" class="nb-acct-excl" data-sel="${_esc(n.selector)}">${_esc(n.title)}</a> <span style="color:var(--text-dim);font-size:11px">${_esc(n.notebook)}</span></li>`).join('')
                 : '<li style="color:var(--text-dim)">None found.</li>';
@@ -7136,7 +7140,7 @@ const NbMain = (() => {
 
   <section class="nb-acct-section" style="margin-bottom:24px">
     <div style="display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:13px;align-items:baseline">
-      <span style="color:var(--text-dim)">Name</span>      <strong id="nb-acct-name-display">${_esc(me.name || me.username)}</strong>
+      <span style="color:var(--text-dim)">Name</span>      <span><strong id="nb-acct-name-display">${_esc(me.name || me.username)}</strong>${contactLink}</span>
       <span style="color:var(--text-dim)">Username</span>  <code>${_esc(me.username)}</code>
       <span style="color:var(--text-dim)">Level</span>     <span><code>${_esc(me.level)}</code> <span style="color:var(--text-dim);font-size:11px">— ${_esc(levelDesc)}</span></span>
       <span style="color:var(--text-dim)">Notebooks</span> <span>${nbs.length ? nbs.map(n => `<code style="margin-right:4px">${_esc(n)}</code>`).join('') : '<span style="color:var(--text-dim)">all</span>'}</span>
@@ -7222,8 +7226,8 @@ const NbMain = (() => {
                 }
             });
 
-            // Exclusive note links
-            content.querySelectorAll('.nb-acct-excl').forEach(a => {
+            // Contact card link
+            content.querySelectorAll('.nb-acct-contact, .nb-acct-excl').forEach(a => {
                 a.addEventListener('click', e => {
                     e.preventDefault();
                     openNote(a.dataset.sel);

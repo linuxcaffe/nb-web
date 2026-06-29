@@ -716,7 +716,23 @@ def api_me():
     user = session.get('user')
     if not user:
         return jsonify(error='Not authenticated'), 401
-    return jsonify(user)
+    data = dict(user)
+    # Find matching contact by title: == user name (case-insensitive)
+    contact_selector = None
+    name_lower = (data.get('name') or '').strip().lower()
+    if name_lower:
+        contacts_dir = NB_DIR / 'contacts'
+        if contacts_dir.is_dir():
+            for md in contacts_dir.glob('*.md'):
+                try:
+                    meta, _ = parse_frontmatter(md.read_text(errors='replace'))
+                    if str(meta.get('title', '')).strip().lower() == name_lower:
+                        contact_selector = f'contacts:{md.name}'
+                        break
+                except Exception:
+                    pass
+    data['contact_selector'] = contact_selector
+    return jsonify(data)
 
 
 @app.route('/api/me', methods=['PUT'])
