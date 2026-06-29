@@ -1033,6 +1033,16 @@ body {
 .nb-catalog-table td { padding: 2px 8px; border-bottom: 1px solid var(--border-faint, var(--border)); color: var(--text); }
 .nb-catalog-table tr:last-child td { border-bottom: none; }
 
+/* Compact FM catalog list (desc left, cost right) */
+.nb-cat-list { padding: 2px 0; }
+.nb-cat-group { font-size: 0.8em; font-weight: 600; color: var(--text-muted);
+    margin: 6px 0 2px; cursor: pointer; }
+.nb-cat-group:hover { color: var(--accent, var(--text)); }
+.nb-cat-row { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 0.82em; padding: 1px 0; min-height: 24px; line-height: 24px; }
+.nb-cat-desc { color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+.nb-cat-cost { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 /* Embedded CSV block in markdown notes */
 .nb-csv-wrap  { border: 1px solid var(--border); border-radius: 6px; margin: 1em 0; overflow: hidden; }
 .nb-csv-header { font-family: var(--font-mono, monospace); border-radius: 0; }

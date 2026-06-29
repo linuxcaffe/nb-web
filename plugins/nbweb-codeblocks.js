@@ -3403,31 +3403,70 @@
         return `<table class="nb-catalog-table"><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table>`;
     }
 
-    function _csvRenderBody(body) {
-        let html = '';
+    // Compact FM catalog renderer: groups from H2 headings, desc left + cost right,
+    // scroll wrapper kicks in after `limit` total items across all groups.
+    function _csvRenderCompact(body, limit, srcSelector) {
+        const ITEM_H = 24; // px per row for scroll calc
         const lines = body.split('\n');
         let i = 0;
+        const groups = [];
+        let curGroup = null;
+
         while (i < lines.length) {
             const line = lines[i];
             if (/^#+\s/.test(line)) {
-                const level = Math.min(line.match(/^#+/)[0].length + 1, 6);
-                html += `<h${level} class="nb-catalog-heading">${_esc(line.replace(/^#+\s*/, ''))}</h${level}>`;
+                curGroup = { name: line.replace(/^#+\s*/, '').trim(), items: [] };
+                groups.push(curGroup);
                 i++;
             } else if (line.startsWith('```csv')) {
                 i++;
                 const csvLines = [];
                 while (i < lines.length && !lines[i].startsWith('```')) { csvLines.push(lines[i]); i++; }
                 i++;
-                html += _csvToTable(csvLines.join('\n'));
-            } else {
-                i++;
+                if (!csvLines.length) continue;
+                const rows = csvLines
+                    .filter(l => l.trim() && l.trim().toLowerCase() !== 'contents')
+                    .map(l => l.split(',').map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"').trim()));
+                if (rows.length < 2) continue;
+                const hdr = rows[0].map(h => h.toLowerCase());
+                const descIdx = hdr.findIndex(h => h.includes('desc') || h.includes('name') || h.includes('item'));
+                const costIdx = hdr.findIndex(h => h.includes('cost') || h.includes('price'));
+                const di = descIdx >= 0 ? descIdx : 0;
+                const ci = costIdx >= 0 ? costIdx : -1;
+                if (!curGroup) { curGroup = { name: '', items: [] }; groups.push(curGroup); }
+                for (const row of rows.slice(1)) {
+                    const desc = row[di] || '';
+                    const cost = ci >= 0 ? (row[ci] || '') : '';
+                    if (desc) curGroup.items.push({ desc, cost });
+                }
+            } else { i++; }
+        }
+
+        if (!groups.length) return '<span style="color:var(--text-dim);font-size:12px">No items.</span>';
+
+        const totalItems = groups.reduce((n, g) => n + g.items.length, 0);
+        const scrollable = totalItems > limit;
+        const scrollStyle = scrollable
+            ? `max-height:${limit * ITEM_H}px;overflow-y:auto;`
+            : '';
+
+        let inner = '';
+        for (const g of groups) {
+            if (!g.items.length) continue;
+            const anchor = srcSelector ? ` data-open-src="${_esc(srcSelector)}"` : '';
+            if (g.name) inner += `<div class="nb-cat-group"${anchor}>${_esc(g.name)}</div>`;
+            for (const { desc, cost } of g.items) {
+                inner += `<div class="nb-cat-row"><span class="nb-cat-desc">${_esc(desc)}</span>`
+                       + (cost ? `<span class="nb-cat-cost">${_esc(cost)}</span>` : '')
+                       + `</div>`;
             }
         }
-        return html;
+        return `<div class="nb-cat-list" style="${scrollStyle}">${inner}</div>`;
     }
 
     async function _loadCsvCatalogBlock(el) {
         const tokens = (el.dataset.csvTokens || '').split(',').map(t => t.trim()).filter(Boolean);
+        const limit  = parseInt(el.dataset.csvLimit || '8', 10);
         const note   = NbMain.activeNote();
         el.innerHTML = '';
         const { hdr, meta } = _buildBarHeader(el, { lang: 'csv' });
@@ -3448,7 +3487,11 @@
                 if (!d.found) { panel.textContent = `No ${token} catalog in this notebook.`; continue; }
                 const nr = await fetch(`/api/note?selector=${encodeURIComponent(d.selector)}`);
                 const nd = await nr.json();
-                panel.innerHTML = `<div class="nb-catalog-heading">${_esc(token)}</div>` + _csvRenderBody(nd.body || '');
+                panel.innerHTML = _csvRenderCompact(nd.body || '', limit, d.selector);
+                panel.querySelectorAll('[data-open-src]').forEach(el => {
+                    el.style.cursor = 'pointer';
+                    el.addEventListener('click', () => NbMain.openNote(el.dataset.openSrc));
+                });
             } catch(e) {
                 panel.textContent = `Error loading ${token} catalog.`;
             }
@@ -4498,11 +4541,19 @@
             {
                 lang:      'csv',
                 // Body codeblocks contain multi-line CSV data; FM values are single-line
-                // token lists.  Return false for body blocks so marked falls through to
+                // token lists, optionally with a trailing integer scroll limit.
+                // e.g. "materials" or "materials 10"
+                // Return false for body blocks so marked falls through to
                 // <pre><code class="language-csv"> which _renderCsvBlocks in main.js picks up.
-                html:      text => text.includes('\n')
-                    ? false
-                    : `<div class="nb-csv-catalog" data-csv-tokens="${_esc(text)}"></div>`,
+                html: text => {
+                    if (text.includes('\n')) return false;
+                    const parts = text.trim().split(/\s+/);
+                    const last  = parts[parts.length - 1];
+                    const hasLimit = /^\d+$/.test(last);
+                    const limit  = hasLimit ? last : '8';
+                    const tokens = hasLimit ? parts.slice(0, -1).join(',') : parts.join(',');
+                    return `<div class="nb-csv-catalog" data-csv-tokens="${_esc(tokens)}" data-csv-limit="${_esc(limit)}"></div>`;
+                },
                 renderOne: async el => _loadCsvCatalogBlock(el),
             },
         ],
