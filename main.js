@@ -2636,15 +2636,12 @@ const NbMain = (() => {
         // Update count badge now that template and data are both known
         meta.querySelector('.nb-csv-count').textContent = dataRows.length;
 
-        // Checklist button — pick items from the type:<token> catalog note
-        const acts = wrap.querySelector('.nb-barblock-acts');
-        if (acts) {
-            const chkBtn = document.createElement('button');
-            chkBtn.className = 'nb-tw-btn nb-csv-cl-btn';
-            chkBtn.title = `Pick from ${token} catalog`;
-            chkBtn.textContent = '☑';
-            chkBtn.addEventListener('click', e => { e.stopPropagation(); _openCsvChecklist(chkBtn, token, host); });
-            acts.insertBefore(chkBtn, acts.firstChild);
+        // CSV badge on the header acts as checklist trigger
+        const badge = wrap.querySelector('.nb-cb-icon');
+        if (badge) {
+            badge.title = `Pick from ${token} catalog`;
+            badge.style.cursor = 'pointer';
+            badge.addEventListener('click', e => { e.stopPropagation(); _openCsvChecklist(badge, token, host, wrap); });
         }
     }
 
@@ -2673,7 +2670,7 @@ const NbMain = (() => {
         return groups;
     }
 
-    async function _openCsvChecklist(trigger, token, host) {
+    async function _openCsvChecklist(trigger, token, host, wrap) {
         if (trigger._chkPop) { trigger._chkPop.remove(); trigger._chkPop = null; return; }
         const note = NbMain.activeNote();
         if (!note) return;
@@ -2681,8 +2678,8 @@ const NbMain = (() => {
         const sel    = note.selector || '';
         const rel    = sel.includes(':') ? sel.split(':').slice(1).join(':') : '';
         const folder = rel.includes('/') ? rel.split('/').slice(0, -1).join('/') : '';
-        const origText = trigger.textContent;
-        trigger.textContent = '⟳'; trigger.disabled = true;
+        const origTitle = trigger.title;
+        trigger.style.opacity = '0.5';
         try {
             const r = await fetch(`/api/csv/source?notebook=${encodeURIComponent(nb)}&folder=${encodeURIComponent(folder)}&token=${encodeURIComponent(token)}`);
             const d = await r.json();
@@ -2696,21 +2693,23 @@ const NbMain = (() => {
             const dataRows    = currentData.slice(0, currentData.length - footerCount);
             const currentDescs = new Set(dataRows.map(r => (r[0] || '').trim()).filter(Boolean));
 
-            const pop = _buildCsvChecklistPopup(groups, currentDescs, selectedRows => {
+            const pop = _buildCsvChecklistPopup(groups, currentDescs, async selectedRows => {
                 if (sheet) {
                     const footerData = currentData.slice(currentData.length - footerCount);
                     sheet.setData([...selectedRows, ...footerData]);
-                    const countEl = host.closest('.nb-csv-wrap')?.querySelector('.nb-csv-count');
+                    const countEl = wrap.querySelector('.nb-csv-count');
                     if (countEl) countEl.textContent = selectedRows.length;
-                    // Trigger the barblock's own save button to write back to the note file
-                    host.closest('.nb-csv-wrap')?.querySelector('.nb-csv-save-btn')?.click();
+                    await _saveCsvBlocks(null);
                 }
                 pop.remove(); trigger._chkPop = null;
             });
 
-            const rect = trigger.getBoundingClientRect();
-            pop.style.top  = (rect.bottom + 4) + 'px';
-            pop.style.left = Math.min(rect.left, window.innerWidth - 324) + 'px';
+            // Position: vertically centred on barblock, left offset ~160px to clear badge+token
+            const wRect = wrap.getBoundingClientRect();
+            const popH  = 340;
+            const top   = Math.max(8, wRect.top + (wRect.height - popH) / 2);
+            pop.style.top  = Math.min(top, window.innerHeight - popH - 8) + 'px';
+            pop.style.left = (wRect.left + 160) + 'px';
             document.body.appendChild(pop);
             trigger._chkPop = pop;
 
@@ -2721,7 +2720,8 @@ const NbMain = (() => {
         } catch(e) {
             trigger.title = `Error: ${e.message}`;
         } finally {
-            trigger.textContent = origText; trigger.disabled = false;
+            trigger.style.opacity = '';
+            trigger.title = origTitle;
         }
     }
 
@@ -2798,9 +2798,10 @@ const NbMain = (() => {
             let tmplIdx = 0;
             raw = raw.replace(/```csv ([\w-]+)\n([\s\S]*?)```/g, (match, token) => {
                 const host = tmplHosts[tmplIdx++];
-                if (!host?.spreadsheet) return match;
+                const ws = host?.jspreadsheet?.[0];
+                if (!ws) return match;
                 const footerCount = parseInt(host.dataset.csvFooterCount || '0', 10);
-                const allData = host.spreadsheet.worksheets[0].getData();
+                const allData = ws.getData();
                 const dataRows = footerCount > 0 ? allData.slice(0, -footerCount) : allData;
                 return `\`\`\`csv ${token}\n${_csvRowsToCsv(dataRows)}\n\`\`\``;
             });
@@ -2810,9 +2811,10 @@ const NbMain = (() => {
             let plainIdx = 0;
             raw = raw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
                 const host = plainHosts[plainIdx++];
-                if (!host?.spreadsheet) return match;
+                const ws = host?.jspreadsheet?.[0];
+                if (!ws) return match;
                 const headers = host.dataset.csvHeaders ? JSON.parse(host.dataset.csvHeaders) : [];
-                const data    = host.spreadsheet.worksheets[0].getData();
+                const data    = ws.getData();
                 const allRows = headers.length ? [headers, ...data] : data;
                 return '```csv\n' + _csvRowsToCsv(allRows) + '\n```';
             });
