@@ -255,6 +255,21 @@ const NbWeb = (() => {
         return [...types].sort();
     }
 
+    // Returns only type strings from renderers whose plugin is active for this notebook.
+    // Used by the Configure Notebook types table so cine types don't appear in non-cine notebooks.
+    function getRendererTypesForNotebook(notebookName) {
+        const activePlugins = new Set(_activeFor(notebookName).map(m => m.name ?? ''));
+        // Always include global plugins (no detect) — they have no pluginName restriction
+        const types = new Set();
+        for (const r of _rendererRegistry.values()) {
+            if (!Array.isArray(r.types)) continue;
+            if (!r.pluginName || activePlugins.has(r.pluginName)) {
+                r.types.forEach(t => types.add(t));
+            }
+        }
+        return [...types].sort();
+    }
+
     // Returns all custom sort options from plugins active for this notebook.
     // Each entry: { id, label, sort(notes) → notes[] }
     function getSortOptions(notebookName) {
@@ -594,6 +609,7 @@ const NbWeb = (() => {
         bustNotebookConfigCache,
         getRenderers,
         getRendererTypes,
+        getRendererTypesForNotebook,
         getSortOptions,
         getListExcerpt,
         getListItemIcon,

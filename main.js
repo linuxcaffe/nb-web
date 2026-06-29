@@ -6235,7 +6235,7 @@ const NbMain = (() => {
             }
 
             function _renderTypesTable(typeCfg) {
-                const types = NbWeb.getRendererTypes();
+                const types = NbWeb.getRendererTypesForNotebook(name);
                 if (!types.length) {
                     if (_typesWrap) _typesWrap.innerHTML =
                         '<span style="color:var(--text-dim)">No typed renderers registered.</span>';
