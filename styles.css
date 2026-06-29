@@ -1033,6 +1033,17 @@ body {
 .nb-catalog-table td { padding: 2px 8px; border-bottom: 1px solid var(--border-faint, var(--border)); color: var(--text); }
 .nb-catalog-table tr:last-child td { border-bottom: none; }
 
+/* fm: list — FM key browser table */
+.nb-fm-list-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+.nb-fm-list-row { cursor: pointer; border-bottom: 1px solid var(--border); }
+.nb-fm-list-row:last-child { border-bottom: none; }
+.nb-fm-list-row:hover td { background: var(--bg2, var(--bg-hover)); }
+.nb-fm-list-key { padding: 4px 8px; font-weight: 600; color: var(--text); white-space: nowrap; width: 30%; }
+.nb-fm-list-count { padding: 4px 6px; color: var(--text-muted); text-align: right; white-space: nowrap; width: 8%; }
+.nb-fm-list-samples { padding: 4px 8px; color: var(--text-dim, var(--text-muted)); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; max-width: 0; width: 62%; }
+.nb-fm-list-back { font-size: 0.78em; padding: 1px 5px; margin-right: 4px; }
+
 /* csv checklist popup */
 .nb-csv-cl-pop { position: fixed; z-index: 9000; background: var(--bg); border: 1px solid var(--border);
     border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); width: 300px; font-size: 12px; }

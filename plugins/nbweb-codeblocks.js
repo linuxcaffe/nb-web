@@ -1921,10 +1921,94 @@
 
     // ── front block dispatcher ─────────────────────────────────────────────────
 
+    async function _loadFmListBlock(el) {
+        const raw   = (el.dataset.query || '').trim();
+        const scope = raw === 'list' ? null : raw.slice('list-'.length); // e.g. 'cine', 'core', 'empty'
+        const isEmptyScope = scope === 'empty';
+
+        // Resolve scope → key filter
+        let scopeKeys = null;
+        if (scope && !isEmptyScope) {
+            scopeKeys = NbWeb.getFmKeysForScope(scope);
+        }
+
+        const nb = NbMain?.activeNote?.()?.notebook || '';
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const params = new URLSearchParams({ notebook: nb });
+            if (scopeKeys?.length) scopeKeys.forEach(k => params.append('keys', k));
+            const r = await fetch(`/api/fm/keys?${params}`);
+            if (r.status === 403) { _cbDenyRead(el); return; }
+            const d = await r.json();
+            if (d.error) throw new Error(d.error);
+
+            let keys = Object.entries(d.keys);
+            if (isEmptyScope) keys = keys.filter(([, v]) => v.count_empty > 0);
+            keys.sort((a, b) => b[1].count - a[1].count);
+
+            el.innerHTML = '';
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _loadFmListBlock(el) });
+
+            const scopeLabel = scope ? `list-${scope}` : 'list';
+            const countEl = document.createElement('span');
+            countEl.className = 'nb-fm-count';
+            countEl.textContent = keys.length ? String(keys.length) + ' keys' : 'No keys';
+            meta.appendChild(countEl);
+            const lbl = document.createElement('span');
+            lbl.className = 'nb-fm-label';
+            lbl.textContent = scopeLabel;
+            meta.appendChild(lbl);
+            el.appendChild(hdr);
+
+            if (keys.length) {
+                const tbl = document.createElement('table');
+                tbl.className = 'nb-fm-list-table';
+                for (const [key, info] of keys) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'nb-fm-list-row';
+                    tr.title = 'Click to see notes with this field';
+
+                    const tdKey = document.createElement('td');
+                    tdKey.className = 'nb-fm-list-key';
+                    tdKey.textContent = key;
+
+                    const tdCount = document.createElement('td');
+                    tdCount.className = 'nb-fm-list-count';
+                    tdCount.textContent = info.count;
+
+                    const tdSamples = document.createElement('td');
+                    tdSamples.className = 'nb-fm-list-samples';
+                    tdSamples.textContent = info.samples.join(', ');
+
+                    tr.append(tdKey, tdCount, tdSamples);
+                    tr.addEventListener('click', () => {
+                        // Drill into field: set query to the key name and re-render as normal fm block
+                        el.dataset.query      = key;
+                        el.dataset._fmListSrc = scopeLabel; // stash for back button
+                        _loadFrontBlock(el);
+                    });
+                    tbl.appendChild(tr);
+                }
+                el.appendChild(tbl);
+            }
+
+            const wasCollapsed = el.dataset._wasCollapsed === '1';
+            if (wasCollapsed) el.classList.add('nb-collapsed');
+            _initCollapseToggle(el);
+        } catch(e) {
+            _cbError(el, 'fm', e.message, () => _loadFmListBlock(el));
+        }
+    }
+
     async function _loadFrontBlock(el) {
         if (!_cbCan(el, 'fm', 'read')) { _cbDenyRead(el); return; }
         if ((el.dataset.query || '').trim().startsWith('changes')) {
             await _loadFrontChanges(el);
+            return;
+        }
+        // list / list-X scope — delegate to list renderer
+        if ((el.dataset.query || '').trim().match(/^list(-\w+)?$/)) {
+            await _loadFmListBlock(el);
             return;
         }
         const parsed = _frontParseQuery(el.dataset.query || '', NbMain?.activeSelector?.() || '');
@@ -1958,6 +2042,20 @@
 
             // ── Header ──────────────────────────────────────────────────────
             const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _frontRender(el) });
+
+            // Back button when drilled into a field from a list view
+            if (el.dataset._fmListSrc) {
+                const back = document.createElement('button');
+                back.className = 'nb-fm-list-back nb-tw-btn';
+                back.textContent = '← list';
+                back.addEventListener('click', e => {
+                    e.stopPropagation();
+                    el.dataset.query = el.dataset._fmListSrc;
+                    delete el.dataset._fmListSrc;
+                    _loadFmListBlock(el);
+                });
+                meta.appendChild(back);
+            }
 
             const toggle = document.createElement('span');
             toggle.className = 'nb-fm-toggle';

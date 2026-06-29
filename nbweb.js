@@ -2,6 +2,13 @@
 const NbWeb = (() => {
     const _modules = new Map(); // name → { spec, enabled, activeNotebooks, error }
 
+    // FM keys declared by core and by plugins (scope → [keys]).
+    // 'core' is built-in; plugin names added via registerModule spec.fmKeys.
+    const _FM_KEYS_CORE = ['title', 'type', 'status', 'tags', 'access', 'alias',
+        'date', 'due', 'started', 'completed', 'project', 'draft', 'pinned',
+        'color', 'icon', 'template', 'renderer', 'related', 'description'];
+    const _fmKeysByScope = new Map([['core', _FM_KEYS_CORE]]);
+
     // Per-notebook config cache: notebook → parsed meta dict from .<notebook>.md.
     // Populated lazily by loadNotebookConfig(); stays warm until explicitly busted.
     const _notebookTypeConfigs = new Map();
@@ -64,6 +71,7 @@ const NbWeb = (() => {
             return;
         }
         _modules.set(name, { spec, enabled: true, activeNotebooks: [], error: null });
+        if (spec.fmKeys?.length) _fmKeysByScope.set(name, spec.fmKeys);
         if (spec.hideExtrasCSS) {
             const style = document.createElement('style');
             style.dataset.nbModule = name;
@@ -587,6 +595,12 @@ const NbWeb = (() => {
         console.warn('NbWeb.runInTerminal: NbTerminal not available');
     }
 
+    // Returns key list for a scope name, or null meaning "no filter / show all".
+    function getFmKeysForScope(scope) {
+        if (!scope || scope === 'all') return null;
+        return _fmKeysByScope.has(scope) ? [..._fmKeysByScope.get(scope)] : [];
+    }
+
     function openTerminal() {
         if (typeof NbTerminal !== 'undefined') return NbTerminal.open();
         console.warn('NbWeb.openTerminal: NbTerminal not available');
@@ -610,6 +624,7 @@ const NbWeb = (() => {
         getRenderers,
         getRendererTypes,
         getRendererTypesForNotebook,
+        getFmKeysForScope,
         getSortOptions,
         getListExcerpt,
         getListItemIcon,

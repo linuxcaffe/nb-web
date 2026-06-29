@@ -4139,6 +4139,45 @@ def _front_matches(meta: dict, filters: list) -> bool:
     return True
 
 
+@app.route('/api/fm/keys')
+def api_fm_keys():
+    """Aggregate FM keys across a notebook.
+
+    notebook: notebook name
+    keys:     optional repeated param — if present, only include these keys
+    Returns {keys: {name: {count, count_empty, samples[]}}}
+    """
+    notebook  = request.args.get('notebook', '')
+    scope_set = set(request.args.getlist('keys')) or None
+    nb_path   = Path(NB_DIR) / notebook if notebook else Path(NB_DIR)
+    if not nb_path.is_dir():
+        return jsonify({'error': 'notebook not found'}), 404
+
+    key_data = {}
+    for root, dirs, files in os.walk(nb_path):
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+        for fname in files:
+            if not fname.endswith('.md'):
+                continue
+            try:
+                text = (Path(root) / fname).read_text(errors='replace')
+                meta, _ = parse_frontmatter(text)
+            except Exception:
+                continue
+            for k, v in meta.items():
+                if scope_set and k not in scope_set:
+                    continue
+                entry = key_data.setdefault(k, {'count': 0, 'count_empty': 0, 'samples': []})
+                entry['count'] += 1
+                sv = str(v).strip() if v is not None else ''
+                if not sv:
+                    entry['count_empty'] += 1
+                elif sv not in entry['samples'] and len(entry['samples']) < 4:
+                    entry['samples'].append(sv)
+
+    return jsonify({'keys': key_data})
+
+
 @app.route('/api/front-query')
 def api_front_query():
     """Return notes matching frontmatter field filters.
