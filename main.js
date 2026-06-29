@@ -2635,6 +2635,141 @@ const NbMain = (() => {
 
         // Update count badge now that template and data are both known
         meta.querySelector('.nb-csv-count').textContent = dataRows.length;
+
+        // Checklist button — pick items from the type:<token> catalog note
+        const acts = wrap.querySelector('.nb-barblock-acts');
+        if (acts) {
+            const chkBtn = document.createElement('button');
+            chkBtn.className = 'nb-tw-btn nb-csv-cl-btn';
+            chkBtn.title = `Pick from ${token} catalog`;
+            chkBtn.textContent = '☑';
+            chkBtn.addEventListener('click', e => { e.stopPropagation(); _openCsvChecklist(chkBtn, token, host); });
+            acts.insertBefore(chkBtn, acts.firstChild);
+        }
+    }
+
+    function _parseCatalogFull(body) {
+        const lines = body.split('\n');
+        let i = 0, groups = [], curGroup = null;
+        while (i < lines.length) {
+            const line = lines[i];
+            if (/^#+\s/.test(line)) {
+                curGroup = { name: line.replace(/^#+\s*/, '').trim(), rows: [] };
+                groups.push(curGroup);
+                i++;
+            } else if (line.startsWith('```csv')) {
+                i++;
+                const csvLines = [];
+                while (i < lines.length && !lines[i].startsWith('```')) { csvLines.push(lines[i]); i++; }
+                i++;
+                const allRows = csvLines
+                    .filter(l => l.trim() && l.trim().toLowerCase() !== 'contents')
+                    .map(l => l.split(',').map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"').trim()));
+                if (allRows.length < 2) continue;
+                if (!curGroup) { curGroup = { name: '', rows: [] }; groups.push(curGroup); }
+                curGroup.rows.push(...allRows.slice(1).filter(r => r.some(c => c)));
+            } else { i++; }
+        }
+        return groups;
+    }
+
+    async function _openCsvChecklist(trigger, token, host) {
+        if (trigger._chkPop) { trigger._chkPop.remove(); trigger._chkPop = null; return; }
+        const note = NbMain.activeNote();
+        if (!note) return;
+        const nb     = note.notebook || '';
+        const sel    = note.selector || '';
+        const rel    = sel.includes(':') ? sel.split(':').slice(1).join(':') : '';
+        const folder = rel.includes('/') ? rel.split('/').slice(0, -1).join('/') : '';
+        const origText = trigger.textContent;
+        trigger.textContent = '⟳'; trigger.disabled = true;
+        try {
+            const r = await fetch(`/api/csv/source?notebook=${encodeURIComponent(nb)}&folder=${encodeURIComponent(folder)}&token=${encodeURIComponent(token)}`);
+            const d = await r.json();
+            if (!d.found) { trigger.title = `No ${token} catalog found`; return; }
+            const nd = await (await fetch(`/api/note?selector=${encodeURIComponent(d.selector)}`)).json();
+            const groups = _parseCatalogFull(nd.body || '');
+
+            const sheet       = host.jspreadsheet?.[0];
+            const currentData = sheet ? sheet.getData() : [];
+            const footerCount = parseInt(host.dataset.csvFooterCount || '0', 10);
+            const dataRows    = currentData.slice(0, currentData.length - footerCount);
+            const currentDescs = new Set(dataRows.map(r => (r[0] || '').trim()).filter(Boolean));
+
+            const pop = _buildCsvChecklistPopup(groups, currentDescs, selectedRows => {
+                if (sheet) {
+                    const footerData = currentData.slice(currentData.length - footerCount);
+                    sheet.setData([...selectedRows, ...footerData]);
+                    const countEl = host.closest('.nb-csv-wrap')?.querySelector('.nb-csv-count');
+                    if (countEl) countEl.textContent = selectedRows.length;
+                }
+                pop.remove(); trigger._chkPop = null;
+            });
+
+            const rect = trigger.getBoundingClientRect();
+            pop.style.top  = (rect.bottom + 4) + 'px';
+            pop.style.left = Math.min(rect.left, window.innerWidth - 324) + 'px';
+            document.body.appendChild(pop);
+            trigger._chkPop = pop;
+
+            setTimeout(() => {
+                const onOut = e => { if (!pop.contains(e.target) && e.target !== trigger) { pop.remove(); trigger._chkPop = null; document.removeEventListener('click', onOut); } };
+                document.addEventListener('click', onOut);
+            }, 0);
+        } catch(e) {
+            trigger.title = `Error: ${e.message}`;
+        } finally {
+            trigger.textContent = origText; trigger.disabled = false;
+        }
+    }
+
+    function _buildCsvChecklistPopup(groups, currentDescs, onSave) {
+        const pop = document.createElement('div');
+        pop.className = 'nb-csv-cl-pop';
+        const inner = document.createElement('div');
+        inner.className = 'nb-csv-cl-inner';
+        const checkboxes = [];
+
+        for (const g of groups) {
+            if (!g.rows.length) continue;
+            if (g.name) {
+                const gh = document.createElement('div');
+                gh.className = 'nb-csv-cl-group';
+                gh.textContent = g.name;
+                inner.appendChild(gh);
+            }
+            for (const row of g.rows) {
+                const desc = (row[0] || '').trim();
+                if (!desc) continue;
+                const lbl = document.createElement('label');
+                lbl.className = 'nb-csv-cl-item';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = currentDescs.has(desc);
+                checkboxes.push({ cb, row });
+                const span = document.createElement('span');
+                span.className = 'nb-csv-cl-desc';
+                span.textContent = desc;
+                lbl.append(cb, span);
+                if (row[2]) {
+                    const cost = document.createElement('span');
+                    cost.className = 'nb-csv-cl-cost';
+                    cost.textContent = row[2];
+                    lbl.appendChild(cost);
+                }
+                inner.appendChild(lbl);
+            }
+        }
+        pop.appendChild(inner);
+        const footer = document.createElement('div');
+        footer.className = 'nb-csv-cl-footer';
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'nb-btn';
+        saveBtn.textContent = 'Save';
+        saveBtn.addEventListener('click', () => onSave(checkboxes.filter(({cb}) => cb.checked).map(({row}) => row)));
+        footer.appendChild(saveBtn);
+        pop.appendChild(footer);
+        return pop;
     }
 
     function _csvRowsToCsv(rows) {
