@@ -8783,6 +8783,17 @@ def api_check_run():
     notebook  = selector.split(':')[0] if ':' in selector else ''
     note_path = _resolve_to_nb_path(selector) if selector else None
 
+    fm_lines = 0
+    if note_path:
+        try:
+            raw = Path(note_path).read_text(errors='replace')
+            if raw.startswith('---'):
+                parts = raw.split('---', 2)
+                if len(parts) >= 3:
+                    fm_lines = len(('---' + parts[1] + '---').splitlines())
+        except OSError:
+            pass
+
     env = {
         **os.environ,
         'NB_DIR':           str(NB_DIR),
@@ -8790,6 +8801,7 @@ def api_check_run():
         'NB_NOTE_SELECTOR': selector,
         'NB_NOTEBOOK':      notebook,
         'NB_NOTE_PATH':     str(note_path) if note_path else '',
+        'NB_FM_LINES':      str(fm_lines),
         'NO_COLOR':         '1',
     }
     try:
