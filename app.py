@@ -726,7 +726,8 @@ def api_me():
             for md in contacts_dir.glob('*.md'):
                 try:
                     meta, _ = parse_frontmatter(md.read_text(errors='replace'))
-                    if str(meta.get('title', '')).strip().lower() == name_lower:
+                    contact_name = str(meta.get('name') or meta.get('title', '')).strip().lower()
+                    if contact_name == name_lower:
                         contact_selector = f'contacts:{md.name}'
                         break
                 except Exception:
