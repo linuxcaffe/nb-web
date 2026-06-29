@@ -3475,9 +3475,9 @@
             meta.textContent = tokens.join(', ') || '—';
             el.appendChild(hdr);
         } else {
-            // Update the skeleton meta text with resolved token names
+            // Update the skeleton meta text with resolved token names + limit for debug
             const meta = el.querySelector('[class*="-meta"]');
-            if (meta) meta.textContent = tokens.join(', ') || '—';
+            if (meta) meta.textContent = (tokens.join(', ') || '—') + ` [${limit}]`;
         }
         if (!tokens.length || !note) return;
         const nb     = note.notebook || '';
