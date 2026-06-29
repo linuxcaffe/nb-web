@@ -2629,10 +2629,21 @@
             return Math.max(node._x + NW, ...(node.children || []).map(_maxX));
         }
 
-        _measure(tree);
-        _place(tree, PAD, tree._h / 2 + PAD);
-        const svgW = _maxX(tree) + PAD;
-        const svgH = tree._h + PAD + PAD_BOT;
+        // Split global wrapper node — render it above the tree, not as a left column
+        let globalNode = null;
+        let layoutRoot = tree;
+        if (tree.level === 'global' && tree.children?.length) {
+            globalNode = tree;
+            layoutRoot = tree.children[0];
+        }
+        const GLOBAL_H = globalNode ? NH + 18 : 0;
+
+        _measure(layoutRoot);
+        _place(layoutRoot, PAD, PAD + GLOBAL_H + layoutRoot._h / 2);
+        if (globalNode) { globalNode._x = PAD; globalNode._y = PAD; }
+
+        const svgW = _maxX(layoutRoot) + PAD;
+        const svgH = layoutRoot._h + PAD + PAD_BOT + GLOBAL_H;
 
         const NS  = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(NS, 'svg');
@@ -2719,8 +2730,24 @@
             for (const c of (node.children || [])) _drawNode(c);
         }
 
-        _drawEdges(tree);
-        _drawNode(tree);
+        // Global node: draw above tree with a short vertical drop edge
+        if (globalNode) {
+            const vx  = globalNode._x + NW / 2;
+            const vy1 = globalNode._y + NH;
+            const vy2 = layoutRoot._y;
+            const vEdge = document.createElementNS(NS, 'path');
+            vEdge.setAttribute('d', `M${vx},${vy1} L${vx},${vy2}`);
+            vEdge.setAttribute('fill', 'none');
+            vEdge.setAttribute('class', 'nb-config-org-edge');
+            svg.appendChild(vEdge);
+            const savedChildren = globalNode.children;
+            globalNode.children = [];
+            _drawNode(globalNode);
+            globalNode.children = savedChildren;
+        }
+
+        _drawEdges(layoutRoot);
+        _drawNode(layoutRoot);
 
         const wrap = document.createElement('div');
         wrap.className = 'nb-config-org-wrap';

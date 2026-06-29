@@ -2529,7 +2529,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-org-node.nb-config-org-global .nb-config-org-label  { fill: var(--text-dim); font-style: italic; }
 .nb-config-org-node.nb-config-org-global .nb-config-org-marker { fill: var(--text-dim); }
 /* Filter states */
-.nb-config-org-node.nb-config-org-dim    { opacity: 0.18; transition: opacity 0.15s; }
+.nb-config-org-node.nb-config-org-dim    { opacity: 0.5;  transition: opacity 0.15s; }
 .nb-config-org-node.nb-config-org-active .nb-config-org-rect { stroke: var(--accent, #4a9eff); stroke-width: 2.5; filter: brightness(1.25); }
 /* Filter bar */
 .nb-config-org-filterbar  { display: flex; align-items: center; gap: 6px; padding: 4px 2px 8px; flex-wrap: wrap; }
