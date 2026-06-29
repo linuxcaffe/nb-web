@@ -1922,15 +1922,17 @@
     // ── front block dispatcher ─────────────────────────────────────────────────
 
     async function _loadFmListBlock(el) {
-        const raw   = (el.dataset.query || '').trim();
-        const scope = raw === 'list' ? null : raw.slice('list-'.length); // e.g. 'cine', 'core', 'empty'
+        // Parse: "list", "list 20", "list-core", "list-core 12", "list-empty"
+        const raw = (el.dataset.query || '').trim();
+        const m   = raw.match(/^list(?:-(\w+))?(?:\s+(\d+))?$/);
+        const scope       = m?.[1] || null;         // 'cine', 'core', 'empty', or null
+        const limit       = parseInt(m?.[2] || '8', 10);
         const isEmptyScope = scope === 'empty';
+        const scopeLabel  = scope ? `list-${scope}` : 'list';
+        const ROW_H       = 26;
 
-        // Resolve scope → key filter
         let scopeKeys = null;
-        if (scope && !isEmptyScope) {
-            scopeKeys = NbWeb.getFmKeysForScope(scope);
-        }
+        if (scope && !isEmptyScope) scopeKeys = NbWeb.getFmKeysForScope(scope);
 
         const nb = NbMain?.activeNote?.()?.notebook || '';
         el.innerHTML = '<span class="nb-spin">⟳</span>';
@@ -1949,7 +1951,6 @@
             el.innerHTML = '';
             const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _loadFmListBlock(el) });
 
-            const scopeLabel = scope ? `list-${scope}` : 'list';
             const countEl = document.createElement('span');
             countEl.className = 'nb-fm-count';
             countEl.textContent = keys.length ? String(keys.length) + ' keys' : 'No keys';
@@ -1961,12 +1962,16 @@
             el.appendChild(hdr);
 
             if (keys.length) {
+                const scroll = document.createElement('div');
+                scroll.className = 'nb-fm-list-scroll';
+                scroll.style.maxHeight = (limit * ROW_H) + 'px';
+
                 const tbl = document.createElement('table');
                 tbl.className = 'nb-fm-list-table';
                 for (const [key, info] of keys) {
                     const tr = document.createElement('tr');
                     tr.className = 'nb-fm-list-row';
-                    tr.title = 'Click to see notes with this field';
+                    tr.title = 'Show notes with this field';
 
                     const tdKey = document.createElement('td');
                     tdKey.className = 'nb-fm-list-key';
@@ -1982,18 +1987,17 @@
 
                     tr.append(tdKey, tdCount, tdSamples);
                     tr.addEventListener('click', () => {
-                        // Drill into field: set query to the key name and re-render as normal fm block
-                        el.dataset.query      = key;
-                        el.dataset._fmListSrc = scopeLabel; // stash for back button
+                        // key: → op:'exists' (bare word without colon = notebook name in parser)
+                        el.dataset.query      = key + ':';
+                        el.dataset._fmListSrc = raw; // stash original query for back button
                         _loadFrontBlock(el);
                     });
                     tbl.appendChild(tr);
                 }
-                el.appendChild(tbl);
+                scroll.appendChild(tbl);
+                el.appendChild(scroll);
             }
 
-            const wasCollapsed = el.dataset._wasCollapsed === '1';
-            if (wasCollapsed) el.classList.add('nb-collapsed');
             _initCollapseToggle(el);
         } catch(e) {
             _cbError(el, 'fm', e.message, () => _loadFmListBlock(el));
@@ -2006,8 +2010,8 @@
             await _loadFrontChanges(el);
             return;
         }
-        // list / list-X scope — delegate to list renderer
-        if ((el.dataset.query || '').trim().match(/^list(-\w+)?$/)) {
+        // list / list-X / list-X N — delegate to list renderer
+        if ((el.dataset.query || '').trim().match(/^list(-\w+)?(\s+\d+)?$/)) {
             await _loadFmListBlock(el);
             return;
         }
@@ -2050,8 +2054,9 @@
                 back.textContent = '← list';
                 back.addEventListener('click', e => {
                     e.stopPropagation();
-                    el.dataset.query = el.dataset._fmListSrc;
+                    const src = el.dataset._fmListSrc;
                     delete el.dataset._fmListSrc;
+                    el.dataset.query = src;
                     _loadFmListBlock(el);
                 });
                 meta.appendChild(back);

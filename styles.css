@@ -1034,6 +1034,7 @@ body {
 .nb-catalog-table tr:last-child td { border-bottom: none; }
 
 /* fm: list — FM key browser table */
+.nb-fm-list-scroll { overflow-y: auto; }
 .nb-fm-list-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
 .nb-fm-list-row { cursor: pointer; border-bottom: 1px solid var(--border); }
 .nb-fm-list-row:last-child { border-bottom: none; }
