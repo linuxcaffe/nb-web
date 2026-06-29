@@ -2702,6 +2702,8 @@ const NbMain = (() => {
                     sheet.setData([...selectedRows, ...footerData]);
                     const countEl = host.closest('.nb-csv-wrap')?.querySelector('.nb-csv-count');
                     if (countEl) countEl.textContent = selectedRows.length;
+                    // Trigger the barblock's own save button to write back to the note file
+                    host.closest('.nb-csv-wrap')?.querySelector('.nb-csv-save-btn')?.click();
                 }
                 pop.remove(); trigger._chkPop = null;
             });
