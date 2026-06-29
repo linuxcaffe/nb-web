@@ -2381,6 +2381,11 @@
                 if (tok.endsWith(':')) target = tok;          // notebook:
                 else if (!treeAttr)   treeAttr = tok;        // first non-colon = attribute
             }
+            // Org mode: auto-scope to current notebook (not subfolder)
+            if (orgMode && !target) {
+                const colon = (currentSelector || '').indexOf(':');
+                if (colon >= 0) target = currentSelector.slice(0, colon) + ':';
+            }
         } else if (raw) {
             const m = raw.match(/^(\w[\w.-]*):\s*(.*)$/);
             if (m) { key = m[1]; target = m[2].trim(); }
@@ -2423,8 +2428,9 @@
         try {
             if (treeMode || orgMode) {
                 const params = new URLSearchParams({ notebook });
-                if (treeAttr) params.set('attribute', treeAttr);
-                if (folder)   params.set('folder', folder);
+                if (treeAttr)  params.set('attribute', treeAttr);
+                if (folder)    params.set('folder', folder);
+                if (orgMode)   params.set('with_global', '1');
                 const r = await fetch(`/api/config-tree-walk?${params}`);
                 if (r.status === 403) { _cbDenyRead(el); return; }
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -2601,7 +2607,7 @@
         _initCollapseToggle(el);
 
         // Layout constants — left-to-right flow
-        const NW = 128, NH = attribute ? 36 : 26, GX = 44, GY = 4, PAD = 14;
+        const NW = 128, NH = attribute ? 36 : 26, GX = 44, GY = 4, PAD = 14, PAD_BOT = 24;
 
         // _h = total vertical span of subtree
         function _measure(node) {
@@ -2630,7 +2636,7 @@
         _measure(tree);
         _place(tree, PAD, tree._h / 2 + PAD);
         const svgW = _maxX(tree) + PAD;
-        const svgH = tree._h + PAD * 2;
+        const svgH = tree._h + PAD + PAD_BOT;
 
         const NS  = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(NS, 'svg');
@@ -2657,6 +2663,7 @@
             const g = document.createElementNS(NS, 'g');
             g.setAttribute('transform', `translate(${node._x},${node._y})`);
             g.setAttribute('class', 'nb-config-org-node'
+                + (node.level === 'global' ? ' nb-config-org-global' : '')
                 + (node.has_attr   ? ' nb-config-org-has-attr' : '')
                 + (node.has_config ? ' nb-config-org-has-cfg'  : ' nb-config-org-no-cfg'));
 

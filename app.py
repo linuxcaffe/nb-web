@@ -4372,9 +4372,10 @@ def api_config_tree_walk():
 
     level: 'notebook' | 'folder' | 'subfolder' | 'note'
     """
-    notebook  = request.args.get('notebook',  '').strip()
-    attribute = request.args.get('attribute', '').strip()
-    folder    = request.args.get('folder',    '').strip().strip('/')
+    notebook    = request.args.get('notebook',    '').strip()
+    attribute   = request.args.get('attribute',   '').strip()
+    folder      = request.args.get('folder',      '').strip().strip('/')
+    with_global = request.args.get('with_global', '')
 
     if not notebook or not _safe_notebook(notebook):
         return jsonify({'error': 'invalid notebook'}), 400
@@ -4453,10 +4454,6 @@ def api_config_tree_walk():
 
     tree = _walk(root, folder, 0 if not folder else folder.count('/') + 1)
 
-    # Attach notebook-level config as root wrapper if walking from nb root
-    nb_cfg_path = nb_root / f'.{notebook}.md'
-    nb_has, nb_meta, nb_cfg_file = _cfg_meta(nb_root)
-
     # Strip internal _active key from output
     def _clean(node):
         node.pop('_active', None)
@@ -4464,6 +4461,32 @@ def api_config_tree_walk():
             _clean(c)
 
     _clean(tree)
+
+    # Optionally wrap with a global root node (.nb.md above the notebook)
+    if with_global and not folder:
+        global_cfg = NB_DIR / '.nb.md'
+        g_exists   = global_cfg.exists()
+        g_meta     = {}
+        if g_exists:
+            try:
+                g_meta, _ = parse_frontmatter(global_cfg.read_text())
+            except Exception:
+                pass
+        g_has_attr  = bool(attribute and g_meta.get(attribute) is not None)
+        g_contrib   = {attribute: g_meta[attribute]} if (attribute and attribute in g_meta) \
+                      else ({k: v for k, v in g_meta.items() if not k.startswith('password')} if not attribute else {})
+        tree = {
+            'name':        '.nb',
+            'rel_path':    '',
+            'selector':    str(global_cfg),
+            'cfg_path':    str(global_cfg),
+            'level':       'global',
+            'has_config':  g_exists,
+            'contributes': g_contrib,
+            'has_attr':    g_has_attr,
+            'children':    [tree],
+        }
+
     return jsonify(tree)
 
 

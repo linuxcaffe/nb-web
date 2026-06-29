@@ -2525,6 +2525,9 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-org-label { font-size: 11px; fill: var(--text); font-family: var(--font-sans, system-ui); dominant-baseline: auto; }
 .nb-config-org-node.nb-config-org-no-cfg .nb-config-org-label { fill: var(--text-dim); }
 .nb-config-org-val   { font-size: 9px;  fill: var(--accent-alt, #f0a500); font-family: var(--font-mono, monospace); dominant-baseline: auto; }
+.nb-config-org-node.nb-config-org-global .nb-config-org-rect   { stroke: var(--text-dim); stroke-dasharray: none; opacity: 1; fill: var(--bg1, #1a1a1a); }
+.nb-config-org-node.nb-config-org-global .nb-config-org-label  { fill: var(--text-dim); font-style: italic; }
+.nb-config-org-node.nb-config-org-global .nb-config-org-marker { fill: var(--text-dim); }
 
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }
