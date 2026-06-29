@@ -2525,11 +2525,11 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-org-label { font-size: 11px; fill: var(--text); font-family: var(--font-sans, system-ui); dominant-baseline: auto; }
 .nb-config-org-node.nb-config-org-no-cfg .nb-config-org-label { fill: var(--text-dim); }
 .nb-config-org-val   { font-size: 9px;  fill: var(--accent-alt, #f0a500); font-family: var(--font-mono, monospace); dominant-baseline: auto; }
-.nb-config-org-node.nb-config-org-global .nb-config-org-rect   { stroke: var(--text-dim); stroke-dasharray: none; opacity: 1; fill: var(--bg1, #1a1a1a); }
-.nb-config-org-node.nb-config-org-global .nb-config-org-label  { fill: var(--text-dim); font-style: italic; }
+.nb-config-org-node.nb-config-org-global .nb-config-org-rect   { fill: var(--bg3); stroke: var(--text-dim); stroke-dasharray: 5 3; opacity: 1; }
+.nb-config-org-node.nb-config-org-global .nb-config-org-label  { fill: var(--text); font-style: italic; }
 .nb-config-org-node.nb-config-org-global .nb-config-org-marker { fill: var(--text-dim); }
 /* Filter states */
-.nb-config-org-node.nb-config-org-dim    { opacity: 0.5;  transition: opacity 0.15s; }
+.nb-config-org-node.nb-config-org-dim    { opacity: 0.65; transition: opacity 0.15s; }
 .nb-config-org-node.nb-config-org-active .nb-config-org-rect { stroke: var(--accent, #4a9eff); stroke-width: 2.5; filter: brightness(1.25); }
 /* Filter bar */
 .nb-config-org-filterbar  { display: flex; align-items: center; gap: 6px; padding: 4px 2px 8px; flex-wrap: wrap; }

@@ -2629,21 +2629,38 @@
             return Math.max(node._x + NW, ...(node.children || []).map(_maxX));
         }
 
-        // Split global wrapper node — render it above the tree, not as a left column
+        function _maxY(node) {
+            return Math.max(node._y + NH, ...(node.children || []).map(_maxY));
+        }
+
+        function _shiftY(node, dy) {
+            node._y += dy;
+            (node.children || []).forEach(c => _shiftY(c, dy));
+        }
+
+        // Split global wrapper — place it anchored to the notebook root, not at PAD
         let globalNode = null;
         let layoutRoot = tree;
         if (tree.level === 'global' && tree.children?.length) {
             globalNode = tree;
             layoutRoot = tree.children[0];
         }
-        const GLOBAL_H = globalNode ? NH + 18 : 0;
 
         _measure(layoutRoot);
-        _place(layoutRoot, PAD, PAD + GLOBAL_H + layoutRoot._h / 2);
-        if (globalNode) { globalNode._x = PAD; globalNode._y = PAD; }
+        _place(layoutRoot, PAD, PAD + layoutRoot._h / 2);  // normal placement
+
+        if (globalNode) {
+            // Anchor global node 12px above the notebook root's top edge
+            globalNode._x = PAD;
+            globalNode._y = layoutRoot._y - NH - 12;
+            // Shift entire tree down so global node starts at PAD from top
+            const shift = PAD - globalNode._y;
+            _shiftY(layoutRoot, shift);
+            globalNode._y = PAD;
+        }
 
         const svgW = _maxX(layoutRoot) + PAD;
-        const svgH = layoutRoot._h + PAD + PAD_BOT + GLOBAL_H;
+        const svgH = _maxY(layoutRoot) + PAD_BOT;
 
         const NS  = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(NS, 'svg');
