@@ -2802,7 +2802,8 @@
             label.setAttribute('text-anchor', 'middle');
             label.setAttribute('class', 'nb-config-org-label');
             const maxCh = 11;
-            label.textContent = node.name.length > maxCh ? node.name.slice(0, maxCh - 1) + '…' : node.name;
+            const rawLabel = node.level === 'global' ? '⊕ ' + node.name : node.name;
+            label.textContent = rawLabel.length > maxCh ? rawLabel.slice(0, maxCh - 1) + '…' : rawLabel;
             g.appendChild(label);
 
             // Right slot: key count badge (how many FM keys this config sets)
@@ -2884,13 +2885,17 @@
             const cw = svgCon.clientWidth  || svgW;
             const ch = svgCon.clientHeight || Math.min(svgH, 480);
             const pad = 20;
-            // Fit-to-all, but never shrink nodes below 12px tall (unreadable).
-            // If the full-fit zoom is too small, zoom to min-readable and let the user pan.
             const fullFit = Math.min((cw - pad*2) / svgW, (ch - pad*2) / svgH, 2);
             const minZ    = Math.max(12 / NH, 0.05);
-            _z  = Math.max(fullFit, minZ);
-            _tx = Math.max(pad, (cw - svgW * _z) / 2);
-            _ty = Math.max(pad, (ch - svgH * _z) / 2);
+            _z = Math.max(fullFit, minZ);
+            if (_z > fullFit) {
+                // Tree too large to fit entirely — center the root node in the viewport
+                _tx = pad - layoutRoot._x * _z;
+                _ty = ch * 0.4 - (layoutRoot._y + NH / 2) * _z;
+            } else {
+                _tx = Math.max(pad, (cw - svgW * _z) / 2);
+                _ty = Math.max(pad, (ch - svgH * _z) / 2);
+            }
             _applyVP();
         }
         function _zoomAt(mx, my, factor) {
