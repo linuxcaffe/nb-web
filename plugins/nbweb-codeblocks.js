@@ -2662,19 +2662,22 @@
 
         if (globalNode) {
             globalNode._x = PAD;
-            globalNode._y = layoutRoot._y - NH - 12;
+            globalNode._y = layoutRoot._y - NH - 12;  // just above notebook root
+            // Small trees: global node would go above y=0; shift tree down to fit
+            if (globalNode._y < PAD) {
+                _shiftY(layoutRoot, PAD - globalNode._y);
+                globalNode._y = PAD;
+            }
         }
 
-        // Use viewBox to crop from just above globalNode — no coordinate shifting needed
-        const topY = globalNode ? globalNode._y - PAD : 0;
         const svgW = _maxX(layoutRoot) + PAD;
-        const svgH = _maxY(layoutRoot) + PAD_BOT - topY;
+        const svgH = _maxY(layoutRoot) + PAD_BOT;
 
         const NS  = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(NS, 'svg');
         svg.setAttribute('width',   svgW);
         svg.setAttribute('height',  svgH);
-        svg.setAttribute('viewBox', `0 ${topY} ${svgW} ${svgH}`);
+        svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
         svg.className = 'nb-config-org-svg';
 
         function _drawEdges(node) {
