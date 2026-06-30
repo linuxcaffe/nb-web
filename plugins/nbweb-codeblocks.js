@@ -2437,17 +2437,30 @@
 
         try {
             if (treeMode || orgMode) {
-                const params = new URLSearchParams({ notebook });
-                if (treeMode && treeAttr) params.set('attribute', treeAttr);  // tree: server-prune
-                if (folder)               params.set('folder', folder);
-                if (orgMode)              params.set('with_global', '1');
-                const r = await fetch(`/api/config-tree-walk?${params}`);
-                if (r.status === 403) { _cbDenyRead(el); return; }
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                const tree = await r.json();
-                if (tree.error) throw new Error(tree.error);
-                if (orgMode) _configOrgRender(el, tree, treeAttrs, notebook, wasOpen, context);
-                else         _configTreeRender(el, tree, treeAttr, notebook, wasOpen);
+                let tree;
+                if (orgMode && notebook === '.nb') {
+                    // Super-notebook scope: global walk across all notebooks
+                    const params = new URLSearchParams();
+                    if (treeAttrs.length) params.set('attribute', treeAttrs.join(','));
+                    const r = await fetch(`/api/config-global-walk?${params}`);
+                    if (r.status === 403) { _cbDenyRead(el); return; }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    tree = await r.json();
+                    if (tree.error) throw new Error(tree.error);
+                    _configOrgRender(el, tree, treeAttrs, '.nb', wasOpen, context);
+                } else {
+                    const params = new URLSearchParams({ notebook });
+                    if (treeMode && treeAttr) params.set('attribute', treeAttr);
+                    if (folder)               params.set('folder', folder);
+                    if (orgMode)              params.set('with_global', '1');
+                    const r = await fetch(`/api/config-tree-walk?${params}`);
+                    if (r.status === 403) { _cbDenyRead(el); return; }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    tree = await r.json();
+                    if (tree.error) throw new Error(tree.error);
+                    if (orgMode) _configOrgRender(el, tree, treeAttrs, notebook, wasOpen, context);
+                    else         _configTreeRender(el, tree, treeAttr, notebook, wasOpen);
+                }
             } else {
                 const params = new URLSearchParams({ notebook });
                 if (folder)          params.set('folder', folder);
@@ -2656,17 +2669,15 @@
             (node.children || []).forEach(c => _shiftY(c, dy));
         }
 
-        // Split global wrapper — place it anchored to the notebook root, not as a left column
+        // With-global single-notebook view: detach global node and float it above the root.
+        // Full global walk (many notebooks): global node IS the layout root — don't split.
         let globalNode = null;
         let layoutRoot = tree;
-        if (tree.level === 'global' && tree.children?.length) {
+        if (tree.level === 'global' && tree.children?.length === 1) {
             globalNode = tree;
             layoutRoot = tree.children[0];
         }
 
-        // Propagate effective access root-to-leaf.
-        // _accessExplicit = true only where this node itself sets access:
-        // (tint is shown only for explicit nodes — inherited access is in the tooltip)
         function _propagateAccess(node, inherited) {
             node._accessExplicit = node.contributes?.access != null;
             node._access = node.contributes?.access ?? inherited;
@@ -2684,8 +2695,7 @@
 
         if (globalNode) {
             globalNode._x = PAD;
-            globalNode._y = layoutRoot._y - NH - 12;  // just above notebook root
-            // Small trees: global node would go above y=0; shift tree down to fit
+            globalNode._y = layoutRoot._y - NH - 12;
             if (globalNode._y < PAD) {
                 _shiftY(layoutRoot, PAD - globalNode._y);
                 globalNode._y = PAD;
@@ -2801,10 +2811,11 @@
                 g.addEventListener('click', async () => {
                     g.style.opacity = '0.5';
                     try {
+                        // Use node.notebook so global-scope nodes target the right notebook
                         const r = await fetch('/api/config-create', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ notebook, folder: node.rel_path }),
+                            body: JSON.stringify({ notebook: node.notebook || notebook, folder: node.rel_path }),
                         });
                         const d = await r.json();
                         if (d.selector) {

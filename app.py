@@ -4357,6 +4357,75 @@ def api_config_tree():
     return jsonify(nodes)
 
 
+def _config_walk_notebook(notebook, attribute='', folder=''):
+    """Walk one notebook's folder tree; return root node dict (with _active keys)."""
+    nb_root = NB_DIR / notebook
+    root    = nb_root / folder if folder else nb_root
+
+    def _cfg_meta(dir_path):
+        name     = dir_path.name
+        cfg_file = dir_path / f'.{name}.md'
+        if cfg_file.exists():
+            try:
+                rel_cfg = cfg_file.relative_to(nb_root)
+                cfg_sel = f"{notebook}:{rel_cfg}"
+            except ValueError:
+                cfg_sel = str(cfg_file)
+            try:
+                meta, _ = parse_frontmatter(cfg_file.read_text())
+                return True, meta, cfg_sel
+            except Exception:
+                return True, {}, cfg_sel
+        return False, {}, None
+
+    def _walk(dir_path, rel, depth):
+        has_cfg, meta, cfg_path = _cfg_meta(dir_path)
+        has_attr = bool(attribute and meta.get(attribute) is not None)
+        children = []
+        try:
+            entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
+        except PermissionError:
+            entries = []
+        for entry in entries:
+            if entry.name.startswith('.'):
+                continue
+            if entry.is_dir() and (entry / '.index').exists():
+                child_rel = f"{rel}/{entry.name}" if rel else entry.name
+                children.append(_walk(entry, child_rel, depth + 1))
+        if attribute:
+            children = [c for c in children if c.get('_active')]
+        active = has_attr or any(c.get('_active') for c in children)
+        contrib = {}
+        if attribute and attribute in meta:
+            contrib[attribute] = meta[attribute]
+        elif not attribute:
+            contrib = {k: v for k, v in meta.items() if not k.startswith('password')}
+        level = 'notebook' if dir_path == nb_root else ('folder' if depth == 1 else 'subfolder')
+        sel   = f"{notebook}:{rel}/" if rel else f"{notebook}:"
+        return {
+            'name':        dir_path.name,
+            'notebook':    notebook,
+            'rel_path':    rel,
+            'selector':    sel,
+            'cfg_path':    cfg_path,
+            'level':       level,
+            'has_config':  has_cfg,
+            'contributes': contrib,
+            'has_attr':    has_attr,
+            '_active':     active,
+            'children':    children,
+        }
+
+    tree = _walk(root, folder, 0 if not folder else folder.count('/') + 1)
+
+    def _clean(node):
+        node.pop('_active', None)
+        for c in node.get('children', []):
+            _clean(c)
+    _clean(tree)
+    return tree
+
+
 @app.route('/api/config-tree-walk')
 def api_config_tree_walk():
     """Walk a notebook's folder tree and return every config node found.
@@ -4368,7 +4437,7 @@ def api_config_tree_walk():
       folder    — optional subtree root (restricts walk to this folder and below)
 
     Each node:
-      { name, rel_path, selector, level, has_config, contributes, children[] }
+      { name, notebook, rel_path, selector, level, has_config, contributes, children[] }
 
     level: 'notebook' | 'folder' | 'subfolder' | 'note'
     """
@@ -4385,82 +4454,7 @@ def api_config_tree_walk():
     if not _level_gte(user.get('level', ''), str(nb_cfg.get('access') or 'user')):
         return jsonify({'error': 'forbidden'}), 403
 
-    nb_root = NB_DIR / notebook
-    root    = nb_root / folder if folder else nb_root
-
-    def _cfg_meta(dir_path):
-        """Read the .{name}.md config in dir_path; return (exists, meta, selector)."""
-        name     = dir_path.name
-        cfg_file = dir_path / f'.{name}.md'
-        if cfg_file.exists():
-            try:
-                rel_cfg = cfg_file.relative_to(nb_root)
-                cfg_sel = f"{notebook}:{rel_cfg}"
-            except ValueError:
-                cfg_sel = str(cfg_file)
-            try:
-                meta, _ = parse_frontmatter(cfg_file.read_text())
-                val = meta.get(attribute) if attribute else None
-                return True, meta, cfg_sel
-            except Exception:
-                return True, {}, cfg_sel
-        return False, {}, None
-
-    def _walk(dir_path, rel, depth):
-        has_cfg, meta, cfg_path = _cfg_meta(dir_path)
-        has_attr = bool(attribute and meta.get(attribute) is not None)
-
-        children = []
-        try:
-            entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
-        except PermissionError:
-            entries = []
-
-        for entry in entries:
-            if entry.name.startswith('.'):
-                continue
-            if entry.is_dir() and (entry / '.index').exists():
-                child_rel = f"{rel}/{entry.name}" if rel else entry.name
-                children.append(_walk(entry, child_rel, depth + 1))
-
-        # Prune: if filtering by attribute, drop subtrees with no active nodes
-        if attribute:
-            children = [c for c in children if c.get('_active')]
-
-        active = has_attr or any(c.get('_active') for c in children)
-
-        contrib = {}
-        if attribute and attribute in meta:
-            contrib[attribute] = meta[attribute]
-        elif not attribute:
-            contrib = {k: v for k, v in meta.items() if not k.startswith('password')}
-
-        level = 'notebook' if dir_path == nb_root else ('folder' if depth == 1 else 'subfolder')
-        sel   = f"{notebook}:{rel}/" if rel else f"{notebook}:"
-
-        node = {
-            'name':       dir_path.name,
-            'rel_path':   rel,
-            'selector':   sel,
-            'cfg_path':   cfg_path,
-            'level':      level,
-            'has_config': has_cfg,
-            'contributes': contrib,
-            'has_attr':   has_attr,
-            '_active':    active,
-            'children':   children,
-        }
-        return node
-
-    tree = _walk(root, folder, 0 if not folder else folder.count('/') + 1)
-
-    # Strip internal _active key from output
-    def _clean(node):
-        node.pop('_active', None)
-        for c in node.get('children', []):
-            _clean(c)
-
-    _clean(tree)
+    tree = _config_walk_notebook(notebook, attribute, folder)
 
     # Optionally wrap with a global root node (.nb.md above the notebook)
     if with_global and not folder:
@@ -4488,6 +4482,66 @@ def api_config_tree_walk():
         }
 
     return jsonify(tree)
+
+
+@app.route('/api/config-global-walk')
+def api_config_global_walk():
+    """Walk ALL notebooks and return one composite config tree rooted at .nb.md.
+
+    Admin-only. Used by cfg:org when rendered inside the global .nb.md dotfile.
+
+    Query params:
+      attribute — optional key to filter (same semantics as config-tree-walk)
+
+    Returns the same node shape as config-tree-walk; root level='global',
+    children are notebook-level nodes each carrying their own subtree.
+    Each node includes a `notebook` field so the frontend knows which
+    notebook owns it (needed for the ○ create-config click handler).
+    """
+    attribute = request.args.get('attribute', '').strip()
+
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'error': 'forbidden'}), 403
+
+    # Global root: .nb.md
+    global_cfg = NB_DIR / '.nb.md'
+    g_meta = {}
+    if global_cfg.exists():
+        try:
+            g_meta, _ = parse_frontmatter(global_cfg.read_text())
+        except Exception:
+            pass
+    g_contrib = ({attribute: g_meta[attribute]} if (attribute and attribute in g_meta)
+                 else {k: v for k, v in g_meta.items() if not k.startswith('password')})
+
+    # Walk every regular (non-dot) notebook the user can access
+    nb_nodes = []
+    for nb_dir in sorted(NB_DIR.iterdir()):
+        if not nb_dir.is_dir() or nb_dir.name.startswith('.'):
+            continue
+        if not _safe_notebook(nb_dir.name):
+            continue
+        if not (nb_dir / '.git').exists() and not (nb_dir / '.index').exists():
+            continue
+        nb_cfg = _notebook_config(nb_dir.name)
+        if not _level_gte(user.get('level', ''), str(nb_cfg.get('access') or 'user')):
+            continue
+        nb_nodes.append(_config_walk_notebook(nb_dir.name, attribute))
+
+    root = {
+        'name':        '.nb',
+        'notebook':    '.nb',
+        'rel_path':    '',
+        'selector':    str(global_cfg),
+        'cfg_path':    str(global_cfg),
+        'level':       'global',
+        'has_config':  global_cfg.exists(),
+        'contributes': g_contrib,
+        'has_attr':    bool(attribute and g_meta.get(attribute) is not None),
+        'children':    nb_nodes,
+    }
+    return jsonify(root)
 
 
 @app.route('/api/config-create', methods=['POST'])
