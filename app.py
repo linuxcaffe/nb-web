@@ -4533,11 +4533,11 @@ def api_config_create():
         return jsonify({'selector': cfg_sel, 'created': False})
 
     # Load template
-    tpl_path = NB_DIR / '.templates' / 'nb-config-folder.md'
+    tpl_path = NB_DIR / '.templates' / 'dotfile.md'
     if tpl_path.exists():
         tpl = tpl_path.read_text()
     else:
-        tpl = '---\nconfig: {{folder}}\ntitle: {{folder_path}} config\ndate: {{date}}\n---\n\n<!-- {{folder_path}} — describe this folder here -->\n'
+        tpl = '---\ntype: dotfile\ntitle: {{title}}\ndate: {{date}}\n---\n\n<!-- {{title}} — describe this folder here -->\n'
 
     folder_path = f"{notebook}/{folder}" if folder else notebook
     content = _resolve_template_vars(tpl, title=folder_path)
@@ -5688,8 +5688,8 @@ def api_create_note():
             seed_files = []
             index_path = nb_root / '.index'
             for tpl_name, fname in [
-                ('notebook-dashboard.md', f'{nb_name}.md'),
-                ('notebook-config.md',    f'.{nb_name}.md'),
+                ('dashboard.md', f'{nb_name}.md'),
+                ('dotfile.md',   f'.{nb_name}.md'),
             ]:
                 tpl_path = NB_DIR / '.templates' / tpl_name
                 if tpl_path.exists():
@@ -5756,10 +5756,19 @@ def api_create_note():
             note_filename = explicit_filename
         else:
             slug = re.sub(r'[^\w]+', '_', title or 'note').strip('_').lower()
+            # Detect dotfile templates: type: dotfile in FM → prepend '.' to filename
+            dot_prefix = ''
+            if note_content.lstrip().startswith('---'):
+                try:
+                    _tpl_meta, _ = parse_frontmatter(note_content)
+                    if _tpl_meta.get('type') == 'dotfile':
+                        dot_prefix = '.'
+                except Exception:
+                    pass
             # Timestamp prefix for casual root-level notes; suppressed by config,
             # folder context, or template (template = structured, needs stable URL).
             if folder or using_template or not prepend_date:
-                note_filename = f"{slug}.md"
+                note_filename = f"{dot_prefix}{slug}.md"
             else:
                 note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
 
