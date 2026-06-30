@@ -2967,6 +2967,8 @@
         svgCon.addEventListener('mouseleave', () => { _keysActive = false; });
         window.addEventListener('keydown', e => {
             if (!_keysActive) return;
+            const ae = document.activeElement;
+            if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
             const cw = svgCon.clientWidth, ch = svgCon.clientHeight;
             if      (e.key === 'f' || e.key === 'F')  { e.preventDefault(); _fitAll(); }
             else if (e.key === '+' || e.key === '=')  { e.preventDefault(); _zoomAt(cw/2, ch/2, 1.2); }

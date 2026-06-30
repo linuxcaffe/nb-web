@@ -3243,16 +3243,14 @@ const NbMain = (() => {
     // <pre><code> for every fenced block. Use wherever live hydration must NOT
     // happen: template previews, version-diff views, help panels.
     function _parseMarkdownStatic(body) {
-        const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        return marked.parse(body, {
-            renderer: {
-                code({ text, lang }) {
-                    return lang
-                        ? `<pre><code class="language-${lang}">${esc(text)}\n</code></pre>\n`
-                        : `<pre><code>${esc(text)}\n</code></pre>\n`;
-                }
-            }
-        });
+        const r = new marked.Renderer();
+        r.code = ({ text, lang }) => {
+            const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            return lang
+                ? `<pre><code class="language-${lang}">${esc(text)}\n</code></pre>\n`
+                : `<pre><code>${esc(text)}\n</code></pre>\n`;
+        };
+        return marked.parse(body, { renderer: r });
     }
 
     // ── codeblock infra + renderers → plugins/nbweb-codeblocks.js ────────────
