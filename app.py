@@ -4357,8 +4357,11 @@ def api_config_tree():
     return jsonify(nodes)
 
 
-def _config_walk_notebook(notebook, attribute='', folder=''):
-    """Walk one notebook's folder tree; return root node dict (with _active keys)."""
+def _config_walk_notebook(notebook, attribute='', folder='', max_depth=0):
+    """Walk one notebook's folder tree; return root node dict (with _active keys).
+
+    max_depth: 0 = unlimited; N = stop after N levels (0=notebook root, 1=first folders…)
+    """
     nb_root = NB_DIR / notebook
     root    = nb_root / folder if folder else nb_root
 
@@ -4382,16 +4385,17 @@ def _config_walk_notebook(notebook, attribute='', folder=''):
         has_cfg, meta, cfg_path = _cfg_meta(dir_path)
         has_attr = bool(attribute and meta.get(attribute) is not None)
         children = []
-        try:
-            entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
-        except PermissionError:
-            entries = []
-        for entry in entries:
-            if entry.name.startswith('.'):
-                continue
-            if entry.is_dir() and (entry / '.index').exists():
-                child_rel = f"{rel}/{entry.name}" if rel else entry.name
-                children.append(_walk(entry, child_rel, depth + 1))
+        if not max_depth or depth < max_depth:
+            try:
+                entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
+            except PermissionError:
+                entries = []
+            for entry in entries:
+                if entry.name.startswith('.'):
+                    continue
+                if entry.is_dir() and (entry / '.index').exists():
+                    child_rel = f"{rel}/{entry.name}" if rel else entry.name
+                    children.append(_walk(entry, child_rel, depth + 1))
         if attribute:
             children = [c for c in children if c.get('_active')]
         active = has_attr or any(c.get('_active') for c in children)
@@ -4445,6 +4449,7 @@ def api_config_tree_walk():
     attribute   = request.args.get('attribute',   '').strip()
     folder      = request.args.get('folder',      '').strip().strip('/')
     with_global = request.args.get('with_global', '')
+    max_depth   = int(request.args.get('max_depth', 0) or 0)
 
     if not notebook or not _safe_notebook(notebook):
         return jsonify({'error': 'invalid notebook'}), 400
@@ -4454,7 +4459,7 @@ def api_config_tree_walk():
     if not _level_gte(user.get('level', ''), str(nb_cfg.get('access') or 'user')):
         return jsonify({'error': 'forbidden'}), 403
 
-    tree = _config_walk_notebook(notebook, attribute, folder)
+    tree = _config_walk_notebook(notebook, attribute, folder, max_depth)
 
     # Optionally wrap with a global root node (.nb.md above the notebook)
     if with_global and not folder:
@@ -4499,6 +4504,7 @@ def api_config_global_walk():
     notebook owns it (needed for the ○ create-config click handler).
     """
     attribute = request.args.get('attribute', '').strip()
+    max_depth = int(request.args.get('max_depth', 0) or 0)
 
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'admin'):
@@ -4527,7 +4533,7 @@ def api_config_global_walk():
         nb_cfg = _notebook_config(nb_dir.name)
         if not _level_gte(user.get('level', ''), str(nb_cfg.get('access') or 'user')):
             continue
-        nb_nodes.append(_config_walk_notebook(nb_dir.name, attribute))
+        nb_nodes.append(_config_walk_notebook(nb_dir.name, attribute, max_depth=max_depth))
 
     root = {
         'name':        '.nb',

@@ -2368,7 +2368,7 @@
 
     function _configParseQuery(raw, currentSelector) {
         raw = (raw || '').trim();
-        let key = '', target = '', treeMode = false, orgMode = false, treeAttrs = [], context = 2;
+        let key = '', target = '', treeMode = false, orgMode = false, treeAttrs = [], context = 2, maxDepth = 0;
 
         // tree/org mode: first token is 'tree' or 'org'
         if (/^tree\b/i.test(raw) || /^org\b/i.test(raw)) {
@@ -2379,14 +2379,21 @@
             const attrTokens = [];
             for (let i = 0; i < rawToks.length; i++) {
                 const tok = rawToks[i];
-                // -C N or -CN  (grep-style context count)
                 const cm = tok.match(/^-[cC](\d*)$/);
+                const dm = tok.match(/^-[dD](\d*)$/);
                 if (cm) {
+                    // -C N or -CN  (tooltip context line count)
                     if (cm[1]) context = parseInt(cm[1]);
                     else if (i + 1 < rawToks.length && /^\d+$/.test(rawToks[i + 1])) context = parseInt(rawToks[++i]);
-                // org mode: never treat a token as a notebook target — always self-scoped
-                } else if (!orgMode && tok.endsWith(':')) { target = tok;
-                } else { attrTokens.push(tok.replace(/^\[|\]$/g, '')); }
+                } else if (dm) {
+                    // -D N or -DN  (max folder depth; 0 = unlimited)
+                    if (dm[1]) maxDepth = parseInt(dm[1]);
+                    else if (i + 1 < rawToks.length && /^\d+$/.test(rawToks[i + 1])) maxDepth = parseInt(rawToks[++i]);
+                } else if (!orgMode && tok.endsWith(':')) {
+                    target = tok;
+                } else {
+                    attrTokens.push(tok.replace(/^\[|\]$/g, ''));
+                }
             }
             // Accept comma- or space-separated attrs across any number of tokens
             treeAttrs = attrTokens.join(',').split(/[\s,]+/).filter(Boolean);
@@ -2423,14 +2430,14 @@
         const notebook = tc >= 0 ? target.slice(0, tc) : target.replace(/\/$/, '');
         const folder   = tc >= 0 ? target.slice(tc + 1).replace(/\/$/, '') : '';
 
-        return { key, notebook, folder, treeMode, orgMode, treeAttrs, context };
+        return { key, notebook, folder, treeMode, orgMode, treeAttrs, context, maxDepth };
     }
 
     async function _loadConfigBlock(el) {
         if (!_cbCan(el, 'cfg', 'read')) { _cbDenyRead(el); return; }
         const wasOpen = !el.classList.contains('nb-collapsed');
         const currentSelector = NbMain?.activeSelector?.() || '';
-        const { key, notebook, folder, treeMode, orgMode, treeAttrs, context } = _configParseQuery(el.dataset.query || '', currentSelector);
+        const { key, notebook, folder, treeMode, orgMode, treeAttrs, context, maxDepth } = _configParseQuery(el.dataset.query || '', currentSelector);
         const treeAttr = treeAttrs[0] || '';  // single-attr for tree mode and legacy
 
         if (!notebook) {
@@ -2447,6 +2454,7 @@
                     // Super-notebook scope: global walk across all notebooks
                     const params = new URLSearchParams();
                     if (treeAttrs.length) params.set('attribute', treeAttrs.join(','));
+                    if (maxDepth)         params.set('max_depth', maxDepth);
                     const r = await fetch(`/api/config-global-walk?${params}`);
                     if (r.status === 403) { _cbDenyRead(el); return; }
                     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -2458,6 +2466,7 @@
                     if (treeMode && treeAttr) params.set('attribute', treeAttr);
                     if (folder)               params.set('folder', folder);
                     if (orgMode)              params.set('with_global', '1');
+                    if (maxDepth)             params.set('max_depth', maxDepth);
                     const r = await fetch(`/api/config-tree-walk?${params}`);
                     if (r.status === 403) { _cbDenyRead(el); return; }
                     if (!r.ok) throw new Error(`HTTP ${r.status}`);
