@@ -3246,9 +3246,8 @@ const NbMain = (() => {
         const r = new marked.Renderer();
         r.code = ({ text, lang }) => {
             const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-            return lang
-                ? `<pre><code class="language-${lang}">${esc(text)}\n</code></pre>\n`
-                : `<pre><code>${esc(text)}\n</code></pre>\n`;
+            const src = (lang ? `\`\`\`${lang}\n${text}\n\`\`\`` : `\`\`\`\n${text}\n\`\`\``);
+            return `<pre><code>${esc(src)}</code></pre>\n`;
         };
         return marked.parse(body, { renderer: r });
     }
