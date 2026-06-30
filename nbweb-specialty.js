@@ -287,12 +287,14 @@
             _openThemePicker(btn, notebook);
         });
 
-        // Position below the 🎨 button
+        // Stop ALL clicks inside the popup from reaching document-level handlers
+        popup.addEventListener('click', e => e.stopPropagation());
+
         document.body.appendChild(popup);
+        _themePopup = popup;   // set before positioning so any stray event finds it set
         const r = btn.getBoundingClientRect();
         popup.style.top  = `${r.bottom + 6}px`;
         popup.style.left = `${Math.min(r.left, window.innerWidth - popup.offsetWidth - 8)}px`;
-        _themePopup = popup;
     }
 
     document.addEventListener('click', e => {
