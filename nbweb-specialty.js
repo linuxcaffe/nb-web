@@ -109,10 +109,10 @@
             ? Object.keys(note.meta).filter(k => k !== 'type' && k !== 'title').length
             : 0;
 
-        // Dashboard pair: remove leading dot from filename to get the front-of-house note
-        const dashPath = note.path ? note.path.replace(/\/\.([^/]+)$/, '/$1') : '';
-        const dashLink = dashPath
-            ? `<a class="nb-specialty-link" href="#" data-open="${_esc(dashPath)}">dashboard</a>`
+        // Dashboard pair: remove leading dot from selector filename to get the front-of-house note
+        const dashSel = note.selector ? note.selector.replace(/(:|\/)\.([\w.-]+\.md)$/, '$1$2') : '';
+        const dashLink = dashSel
+            ? `<a class="nb-specialty-link" href="#" data-open="${_esc(dashSel)}">dashboard</a>`
             : '';
 
         const scopePill  = `<span class="nb-specialty-pill">${scope}</span>`;
@@ -157,12 +157,12 @@
             syncLabel = parts.join(' '); syncCls = ' nb-pill-dirty';
         }
 
-        // Config file: prepend "." to this note's filename (e.g. djp.md → .djp.md)
-        const configPath = note.path
-            ? note.path.replace(/([^/]+\.md)$/i, '.$1')
+        // Config file: prepend "." to the selector filename (e.g. djp:djp.md → djp:.djp.md)
+        const configSel = note.selector
+            ? note.selector.replace(/(:|\/)([\w.-]+\.md)$/, '$1.$2')
             : '';
-        const configLink = configPath
-            ? `<a class="nb-specialty-link" href="#" data-open="${_esc(configPath)}">config</a>`
+        const configLink = configSel
+            ? `<a class="nb-specialty-link" href="#" data-open="${_esc(configSel)}">config</a>`
             : '';
 
         // Sync + access right-justified
