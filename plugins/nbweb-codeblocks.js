@@ -2664,13 +2664,19 @@
             layoutRoot = tree.children[0];
         }
 
-        // Propagate effective access root-to-leaf (for BG tint)
+        // Propagate effective access root-to-leaf.
+        // _accessExplicit = true only where this node itself sets access:
+        // (tint is shown only for explicit nodes — inherited access is in the tooltip)
         function _propagateAccess(node, inherited) {
+            node._accessExplicit = node.contributes?.access != null;
             node._access = node.contributes?.access ?? inherited;
             (node.children || []).forEach(c => _propagateAccess(c, node._access));
         }
         const rootAccess = globalNode?.contributes?.access ?? null;
-        if (globalNode) globalNode._access = globalNode.contributes?.access ?? null;
+        if (globalNode) {
+            globalNode._accessExplicit = globalNode.contributes?.access != null;
+            globalNode._access = globalNode.contributes?.access ?? null;
+        }
         _propagateAccess(layoutRoot, rootAccess);
 
         _measure(layoutRoot);
@@ -2736,15 +2742,16 @@
             rect.setAttribute('class', 'nb-config-org-rect');
             g.appendChild(rect);
 
-            // Access level BG tint — effective (inherited from parent if not set here)
-            const tintColor = ACCESS_TINTS[node._access];
+            // Access tint — only on nodes that explicitly set access:
+            // (inherited access is readable in the tooltip, not painted on every node)
+            const tintColor = node._accessExplicit ? ACCESS_TINTS[node._access] : null;
             if (tintColor) {
                 const tint = document.createElementNS(NS, 'rect');
                 tint.setAttribute('width',  NW);
                 tint.setAttribute('height', NH);
                 tint.setAttribute('rx', 5);
                 tint.setAttribute('fill', tintColor);
-                tint.setAttribute('fill-opacity', '0.28');
+                tint.setAttribute('fill-opacity', '0.30');
                 tint.setAttribute('pointer-events', 'none');
                 g.appendChild(tint);
             }
