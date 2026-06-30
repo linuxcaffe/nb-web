@@ -2795,8 +2795,8 @@
         const wrap = document.createElement('div');
         wrap.className = 'nb-config-org-wrap';
 
-        // Filter bar — shown when attrs are declared in the codeblock
-        if (treeAttrs.length) {
+        // Filter bar — always shown in org mode
+        {
             const bar = document.createElement('div');
             bar.className = 'nb-config-org-filterbar';
 
@@ -2806,7 +2806,8 @@
             bar.appendChild(lbl);
 
             // spec: null = all | { key } = key-only | { key, val } = key:value
-            function _applyFilter(spec) {
+            function _applyFilter(spec, { clearInput = false } = {}) {
+                if (clearInput) input.value = '';
                 bar.querySelectorAll('.nb-config-org-chip').forEach(c => {
                     const active = !spec ? c.dataset.key === 'all'
                         : spec.val !== undefined ? c.dataset.key === `${spec.key}:${spec.val}`
@@ -2828,12 +2829,35 @@
                 });
             }
 
+            // Freeform text input — type any key or key:value
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = 'key or key:value…';
+            input.className = 'nb-config-org-filter-input';
+            let _ft;
+            input.addEventListener('input', () => {
+                clearTimeout(_ft);
+                _ft = setTimeout(() => {
+                    const v = input.value.trim();
+                    if (!v) { _applyFilter(null); return; }
+                    const ci = v.indexOf(':');
+                    const spec = ci > 0 ? { key: v.slice(0, ci), val: v.slice(ci + 1) } : { key: v };
+                    // Deactivate predefined chips; freeform is now driving
+                    bar.querySelectorAll('.nb-config-org-chip').forEach(c => c.classList.remove('nb-config-org-chip-active'));
+                    _applyFilter(spec);
+                }, 180);
+            });
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Escape') { input.value = ''; _applyFilter(null, { clearInput: false }); }
+            });
+            bar.appendChild(input);
+
             // "all" chip
             const allChip = document.createElement('span');
             allChip.className = 'nb-config-org-chip nb-config-org-chip-active';
             allChip.dataset.key = 'all';
             allChip.textContent = 'all';
-            allChip.addEventListener('click', () => _applyFilter(null));
+            allChip.addEventListener('click', () => _applyFilter(null, { clearInput: true }));
             bar.appendChild(allChip);
 
             // attr chips — detect key:value vs key-only
@@ -2846,7 +2870,7 @@
                 c.className = 'nb-config-org-chip';
                 c.dataset.key = attr;
                 c.textContent = attr;
-                c.addEventListener('click', () => _applyFilter(spec));
+                c.addEventListener('click', () => _applyFilter(spec, { clearInput: true }));
                 bar.appendChild(c);
             });
             wrap.appendChild(bar);
