@@ -2368,19 +2368,25 @@
 
     function _configParseQuery(raw, currentSelector) {
         raw = (raw || '').trim();
-        let key = '', target = '', treeMode = false, orgMode = false, treeAttrs = [];
+        let key = '', target = '', treeMode = false, orgMode = false, treeAttrs = [], context = 2;
 
         // tree/org mode: first token is 'tree' or 'org'
         if (/^tree\b/i.test(raw) || /^org\b/i.test(raw)) {
             orgMode  = /^org\b/i.test(raw);
             treeMode = !orgMode;
             const rest = raw.replace(/^(?:tree|org)\s*/i, '').trim();
-            const tokens = rest.split(/\s+/).filter(Boolean).map(t => t.replace(/^["']|["']$/g, ''));
+            const rawToks = rest.split(/\s+/).filter(Boolean).map(t => t.replace(/^["']|["']$/g, ''));
             const attrTokens = [];
-            for (const tok of tokens) {
+            for (let i = 0; i < rawToks.length; i++) {
+                const tok = rawToks[i];
+                // -C N or -CN  (grep-style context count)
+                const cm = tok.match(/^-[cC](\d*)$/);
+                if (cm) {
+                    if (cm[1]) context = parseInt(cm[1]);
+                    else if (i + 1 < rawToks.length && /^\d+$/.test(rawToks[i + 1])) context = parseInt(rawToks[++i]);
                 // org mode: never treat a token as a notebook target — always self-scoped
-                if (!orgMode && tok.endsWith(':')) target = tok;
-                else attrTokens.push(tok.replace(/^\[|\]$/g, ''));
+                } else if (!orgMode && tok.endsWith(':')) { target = tok;
+                } else { attrTokens.push(tok.replace(/^\[|\]$/g, '')); }
             }
             // Accept comma- or space-separated attrs across any number of tokens
             treeAttrs = attrTokens.join(',').split(/[\s,]+/).filter(Boolean);
@@ -2412,14 +2418,14 @@
         const notebook = tc >= 0 ? target.slice(0, tc) : target.replace(/\/$/, '');
         const folder   = tc >= 0 ? target.slice(tc + 1).replace(/\/$/, '') : '';
 
-        return { key, notebook, folder, treeMode, orgMode, treeAttrs };
+        return { key, notebook, folder, treeMode, orgMode, treeAttrs, context };
     }
 
     async function _loadConfigBlock(el) {
         if (!_cbCan(el, 'cfg', 'read')) { _cbDenyRead(el); return; }
         const wasOpen = !el.classList.contains('nb-collapsed');
         const currentSelector = NbMain?.activeSelector?.() || '';
-        const { key, notebook, folder, treeMode, orgMode, treeAttrs } = _configParseQuery(el.dataset.query || '', currentSelector);
+        const { key, notebook, folder, treeMode, orgMode, treeAttrs, context } = _configParseQuery(el.dataset.query || '', currentSelector);
         const treeAttr = treeAttrs[0] || '';  // single-attr for tree mode and legacy
 
         if (!notebook) {
@@ -2440,7 +2446,7 @@
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 const tree = await r.json();
                 if (tree.error) throw new Error(tree.error);
-                if (orgMode) _configOrgRender(el, tree, treeAttrs, notebook, wasOpen);
+                if (orgMode) _configOrgRender(el, tree, treeAttrs, notebook, wasOpen, context);
                 else         _configTreeRender(el, tree, treeAttr, notebook, wasOpen);
             } else {
                 const params = new URLSearchParams({ notebook });
@@ -2589,7 +2595,7 @@
         el.appendChild(body);
     }
 
-    function _configOrgRender(el, tree, treeAttrs, notebook, wasOpen) {
+    function _configOrgRender(el, tree, treeAttrs, notebook, wasOpen, context = 2) {
         el.innerHTML = '';
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
 
@@ -2719,14 +2725,8 @@
 
             const tip = document.createElementNS(NS, 'title');
             const cfgFile = (node.cfg_path || '').split('/').pop() || node.name;
-            const tipPath = node.rel_path ? `${node.rel_path}/${cfgFile}` : cfgFile;
-            const tipKV   = cfgKeys.map(k => {
-                const v = contrib[k];
-                return `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`;
-            });
-            tip.textContent = node.has_config
-                ? [tipPath, ...tipKV].join('\n')
-                : `${tipPath}\n(no config — click to create)`;
+            g.dataset.tipPath  = node.rel_path ? `${node.rel_path}/${cfgFile}` : cfgFile;
+            g.dataset.hasCfg   = node.has_config ? '1' : '';
             g.appendChild(tip);
 
             const rect = document.createElementNS(NS, 'rect');
@@ -2844,6 +2844,43 @@
             lbl.textContent = 'Configs:';
             bar.appendChild(lbl);
 
+            // Update all <title> elements to show context around the active filter key
+            function _updateTooltips(spec) {
+                svg.querySelectorAll('.nb-config-org-node').forEach(g => {
+                    const tip = g.querySelector('title');
+                    if (!tip) return;
+                    const tipPath = g.dataset.tipPath || '';
+                    const keys    = (g.dataset.cfgKeys || '').split(',').filter(Boolean);
+                    const vals    = JSON.parse(g.dataset.cfgVals || '{}');
+
+                    let kvLines;
+                    if (!spec || !keys.length) {
+                        // No filter: first C keys + overflow hint
+                        kvLines = keys.slice(0, context).map(k => `${k}: ${typeof vals[k] === 'object' ? JSON.stringify(vals[k]) : vals[k]}`);
+                        if (keys.length > context) kvLines.push(`… +${keys.length - context} more`);
+                    } else {
+                        const ki = keys.indexOf(spec.key);
+                        if (ki < 0) {
+                            kvLines = keys.slice(0, context).map(k => `${k}: ${typeof vals[k] === 'object' ? JSON.stringify(vals[k]) : vals[k]}`);
+                        } else {
+                            const lo = Math.max(0, ki - context);
+                            const hi = Math.min(keys.length, ki + context + 1);
+                            kvLines = [];
+                            if (lo > 0) kvLines.push(`⋯ ${lo} above`);
+                            for (let i = lo; i < hi; i++) {
+                                const v = typeof vals[keys[i]] === 'object' ? JSON.stringify(vals[keys[i]]) : vals[keys[i]];
+                                kvLines.push(`${i === ki ? '▶ ' : '  '}${keys[i]}: ${v}`);
+                            }
+                            if (hi < keys.length) kvLines.push(`⋯ ${keys.length - hi} below`);
+                        }
+                    }
+
+                    tip.textContent = g.dataset.hasCfg
+                        ? [tipPath, ...kvLines].join('\n')
+                        : `${tipPath}\n(no config — click to create)`;
+                });
+            }
+
             // spec: null = all | { key } = key-only | { key, val } = key:value
             function _applyFilter(spec, { clearInput = false } = {}) {
                 if (clearInput) input.value = '';
@@ -2866,7 +2903,10 @@
                     g.classList.toggle('nb-config-org-dim',    !hit);
                     g.classList.toggle('nb-config-org-active',  hit);
                 });
+                _updateTooltips(spec);
             }
+
+            _updateTooltips(null);
 
             // Freeform text input — type any key or key:value
             const input = document.createElement('input');
