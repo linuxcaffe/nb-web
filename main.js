@@ -6692,11 +6692,8 @@ const NbMain = (() => {
                 const fmHtml  = isAnnotation ? '' : _renderFrontmatterFields(latestRaw);
                 const bodyRaw = latestRaw.replace(/^---[\s\S]*?---\r?\n?/, '');
                 const bodyHtml = bodyRaw.trim()
-                    ? `<div class="nb-rendered" style="margin-top:12px;opacity:0.85">${_renderMarkdown(bodyRaw)}</div>` : '';
+                    ? `<div class="nb-rendered" style="margin-top:12px;opacity:0.85">${marked.parse(bodyRaw)}</div>` : '';
                 content.innerHTML = `${HDR}<div style="padding:16px 32px 8px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
-
-                const _renderedEl = content.querySelector('.nb-rendered');
-                if (_renderedEl) _renderCsvBlocks(_renderedEl);
                 const ssb = document.getElementById('nb-sheet-save-btn');
                 if (ssb) { ssb.hidden = true; ssb.onclick = null; }
 
