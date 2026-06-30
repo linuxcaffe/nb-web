@@ -5249,53 +5249,66 @@ def api_note():
 
     note_notebook = None
     note_id       = None
+    fpath         = None
 
-    # Dotfolder selector — .users:djp.md etc.
-    dot_path = _dot_selector_to_path(selector)
-    if dot_path is not None:
+    # Special case: .nb:.nb.md → global config file (canonical selector)
+    _global_md = NB_DIR / '.nb.md'
+    if selector == '.nb:.nb.md':
         user = session.get('user', {})
-        dot_nb = selector.partition(':')[0]
-        if dot_nb not in _DOT_OPEN and not _level_gte(user.get('level', ''), 'admin'):
+        if not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
-        # .lib files: filename suffix declares required level — e.g. user-mgmt-admin.html
-        # serves empty body (silent) if user doesn't qualify; no error, no 403.
-        if dot_nb == '.lib':
-            stem = Path(dot_path.name).stem
-            for lvl in LEVELS:
-                if stem.endswith(f'-{lvl}'):
-                    if not _level_gte(user.get('level', ''), lvl):
-                        return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
-                    break
-        if not dot_path.exists():
+        if not _global_md.exists():
             return jsonify({'error': 'not found'}), 404
-        note_notebook = selector.partition(':')[0]
-        fpath = str(dot_path)
-    # Absolute path selector — any readable file on the local system
-    elif selector.startswith('/'):
-        fpath = selector
-        if not Path(fpath).exists():
-            return jsonify({'error': 'not found'}), 404
-    else:
-        # Resolve selector to a real path first (handles both filename and id selectors)
-        path_r = run_nb('show', selector, '--path')
-        if not nb_ok(path_r):
-            # Fallback: direct filesystem lookup for dotfiles not indexed by nb.
-            # Handles Takeout:.Takeout.md, Takeout:shots/.shots.md, etc.
-            if ':' in selector:
-                _nb, _, _rel = selector.partition(':')
-                try:
-                    _p = (NB_DIR / _nb / _rel).resolve()
-                    _p.relative_to(NB_DIR)  # must stay within NB_DIR
-                    if _p.is_file():
-                        fpath = str(_p)
-                    else:
-                        return jsonify({'error': 'not found'}), 404
-                except (ValueError, OSError):
-                    return jsonify({'error': 'not found'}), 404
-            else:
+        fpath         = str(_global_md)
+        note_notebook = '.nb'
+
+    if fpath is None:
+        # Dotfolder selector — .users:djp.md etc.
+        dot_path = _dot_selector_to_path(selector)
+        if dot_path is not None:
+            user = session.get('user', {})
+            dot_nb = selector.partition(':')[0]
+            if dot_nb not in _DOT_OPEN and not _level_gte(user.get('level', ''), 'admin'):
+                return jsonify({'error': 'forbidden'}), 403
+            # .lib files: filename suffix declares required level — e.g. user-mgmt-admin.html
+            # serves empty body (silent) if user doesn't qualify; no error, no 403.
+            if dot_nb == '.lib':
+                stem = Path(dot_path.name).stem
+                for lvl in LEVELS:
+                    if stem.endswith(f'-{lvl}'):
+                        if not _level_gte(user.get('level', ''), lvl):
+                            return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
+                        break
+            if not dot_path.exists():
+                return jsonify({'error': 'not found'}), 404
+            note_notebook = selector.partition(':')[0]
+            fpath = str(dot_path)
+        # Absolute path selector — any readable file on the local system
+        elif selector.startswith('/'):
+            fpath = selector
+            if not Path(fpath).exists():
                 return jsonify({'error': 'not found'}), 404
         else:
-            fpath = path_r['stdout'].strip()
+            # Resolve selector to a real path first (handles both filename and id selectors)
+            path_r = run_nb('show', selector, '--path')
+            if not nb_ok(path_r):
+                # Fallback: direct filesystem lookup for dotfiles not indexed by nb.
+                # Handles Takeout:.Takeout.md, Takeout:shots/.shots.md, etc.
+                if ':' in selector:
+                    _nb, _, _rel = selector.partition(':')
+                    try:
+                        _p = (NB_DIR / _nb / _rel).resolve()
+                        _p.relative_to(NB_DIR)  # must stay within NB_DIR
+                        if _p.is_file():
+                            fpath = str(_p)
+                        else:
+                            return jsonify({'error': 'not found'}), 404
+                    except (ValueError, OSError):
+                        return jsonify({'error': 'not found'}), 404
+                else:
+                    return jsonify({'error': 'not found'}), 404
+            else:
+                fpath = path_r['stdout'].strip()
 
     # Determine notebook name and numeric id from filesystem path
     p = Path(fpath)

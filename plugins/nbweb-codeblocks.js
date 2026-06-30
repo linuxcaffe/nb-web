@@ -2393,7 +2393,12 @@
             // Org mode: always scope to current notebook only (never a subfolder)
             if (orgMode) {
                 const colon = (currentSelector || '').indexOf(':');
-                target = colon >= 0 ? currentSelector.slice(0, colon) + ':' : '';
+                if (colon >= 0) {
+                    target = currentSelector.slice(0, colon) + ':';
+                } else if (/\/\.nb\/\.nb\.md$/.test(currentSelector || '')) {
+                    // .nb.md opened by filesystem path (no colon) → global scope
+                    target = '.nb:';
+                }
             }
         } else if (raw) {
             const m = raw.match(/^(\w[\w.-]*):\s*(.*)$/);
