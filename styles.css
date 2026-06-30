@@ -2558,6 +2558,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-org-filterlabel { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono, monospace); white-space: nowrap; }
 .nb-config-org-typeicon    { font-size: 11px; dominant-baseline: auto; }
 .nb-config-org-badge       { font-size: 9px; fill: var(--text-dim); font-family: var(--font-mono, monospace); }
+.nb-config-org-skip        { font-size: 11px; fill: var(--text-dim); font-family: var(--font-mono, monospace); font-style: italic; }
 .nb-config-org-filter-input { font-size: 11px; padding: 2px 9px; border-radius: 10px; background: var(--bg3); color: var(--text); border: 1px solid var(--border); outline: none; width: 130px; font-family: var(--font-mono, monospace); transition: border-color 0.1s; }
 .nb-config-org-filter-input:focus { border-color: var(--accent, #4a9eff); }
 .nb-config-org-filter-input::placeholder { color: var(--text-dim); }

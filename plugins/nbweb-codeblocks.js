@@ -2368,7 +2368,7 @@
 
     function _configParseQuery(raw, currentSelector) {
         raw = (raw || '').trim();
-        let key = '', target = '', treeMode = false, orgMode = false, treeAttrs = [], context = 2;
+        let key = '', target = '', treeMode = false, orgMode = false, treeAttrs = [], context = 2, maxDepth = 0;
 
         // tree/org mode: first token is 'tree' or 'org'
         if (/^tree\b/i.test(raw) || /^org\b/i.test(raw)) {
@@ -2379,21 +2379,33 @@
             const attrTokens = [];
             for (let i = 0; i < rawToks.length; i++) {
                 const tok = rawToks[i];
-                // -C N or -CN  (grep-style context count)
                 const cm = tok.match(/^-[cC](\d*)$/);
+                const dm = tok.match(/^-[dD](\d*)$/);
                 if (cm) {
+                    // -C N or -CN  (tooltip context line count)
                     if (cm[1]) context = parseInt(cm[1]);
                     else if (i + 1 < rawToks.length && /^\d+$/.test(rawToks[i + 1])) context = parseInt(rawToks[++i]);
-                // org mode: never treat a token as a notebook target — always self-scoped
-                } else if (!orgMode && tok.endsWith(':')) { target = tok;
-                } else { attrTokens.push(tok.replace(/^\[|\]$/g, '')); }
+                } else if (dm) {
+                    // -D N or -DN  (max folder depth; 0 = unlimited)
+                    if (dm[1]) maxDepth = parseInt(dm[1]);
+                    else if (i + 1 < rawToks.length && /^\d+$/.test(rawToks[i + 1])) maxDepth = parseInt(rawToks[++i]);
+                } else if (!orgMode && tok.endsWith(':')) {
+                    target = tok;
+                } else {
+                    attrTokens.push(tok.replace(/^\[|\]$/g, ''));
+                }
             }
             // Accept comma- or space-separated attrs across any number of tokens
             treeAttrs = attrTokens.join(',').split(/[\s,]+/).filter(Boolean);
             // Org mode: always scope to current notebook only (never a subfolder)
             if (orgMode) {
                 const colon = (currentSelector || '').indexOf(':');
-                target = colon >= 0 ? currentSelector.slice(0, colon) + ':' : '';
+                if (colon >= 0) {
+                    target = currentSelector.slice(0, colon) + ':';
+                } else if (/\/\.nb\/\.nb\.md$/.test(currentSelector || '')) {
+                    // .nb.md opened by filesystem path (no colon) → global scope
+                    target = '.nb:';
+                }
             }
         } else if (raw) {
             const m = raw.match(/^(\w[\w.-]*):\s*(.*)$/);
@@ -2418,14 +2430,14 @@
         const notebook = tc >= 0 ? target.slice(0, tc) : target.replace(/\/$/, '');
         const folder   = tc >= 0 ? target.slice(tc + 1).replace(/\/$/, '') : '';
 
-        return { key, notebook, folder, treeMode, orgMode, treeAttrs, context };
+        return { key, notebook, folder, treeMode, orgMode, treeAttrs, context, maxDepth };
     }
 
     async function _loadConfigBlock(el) {
         if (!_cbCan(el, 'cfg', 'read')) { _cbDenyRead(el); return; }
         const wasOpen = !el.classList.contains('nb-collapsed');
         const currentSelector = NbMain?.activeSelector?.() || '';
-        const { key, notebook, folder, treeMode, orgMode, treeAttrs, context } = _configParseQuery(el.dataset.query || '', currentSelector);
+        const { key, notebook, folder, treeMode, orgMode, treeAttrs, context, maxDepth } = _configParseQuery(el.dataset.query || '', currentSelector);
         const treeAttr = treeAttrs[0] || '';  // single-attr for tree mode and legacy
 
         if (!notebook) {
@@ -2437,17 +2449,33 @@
 
         try {
             if (treeMode || orgMode) {
-                const params = new URLSearchParams({ notebook });
-                if (treeMode && treeAttr) params.set('attribute', treeAttr);  // tree: server-prune
-                if (folder)               params.set('folder', folder);
-                if (orgMode)              params.set('with_global', '1');
-                const r = await fetch(`/api/config-tree-walk?${params}`);
-                if (r.status === 403) { _cbDenyRead(el); return; }
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                const tree = await r.json();
-                if (tree.error) throw new Error(tree.error);
-                if (orgMode) _configOrgRender(el, tree, treeAttrs, notebook, wasOpen, context);
-                else         _configTreeRender(el, tree, treeAttr, notebook, wasOpen);
+                let tree;
+                if (orgMode && notebook === '.nb') {
+                    // Super-notebook scope: global walk across all notebooks.
+                    // No attribute filter: org charts always show all folders;
+                    // treeAttrs drive client-side filter chips only.
+                    const params = new URLSearchParams();
+                    if (maxDepth) params.set('max_depth', maxDepth);
+                    const r = await fetch(`/api/config-global-walk?${params}`);
+                    if (r.status === 403) { _cbDenyRead(el); return; }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    tree = await r.json();
+                    if (tree.error) throw new Error(tree.error);
+                    _configOrgRender(el, tree, treeAttrs, '.nb', wasOpen, context);
+                } else {
+                    const params = new URLSearchParams({ notebook });
+                    if (treeMode && treeAttr) params.set('attribute', treeAttr);
+                    if (folder)               params.set('folder', folder);
+                    if (orgMode)              params.set('with_global', '1');
+                    if (maxDepth)             params.set('max_depth', maxDepth);
+                    const r = await fetch(`/api/config-tree-walk?${params}`);
+                    if (r.status === 403) { _cbDenyRead(el); return; }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                    tree = await r.json();
+                    if (tree.error) throw new Error(tree.error);
+                    if (orgMode) _configOrgRender(el, tree, treeAttrs, notebook, wasOpen, context);
+                    else         _configTreeRender(el, tree, treeAttr, notebook, wasOpen);
+                }
             } else {
                 const params = new URLSearchParams({ notebook });
                 if (folder)          params.set('folder', folder);
@@ -2656,17 +2684,15 @@
             (node.children || []).forEach(c => _shiftY(c, dy));
         }
 
-        // Split global wrapper — place it anchored to the notebook root, not as a left column
+        // With-global single-notebook view: detach global node and float it above the root.
+        // Full global walk (many notebooks): global node IS the layout root — don't split.
         let globalNode = null;
         let layoutRoot = tree;
-        if (tree.level === 'global' && tree.children?.length) {
+        if (tree.level === 'global' && tree.children?.length === 1) {
             globalNode = tree;
             layoutRoot = tree.children[0];
         }
 
-        // Propagate effective access root-to-leaf.
-        // _accessExplicit = true only where this node itself sets access:
-        // (tint is shown only for explicit nodes — inherited access is in the tooltip)
         function _propagateAccess(node, inherited) {
             node._accessExplicit = node.contributes?.access != null;
             node._access = node.contributes?.access ?? inherited;
@@ -2684,8 +2710,7 @@
 
         if (globalNode) {
             globalNode._x = PAD;
-            globalNode._y = layoutRoot._y - NH - 12;  // just above notebook root
-            // Small trees: global node would go above y=0; shift tree down to fit
+            globalNode._y = layoutRoot._y - NH - 12;
             if (globalNode._y < PAD) {
                 _shiftY(layoutRoot, PAD - globalNode._y);
                 globalNode._y = PAD;
@@ -2778,11 +2803,21 @@
             label.setAttribute('text-anchor', 'middle');
             label.setAttribute('class', 'nb-config-org-label');
             const maxCh = 11;
-            label.textContent = node.name.length > maxCh ? node.name.slice(0, maxCh - 1) + '…' : node.name;
+            const rawLabel = node.level === 'global' ? '⊕ ' + node.name : node.name;
+            label.textContent = rawLabel.length > maxCh ? rawLabel.slice(0, maxCh - 1) + '…' : rawLabel;
             g.appendChild(label);
 
-            // Right slot: key count badge (how many FM keys this config sets)
-            if (cfgKeys.length) {
+            // Right slot: skipped indicator OR key count badge
+            if (node.skipped) {
+                const skip = document.createElementNS(NS, 'text');
+                skip.setAttribute('x', NW - 4);
+                skip.setAttribute('y', NH / 2 + 4);
+                skip.setAttribute('text-anchor', 'end');
+                skip.setAttribute('class', 'nb-config-org-skip');
+                skip.setAttribute('pointer-events', 'none');
+                skip.textContent = '…';
+                g.appendChild(skip);
+            } else if (cfgKeys.length) {
                 const badge = document.createElementNS(NS, 'text');
                 badge.setAttribute('x', NW - 4);
                 badge.setAttribute('y', NH / 2 + 4);
@@ -2801,10 +2836,11 @@
                 g.addEventListener('click', async () => {
                     g.style.opacity = '0.5';
                     try {
+                        // Use node.notebook so global-scope nodes target the right notebook
                         const r = await fetch('/api/config-create', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ notebook, folder: node.rel_path }),
+                            body: JSON.stringify({ notebook: node.notebook || notebook, folder: node.rel_path }),
                         });
                         const d = await r.json();
                         if (d.selector) {
@@ -2837,6 +2873,106 @@
 
         _drawEdges(layoutRoot);
         _drawNode(layoutRoot);
+
+        // ── Viewport group — all SVG content goes in here for zoom/pan ──
+        const vp = document.createElementNS(NS, 'g');
+        vp.setAttribute('class', 'nb-org-vp');
+        while (svg.firstChild) vp.appendChild(svg.firstChild);
+        svg.appendChild(vp);
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        svg.removeAttribute('viewBox');
+        svg.setAttribute('width',  '100%');
+        svg.setAttribute('height', '100%');
+
+        // ── Zoom/pan state ────────────────────────────────────────────
+        let _z = 1, _tx = 0, _ty = 0, _drag = null, _keysActive = false;
+
+        function _applyVP() {
+            vp.setAttribute('transform', `translate(${_tx.toFixed(1)},${_ty.toFixed(1)}) scale(${_z.toFixed(4)})`);
+        }
+        function _fitAll() {
+            const cw = svgCon.clientWidth  || svgW;
+            const ch = svgCon.clientHeight || Math.min(svgH, 480);
+            const pad = 20;
+            const fullFit = Math.min((cw - pad*2) / svgW, (ch - pad*2) / svgH, 2);
+            const minZ    = Math.max(12 / NH, 0.05);
+            _z = Math.max(fullFit, minZ);
+            if (_z > fullFit) {
+                // Tree too large to fit entirely — center the root node in the viewport
+                _tx = pad - layoutRoot._x * _z;
+                _ty = ch * 0.4 - (layoutRoot._y + NH / 2) * _z;
+            } else {
+                _tx = Math.max(pad, (cw - svgW * _z) / 2);
+                _ty = Math.max(pad, (ch - svgH * _z) / 2);
+            }
+            _applyVP();
+        }
+        function _zoomAt(mx, my, factor) {
+            _z   = Math.max(0.05, Math.min(_z * factor, 8));
+            _tx  = mx - (mx - _tx) * factor;
+            _ty  = my - (my - _ty) * factor;
+            _applyVP();
+        }
+
+        // ── SVG container (clips, scroll-captures) ────────────────────
+        const svgCon = document.createElement('div');
+        svgCon.className = 'nb-org-svg-con';
+        svgCon.style.cssText = `overflow:hidden;position:relative;width:100%;` +
+            `height:${Math.min(svgH + 8, 520)}px;cursor:grab;touch-action:none`;
+        svgCon.appendChild(svg);
+
+        // Ctrl+wheel zooms; plain wheel scrolls the page normally
+        svgCon.addEventListener('wheel', e => {
+            if (!e.ctrlKey) return;
+            e.preventDefault();
+            const r = svgCon.getBoundingClientRect();
+            _zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1/1.12);
+        }, { passive: false });
+
+        // Drag to pan
+        svgCon.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            _drag = { x: e.clientX - _tx, y: e.clientY - _ty };
+            svgCon.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        const _onOrgMove = e => { if (_drag) { _tx = e.clientX - _drag.x; _ty = e.clientY - _drag.y; _applyVP(); } };
+        const _onOrgUp   = () => { if (_drag) { _drag = null; svgCon.style.cursor = 'grab'; } };
+        window.addEventListener('mousemove', _onOrgMove);
+        window.addEventListener('mouseup',   _onOrgUp);
+
+        // Pinch to zoom
+        let _pinchDist = null;
+        svgCon.addEventListener('touchstart', e => {
+            if (e.touches.length === 2)
+                _pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                                        e.touches[0].clientY - e.touches[1].clientY);
+        }, { passive: true });
+        svgCon.addEventListener('touchmove', e => {
+            if (e.touches.length !== 2 || !_pinchDist) return;
+            e.preventDefault();
+            const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                                 e.touches[0].clientY - e.touches[1].clientY);
+            const r  = svgCon.getBoundingClientRect();
+            _zoomAt((e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left,
+                    (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top,
+                    d / _pinchDist);
+            _pinchDist = d;
+        }, { passive: false });
+        svgCon.addEventListener('touchend', () => { _pinchDist = null; });
+
+        // Keyboard shortcuts (active while mouse is over svgCon)
+        svgCon.addEventListener('mouseenter', () => { _keysActive = true; });
+        svgCon.addEventListener('mouseleave', () => { _keysActive = false; });
+        window.addEventListener('keydown', e => {
+            if (!_keysActive) return;
+            const cw = svgCon.clientWidth, ch = svgCon.clientHeight;
+            if      (e.key === 'f' || e.key === 'F')  { e.preventDefault(); _fitAll(); }
+            else if (e.key === '+' || e.key === '=')  { e.preventDefault(); _zoomAt(cw/2, ch/2, 1.2); }
+            else if (e.key === '-')                    { e.preventDefault(); _zoomAt(cw/2, ch/2, 1/1.2); }
+            else if (e.key === '0')                    { e.preventDefault(); _z=1; _tx=0; _ty=0; _applyVP(); }
+        });
 
         const wrap = document.createElement('div');
         wrap.className = 'nb-config-org-wrap';
@@ -2962,8 +3098,9 @@
             wrap.appendChild(bar);
         }
 
-        wrap.appendChild(svg);
+        wrap.appendChild(svgCon);
         el.appendChild(wrap);
+        requestAnimationFrame(_fitAll);
     }
 
     function _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder) {
