@@ -5221,8 +5221,12 @@ const NbMain = (() => {
         try {
             const r = await fetch('/api/template?path=' + encodeURIComponent(path));
             const d = await r.json();
-            const html = _renderMarkdown(d.content || '');
+            const raw = d.content || '';
             const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
+            const fmHtml  = _renderFrontmatterFields(raw);
+            const bodyRaw = raw.replace(/^---[\s\S]*?---\r?\n?/, '');
+            const bodyHtml = bodyRaw.trim()
+                ? `<div class="nb-rendered" style="margin-top:12px">${marked.parse(bodyRaw)}</div>` : '';
             content.innerHTML = `
                 <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
                             font-family:var(--font-mono);border-bottom:1px solid var(--border);
@@ -5230,16 +5234,19 @@ const NbMain = (() => {
                     <span>📋 <strong>${_esc(name)}</strong></span>
                     <span style="opacity:0.6">${scopeLabel}</span>
                 </div>
-                <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${html}</div>`;
+                <div style="padding:16px 32px 24px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
         } catch(e) {
             content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
         }
     }
 
-    function _previewVirtualTemplate(content, name, moduleLabel) {
+    function _previewVirtualTemplate(raw, name, moduleLabel) {
         const el = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-toolbar').hidden = true;
-        const html = _renderMarkdown(content);
+        const fmHtml  = _renderFrontmatterFields(raw);
+        const bodyRaw = raw.replace(/^---[\s\S]*?---\r?\n?/, '');
+        const bodyHtml = bodyRaw.trim()
+            ? `<div class="nb-rendered" style="margin-top:12px">${marked.parse(bodyRaw)}</div>` : '';
         el.innerHTML = `
             <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
                         font-family:var(--font-mono);border-bottom:1px solid var(--border);
@@ -5247,7 +5254,7 @@ const NbMain = (() => {
                 <span>🔌 <strong>${_esc(name)}</strong></span>
                 <span style="opacity:0.6">${_esc(moduleLabel || 'plugin template')}</span>
             </div>
-            <div class="nb-rendered" style="padding:24px 32px;opacity:0.75">${html}</div>`;
+            <div style="padding:16px 32px 24px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
     }
 
     // Populate list pane with available templates when in Add mode
