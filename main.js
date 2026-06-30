@@ -1645,6 +1645,12 @@ const NbMain = (() => {
         const blockData = []; // { block, renderer, fmKey }
 
         const fmSource = { ...(note.effective_fm || {}), ...note.meta };
+
+        // Apply theme from config chain if set
+        const noteTheme = fmSource.theme;
+        if (noteTheme && noteTheme !== NbTheme.getSlug())
+            NbTheme.apply(noteTheme, NbTheme.getMode());
+
         const _tocMin = fmSource.toc_min != null ? Number(fmSource.toc_min) : null;
         for (const [key, val] of Object.entries(fmSource)) {
             if (key === 'check') continue;
@@ -3423,16 +3429,8 @@ const NbMain = (() => {
                       renderList(_getSortedNotes(_lastNotes), true);
                   }},
                 'sep',
-                { label: document.documentElement.getAttribute('data-theme') === 'light'
-                      ? '☾ Dark mode' : '☀ Light mode',
-                  action: () => {
-                      const goLight = document.documentElement.getAttribute('data-theme') !== 'light';
-                      if (goLight) document.documentElement.setAttribute('data-theme', 'light');
-                      else         document.documentElement.removeAttribute('data-theme');
-                      localStorage.setItem('nb-theme', goLight ? 'light' : '');
-                      const prismLink = document.getElementById('nb-prism-theme');
-                      if (prismLink) prismLink.href = goLight ? 'prism-light.min.css' : 'prism-tomorrow.min.css';
-                  }},
+                { label: NbTheme.getMode() === 'light' ? '☾ Dark mode' : '☀ Light mode',
+                  action: () => NbTheme.toggleMode() },
                 'sep',
                 { label: '📥 Import files…', action: () => NbDialog.open('import') },
                 { label: '🔗 Link file…',   action: doLinkFile },
@@ -8680,4 +8678,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await NbWeb._init();
     NbMain.init();
     NbDialog.init();
+    NbTheme.init();
+    document.getElementById('nb-mode-toggle')
+        ?.addEventListener('click', () => NbTheme.toggleMode());
 });

@@ -4,12 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>nb-web</title>
-  <script>(function(){var t=localStorage.getItem('nb-theme');if(t)document.documentElement.setAttribute('data-theme',t);})();</script>
+  <script>(function(){
+    // No-flash init: apply cached theme vars synchronously before first paint
+    try {
+      var v=JSON.parse(localStorage.getItem('nb-theme-vars')||'{}');
+      var r=document.documentElement;
+      for(var k in v) r.style.setProperty('--'+k,v[k]);
+    } catch(e){}
+    var m=localStorage.getItem('nb-theme-mode')||'dark';
+    var l=document.getElementById('nb-prism-theme');
+    if(l) l.href=m==='light'?'prism-light.min.css':'prism-tomorrow.min.css';
+  })();</script>
   <link rel="stylesheet" href="jsuites.min.css">
   <link rel="stylesheet" href="jspreadsheet.min.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" id="nb-prism-theme" href="prism-tomorrow.min.css">
-  <script>(function(){var t=localStorage.getItem('nb-theme');var l=document.getElementById('nb-prism-theme');if(l)l.href=t==='light'?'prism-light.min.css':'prism-tomorrow.min.css';})();</script>
   <link rel="manifest" href="manifest.json">
   <script src="/nb-auth.js"></script>
 </head>
@@ -27,6 +36,7 @@
   <div id="nb-cmds-plugins">
     <button class="nb-cmd nb-cmd-plugin" data-cmd="contacts" title="Contacts">🪪</button>
   </div>
+  <button id="nb-mode-toggle" class="nb-icon-btn nb-mode-toggle" title="Toggle light/dark mode">☀</button>
   <div id="nb-search-wrap">
     <button id="nb-cal-icon" class="nb-search-icon-btn" data-cmd="cal" title="Calendar">📅</button>
     <input id="nb-search" type="search" placeholder="search…" data-i18n="input_search" autocomplete="off" spellcheck="false">
@@ -209,6 +219,7 @@
 <script src="marked.min.js"></script>
 <script src="Sortable.min.js"></script>
 <script src="nbweb.js"></script>
+<script src="theme.js"></script>
 <script src="nav.js"></script>
 <script src="main.js"></script>
 <script>

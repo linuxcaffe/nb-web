@@ -992,7 +992,7 @@ _FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
-_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot', 'timelog_file', 'timedot_file', 'csv'})
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot', 'timelog_file', 'timedot_file', 'csv', 'theme'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -10529,6 +10529,77 @@ def api_restart():
         os.execv(sys.executable, [sys.executable] + sys.argv)
     threading.Thread(target=_do_restart, daemon=True).start()
     return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# Themes
+# ---------------------------------------------------------------------------
+
+THEMES_DIR = NB_DIR / '.themes'
+
+@app.route('/api/themes')
+def api_themes():
+    themes = []
+    if THEMES_DIR.exists():
+        for f in sorted(THEMES_DIR.glob('*.md')):
+            try:
+                meta, _ = parse_frontmatter(f.read_text())
+                themes.append({
+                    'name':  meta.get('name', f.stem),
+                    'slug':  f.stem,
+                    'dark':  meta.get('dark', {}),
+                    'light': meta.get('light', {}),
+                })
+            except Exception:
+                pass
+    return jsonify(themes)
+
+@app.route('/api/theme/<slug>')
+def api_theme(slug):
+    if '/' in slug or slug.startswith('.'):
+        return jsonify({'error': 'invalid'}), 400
+    path = THEMES_DIR / f'{slug}.md'
+    if not path.exists():
+        return jsonify({'error': 'not found'}), 404
+    try:
+        meta, _ = parse_frontmatter(path.read_text())
+        return jsonify({
+            'name':  meta.get('name', slug),
+            'slug':  slug,
+            'dark':  meta.get('dark',  {}),
+            'light': meta.get('light', {}),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/theme-set-key', methods=['POST'])
+def api_theme_set_key():
+    """Write a single FM key into a notebook or folder dotfile."""
+    data     = request.json or {}
+    notebook = data.get('notebook', '')
+    folder   = data.get('folder', '')
+    key      = data.get('key', '')
+    value    = data.get('value', '')
+    if not notebook or not key:
+        return jsonify({'error': 'notebook and key required'}), 400
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'error': 'notebook not found'}), 404
+    if folder:
+        cfg_path = nb_path / folder / f'.{folder.split("/")[-1]}.md'
+    else:
+        cfg_path = nb_path / '.notebook'
+    try:
+        text = cfg_path.read_text() if cfg_path.exists() else '---\ntype: dotfile\n---\n'
+        meta, body = parse_frontmatter(text)
+        meta[key] = value
+        import yaml
+        new_fm   = yaml.dump(meta, default_flow_style=False, allow_unicode=True).strip()
+        new_text = f'---\n{new_fm}\n---\n{body}'
+        cfg_path.write_text(new_text)
+        return jsonify({'ok': True, 'path': str(cfg_path)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ---------------------------------------------------------------------------

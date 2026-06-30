@@ -1007,6 +1007,28 @@ body {
 .nb-specialty-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .nb-sync-pill   { cursor: pointer; }
 .nb-sync-pill:hover { opacity: 0.8; }
+
+/* Mode toggle button in nav header */
+.nb-mode-toggle { font-size: 15px; padding: 2px 6px; background: none; border: none; cursor: pointer; color: var(--text-dim); border-radius: 4px; }
+.nb-mode-toggle:hover { color: var(--text); background: var(--bg3); }
+
+/* Dashboard 🎨 theme button */
+.nb-specialty-theme-btn { background: none; border: none; cursor: pointer; font-size: 15px; padding: 1px 4px; border-radius: 4px; line-height: 1; }
+.nb-specialty-theme-btn:hover { background: var(--bg3); }
+
+/* Theme picker popup */
+.nb-theme-popup { position: fixed; z-index: 9000; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); padding: 10px; min-width: 220px; }
+.nb-theme-popup-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.nb-theme-popup-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.nb-theme-mode-toggle { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg3); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
+.nb-theme-mode-toggle:hover { border-color: var(--accent); }
+.nb-theme-cards { display: flex; flex-direction: column; gap: 4px; }
+.nb-theme-card { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; background: none; border: 1px solid transparent; cursor: pointer; text-align: left; width: 100%; color: var(--text); }
+.nb-theme-card:hover { background: var(--bg3); }
+.nb-theme-card-active { border-color: var(--accent); background: var(--accent-dim); }
+.nb-theme-swatches { display: flex; gap: 3px; flex-shrink: 0; }
+.nb-theme-swatches span { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.nb-theme-card-name { font-size: 13px; }
 .nb-specialty-link {
     color: var(--accent);
     text-decoration: none;
