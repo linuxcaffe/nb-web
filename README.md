@@ -123,10 +123,15 @@ Fenced code blocks with recognised language tags render as live, interactive wid
 | Block | What it shows |
 |-------|--------------|
 | ` ```tw ` | Taskwarrior task table — filterable, clickable, with inline Add |
-| ` ```hledger ` | hledger balance / register / income statement |
+| ` ```hl ` | hledger balance / register / income statement |
 | ` ```git ` | git log or status for any configured repo alias |
 | ` ```nb ` | nb notebooks panel or backlinks |
 | ` ```t ` | Timeclock status and period report |
+| ` ```cfg ` | Config inheritance tree or org chart — audit every notebook config at a glance |
+| ` ```fm ` | Frontmatter filter — browse and query FM keys across all notes |
+| ` ```nav ` | Folder navigator — drill into subfolders inline |
+| ` ```chart ` | Financial charts from hledger data |
+| ` ```gallery ` | Image gallery from a folder |
 
 → [[CODEBLOCKS]]
 
@@ -139,6 +144,32 @@ Fenced code blocks with recognised language tags render as live, interactive wid
 Each nb notebook is its own git repo under `~/.nb/`. The Notebooks panel shows note count, sync status, git branch, remote URL, and last commit for every notebook. Wire a remote, sync, set per-notebook defaults (sort order, list type, default template), and manage the Danger Zone — all from one place. Create a new notebook from the Add bar.
 
 → [[NOTEBOOKS]]
+
+---
+
+### Themes
+
+[screenshot: theme picker popup showing Default and Groovy cards with colour swatches]
+
+Full-colour themes are plain Markdown files in `~/.nb/.themes/` with `dark:` and `light:` YAML sections that map key names directly to CSS custom properties. Switch themes from the **🎨** button on any notebook dashboard — the picker shows live colour swatches and saves your choice back to the notebook config automatically.
+
+The **☀/☾** toggle in the top nav bar switches dark and light mode globally. Every theme defines both palettes independently.
+
+`theme:` is a config chain key — set it in `.nb.md` for a global default, in a notebook manifest for a per-notebook look, or in a folder config to theme a subtree. Opening a note auto-applies its resolved theme.
+
+→ [[THEMES]] · [[docs:FOLDER-CONFIG]]
+
+---
+
+### Sysadmin corner
+
+[screenshot: cfg:org SVG org chart with filter bar and access tints]
+
+The **`cfg: org`** codeblock renders the entire notebook's config topology as an interactive SVG tree — every config file, its type icon, key count badge, and access tint in one view. Click any node to open the config directly; click an empty node (`○`) to create it. The filter bar accepts any `key` or `key:value` and highlights exactly which configs set it, with grep-style `-C N` context in the hover tooltip.
+
+The **`dotfile.md`** global template pre-wires `cfg: org` into every new folder config so the sysadmin view is available from day one.
+
+→ [[SYSADMIN]] · [[CODEBLOCKS#cfg]]
 
 ---
 
@@ -215,14 +246,17 @@ Export any notebook as a self-contained `.nbz` file (a standard ZIP with a metad
 
 nb-web's plugin system lets JavaScript modules extend the UI without modifying core files. Plugins are loaded from `nb-settings.json` and can add note renderers, sort options, toolbar buttons, notebook sections, and custom plugin-page content.
 
-Four plugins ship with nb-web:
+Four plugins ship with nb-web; additional plugins are loaded from `nb-settings.json`:
 
 | Plugin | What it adds |
 |--------|-------------|
-| **NbWeb-codeblocks** | Live `tw`, `hledger`, `git`, `nb`, `t` blocks |
+| **NbWeb-codeblocks** | Live `tw`, `hl`, `git`, `nb`, `t`, `cfg`, `fm`, `nav`, `gallery`, `chart` blocks |
 | **NbWeb-contacts** | Contact card renderer and VCF importer |
 | **NbWeb-archive** | Notebook archive, export, and import |
 | **NbWeb-quartz** | Quartz static site publishing workflow |
+| **NbWeb-specialty** | Typed note headers — dashboard, invoice, project, quote, budget (external) |
+| **NbWeb-cine** | Film production — shot lists, stripboard, screenplay, cast/location index (external) |
+| **NbWeb-hledger** | Accounting journals, invoice generation, contact lookup (external) |
 
 → [[PLUGINS]]
 
@@ -286,11 +320,15 @@ The full documentation lives in the `docs` notebook — importable as `docs.nbz`
 
 | Doc | Contents |
 |-----|---------|
+| Doc | Contents |
+|-----|---------|
 | [[Install]] | Dependencies, launch script, Epiphany setup |
 | [[QUICKSTART]] | Five-minute orientation |
 | [[NOTEBOOKS]] | Notebook management, wiring, defaults |
 | [[SYNC]] | Git model, sync dialog, troubleshooting |
-| [[TEMPLATES]] | Placeholder syntax, per-notebook defaults |
+| [[TEMPLATES]] | Placeholder syntax, `typename.md` convention, per-notebook defaults |
+| [[THEMES]] | Theme files, config chain key, picker, dark/light, custom themes |
+| [[SYSADMIN]] | Dotfile vs dashboard split, `cfg: org`, admin templates |
 | [[WIKILINKS]] | Syntax, anchor links, backlinks |
 | [[CODEBLOCKS]] | All live block types and configuration |
 | [[SEARCH_TAGS]] | Search, tag filter, cross-notebook search |
