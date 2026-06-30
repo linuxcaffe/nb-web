@@ -703,8 +703,6 @@ const NbMain = (() => {
         }
         document.getElementById('nb-preview-title').textContent = note.title || note.filename;
         document.getElementById('nb-done-bar')?.remove();
-        document.getElementById('nb-tmpl-dup-row')?.remove();
-        document.getElementById('nb-tmpl-dup-btn').hidden = true;
         document.getElementById('nb-preview-actions').hidden = false;
 
         const doneBtn    = document.getElementById('nb-done-btn');
@@ -6699,104 +6697,96 @@ const NbMain = (() => {
 
                 const _renderedEl = content.querySelector('.nb-rendered');
                 if (_renderedEl) _renderCsvBlocks(_renderedEl);
+                const ssb = document.getElementById('nb-sheet-save-btn');
+                if (ssb) { ssb.hidden = true; ssb.onclick = null; }
 
-                // Wire toolbar for template view
-                const _tlbr = document.getElementById('nb-preview-toolbar');
-                document.getElementById('nb-preview-title').textContent = headerName;
-                document.getElementById('nb-preview-ref').textContent = '';
-                document.getElementById('nb-preview-actions').hidden = false;
-                ['nb-preview-menu-btn','nb-extras-btn','nb-pin-indicator','nb-done-btn',
-                 'nb-sheet-save-btn','nb-open-ext-btn','nb-changes-btn',
-                 'nb-back-btn','nb-forward-btn'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.hidden = true;
-                });
-                document.getElementById('nb-preview-renderers').innerHTML = '';
+                const footer = document.createElement('div');
+                footer.id = 'nb-tmpl-footer';
+                footer.style.cssText = 'padding:10px 32px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+                footer.innerHTML = `
+                    <button id="nb-tmpl-edit"      class="nb-tool-btn">Edit</button>
+                    <button id="nb-tmpl-duplicate" class="nb-tool-btn">Duplicate</button>
+                    <button id="nb-tmpl-delete"    class="nb-tool-btn nb-btn-danger">Delete</button>`;
+                content.appendChild(footer);
 
-                const _editBtn = document.getElementById('nb-edit-btn');
-                const _delBtn  = document.getElementById('nb-delete-btn');
-                const _dupBtn  = document.getElementById('nb-tmpl-dup-btn');
+                footer.querySelector('#nb-tmpl-edit').addEventListener('click', showEditor);
 
-                if (_editBtn) { _editBtn.hidden = false; _editBtn.onclick = showEditor; }
-
-                if (_delBtn) {
-                    _delBtn.hidden = false;
-                    _delBtn.onclick = async () => {
-                        const label = isAnnotation ? 'Annotation template' : `template "${name}"`;
-                        if (!confirm(`Delete ${label}?`)) return;
-                        const dr = await fetch('/api/template?path=' + encodeURIComponent(path), { method: 'DELETE' });
-                        const dd = await dr.json();
-                        if (dd.success) runTemplates();
-                        else alert('Delete failed: ' + (dd.error || 'unknown'));
-                    };
-                }
-
-                if (_dupBtn) {
-                    _dupBtn.hidden = false;
-                    _dupBtn.onclick = () => {
-                        if (document.getElementById('nb-tmpl-dup-row')) return;
-                        const dupRow = document.createElement('div');
-                        dupRow.id = 'nb-tmpl-dup-row';
-                        dupRow.className = 'nb-move-bar';
-                        const lbl = document.createElement('span');
-                        lbl.className = 'nb-move-label';
-                        lbl.textContent = 'Duplicate to:';
-                        const loadEl = document.createElement('span');
-                        loadEl.style.cssText = 'font-size:11px;color:var(--text-dim)';
-                        loadEl.textContent = '…';
-                        dupRow.append(lbl, loadEl);
-                        _tlbr.after(dupRow);
-                        (async () => {
+                footer.querySelector('#nb-tmpl-duplicate').addEventListener('click', async () => {
+                    const dupBtn = footer.querySelector('#nb-tmpl-duplicate');
+                    if (footer.querySelector('#nb-tmpl-dup-row')) return; // already open
+                    dupBtn.disabled = true;
+                    const dupRow = document.createElement('div');
+                    dupRow.id = 'nb-tmpl-dup-row';
+                    dupRow.style.cssText = 'width:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);margin-top:4px';
+                    const lbl = document.createElement('span');
+                    lbl.style.cssText = 'font-size:11px;color:var(--text-dim);white-space:nowrap';
+                    lbl.textContent = 'Duplicate to:';
+                    const loadEl = document.createElement('span');
+                    loadEl.style.cssText = 'font-size:11px;color:var(--text-dim)';
+                    loadEl.textContent = '…';
+                    dupRow.append(lbl, loadEl);
+                    footer.appendChild(dupRow);
+                    try {
+                        const defaultNb = notebook || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook);
+                        const nbSel  = await NbDialog.buildNbPicker(defaultNb);
+                        let fldSel   = await NbDialog.buildFolderPicker(defaultNb);
+                        nbSel.addEventListener('change', async () => {
+                            const next = await NbDialog.buildFolderPicker(nbSel.value);
+                            fldSel.replaceWith(next); fldSel = next;
+                        });
+                        const copyBtn = document.createElement('button');
+                        copyBtn.className = 'nb-tool-btn nb-btn-primary';
+                        copyBtn.textContent = 'Copy';
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.className = 'nb-tool-btn';
+                        cancelBtn.textContent = '×';
+                        loadEl.remove();
+                        dupRow.append(nbSel, fldSel, copyBtn, cancelBtn);
+                        cancelBtn.addEventListener('click', () => { dupRow.remove(); dupBtn.disabled = false; });
+                        copyBtn.addEventListener('click', async () => {
+                            const targetNb  = nbSel.value;
+                            const targetFld = fldSel.value;
+                            copyBtn.textContent = 'Copying…'; copyBtn.disabled = true;
                             try {
-                                const defaultNb = notebook || (NbNav.notebook === '_all' ? 'home' : NbNav.notebook);
-                                const nbSel  = await NbDialog.buildNbPicker(defaultNb);
-                                let fldSel   = await NbDialog.buildFolderPicker(defaultNb);
-                                nbSel.addEventListener('change', async () => {
-                                    const next = await NbDialog.buildFolderPicker(nbSel.value);
-                                    fldSel.replaceWith(next); fldSel = next;
+                                const body = isAnnotation
+                                    ? { scope: 'annotation', notebook: targetNb, folder: targetFld, content: latestRaw }
+                                    : { scope: 'local', name, notebook: targetNb, subfolder: targetFld, content: latestRaw };
+                                const sr = await fetch('/api/templates', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(body),
                                 });
-                                const copyBtn = document.createElement('button');
-                                copyBtn.className = 'nb-tool-btn nb-btn-primary';
-                                copyBtn.textContent = 'Copy';
-                                const cancelBtn = document.createElement('button');
-                                cancelBtn.className = 'nb-tool-btn';
-                                cancelBtn.textContent = '×';
-                                loadEl.remove();
-                                dupRow.append(nbSel, fldSel, copyBtn, cancelBtn);
-                                cancelBtn.addEventListener('click', () => dupRow.remove());
-                                copyBtn.addEventListener('click', async () => {
-                                    copyBtn.textContent = 'Copying…'; copyBtn.disabled = true;
-                                    try {
-                                        const body = isAnnotation
-                                            ? { scope: 'annotation', notebook: nbSel.value, folder: fldSel.value, content: latestRaw }
-                                            : { scope: 'local', name, notebook: nbSel.value, subfolder: fldSel.value, content: latestRaw };
-                                        const sr = await fetch('/api/templates', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify(body),
-                                        });
-                                        const sd = await sr.json();
-                                        if (sd.success) { dupRow.remove(); setTimeout(runTemplates, 900); }
-                                        else { alert('Duplicate failed: ' + (sd.error || 'unknown')); copyBtn.textContent = 'Copy'; copyBtn.disabled = false; }
-                                    } catch(e) {
-                                        alert('Error: ' + e);
-                                        copyBtn.textContent = 'Copy'; copyBtn.disabled = false;
-                                    }
-                                });
+                                const sd = await sr.json();
+                                if (sd.success) {
+                                    copyBtn.textContent = '✓ Copied';
+                                    setTimeout(runTemplates, 900);
+                                } else {
+                                    alert('Duplicate failed: ' + (sd.error || 'unknown'));
+                                    copyBtn.textContent = 'Copy'; copyBtn.disabled = false;
+                                }
                             } catch(e) {
-                                loadEl.textContent = '✗ ' + e.message;
-                                loadEl.style.color = 'var(--red)';
+                                alert('Error: ' + e);
+                                copyBtn.textContent = 'Copy'; copyBtn.disabled = false;
                             }
-                        })();
-                    };
-                }
+                        });
+                    } catch(e) {
+                        loadEl.textContent = '✗ ' + e.message;
+                        loadEl.style.color = 'var(--red)';
+                        dupBtn.disabled = false;
+                    }
+                });
 
-                _tlbr.hidden = false;
+                footer.querySelector('#nb-tmpl-delete').addEventListener('click', async () => {
+                    const label = isAnnotation ? 'Annotation template' : `template "${name}"`;
+                    if (!confirm(`Delete ${label}?`)) return;
+                    const dr = await fetch('/api/template?path=' + encodeURIComponent(path), { method: 'DELETE' });
+                    const dd = await dr.json();
+                    if (dd.success) runTemplates();
+                    else alert('Delete failed: ' + (dd.error || 'unknown'));
+                });
             };
 
             const showEditor = () => {
-                document.getElementById('nb-preview-toolbar').hidden = true;
-                document.getElementById('nb-tmpl-dup-row')?.remove();
                 content.innerHTML = `${HDR}
                     <textarea id="nb-tmpl-editor" spellcheck="false"
                         style="flex:1;width:100%;box-sizing:border-box;padding:16px 32px;
