@@ -4384,8 +4384,9 @@ def _config_walk_notebook(notebook, attribute='', folder='', max_depth=0):
     def _walk(dir_path, rel, depth):
         has_cfg, meta, cfg_path = _cfg_meta(dir_path)
         has_attr = bool(attribute and meta.get(attribute) is not None)
+        skipped  = bool(has_cfg and meta.get('cfg_skip'))
         children = []
-        if not max_depth or depth < max_depth:
+        if not skipped and (not max_depth or depth < max_depth):
             try:
                 entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
             except PermissionError:
@@ -4414,6 +4415,7 @@ def _config_walk_notebook(notebook, attribute='', folder='', max_depth=0):
             'cfg_path':    cfg_path,
             'level':       level,
             'has_config':  has_cfg,
+            'skipped':     skipped,
             'contributes': contrib,
             'has_attr':    has_attr,
             '_active':     active,

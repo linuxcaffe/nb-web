@@ -2807,8 +2807,17 @@
             label.textContent = rawLabel.length > maxCh ? rawLabel.slice(0, maxCh - 1) + '…' : rawLabel;
             g.appendChild(label);
 
-            // Right slot: key count badge (how many FM keys this config sets)
-            if (cfgKeys.length) {
+            // Right slot: skipped indicator OR key count badge
+            if (node.skipped) {
+                const skip = document.createElementNS(NS, 'text');
+                skip.setAttribute('x', NW - 4);
+                skip.setAttribute('y', NH / 2 + 4);
+                skip.setAttribute('text-anchor', 'end');
+                skip.setAttribute('class', 'nb-config-org-skip');
+                skip.setAttribute('pointer-events', 'none');
+                skip.textContent = '…';
+                g.appendChild(skip);
+            } else if (cfgKeys.length) {
                 const badge = document.createElementNS(NS, 'text');
                 badge.setAttribute('x', NW - 4);
                 badge.setAttribute('y', NH / 2 + 4);
