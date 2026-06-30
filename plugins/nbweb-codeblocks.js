@@ -2854,6 +2854,97 @@
         _drawEdges(layoutRoot);
         _drawNode(layoutRoot);
 
+        // ── Viewport group — all SVG content goes in here for zoom/pan ──
+        const vp = document.createElementNS(NS, 'g');
+        vp.setAttribute('class', 'nb-org-vp');
+        while (svg.firstChild) vp.appendChild(svg.firstChild);
+        svg.appendChild(vp);
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        svg.removeAttribute('viewBox');
+        svg.setAttribute('width',  '100%');
+        svg.setAttribute('height', '100%');
+
+        // ── Zoom/pan state ────────────────────────────────────────────
+        let _z = 1, _tx = 0, _ty = 0, _drag = null, _keysActive = false;
+
+        function _applyVP() {
+            vp.setAttribute('transform', `translate(${_tx.toFixed(1)},${_ty.toFixed(1)}) scale(${_z.toFixed(4)})`);
+        }
+        function _fitAll() {
+            const cw = svgCon.clientWidth  || svgW;
+            const ch = svgCon.clientHeight || Math.min(svgH, 480);
+            const pad = 20;
+            _z  = Math.max(0.05, Math.min((cw - pad*2) / svgW, (ch - pad*2) / svgH, 2));
+            _tx = (cw - svgW * _z) / 2;
+            _ty = (ch - svgH * _z) / 2;
+            _applyVP();
+        }
+        function _zoomAt(mx, my, factor) {
+            _z   = Math.max(0.05, Math.min(_z * factor, 8));
+            _tx  = mx - (mx - _tx) * factor;
+            _ty  = my - (my - _ty) * factor;
+            _applyVP();
+        }
+
+        // ── SVG container (clips, scroll-captures) ────────────────────
+        const svgCon = document.createElement('div');
+        svgCon.className = 'nb-org-svg-con';
+        svgCon.style.cssText = `overflow:hidden;position:relative;width:100%;` +
+            `height:${Math.min(svgH + 8, 520)}px;cursor:grab;touch-action:none`;
+        svgCon.appendChild(svg);
+
+        // Wheel zoom (centered on cursor)
+        svgCon.addEventListener('wheel', e => {
+            e.preventDefault();
+            const r = svgCon.getBoundingClientRect();
+            _zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1/1.12);
+        }, { passive: false });
+
+        // Drag to pan
+        svgCon.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            _drag = { x: e.clientX - _tx, y: e.clientY - _ty };
+            svgCon.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        const _onOrgMove = e => { if (_drag) { _tx = e.clientX - _drag.x; _ty = e.clientY - _drag.y; _applyVP(); } };
+        const _onOrgUp   = () => { if (_drag) { _drag = null; svgCon.style.cursor = 'grab'; } };
+        window.addEventListener('mousemove', _onOrgMove);
+        window.addEventListener('mouseup',   _onOrgUp);
+
+        // Pinch to zoom
+        let _pinchDist = null;
+        svgCon.addEventListener('touchstart', e => {
+            if (e.touches.length === 2)
+                _pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                                        e.touches[0].clientY - e.touches[1].clientY);
+        }, { passive: true });
+        svgCon.addEventListener('touchmove', e => {
+            if (e.touches.length !== 2 || !_pinchDist) return;
+            e.preventDefault();
+            const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                                 e.touches[0].clientY - e.touches[1].clientY);
+            const r  = svgCon.getBoundingClientRect();
+            _zoomAt((e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left,
+                    (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top,
+                    d / _pinchDist);
+            _pinchDist = d;
+        }, { passive: false });
+        svgCon.addEventListener('touchend', () => { _pinchDist = null; });
+
+        // Keyboard shortcuts (active while mouse is over svgCon)
+        svgCon.addEventListener('mouseenter', () => { _keysActive = true; });
+        svgCon.addEventListener('mouseleave', () => { _keysActive = false; });
+        window.addEventListener('keydown', e => {
+            if (!_keysActive) return;
+            const cw = svgCon.clientWidth, ch = svgCon.clientHeight;
+            if      (e.key === 'f' || e.key === 'F')  { e.preventDefault(); _fitAll(); }
+            else if (e.key === '+' || e.key === '=')  { e.preventDefault(); _zoomAt(cw/2, ch/2, 1.2); }
+            else if (e.key === '-')                    { e.preventDefault(); _zoomAt(cw/2, ch/2, 1/1.2); }
+            else if (e.key === '0')                    { e.preventDefault(); _z=1; _tx=0; _ty=0; _applyVP(); }
+        });
+
         const wrap = document.createElement('div');
         wrap.className = 'nb-config-org-wrap';
 
@@ -2978,8 +3069,9 @@
             wrap.appendChild(bar);
         }
 
-        wrap.appendChild(svg);
+        wrap.appendChild(svgCon);
         el.appendChild(wrap);
+        requestAnimationFrame(_fitAll);
     }
 
     function _configRender(el, nodes, key, currentSelector, wasOpen, notebook, folder) {
