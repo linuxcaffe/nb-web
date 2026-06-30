@@ -2638,7 +2638,7 @@
             (node.children || []).forEach(c => _shiftY(c, dy));
         }
 
-        // Split global wrapper — place it anchored to the notebook root, not at PAD
+        // Split global wrapper — place it anchored to the notebook root, not as a left column
         let globalNode = null;
         let layoutRoot = tree;
         if (tree.level === 'global' && tree.children?.length) {
@@ -2650,23 +2650,20 @@
         _place(layoutRoot, PAD, PAD + layoutRoot._h / 2);  // normal placement
 
         if (globalNode) {
-            // Anchor global node 12px above the notebook root's top edge
             globalNode._x = PAD;
-            globalNode._y = layoutRoot._y - NH - 12;
-            // Shift entire tree down so global node starts at PAD from top
-            const shift = PAD - globalNode._y;
-            _shiftY(layoutRoot, shift);
-            globalNode._y = PAD;
+            globalNode._y = layoutRoot._y - NH - 12;  // anchor just above notebook root
         }
 
+        // Use viewBox to crop from just above globalNode — no coordinate shifting needed
+        const topY = globalNode ? globalNode._y - PAD : 0;
         const svgW = _maxX(layoutRoot) + PAD;
-        const svgH = _maxY(layoutRoot) + PAD_BOT;
+        const svgH = _maxY(layoutRoot) + PAD_BOT - topY;
 
         const NS  = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(NS, 'svg');
         svg.setAttribute('width',   svgW);
         svg.setAttribute('height',  svgH);
-        svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+        svg.setAttribute('viewBox', `0 ${topY} ${svgW} ${svgH}`);
         svg.className = 'nb-config-org-svg';
 
         function _drawEdges(node) {
