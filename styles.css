@@ -2517,7 +2517,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-org-rect { fill: var(--bg3); stroke: var(--border); stroke-width: 1.5; transition: filter 0.1s; }
 .nb-config-org-node.nb-config-org-has-cfg  .nb-config-org-rect { fill: var(--bg2); stroke: var(--accent, #4a9eff); }
 .nb-config-org-node.nb-config-org-has-attr .nb-config-org-rect { fill: color-mix(in srgb, var(--accent-alt,#f0a500) 10%, var(--bg2)); stroke: var(--accent-alt, #f0a500); }
-.nb-config-org-node.nb-config-org-no-cfg   .nb-config-org-rect { stroke-dasharray: 4 3; opacity: 0.55; }
+.nb-config-org-node.nb-config-org-no-cfg   .nb-config-org-rect { stroke-dasharray: 4 3; }
 .nb-config-org-node[style*="pointer"]:hover .nb-config-org-rect { filter: brightness(1.18); }
 .nb-config-org-marker { font-size: 11px; fill: var(--text-dim); font-family: var(--font-mono, monospace); dominant-baseline: auto; }
 .nb-config-org-node.nb-config-org-has-cfg  .nb-config-org-marker { fill: var(--accent, #4a9eff); }

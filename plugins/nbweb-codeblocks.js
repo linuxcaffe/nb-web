@@ -2377,17 +2377,18 @@
             const rest = raw.replace(/^(?:tree|org)\s*/i, '').trim();
             const tokens = rest.split(/\s+/).filter(Boolean).map(t => t.replace(/^["']|["']$/g, ''));
             for (const tok of tokens) {
-                if (tok.endsWith(':')) target = tok;
+                // org mode: never treat a token as a notebook target — always self-scoped
+                if (!orgMode && tok.endsWith(':')) target = tok;
                 else if (!treeAttrs.length) {
-                    // comma-separated or [bracketed] attr list
+                    // comma-separated or [bracketed] attr list; key:value pairs allowed
                     const clean = tok.replace(/^\[|\]$/g, '');
                     treeAttrs = clean.split(/\s*,\s*/).filter(Boolean);
                 }
             }
-            // Org mode: auto-scope to current notebook (not subfolder)
-            if (orgMode && !target) {
+            // Org mode: always scope to current notebook only (never a subfolder)
+            if (orgMode) {
                 const colon = (currentSelector || '').indexOf(':');
-                if (colon >= 0) target = currentSelector.slice(0, colon) + ':';
+                target = colon >= 0 ? currentSelector.slice(0, colon) + ':' : '';
             }
         } else if (raw) {
             const m = raw.match(/^(\w[\w.-]*):\s*(.*)$/);
@@ -2646,12 +2647,22 @@
             layoutRoot = tree.children[0];
         }
 
+        // Propagate effective access root-to-leaf (for BG tint)
+        const ACCESS_TINTS = { guest: '#22c55e', office: '#f0a500', admin: '#ef4444', tech: '#a855f7' };
+        function _propagateAccess(node, inherited) {
+            node._access = node.contributes?.access ?? inherited;
+            (node.children || []).forEach(c => _propagateAccess(c, node._access));
+        }
+        const rootAccess = globalNode?.contributes?.access ?? null;
+        if (globalNode) globalNode._access = globalNode.contributes?.access ?? null;
+        _propagateAccess(layoutRoot, rootAccess);
+
         _measure(layoutRoot);
-        _place(layoutRoot, PAD, PAD + layoutRoot._h / 2);  // normal placement
+        _place(layoutRoot, PAD, PAD + layoutRoot._h / 2);
 
         if (globalNode) {
             globalNode._x = PAD;
-            globalNode._y = layoutRoot._y - NH - 12;  // anchor just above notebook root
+            globalNode._y = layoutRoot._y - NH - 12;
         }
 
         // Use viewBox to crop from just above globalNode — no coordinate shifting needed
@@ -2687,9 +2698,11 @@
                 + (node.level === 'global' ? ' nb-config-org-global' : '')
                 + (node.has_config ? ' nb-config-org-has-cfg' : ' nb-config-org-no-cfg'));
 
-            // Tag with all FM keys present — used by filter bar
-            const cfgKeys = Object.keys(node.contributes || {}).filter(k => !k.startsWith('_'));
+            // Tag node with FM keys + values for filter bar matching
+            const contrib = node.contributes || {};
+            const cfgKeys = Object.keys(contrib).filter(k => !k.startsWith('_'));
             g.dataset.cfgKeys = cfgKeys.join(',');
+            g.dataset.cfgVals = JSON.stringify(contrib);
 
             const tip = document.createElementNS(NS, 'title');
             tip.textContent = node.has_config ? node.name : `${node.name} — click to create config`;
@@ -2701,6 +2714,19 @@
             rect.setAttribute('rx', 5);
             rect.setAttribute('class', 'nb-config-org-rect');
             g.appendChild(rect);
+
+            // Access level BG tint — effective (inherited from parent if not set here)
+            const tintColor = ACCESS_TINTS[node._access];
+            if (tintColor) {
+                const tint = document.createElementNS(NS, 'rect');
+                tint.setAttribute('width',  NW);
+                tint.setAttribute('height', NH);
+                tint.setAttribute('rx', 5);
+                tint.setAttribute('fill', tintColor);
+                tint.setAttribute('fill-opacity', '0.15');
+                tint.setAttribute('pointer-events', 'none');
+                g.appendChild(tint);
+            }
 
             const marker = document.createElementNS(NS, 'text');
             marker.setAttribute('x', 7);
@@ -2776,34 +2802,50 @@
             lbl.textContent = 'Configs:';
             bar.appendChild(lbl);
 
-            function _applyFilter(activeKey) {
+            // spec: null = all | { key } = key-only | { key, val } = key:value
+            function _applyFilter(spec) {
                 bar.querySelectorAll('.nb-config-org-chip').forEach(c => {
-                    c.classList.toggle('nb-config-org-chip-active',
-                        c.dataset.key === (activeKey || 'all'));
+                    const active = !spec ? c.dataset.key === 'all'
+                        : spec.val !== undefined ? c.dataset.key === `${spec.key}:${spec.val}`
+                        : c.dataset.key === spec.key;
+                    c.classList.toggle('nb-config-org-chip-active', active);
                 });
                 svg.querySelectorAll('.nb-config-org-node').forEach(g => {
-                    if (!activeKey) {
-                        g.classList.remove('nb-config-org-dim', 'nb-config-org-active');
-                        return;
-                    }
+                    if (!spec) { g.classList.remove('nb-config-org-dim', 'nb-config-org-active'); return; }
                     const keys = (g.dataset.cfgKeys || '').split(',').filter(Boolean);
-                    const hit  = keys.includes(activeKey);
+                    let hit;
+                    if (spec.val !== undefined) {
+                        const vals = JSON.parse(g.dataset.cfgVals || '{}');
+                        hit = String(vals[spec.key] ?? '') === spec.val;
+                    } else {
+                        hit = keys.includes(spec.key);
+                    }
                     g.classList.toggle('nb-config-org-dim',    !hit);
                     g.classList.toggle('nb-config-org-active',  hit);
                 });
             }
 
-            function _chip(keyVal, labelText, startActive) {
-                const c = document.createElement('span');
-                c.className = 'nb-config-org-chip' + (startActive ? ' nb-config-org-chip-active' : '');
-                c.dataset.key = keyVal;
-                c.textContent = labelText;
-                c.addEventListener('click', () => _applyFilter(keyVal === 'all' ? null : keyVal));
-                bar.appendChild(c);
-            }
+            // "all" chip
+            const allChip = document.createElement('span');
+            allChip.className = 'nb-config-org-chip nb-config-org-chip-active';
+            allChip.dataset.key = 'all';
+            allChip.textContent = 'all';
+            allChip.addEventListener('click', () => _applyFilter(null));
+            bar.appendChild(allChip);
 
-            _chip('all', 'all', true);
-            treeAttrs.forEach(attr => _chip(attr, attr, false));
+            // attr chips — detect key:value vs key-only
+            treeAttrs.forEach(attr => {
+                const ci = attr.indexOf(':');
+                const spec = ci > 0
+                    ? { key: attr.slice(0, ci), val: attr.slice(ci + 1) }
+                    : { key: attr };
+                const c = document.createElement('span');
+                c.className = 'nb-config-org-chip';
+                c.dataset.key = attr;
+                c.textContent = attr;
+                c.addEventListener('click', () => _applyFilter(spec));
+                bar.appendChild(c);
+            });
             wrap.appendChild(bar);
         }
 
