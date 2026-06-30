@@ -1646,9 +1646,9 @@ const NbMain = (() => {
 
         const fmSource = { ...(note.effective_fm || {}), ...note.meta };
 
-        // Apply theme from config chain if set
-        const noteTheme = fmSource.theme;
-        if (noteTheme && noteTheme !== NbTheme.getSlug())
+        // Apply theme from config chain; fall back to 'default' when unset
+        const noteTheme = fmSource.theme || 'default';
+        if (noteTheme !== NbTheme.getSlug())
             NbTheme.apply(noteTheme, NbTheme.getMode());
 
         const _tocMin = fmSource.toc_min != null ? Number(fmSource.toc_min) : null;
