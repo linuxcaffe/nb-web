@@ -2884,9 +2884,13 @@
             const cw = svgCon.clientWidth  || svgW;
             const ch = svgCon.clientHeight || Math.min(svgH, 480);
             const pad = 20;
-            _z  = Math.max(0.05, Math.min((cw - pad*2) / svgW, (ch - pad*2) / svgH, 2));
-            _tx = (cw - svgW * _z) / 2;
-            _ty = (ch - svgH * _z) / 2;
+            // Fit-to-all, but never shrink nodes below 12px tall (unreadable).
+            // If the full-fit zoom is too small, zoom to min-readable and let the user pan.
+            const fullFit = Math.min((cw - pad*2) / svgW, (ch - pad*2) / svgH, 2);
+            const minZ    = Math.max(12 / NH, 0.05);
+            _z  = Math.max(fullFit, minZ);
+            _tx = Math.max(pad, (cw - svgW * _z) / 2);
+            _ty = Math.max(pad, (ch - svgH * _z) / 2);
             _applyVP();
         }
         function _zoomAt(mx, my, factor) {
@@ -2903,8 +2907,9 @@
             `height:${Math.min(svgH + 8, 520)}px;cursor:grab;touch-action:none`;
         svgCon.appendChild(svg);
 
-        // Wheel zoom (centered on cursor)
+        // Ctrl+wheel zooms; plain wheel scrolls the page normally
         svgCon.addEventListener('wheel', e => {
+            if (!e.ctrlKey) return;
             e.preventDefault();
             const r = svgCon.getBoundingClientRect();
             _zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1/1.12);
