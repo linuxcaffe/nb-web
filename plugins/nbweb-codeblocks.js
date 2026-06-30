@@ -2376,15 +2376,14 @@
             treeMode = !orgMode;
             const rest = raw.replace(/^(?:tree|org)\s*/i, '').trim();
             const tokens = rest.split(/\s+/).filter(Boolean).map(t => t.replace(/^["']|["']$/g, ''));
+            const attrTokens = [];
             for (const tok of tokens) {
                 // org mode: never treat a token as a notebook target — always self-scoped
                 if (!orgMode && tok.endsWith(':')) target = tok;
-                else if (!treeAttrs.length) {
-                    // comma-separated or [bracketed] attr list; key:value pairs allowed
-                    const clean = tok.replace(/^\[|\]$/g, '');
-                    treeAttrs = clean.split(/\s*,\s*/).filter(Boolean);
-                }
+                else attrTokens.push(tok.replace(/^\[|\]$/g, ''));
             }
+            // Accept comma- or space-separated attrs across any number of tokens
+            treeAttrs = attrTokens.join(',').split(/[\s,]+/).filter(Boolean);
             // Org mode: always scope to current notebook only (never a subfolder)
             if (orgMode) {
                 const colon = (currentSelector || '').indexOf(':');
