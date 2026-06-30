@@ -2744,7 +2744,7 @@
                 tint.setAttribute('height', NH);
                 tint.setAttribute('rx', 5);
                 tint.setAttribute('fill', tintColor);
-                tint.setAttribute('fill-opacity', '0.15');
+                tint.setAttribute('fill-opacity', '0.28');
                 tint.setAttribute('pointer-events', 'none');
                 g.appendChild(tint);
             }
