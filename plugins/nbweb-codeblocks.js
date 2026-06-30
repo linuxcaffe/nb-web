@@ -2607,6 +2607,15 @@
         // Layout constants — left-to-right flow
         const NW = 128, NH = 26, GX = 44, GY = 4, PAD = 14, PAD_BOT = 24;
 
+        const ACCESS_TINTS = { guest: '#22c55e', office: '#f0a500', admin: '#ef4444', tech: '#a855f7' };
+
+        const TYPE_ICONS = {
+            shot: '🎬', scene: '🎭', contact: '👤', project: '📊',
+            daily: '📅', invoice: '🧾', item: '🏷️', actor: '🎭',
+            location: '📍', character: '👥', storyline: '📖',
+            milestone: '🚩', note: '📝', journal: '📓',
+        };
+
         function _measure(node) {
             if (!node.children?.length) { node._h = NH; return; }
             node.children.forEach(_measure);
@@ -2647,7 +2656,6 @@
         }
 
         // Propagate effective access root-to-leaf (for BG tint)
-        const ACCESS_TINTS = { guest: '#22c55e', office: '#f0a500', admin: '#ef4444', tech: '#a855f7' };
         function _propagateAccess(node, inherited) {
             node._access = node.contributes?.access ?? inherited;
             (node.children || []).forEach(c => _propagateAccess(c, node._access));
@@ -2737,14 +2745,27 @@
             marker.textContent = node.has_config ? '●' : '○';
             g.appendChild(marker);
 
+            const typeIcon = TYPE_ICONS[contrib.default_type || ''] || '';
+            const maxCh = typeIcon ? 11 : 13;
+
             const label = document.createElementNS(NS, 'text');
-            label.setAttribute('x', NW / 2 + 5);
+            label.setAttribute('x', typeIcon ? NW / 2 + 1 : NW / 2 + 5);
             label.setAttribute('y', NH / 2 + 4);
             label.setAttribute('text-anchor', 'middle');
             label.setAttribute('class', 'nb-config-org-label');
-            const maxCh = 13;
             label.textContent = node.name.length > maxCh ? node.name.slice(0, maxCh - 1) + '…' : node.name;
             g.appendChild(label);
+
+            if (typeIcon) {
+                const ico = document.createElementNS(NS, 'text');
+                ico.setAttribute('x', NW - 5);
+                ico.setAttribute('y', NH / 2 + 4);
+                ico.setAttribute('text-anchor', 'end');
+                ico.setAttribute('class', 'nb-config-org-typeicon');
+                ico.setAttribute('pointer-events', 'none');
+                ico.textContent = typeIcon;
+                g.appendChild(ico);
+            }
 
             if (node.has_config) {
                 g.style.cursor = 'pointer';
