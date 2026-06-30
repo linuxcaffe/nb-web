@@ -2718,7 +2718,15 @@
             g.dataset.cfgVals = JSON.stringify(contrib);
 
             const tip = document.createElementNS(NS, 'title');
-            tip.textContent = node.has_config ? node.name : `${node.name} — click to create config`;
+            const cfgFile = (node.cfg_path || '').split('/').pop() || node.name;
+            const tipPath = node.rel_path ? `${node.rel_path}/${cfgFile}` : cfgFile;
+            const tipKV   = cfgKeys.map(k => {
+                const v = contrib[k];
+                return `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`;
+            });
+            tip.textContent = node.has_config
+                ? [tipPath, ...tipKV].join('\n')
+                : `${tipPath}\n(no config — click to create)`;
             g.appendChild(tip);
 
             const rect = document.createElementNS(NS, 'rect');
