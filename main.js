@@ -3239,6 +3239,22 @@ const NbMain = (() => {
         }});
     }
 
+    // marked.parse with the global code-renderer bypassed — produces plain
+    // <pre><code> for every fenced block. Use wherever live hydration must NOT
+    // happen: template previews, version-diff views, help panels.
+    function _parseMarkdownStatic(body) {
+        const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return marked.parse(body, {
+            renderer: {
+                code({ text, lang }) {
+                    return lang
+                        ? `<pre><code class="language-${lang}">${esc(text)}\n</code></pre>\n`
+                        : `<pre><code>${esc(text)}\n</code></pre>\n`;
+                }
+            }
+        });
+    }
+
     // ── codeblock infra + renderers → plugins/nbweb-codeblocks.js ────────────
     function _renderMarkdown(body, noteSelector = null) {
         if (typeof marked === 'undefined') return `<pre>${_esc(body)}</pre>`;
@@ -3701,7 +3717,7 @@ const NbMain = (() => {
                 const r = await fetch(`/api/note/version?selector=${encodeURIComponent(_activeSelector)}&hash=${hash}`);
                 const d = await r.json();
                 if (d.error) { content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(d.error)}</div>`; return; }
-                const html = marked.parse(d.body || '');
+                const html = _parseMarkdownStatic(d.body || '');
                 content.innerHTML = `<div class="nb-prose">${html}</div>`;
                 _resolveWikilinks(content);
                 restoreBtn.disabled = false;
@@ -5226,7 +5242,7 @@ const NbMain = (() => {
             const fmHtml  = _renderFrontmatterFields(raw);
             const bodyRaw = raw.replace(/^---[\s\S]*?---\r?\n?/, '');
             const bodyHtml = bodyRaw.trim()
-                ? `<div class="nb-rendered" style="margin-top:12px">${marked.parse(bodyRaw)}</div>` : '';
+                ? `<div class="nb-rendered" style="margin-top:12px">${_parseMarkdownStatic(bodyRaw)}</div>` : '';
             content.innerHTML = `
                 <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
                             font-family:var(--font-mono);border-bottom:1px solid var(--border);
@@ -5246,7 +5262,7 @@ const NbMain = (() => {
         const fmHtml  = _renderFrontmatterFields(raw);
         const bodyRaw = raw.replace(/^---[\s\S]*?---\r?\n?/, '');
         const bodyHtml = bodyRaw.trim()
-            ? `<div class="nb-rendered" style="margin-top:12px">${marked.parse(bodyRaw)}</div>` : '';
+            ? `<div class="nb-rendered" style="margin-top:12px">${_parseMarkdownStatic(bodyRaw)}</div>` : '';
         el.innerHTML = `
             <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
                         font-family:var(--font-mono);border-bottom:1px solid var(--border);
@@ -5728,7 +5744,7 @@ const NbMain = (() => {
                     const md = await r.text();
                     // Bail if Flask served the SPA fallback instead of a real file
                     if (!md.includes('nb-preview-content')) {
-                        helpHtml = `<div class="nb-plugin-help nb-markdown">${marked.parse(md)}</div>`;
+                        helpHtml = `<div class="nb-plugin-help nb-markdown">${_parseMarkdownStatic(md)}</div>`;
                     }
                 }
             } catch(_) {}
@@ -6692,7 +6708,7 @@ const NbMain = (() => {
                 const fmHtml  = isAnnotation ? '' : _renderFrontmatterFields(latestRaw);
                 const bodyRaw = latestRaw.replace(/^---[\s\S]*?---\r?\n?/, '');
                 const bodyHtml = bodyRaw.trim()
-                    ? `<div class="nb-rendered" style="margin-top:12px;opacity:0.85">${marked.parse(bodyRaw)}</div>` : '';
+                    ? `<div class="nb-rendered" style="margin-top:12px;opacity:0.85">${_parseMarkdownStatic(bodyRaw)}</div>` : '';
                 content.innerHTML = `${HDR}<div style="padding:16px 32px 8px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
                 const ssb = document.getElementById('nb-sheet-save-btn');
                 if (ssb) { ssb.hidden = true; ssb.onclick = null; }
