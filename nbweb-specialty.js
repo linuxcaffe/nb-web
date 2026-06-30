@@ -178,7 +178,10 @@
             ${configLink}
             <span class="nb-specialty-pill">${fileCount} files</span>
             <span class="nb-specialty-pill">${folderCount} folders</span>
-            <span class="nb-specialty-right">${syncPill}${accessBadge}</span>
+            <span class="nb-specialty-right">
+                <button class="nb-specialty-theme-btn" data-notebook="${_esc(nb)}" title="Choose theme">🎨</button>
+                ${syncPill}${accessBadge}
+            </span>
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
@@ -230,6 +233,85 @@
             pill.textContent = 'error';
             pill.classList.add('nb-pill-dirty');
         }
+    });
+
+    // Theme picker popup
+    let _themePopup = null;
+
+    function _closeThemePopup() {
+        _themePopup?.remove();
+        _themePopup = null;
+    }
+
+    async function _openThemePicker(btn, notebook) {
+        _closeThemePopup();
+        const themes = await NbTheme.listThemes();
+        const current = NbTheme.getSlug();
+        const mode    = NbTheme.getMode();
+
+        const popup = document.createElement('div');
+        popup.className = 'nb-theme-popup';
+        popup.innerHTML = `
+            <div class="nb-theme-popup-toolbar">
+                <span class="nb-theme-popup-title">Theme</span>
+                <button class="nb-theme-mode-toggle" title="Toggle light/dark">${mode === 'dark' ? '☀ Light' : '☾ Dark'}</button>
+            </div>
+            <div class="nb-theme-cards"></div>`;
+
+        const cards = popup.querySelector('.nb-theme-cards');
+        for (const t of themes) {
+            const vars = t[mode] || {};
+            const card = document.createElement('button');
+            card.className = 'nb-theme-card' + (t.slug === current ? ' nb-theme-card-active' : '');
+            card.dataset.slug = t.slug;
+            card.innerHTML = `
+                <span class="nb-theme-swatches">
+                    <span style="background:${vars.bg     || '#000'}"></span>
+                    <span style="background:${vars.bg2    || '#111'}"></span>
+                    <span style="background:${vars.accent || '#48f'}"></span>
+                    <span style="background:${vars.green  || '#4a4'}"></span>
+                    <span style="background:${vars.red    || '#a44'}"></span>
+                </span>
+                <span class="nb-theme-card-name">${_esc(t.name)}</span>`;
+            card.addEventListener('click', async () => {
+                await NbTheme.apply(t.slug, NbTheme.getMode());
+                await NbTheme.saveToNotebook(t.slug, notebook);
+                _closeThemePopup();
+            });
+            cards.appendChild(card);
+        }
+
+        popup.querySelector('.nb-theme-mode-toggle').addEventListener('click', async () => {
+            await NbTheme.toggleMode();
+            _closeThemePopup();
+            _openThemePicker(btn, notebook);
+        });
+
+        // Position below the 🎨 button
+        document.body.appendChild(popup);
+        const r = btn.getBoundingClientRect();
+        popup.style.top  = `${r.bottom + 6}px`;
+        popup.style.left = `${Math.min(r.left, window.innerWidth - popup.offsetWidth - 8)}px`;
+        _themePopup = popup;
+    }
+
+    document.addEventListener('click', e => {
+        const btn = e.target.closest('.nb-specialty-theme-btn');
+        if (btn) {
+            e.stopPropagation();
+            if (_themePopup) { _closeThemePopup(); return; }
+            _openThemePicker(btn, btn.dataset.notebook);
+            return;
+        }
+        if (_themePopup && !_themePopup.contains(e.target)) _closeThemePopup();
+    });
+
+    document.addEventListener('nb-theme-changed', () => {
+        // Refresh active-card highlight if popup is open
+        if (!_themePopup) return;
+        _themePopup.querySelectorAll('.nb-theme-card').forEach(c => {
+            c.classList.toggle('nb-theme-card-active', c.dataset.slug === NbTheme.getSlug());
+        });
     });
 
     // Public API — plugins call these after this script loads
