@@ -2451,10 +2451,11 @@
             if (treeMode || orgMode) {
                 let tree;
                 if (orgMode && notebook === '.nb') {
-                    // Super-notebook scope: global walk across all notebooks
+                    // Super-notebook scope: global walk across all notebooks.
+                    // No attribute filter: org charts always show all folders;
+                    // treeAttrs drive client-side filter chips only.
                     const params = new URLSearchParams();
-                    if (treeAttrs.length) params.set('attribute', treeAttrs.join(','));
-                    if (maxDepth)         params.set('max_depth', maxDepth);
+                    if (maxDepth) params.set('max_depth', maxDepth);
                     const r = await fetch(`/api/config-global-walk?${params}`);
                     if (r.status === 403) { _cbDenyRead(el); return; }
                     if (!r.ok) throw new Error(`HTTP ${r.status}`);
