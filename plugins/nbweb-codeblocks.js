@@ -2609,11 +2609,14 @@
 
         const ACCESS_TINTS = { guest: '#22c55e', office: '#f0a500', admin: '#ef4444', tech: '#a855f7' };
 
+        // Icons keyed on the config file's own `type:` FM field
         const TYPE_ICONS = {
-            shot: '🎬', scene: '🎭', contact: '👤', project: '📊',
-            daily: '📅', invoice: '🧾', item: '🏷️', actor: '🎭',
-            location: '📍', character: '👥', storyline: '📖',
-            milestone: '🚩', note: '📝', journal: '📓',
+            dotfile:   '⚙️',  note:      '📝',  project:   '📊',
+            dashboard: '🖥️',  daily:     '📅',  journal:   '📓',
+            invoice:   '🧾',  contact:   '👤',  item:      '🏷️',
+            shot:      '🎬',  scene:     '🎭',  actor:     '🎭',
+            character: '👥',  location:  '📍',  storyline: '📖',
+            milestone: '🚩',
         };
 
         function _measure(node) {
@@ -2738,33 +2741,41 @@
                 g.appendChild(tint);
             }
 
-            const marker = document.createElementNS(NS, 'text');
-            marker.setAttribute('x', 7);
-            marker.setAttribute('y', NH / 2 + 4);
-            marker.setAttribute('class', 'nb-config-org-marker');
-            marker.textContent = node.has_config ? '●' : '○';
-            g.appendChild(marker);
+            // Left slot: type icon (from config file's own `type:`) or ●/○ fallback
+            const typeIcon = TYPE_ICONS[contrib.type || ''] || '';
+            const leftEl = document.createElementNS(NS, 'text');
+            leftEl.setAttribute('x', 6);
+            leftEl.setAttribute('y', NH / 2 + 4);
+            leftEl.setAttribute('pointer-events', 'none');
+            if (typeIcon) {
+                leftEl.setAttribute('class', 'nb-config-org-typeicon');
+                leftEl.textContent = typeIcon;
+            } else {
+                leftEl.setAttribute('class', 'nb-config-org-marker');
+                leftEl.textContent = node.has_config ? '●' : '○';
+            }
+            g.appendChild(leftEl);
 
-            const typeIcon = TYPE_ICONS[contrib.default_type || ''] || '';
-            const maxCh = typeIcon ? 11 : 13;
-
+            // Centre: name label
             const label = document.createElementNS(NS, 'text');
-            label.setAttribute('x', typeIcon ? NW / 2 + 1 : NW / 2 + 5);
+            label.setAttribute('x', NW / 2 + 5);
             label.setAttribute('y', NH / 2 + 4);
             label.setAttribute('text-anchor', 'middle');
             label.setAttribute('class', 'nb-config-org-label');
+            const maxCh = 11;
             label.textContent = node.name.length > maxCh ? node.name.slice(0, maxCh - 1) + '…' : node.name;
             g.appendChild(label);
 
-            if (typeIcon) {
-                const ico = document.createElementNS(NS, 'text');
-                ico.setAttribute('x', NW - 5);
-                ico.setAttribute('y', NH / 2 + 4);
-                ico.setAttribute('text-anchor', 'end');
-                ico.setAttribute('class', 'nb-config-org-typeicon');
-                ico.setAttribute('pointer-events', 'none');
-                ico.textContent = typeIcon;
-                g.appendChild(ico);
+            // Right slot: key count badge (how many FM keys this config sets)
+            if (cfgKeys.length) {
+                const badge = document.createElementNS(NS, 'text');
+                badge.setAttribute('x', NW - 4);
+                badge.setAttribute('y', NH / 2 + 4);
+                badge.setAttribute('text-anchor', 'end');
+                badge.setAttribute('class', 'nb-config-org-badge');
+                badge.setAttribute('pointer-events', 'none');
+                badge.textContent = cfgKeys.length;
+                g.appendChild(badge);
             }
 
             if (node.has_config) {
