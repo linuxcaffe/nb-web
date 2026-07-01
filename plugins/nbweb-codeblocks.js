@@ -4238,6 +4238,119 @@
         }).join('\n');
     }
 
+    // ── CBQL timedot (step 7) ─────────────────────────────────────────────────
+
+    // Parse CBQL params from block text. Returns {source, filter, timeframe} or null.
+    function _cbqlParams(text) {
+        const out = {};
+        for (const line of (text || '').split('\n')) {
+            const m = line.match(/^(source|filter|timeframe):\s*(.+)$/);
+            if (m) out[m[1]] = m[2].trim();
+        }
+        return out.source ? out : null;
+    }
+
+    // Parse marker positions from source body.
+    // Returns [{label: 'MILESTONE: internal-rc', line: N}, ...]
+    function _cbqlMarkerLines(body) {
+        return body.split('\n').reduce((acc, line, i) => {
+            const m = line.match(/^> ([A-Z]{2,}:.*)$/);
+            if (m) acc.push({ label: m[1].trim(), line: i });
+            return acc;
+        }, []);
+    }
+
+    // Slice body to the line range corresponding to a timeframe value.
+    // Returns the relevant portion of body as a string.
+    function _cbqlSliceBody(body, timeframe) {
+        const lines  = body.split('\n');
+        const markers = _cbqlMarkerLines(body);
+        if (!timeframe || timeframe === 'all') return body;
+        if (timeframe === 'current') {
+            const last = markers[markers.length - 1];
+            return last ? lines.slice(last.line + 1).join('\n') : body;
+        }
+        // Specific marker label — the phase ending AT that marker
+        const idx = markers.findIndex(m => m.label === timeframe);
+        if (idx < 0) return body;
+        const start = idx > 0 ? markers[idx - 1].line + 1 : 0;
+        return lines.slice(start, markers[idx].line).join('\n');
+    }
+
+    // Render a CBQL timedot block: fetch source, slice to timeframe, aggregate, display.
+    async function _loadTimedotCBQLBlock(el) {
+        const params = _cbqlParams(el.dataset.src || '');
+        if (!params) return _loadTimedotRawBlock(el);
+
+        const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
+        const note      = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const noteSel   = note?.selector || '';
+        const rate      = parseFloat(note?.meta?.rate) || null;
+
+        // Resolve source selector — inherit notebook from current note if no prefix
+        let sourceSel = params.source;
+        if (!sourceSel.includes(':')) {
+            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
+                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
+            if (nb) sourceSel = `${nb}:${sourceSel}`;
+        }
+
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
+            if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
+            const d = await r.json();
+            const slice = _cbqlSliceBody(d.body || '', timeframe);
+
+            // _timedotExtractFile expects raw (with or without FM header)
+            const combined = _timedotExtractFile(slice, null);
+            const segs     = _timedotGroup(_timedotSegment(combined));
+            const { totals, totalHrs } = _timedotTotals(segs, 'all');
+
+            el.innerHTML = '';
+            const { hdr, meta: metaEl, acts } = _buildBarHeader(el, {
+                lang: 'timedot',
+                onRefresh: () => _loadTimedotCBQLBlock(el),
+            });
+            const srcLabel = sourceSel.split(':').pop().replace(/\.md$/i, '');
+            const tfLabel  = timeframe === 'current' ? 'current phase'
+                           : timeframe === 'all'     ? 'all time'
+                           : timeframe;
+            metaEl.textContent = totalHrs > 0
+                ? `${totalHrs.toFixed(1)}h · ${srcLabel} · ${tfLabel}`
+                : `empty · ${srcLabel} · ${tfLabel}`;
+            el.appendChild(hdr);
+            _initCollapseToggle(el);
+
+            const body = document.createElement('div');
+            body.className = 'nb-timedot-body';
+            if (totalHrs > 0) {
+                const table = document.createElement('table');
+                table.className = 'nb-timedot-table';
+                for (const [acct, hrs] of Object.entries(totals)) {
+                    const amt = rate ? (hrs * rate).toFixed(2) : null;
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td class="nb-timedot-acct">${_esc(acct)}</td>
+                                    <td class="nb-timedot-hrs">${hrs.toFixed(2)}h</td>
+                                    ${amt ? `<td class="nb-timedot-amt">$${amt}</td>` : ''}`;
+                    table.appendChild(tr);
+                }
+                const total = document.createElement('tr');
+                total.className = 'nb-timedot-total';
+                const totalAmt = rate ? (totalHrs * rate).toFixed(2) : null;
+                total.innerHTML = `<td>Total</td><td>${totalHrs.toFixed(2)}h</td>
+                                   ${totalAmt ? `<td>$${totalAmt}</td>` : ''}`;
+                table.appendChild(total);
+                body.appendChild(table);
+            } else {
+                body.innerHTML = '<div class="nb-timedot-empty">No entries in this timeframe</div>';
+            }
+            el.appendChild(body);
+        } catch (e) {
+            el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
+        }
+    }
+
     // Rebuild a timedot file from all ```timedot blocks in raw note text.
     // Date context comes from heading lines (## YYYY-MM-DD).
     // :sub shortcuts are expanded via _timedotRewrite.
@@ -4988,19 +5101,22 @@
             },
             {
                 lang:      'timedot',
-                html:      text => `<div class="nb-timedot-block" data-src="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                html:      text => {
+                    const cbql = /^source:\s*\S/m.test(text);
+                    return `<div class="nb-timedot-block"${cbql ? ' data-cbql="1"' : ''} data-src="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`;
+                },
                 renderOne: async el => {                          // FM barblock: log or aggregate
                     const note = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
                     return note?.meta?.timedot_file
                         ? _loadTimedotBlock(el)     // external file: aggregate + filter + add form
                         : _loadTimedotLogBlock(el); // inline: date log with comments + anchors
                 },
-                render:    async container => {                  // body codeblock: verbatim + edit
+                render:    async container => {                  // body codeblock: verbatim + edit / CBQL
                     const blocks = [...container.querySelectorAll('.nb-timedot-block')];
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
                     await Promise.all(blocks.map(async el => {
-                        try { await _loadTimedotRawBlock(el); }
+                        try { await (el.dataset.cbql ? _loadTimedotCBQLBlock(el) : _loadTimedotRawBlock(el)); }
                         finally { NbWeb.statusPill?.tick(); }
                     }));
                 },
@@ -5188,6 +5304,16 @@
             },
         ],
 
+    });
+
+    // Re-render CBQL timedot blocks when the reports bar broadcasts a timeframe change.
+    document.addEventListener('nb-timeframe-changed', e => {
+        const { timeframe } = e.detail || {};
+        if (!timeframe) return;
+        document.querySelectorAll('.nb-timedot-block[data-cbql]').forEach(el => {
+            el.dataset.activeTimeframe = timeframe;
+            _loadTimedotCBQLBlock(el);
+        });
     });
 
     // Export FM utilities so main.js can use them in the card-footer Changes button
