@@ -1052,6 +1052,19 @@ body {
 .nb-project-marker[data-marker="resumed"]   { color: #16a085; }
 .nb-project-marker[data-marker="closed"]    { color: #7f8c8d; }
 
+/* Project ↔ Reports pair popup */
+.nb-pair-popup { position: fixed; z-index: 9000; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); padding: 10px 12px; min-width: 220px; max-width: 320px; }
+.nb-pair-popup-msg { font-size: 0.88em; color: var(--text); margin-bottom: 8px; }
+.nb-pair-popup-btns { display: flex; gap: 6px; justify-content: flex-end; }
+.nb-pair-popup-btns button { padding: 3px 10px; font-size: 0.85em; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); cursor: pointer; }
+.nb-pair-popup-btns button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.nb-pair-pick-list { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; }
+.nb-pair-pick-item { text-align: left; padding: 5px 8px; background: none; border: 1px solid transparent; border-radius: 4px; color: var(--text); cursor: pointer; font-size: 0.88em; width: 100%; }
+.nb-pair-pick-item:hover { background: var(--bg3); border-color: var(--border); }
+.nb-source-warn { font-size: 0.85em; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+.nb-link-source-btn { padding: 1px 6px; font-size: 0.82em; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-muted); cursor: pointer; }
+.nb-link-source-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* Catalog reference panel (csv FM barblock body) */
 .nb-csv-panel { padding: 4px 12px 12px; }
 .nb-csv-panel + .nb-csv-panel { border-top: 1px solid var(--border-faint, var(--border)); }
