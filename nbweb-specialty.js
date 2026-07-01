@@ -331,7 +331,7 @@
         let body = note.type === 'project' ? _injectDateContext(note.body || '') : (note.body || '');
         body = body.replace(/^> ([A-Z]{2,}:.*)$/gm, (_, content) => {
             const markerType = (content.match(/^([A-Z]+):/) || [])[1]?.toLowerCase() || 'marker';
-            return `<div class="nb-project-marker" data-marker="${markerType}">${content}</div>`;
+            return `<div class="nb-project-marker" data-marker="${markerType}">${content}</div>\n`;
         });
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             <span class="nb-specialty-icon">${icon}</span>
