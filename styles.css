@@ -1064,6 +1064,8 @@ body {
 .nb-source-warn { font-size: 0.85em; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
 .nb-link-source-btn { padding: 1px 6px; font-size: 0.82em; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-muted); cursor: pointer; }
 .nb-link-source-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.nb-timeframe-select { font-size: 0.82em; padding: 1px 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); cursor: pointer; max-width: 170px; }
+.nb-timeframe-select:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* Catalog reference panel (csv FM barblock body) */
 .nb-csv-panel { padding: 4px 12px 12px; }
