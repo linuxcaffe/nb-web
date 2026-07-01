@@ -168,7 +168,10 @@
     }
 
     async function _offerCreateReports(anchor, targetSel, projectTitle, sourceFile, notebook) {
-        const reportsTitle = projectTitle ? `${projectTitle} — Reports` : 'Reports';
+        // Filename is always derived from targetSel (chip points to stem-reports.md).
+        // Never slug from the title — titles change, filenames don't.
+        const reportsFilename = targetSel.replace(/^.*:/, '');
+        const reportsTitle    = projectTitle ? `${projectTitle} — Reports` : 'Reports';
         const pop = _showPairPopup(anchor, `
             <div class="nb-pair-popup-msg">Create <strong>${_esc(reportsTitle)}</strong> in <em>${_esc(notebook)}</em>?</div>
             <div class="nb-pair-popup-btns">
@@ -181,8 +184,13 @@
             let tplContent = await _fetchTemplateContent('project-reports');
             if (tplContent && sourceFile)
                 tplContent = tplContent.replace(/^source:\s*$/m, `source: ${sourceFile}`);
-            const d = await NbMain.addNote({ notebook, title: reportsTitle,
-                template_content: tplContent || '' });
+            const r = await fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notebook, title: reportsTitle,
+                    filename: reportsFilename, template_content: tplContent || '' }),
+            });
+            const d = await r.json();
             if (d?.selector) NbMain.openNote(d.selector);
         };
     }
@@ -198,10 +206,16 @@
         pop.querySelector('.nb-pair-cancel').onclick = () => _closePairPopup();
         pop.querySelector('.nb-pair-create').onclick = async () => {
             _closePairPopup();
-            const tplContent = await _fetchTemplateContent('project');
-            const stem = targetSel.replace(/^.*:/, '').replace(/\.md$/i, '');
-            const d = await NbMain.addNote({ notebook, title: stem,
-                template_content: tplContent || '' });
+            const tplContent     = await _fetchTemplateContent('project');
+            const projectFilename = targetSel.replace(/^.*:/, '');
+            const stem           = projectFilename.replace(/\.md$/i, '');
+            const r = await fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notebook, title: stem,
+                    filename: projectFilename, template_content: tplContent || '' }),
+            });
+            const d = await r.json();
             if (d?.selector && reportsNoteSel)
                 await _patchFMSource(reportsNoteSel, d.selector.replace(/^.*:/, ''));
             if (d?.selector) NbMain.openNote(d.selector);
