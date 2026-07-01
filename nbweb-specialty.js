@@ -112,6 +112,13 @@
         NbMain.openEditor(note.selector);
     }
 
+    // Derive the selector for a paired note by swapping the filename suffix.
+    function _pairedSel(note, newFilename) {
+        const sel = note.selector || '';
+        const fn  = note.filename  || '';
+        return (sel && fn) ? sel.slice(0, sel.length - fn.length) + newFilename : '';
+    }
+
     function _renderSpecialtyNote(note) {
         const { icon, label } = _cfg[note.type] || { icon: '📋', label: note.type };
         let pills = [], pillsHtml = '';
@@ -127,6 +134,18 @@
             if (note.meta?.client)       pills.push(String(note.meta.client).replace(/^contacts:/, '').replace(/\.md$/, ''));
             pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
         }
+        // Project ↔ Report pair link
+        let pairLink = '';
+        if (note.type === 'project') {
+            const stem = (note.filename || '').replace(/\.md$/i, '');
+            const reportSel = _pairedSel(note, `${stem}-report.md`);
+            if (reportSel) pairLink = `<a class="nb-specialty-link" href="#" data-open="${_esc(reportSel)}">report</a>`;
+        } else if (note.type === 'report') {
+            const stem = (note.filename || '').replace(/-report\.md$/i, '').replace(/\.md$/i, '');
+            const projectSel = _pairedSel(note, `${stem}.md`);
+            if (projectSel) pairLink = `<a class="nb-specialty-link" href="#" data-open="${_esc(projectSel)}">project</a>`;
+        }
+
         const todayBtn     = note.type === 'project'
             ? `<button class="nb-specialty-today" title="Append today's entry and edit">+ Today</button>`
             : '';
@@ -140,7 +159,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             <span class="nb-specialty-icon">${icon}</span>
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pillsHtml}${todayBtn}${extraActions}${helpBtn}
+            ${pairLink}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(body, note.selector);
     }
 
