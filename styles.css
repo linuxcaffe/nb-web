@@ -3751,6 +3751,9 @@ span.nb-cb-icon.nb-cb-icon--emoji {
   display: flex; align-items: center; gap: 0.5em;
   padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
 }
+.nb-timeline-hdr-title {
+  font-weight: 600; font-size: 0.88em; color: var(--text); white-space: nowrap; margin-right: 2px;
+}
 .nb-timeline-type-sel,
 .nb-timeline-tf-sel {
   font-size: 0.8em; padding: 1px 4px;

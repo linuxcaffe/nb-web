@@ -4417,8 +4417,9 @@
     function _buildTimelineHeader(items) {
         const n = new Date();
         const days   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-        const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-        const dateStr = `${days[n.getDay()]}, ${months[n.getMonth()]} ${n.getDate()}, ${n.getFullYear()}`;
+        const mm = String(n.getMonth() + 1).padStart(2, '0');
+        const dd = String(n.getDate()).padStart(2, '0');
+        const dateStr = `${n.getFullYear()}-${mm}-${dd}`;
 
         // Type filter — fixed vocabulary: ALL, MILESTONE, INVOICED, OTHER
         const typeSet = new Set(items.map(m => m.type));
@@ -4448,6 +4449,10 @@
 
         const hdr = document.createElement('div');
         hdr.className = 'nb-timeline-hdr';
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'nb-timeline-hdr-title';
+        titleSpan.textContent = 'Timeline';
+        hdr.appendChild(titleSpan);
         hdr.appendChild(typeSel);
         hdr.appendChild(tfSel);
         const dateSpan = document.createElement('span');
