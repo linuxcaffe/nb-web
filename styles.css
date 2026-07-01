@@ -1038,12 +1038,19 @@ body {
     border: 1px solid var(--border);
 }
 .nb-specialty-link:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.nb-invoiced-marker {
-    color: #c0392b;
+.nb-project-marker {
     font-size: 0.88em;
     font-family: monospace;
+    font-weight: 600;
     margin: 10px 0;
 }
+.nb-project-marker[data-marker="invoiced"]  { color: #c0392b; }
+.nb-project-marker[data-marker="approved"]  { color: #2980b9; }
+.nb-project-marker[data-marker="milestone"] { color: #27ae60; }
+.nb-project-marker[data-marker="delivered"] { color: #8e44ad; }
+.nb-project-marker[data-marker="paused"]    { color: #e67e22; }
+.nb-project-marker[data-marker="resumed"]   { color: #16a085; }
+.nb-project-marker[data-marker="closed"]    { color: #7f8c8d; }
 
 /* Catalog reference panel (csv FM barblock body) */
 .nb-csv-panel { padding: 4px 12px 12px; }
