@@ -331,6 +331,13 @@
         let body = note.type === 'project' ? _injectDateContext(note.body || '') : (note.body || '');
         body = body.replace(/^> ([A-Z]{2,}:.*)$/gm, (_, content) => {
             const markerType = (content.match(/^([A-Z]+):/) || [])[1]?.toLowerCase() || 'marker';
+            if (markerType === 'today' && !content.replace(/^TODAY:\s*/i, '').trim()) {
+                const n = new Date();
+                const days   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                const h = n.getHours(), m = String(n.getMinutes()).padStart(2,'0');
+                content = `TODAY: ${days[n.getDay()]} ${months[n.getMonth()]} ${n.getDate()}, ${n.getFullYear()} — ${h % 12 || 12}:${m}${h >= 12 ? 'pm' : 'am'}`;
+            }
             return `<div class="nb-project-marker" data-marker="${markerType}">${content}</div>\n`;
         });
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
