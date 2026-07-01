@@ -391,12 +391,100 @@
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
+    // ── Reports note renderer ────────────────────────────────────────────────
+    // Async: fetches source markers to build the timeframe dropdown.
+
+    const _timeframeState = new Map();  // reportsSel → selected timeframe value
+
+    function _parseSourceMarkers(body) {
+        const markers = [];
+        for (const m of body.matchAll(/^> ([A-Z]{2,}):\s*(\S+)/gm))
+            markers.push({ type: m[1], ref: m[2], full: `${m[1]}: ${m[2]}` });
+        return markers;
+    }
+
+    async function _fetchSourceMarkers(note) {
+        const sourceFile = String(note.meta?.source || '').trim();
+        if (!sourceFile) return [];
+        const projectSel = _pairedSel(note, sourceFile);
+        if (!projectSel) return [];
+        const r = await fetch(`/api/note?selector=${encodeURIComponent(projectSel)}`);
+        if (!r.ok) return [];
+        return _parseSourceMarkers((await r.json()).body || '');
+    }
+
+    function _timeframeDropdown(markers, selected, reportsSel) {
+        const opt = (val, label) =>
+            `<option value="${_esc(val)}"${selected === val ? ' selected' : ''}>${_esc(label)}</option>`;
+        const parts = [opt('current', 'Current phase'), opt('all', 'All time')];
+        if (markers.length) {
+            parts.push('<option disabled>──────────</option>');
+            for (let i = markers.length - 1; i >= 0; i--)
+                parts.push(opt(markers[i].full, `Since ${markers[i].full}`));
+        }
+        return `<select class="nb-timeframe-select" data-reports-sel="${_esc(reportsSel)}">${parts.join('')}</select>`;
+    }
+
+    async function _renderReportsNote(note) {
+        const { icon, label } = _cfg['reports'];
+        const sourceFile = String(note.meta?.source || '').trim();
+        const stem = (note.filename || '').replace(/-reports\.md$/i, '').replace(/\.md$/i, '');
+        const projectSel = sourceFile ? _pairedSel(note, sourceFile) : _pairedSel(note, `${stem}.md`);
+
+        let pairLink = '', sourceWarn = '';
+        if (projectSel)
+            pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                data-open="${_esc(projectSel)}"
+                data-pair="project"
+                data-notebook="${_esc(note.notebook || '')}"
+                data-reports-sel="${_esc(note.selector || '')}"
+                data-pair-title="${_esc(String(note.meta?.title || stem))}">project</a>`;
+        if (!sourceFile)
+            sourceWarn = `<span class="nb-source-warn">no source <button class="nb-specialty-action nb-link-source-btn" data-reports-sel="${_esc(note.selector || '')}" data-notebook="${_esc(note.notebook || '')}">link…</button></span>`;
+
+        let dropdownHtml = '';
+        if (sourceFile) {
+            const markers = await _fetchSourceMarkers(note);
+            const sel = _timeframeState.get(note.selector || '') || 'current';
+            dropdownHtml = _timeframeDropdown(markers, sel, note.selector || '');
+        }
+
+        let pills = [];
+        if (note.meta?.status) pills.push(note.meta.status);
+        const pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
+
+        const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
+        const helpTopic    = note.meta?.help;
+        const helpBtn      = helpTopic
+            ? `<button class="nb-specialty-action nb-specialty-help-btn" data-help-topic="${_esc(helpTopic)}" title="Help">?</button>`
+            : '';
+
+        return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
+            <span class="nb-specialty-icon">${icon}</span>
+            <span class="nb-specialty-label">${_esc(label)}</span>
+            ${pairLink}${sourceWarn}${dropdownHtml}${pillsHtml}${extraActions}${helpBtn}
+        </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
+    }
+
+    // Timeframe dropdown change → persist state + broadcast event
+    document.addEventListener('change', e => {
+        const sel = e.target.closest('.nb-timeframe-select');
+        if (!sel) return;
+        const timeframe  = sel.value;
+        const reportsSel = sel.dataset.reportsSel || '';
+        _timeframeState.set(reportsSel, timeframe);
+        document.dispatchEvent(new CustomEvent('nb-timeframe-changed', {
+            detail: { timeframe, selector: reportsSel },
+        }));
+    });
+
     NbWeb.registerModule('specialty', {
         label:        'NbWeb Specialty',
         description:  'Typed note headers for project, invoice, quote, budget and related FM types.',
         previewRenderer: note => {
             if (note.type === 'dashboard') return _renderDashboardNote(note);
             if (note.type === 'dotfile')   return _renderDotfileNote(note);
+            if (note.type === 'reports')   return _renderReportsNote(note);
             return _cfg[note.type] ? _renderSpecialtyNote(note) : null;
         },
         previewTypes: Object.keys(_cfg),
