@@ -99,14 +99,42 @@
     }
 
     async function _appendTodayAndEdit(note) {
-        const today = new Date().toISOString().slice(0, 10);
+        const today   = new Date().toISOString().slice(0, 10);
         const heading = `## ${today}`;
-        if (!(note.body || '').includes(heading)) {
-            const newBody = (note.body || '').trimEnd() + `\n\n${heading}\n\n`;
+        const body    = note.body || '';
+
+        if (!body.includes(heading)) {
+            const todayM     = /^> TODAY:/m.exec(body);
+            const milestoneM = /^> MILESTONE:/m.exec(body);
+
+            let newBody;
+            if (todayM) {
+                // Insert immediately above > TODAY: marker
+                newBody = body.slice(0, todayM.index).trimEnd()
+                    + `\n\n${heading}\n\n`
+                    + body.slice(todayM.index);
+            } else if (milestoneM) {
+                // No TODAY marker — insert before first planned milestone
+                newBody = body.slice(0, milestoneM.index).trimEnd()
+                    + `\n\n${heading}\n\n`
+                    + body.slice(milestoneM.index);
+            } else {
+                newBody = body.trimEnd() + `\n\n${heading}\n\n`;
+            }
+
+            // Preserve FM: note.raw = full file; FM ends at second ---
+            const raw = note.raw || '';
+            let fullContent = newBody;
+            if (raw.startsWith('---')) {
+                const fmClose = raw.indexOf('\n---', 3);
+                if (fmClose !== -1)
+                    fullContent = raw.slice(0, fmClose + 4) + '\n' + newBody;
+            }
+
             await fetch('/api/note', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ selector: note.selector, content: newBody }),
+                body: JSON.stringify({ selector: note.selector, content: fullContent }),
             });
         }
         NbMain.openEditor(note.selector);
