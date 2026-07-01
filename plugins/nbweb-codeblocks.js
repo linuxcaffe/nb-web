@@ -4268,11 +4268,16 @@
     // Slice body to the line range corresponding to a timeframe value.
     // Returns the relevant portion of body as a string.
     function _cbqlSliceBody(body, timeframe) {
-        const lines  = body.split('\n');
+        const lines   = body.split('\n');
         const markers = _cbqlMarkerLines(body);
         if (!timeframe || timeframe === 'all') return body;
         if (timeframe === 'current') {
-            const last = markers[markers.length - 1];
+            // Everything before > TODAY: is the active log (TODAY is the insertion cursor)
+            const todayM = markers.find(m => /^TODAY:/i.test(m.label));
+            if (todayM) return lines.slice(0, todayM.line).join('\n');
+            // No TODAY marker: everything since the last billing boundary
+            const billing = markers.filter(m => /^(INVOICED|CLOSED):/i.test(m.label));
+            const last    = billing[billing.length - 1];
             return last ? lines.slice(last.line + 1).join('\n') : body;
         }
         // Specific marker label — the phase ending AT that marker
