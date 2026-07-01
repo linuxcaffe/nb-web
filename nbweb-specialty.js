@@ -119,6 +119,123 @@
         return (sel && fn) ? sel.slice(0, sel.length - fn.length) + newFilename : '';
     }
 
+    function _selNotebook(sel) {
+        const i = sel.indexOf(':');
+        return i > 0 ? sel.slice(0, i) : 'home';
+    }
+
+    async function _patchFMSource(noteSel, sourceFilename) {
+        const r = await fetch(`/api/note?selector=${encodeURIComponent(noteSel)}`);
+        const d = await r.json();
+        if (!r.ok || d.error) return false;
+        let raw = d.raw || '';
+        if (/^source:\s*$/m.test(raw))
+            raw = raw.replace(/^source:\s*$/m, `source: ${sourceFilename}`);
+        else if (/^source:/m.test(raw))
+            raw = raw.replace(/^source:.*$/m, `source: ${sourceFilename}`);
+        else
+            raw = raw.replace(/^(type:\s*\S.*)$/m, `$1\nsource: ${sourceFilename}`);
+        const pr = await fetch('/api/note', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selector: noteSel, content: raw }),
+        });
+        return !!(await pr.json()).success;
+    }
+
+    async function _fetchTemplateContent(name) {
+        const r = await fetch(`/api/template?path=${encodeURIComponent(`/home/djp/.nb/.templates/${name}.md`)}`);
+        if (!r.ok) return null;
+        return (await r.json()).content || null;
+    }
+
+    let _pairPopup = null;
+    function _closePairPopup() { _pairPopup?.remove(); _pairPopup = null; }
+
+    function _showPairPopup(anchor, html) {
+        _closePairPopup();
+        const pop = document.createElement('div');
+        pop.className = 'nb-pair-popup';
+        pop.innerHTML = html;
+        pop.addEventListener('click', e => e.stopPropagation());
+        document.body.appendChild(pop);
+        _pairPopup = pop;
+        const rect = anchor.getBoundingClientRect();
+        pop.style.top  = `${rect.bottom + 6}px`;
+        pop.style.left = `${Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8)}px`;
+        setTimeout(() => document.addEventListener('click', _closePairPopup, { once: true }), 0);
+        return pop;
+    }
+
+    async function _offerCreateReports(anchor, targetSel, projectTitle, sourceFile, notebook) {
+        const reportsTitle = projectTitle ? `${projectTitle} — Reports` : 'Reports';
+        const pop = _showPairPopup(anchor, `
+            <div class="nb-pair-popup-msg">Create <strong>${_esc(reportsTitle)}</strong> in <em>${_esc(notebook)}</em>?</div>
+            <div class="nb-pair-popup-btns">
+                <button class="nb-pair-cancel">Cancel</button>
+                <button class="nb-pair-confirm">Create reports page</button>
+            </div>`);
+        pop.querySelector('.nb-pair-cancel').onclick  = () => _closePairPopup();
+        pop.querySelector('.nb-pair-confirm').onclick = async () => {
+            _closePairPopup();
+            let tplContent = await _fetchTemplateContent('project-reports');
+            if (tplContent && sourceFile)
+                tplContent = tplContent.replace(/^source:\s*$/m, `source: ${sourceFile}`);
+            const d = await NbMain.addNote({ notebook, title: reportsTitle,
+                template_content: tplContent || '' });
+            if (d?.selector) NbMain.openNote(d.selector);
+        };
+    }
+
+    async function _offerCreateOrLink(anchor, targetSel, notebook, reportsNoteSel) {
+        const pop = _showPairPopup(anchor, `
+            <div class="nb-pair-popup-msg">Project note not found.</div>
+            <div class="nb-pair-popup-btns">
+                <button class="nb-pair-cancel">Cancel</button>
+                <button class="nb-pair-create">Create project</button>
+                <button class="nb-pair-link">Link existing…</button>
+            </div>`);
+        pop.querySelector('.nb-pair-cancel').onclick = () => _closePairPopup();
+        pop.querySelector('.nb-pair-create').onclick = async () => {
+            _closePairPopup();
+            const tplContent = await _fetchTemplateContent('project');
+            const stem = targetSel.replace(/^.*:/, '').replace(/\.md$/i, '');
+            const d = await NbMain.addNote({ notebook, title: stem,
+                template_content: tplContent || '' });
+            if (d?.selector && reportsNoteSel)
+                await _patchFMSource(reportsNoteSel, d.selector.replace(/^.*:/, ''));
+            if (d?.selector) NbMain.openNote(d.selector);
+        };
+        pop.querySelector('.nb-pair-link').onclick = () => {
+            _closePairPopup();
+            _showProjectPicker(anchor, notebook, async filename => {
+                if (reportsNoteSel) await _patchFMSource(reportsNoteSel, filename);
+                NbMain.openNote(reportsNoteSel || `${notebook}:${filename}`);
+            });
+        };
+    }
+
+    async function _showProjectPicker(anchor, notebook, onSelect) {
+        const r  = await fetch(`/api/notes?notebook=${encodeURIComponent(notebook)}`);
+        const d  = await r.json();
+        const notes = Array.isArray(d) ? d : (d.notes || []);
+        const projects = notes.filter(n => n.type === 'project' || n.meta?.type === 'project');
+        if (!projects.length) {
+            _showPairPopup(anchor,
+                '<div class="nb-pair-popup-msg" style="color:var(--text-muted)">No project notes in this notebook.</div>');
+            return;
+        }
+        const items = projects.map(n =>
+            `<button class="nb-pair-pick-item" data-file="${_esc(n.filename)}">${_esc(n.title || n.filename)}</button>`
+        ).join('');
+        const pop = _showPairPopup(anchor, `
+            <div class="nb-pair-popup-msg">Link to project:</div>
+            <div class="nb-pair-pick-list">${items}</div>`);
+        pop.querySelectorAll('.nb-pair-pick-item').forEach(btn => {
+            btn.onclick = () => { _closePairPopup(); onSelect(btn.dataset.file); };
+        });
+    }
+
     function _renderSpecialtyNote(note) {
         const { icon, label } = _cfg[note.type] || { icon: '📋', label: note.type };
         let pills = [], pillsHtml = '';
@@ -134,16 +251,31 @@
             if (note.meta?.client)       pills.push(String(note.meta.client).replace(/^contacts:/, '').replace(/\.md$/, ''));
             pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
         }
-        // Project ↔ Report pair link
-        let pairLink = '';
+        // Project ↔ Reports pair chip — smart: pre-flights existence, offers create/link on miss
+        let pairLink = '', sourceWarn = '';
         if (note.type === 'project') {
             const stem = (note.filename || '').replace(/\.md$/i, '');
             const reportSel = _pairedSel(note, `${stem}-reports.md`);
-            if (reportSel) pairLink = `<a class="nb-specialty-link" href="#" data-open="${_esc(reportSel)}">reports</a>`;
+            if (reportSel) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                data-open="${_esc(reportSel)}"
+                data-pair="reports"
+                data-notebook="${_esc(note.notebook || '')}"
+                data-pair-title="${_esc(String(note.meta?.title || stem))}"
+                data-source-file="${_esc(note.filename || '')}">reports</a>`;
         } else if (note.type === 'reports') {
+            const sourceFile = String(note.meta?.source || '').trim();
             const stem = (note.filename || '').replace(/-reports\.md$/i, '').replace(/\.md$/i, '');
-            const projectSel = _pairedSel(note, `${stem}.md`);
-            if (projectSel) pairLink = `<a class="nb-specialty-link" href="#" data-open="${_esc(projectSel)}">project</a>`;
+            const projectSel = sourceFile
+                ? _pairedSel(note, sourceFile)
+                : _pairedSel(note, `${stem}.md`);
+            if (projectSel) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                data-open="${_esc(projectSel)}"
+                data-pair="project"
+                data-notebook="${_esc(note.notebook || '')}"
+                data-reports-sel="${_esc(note.selector || '')}"
+                data-pair-title="${_esc(String(note.meta?.title || stem))}">project</a>`;
+            if (!sourceFile)
+                sourceWarn = `<span class="nb-source-warn">no source <button class="nb-specialty-action nb-link-source-btn" data-reports-sel="${_esc(note.selector || '')}" data-notebook="${_esc(note.notebook || '')}">link…</button></span>`;
         }
 
         const todayBtn     = note.type === 'project'
@@ -162,7 +294,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             <span class="nb-specialty-icon">${icon}</span>
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
+            ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(body, note.selector);
     }
 
@@ -277,11 +409,41 @@
         if (note) _appendTodayAndEdit(note);
     });
 
-    document.addEventListener('click', e => {
+    document.addEventListener('click', async e => {
+        const chip = e.target.closest('.nb-pair-chip[data-open]');
+        if (chip) {
+            e.preventDefault();
+            const targetSel    = chip.dataset.open;
+            const pairType     = chip.dataset.pair;
+            const notebook     = chip.dataset.notebook || _selNotebook(targetSel);
+            const reportsNoteSel = chip.dataset.reportsSel  || '';
+            const projectTitle   = chip.dataset.pairTitle   || '';
+            const sourceFile     = chip.dataset.sourceFile  || '';
+            const resp = await fetch(`/api/note?selector=${encodeURIComponent(targetSel)}`);
+            if (resp.ok) { NbMain.openNote(targetSel); return; }
+            if (pairType === 'reports')
+                _offerCreateReports(chip, targetSel, projectTitle, sourceFile, notebook);
+            else if (pairType === 'project')
+                _offerCreateOrLink(chip, targetSel, notebook, reportsNoteSel);
+            return;
+        }
         const link = e.target.closest('.nb-specialty-link[data-open]');
         if (!link) return;
         e.preventDefault();
         NbMain.openNote(link.dataset.open);
+    });
+
+    document.addEventListener('click', e => {
+        const btn = e.target.closest('.nb-link-source-btn');
+        if (!btn) return;
+        e.stopPropagation();
+        const reportsNoteSel = btn.dataset.reportsSel || '';
+        const notebook       = btn.dataset.notebook   || '';
+        if (!reportsNoteSel || !notebook) return;
+        _showProjectPicker(btn, notebook, async filename => {
+            await _patchFMSource(reportsNoteSel, filename);
+            NbMain.openNote(reportsNoteSel);
+        });
     });
 
     document.addEventListener('click', e => {
