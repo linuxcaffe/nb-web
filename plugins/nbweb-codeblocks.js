@@ -4406,9 +4406,14 @@
     }
 
     function _timelineTodaySep() {
+        const n  = new Date();
+        const mm = String(n.getMonth() + 1).padStart(2, '0');
+        const dd = String(n.getDate()).padStart(2, '0');
         const sep = document.createElement('div');
         sep.className = 'nb-timeline-sep-today';
-        sep.innerHTML = '<span class="nb-timeline-sep-label">TODAY</span>';
+        sep.innerHTML =
+            `<span class="nb-timeline-sep-label">TODAY</span>` +
+            `<span class="nb-timeline-sep-date">${n.getFullYear()}-${mm}-${dd}</span>`;
         return sep;
     }
 
@@ -4455,10 +4460,6 @@
         hdr.appendChild(titleSpan);
         hdr.appendChild(typeSel);
         hdr.appendChild(tfSel);
-        const dateSpan = document.createElement('span');
-        dateSpan.className = 'nb-timeline-hdr-date';
-        dateSpan.textContent = dateStr;
-        hdr.appendChild(dateSpan);
         return hdr;
     }
 

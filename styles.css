@@ -3766,12 +3766,16 @@ span.nb-cb-icon.nb-cb-icon--emoji {
   margin-left: auto; font-size: 0.8em;
   color: #d4ac0d; font-family: var(--font-mono, monospace); white-space: nowrap;
 }
-/* TODAY separator — simple gold rule */
+/* TODAY separator — gold rule; label left, date right, both sitting on the line */
 .nb-timeline-sep-today {
-  display: flex; align-items: center; gap: 0.5em;
-  margin: 6px 0; border-top: 1px solid #d4ac0d; padding-top: 3px;
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 6px 0; border-top: 1px solid #d4ac0d; padding-top: 2px;
 }
 .nb-timeline-sep-label {
   font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em;
   color: #d4ac0d; white-space: nowrap;
+}
+.nb-timeline-sep-date {
+  font-size: 0.75em; color: #d4ac0d;
+  font-family: var(--font-mono, monospace); white-space: nowrap;
 }
