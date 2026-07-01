@@ -4241,11 +4241,16 @@
     // ── CBQL timedot (step 7) ─────────────────────────────────────────────────
 
     // Parse CBQL params from block text. Returns {source, filter, timeframe} or null.
-    function _cbqlParams(text) {
+    function _cbqlParams(text, meta) {
         const out = {};
         for (const line of (text || '').split('\n')) {
             const m = line.match(/^(source|filter|timeframe):\s*(.+)$/);
             if (m) out[m[1]] = m[2].trim();
+        }
+        // Resolve ${key} variable references from the containing note's FM
+        if (meta) {
+            for (const k of Object.keys(out))
+                out[k] = out[k].replace(/\$\{(\w+)\}/g, (_, key) => meta[key] ?? '');
         }
         return out.source ? out : null;
     }
@@ -4279,11 +4284,11 @@
 
     // Render a CBQL timedot block: fetch source, slice to timeframe, aggregate, display.
     async function _loadTimedotCBQLBlock(el) {
-        const params = _cbqlParams(el.dataset.src || '');
+        const note      = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const params = _cbqlParams(el.dataset.src || '', note?.meta);
         if (!params) return _loadTimedotRawBlock(el);
 
         const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
-        const note      = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
         const noteSel   = note?.selector || '';
         const rate      = parseFloat(note?.meta?.rate) || null;
 
