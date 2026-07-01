@@ -3790,3 +3790,8 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-checklist-text   { color: var(--text); }
 .nb-checklist-done .nb-checklist-box { color: var(--accent); }
 .nb-checklist-done .nb-checklist-text { color: var(--text-dim); text-decoration: line-through; }
+.nb-checklist-group       { border-top: 1px solid var(--border); }
+.nb-checklist-group:first-child { border-top: none; }
+.nb-checklist-group-hdr   { display: flex; align-items: center; justify-content: space-between; padding: 5px 12px 2px; }
+.nb-checklist-group-label { font-size: 0.78em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.nb-checklist-group-count { font-size: 0.78em; color: var(--text-dim); }

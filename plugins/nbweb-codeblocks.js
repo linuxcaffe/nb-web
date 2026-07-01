@@ -831,8 +831,29 @@
         return items;
     }
 
+    // Extract checklist items grouped by > MILESTONE: markers in the event log.
+    // Returns [{milestone, items: [{done, text}]}] — only milestones with items.
+    function _checklistExtractByMilestone(body) {
+        const groups = [];
+        let current = null;
+        for (const line of body.split('\n')) {
+            const mm = line.match(/^> ([A-Z]{2,}):\s*(.*)/);
+            if (mm) {
+                current = mm[1] === 'MILESTONE'
+                    ? (groups.push({ milestone: mm[2].trim(), items: [] }), groups[groups.length - 1])
+                    : null;
+                continue;
+            }
+            if (!current) continue;
+            const cm = line.match(/^[-*]\s+\[([ xX])\]\s+(.*)/);
+            if (cm) current.items.push({ done: cm[1].trim().toLowerCase() === 'x', text: cm[2].trim() });
+        }
+        return groups.filter(g => g.items.length);
+    }
+
     // CBQL checklist block: fetch source, extract items, render with completion badge.
     // Deliverables are static plan items — no timeframe slicing; filter: matches a heading.
+    // group: milestones renders items grouped by > MILESTONE: markers from the event log.
     async function _loadChecklistCBQLBlock(el) {
         const note   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
         const params = _cbqlParams(el.dataset.src || '', note?.meta);
@@ -850,39 +871,87 @@
         try {
             const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
             if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
-            const d     = await r.json();
-            const items = _checklistExtract(d.body || '', params.filter || null);
+            const d      = await r.json();
+            const grouped = params.group === 'milestones';
 
             el.innerHTML = '';
-            const done  = items.filter(i => i.done).length;
-            const total = items.length;
 
-            const { hdr, meta: metaEl } = _buildBarHeader(el, {
-                lang: 'checklist', onRefresh: () => _loadChecklistCBQLBlock(el),
-            });
-            const section = params.filter ? _esc(params.filter) : 'all';
-            metaEl.textContent = total ? `${done}/${total} done · ${section}` : `empty · ${section}`;
-            el.appendChild(hdr);
-            _initCollapseToggle(el);
+            let done = 0, total = 0;
+            let bodyEl;
 
-            const body = document.createElement('div');
-            body.className = 'nb-checklist-body';
-            if (!items.length) {
-                body.innerHTML = '<div class="nb-timedot-empty">No checklist items found</div>';
-            } else {
-                const list = document.createElement('ul');
-                list.className = 'nb-checklist-list';
-                for (const item of items) {
-                    const li = document.createElement('li');
-                    li.className = 'nb-checklist-item' + (item.done ? ' nb-checklist-done' : '');
-                    li.innerHTML =
-                        `<span class="nb-checklist-box">${item.done ? '☑' : '☐'}</span>` +
-                        `<span class="nb-checklist-text">${_esc(item.text)}</span>`;
-                    list.appendChild(li);
+            if (grouped) {
+                const groups = _checklistExtractByMilestone(d.body || '');
+                groups.forEach(g => { done += g.items.filter(i => i.done).length; total += g.items.length; });
+
+                const { hdr, meta: metaEl } = _buildBarHeader(el, {
+                    lang: 'checklist', onRefresh: () => _loadChecklistCBQLBlock(el),
+                });
+                metaEl.textContent = total ? `${done}/${total} done · milestones` : 'no milestone items';
+                el.appendChild(hdr);
+                _initCollapseToggle(el);
+
+                bodyEl = document.createElement('div');
+                bodyEl.className = 'nb-checklist-body';
+                if (!groups.length) {
+                    bodyEl.innerHTML = '<div class="nb-timedot-empty">No milestone items found</div>';
+                } else {
+                    for (const g of groups) {
+                        const gdone = g.items.filter(i => i.done).length;
+                        const grp = document.createElement('div');
+                        grp.className = 'nb-checklist-group';
+                        const ghdr = document.createElement('div');
+                        ghdr.className = 'nb-checklist-group-hdr';
+                        ghdr.innerHTML =
+                            `<span class="nb-checklist-group-label">${_esc(g.milestone)}</span>` +
+                            `<span class="nb-checklist-group-count">${gdone}/${g.items.length}</span>`;
+                        grp.appendChild(ghdr);
+                        const list = document.createElement('ul');
+                        list.className = 'nb-checklist-list';
+                        for (const item of g.items) {
+                            const li = document.createElement('li');
+                            li.className = 'nb-checklist-item' + (item.done ? ' nb-checklist-done' : '');
+                            li.innerHTML =
+                                `<span class="nb-checklist-box">${item.done ? '☑' : '☐'}</span>` +
+                                `<span class="nb-checklist-text">${_esc(item.text)}</span>`;
+                            list.appendChild(li);
+                        }
+                        grp.appendChild(list);
+                        bodyEl.appendChild(grp);
+                    }
                 }
-                body.appendChild(list);
+            } else {
+                const items = _checklistExtract(d.body || '', params.filter || null);
+                done  = items.filter(i => i.done).length;
+                total = items.length;
+
+                const { hdr, meta: metaEl } = _buildBarHeader(el, {
+                    lang: 'checklist', onRefresh: () => _loadChecklistCBQLBlock(el),
+                });
+                const section = params.filter ? _esc(params.filter) : 'all';
+                metaEl.textContent = total ? `${done}/${total} done · ${section}` : `empty · ${section}`;
+                el.appendChild(hdr);
+                _initCollapseToggle(el);
+
+                bodyEl = document.createElement('div');
+                bodyEl.className = 'nb-checklist-body';
+                if (!items.length) {
+                    bodyEl.innerHTML = '<div class="nb-timedot-empty">No checklist items found</div>';
+                } else {
+                    const list = document.createElement('ul');
+                    list.className = 'nb-checklist-list';
+                    for (const item of items) {
+                        const li = document.createElement('li');
+                        li.className = 'nb-checklist-item' + (item.done ? ' nb-checklist-done' : '');
+                        li.innerHTML =
+                            `<span class="nb-checklist-box">${item.done ? '☑' : '☐'}</span>` +
+                            `<span class="nb-checklist-text">${_esc(item.text)}</span>`;
+                        list.appendChild(li);
+                    }
+                    bodyEl.appendChild(list);
+                }
             }
-            el.appendChild(body);
+
+            el.appendChild(bodyEl);
         } catch (e) {
             el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
         }
@@ -4391,7 +4460,7 @@
     function _cbqlParams(text, meta) {
         const out = {};
         for (const line of (text || '').split('\n')) {
-            const m = line.match(/^(source|filter|timeframe):\s*(.+)$/);
+            const m = line.match(/^(source|filter|timeframe|group):\s*(.+)$/);
             if (m) out[m[1]] = m[2].trim();
         }
         // Resolve ${key} variable references from the containing note's FM
