@@ -5838,7 +5838,7 @@ const NbMain = (() => {
             <div id="nbplug-custom-content"></div>
             <div class="nb-plugin-section" style="display:flex;gap:8px;flex-wrap:wrap">
                 ${!isCoreType ? `<button id="nbplug-toggle" class="nb-tool-btn">${p.enabled ? 'Disable' : 'Enable'}</button>` : ''}
-                ${!isCoreType ? `<button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>` : ''}
+                ${!isCoreType && NbAuth?.is('tech') ? `<button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>` : ''}
                 ${isCoreType ? `<span style="font-size:11px;color:var(--text-dim)">Core plugin — cannot be removed</span>` : ''}
             </div>`;
 

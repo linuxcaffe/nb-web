@@ -3469,11 +3469,7 @@
                 return;
             }
 
-            if (!_cbCan(el, 'check', 'read')) {
-                if (label) _buildTestDenied(el, label, _cbLevel(el, 'check', 'read'));
-                else       el.remove();
-                return;
-            }
+            if (!_cbCan(el, 'check', 'read')) { el.remove(); return; }
             if (label) { _buildTestBtn(el, token, label); }
             else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, token, null, null, batchMap.get(token) ?? null); }
             return;
@@ -3499,11 +3495,7 @@
         }
         if (!scripts.length) { el.remove(); return; }
 
-        if (!_cbCan(el, 'check', 'read')) {
-            if (groupLabel) _buildTestDenied(el, groupLabel, _cbLevel(el, 'check', 'read'));
-            else            el.remove();
-            return;
-        }
+        if (!_cbCan(el, 'check', 'read')) { el.remove(); return; }
 
         if (groupLabel) {
             _buildGroupBtn(el, scripts, groupLabel);

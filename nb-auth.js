@@ -29,6 +29,7 @@
         level:  () => window.NbUser.level || 'guest',
         is:     (lvl) => LEVELS.indexOf(window.NbUser.level) >= LEVELS.indexOf(lvl),
         bust:   () => sessionStorage.removeItem(CACHE_KEY),
+        gate:   (lvl, html) => window.NbAuth.is(lvl) ? html : '',
 
         // Show elements marked data-min-level="admin" etc., hide others
         applyVisibility: () => {
