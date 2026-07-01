@@ -480,12 +480,15 @@
     function _timeframeDropdown(markers, selected, reportsSel) {
         const opt = (val, label) =>
             `<option value="${_esc(val)}"${selected === val ? ' selected' : ''}>${_esc(label)}</option>`;
-        const parts = [opt('current', 'Current phase'), opt('all', 'All time')];
+        // TODAY first (= current phase), then markers in document order, All time last
+        const parts = [opt('current', 'TODAY')];
         if (markers.length) {
             parts.push('<option disabled>──────────</option>');
-            for (let i = markers.length - 1; i >= 0; i--)
-                parts.push(opt(markers[i].full, `Since ${markers[i].full}`));
+            for (const m of markers)
+                parts.push(opt(m.full, m.full));
         }
+        parts.push('<option disabled>──────────</option>');
+        parts.push(opt('all', 'All time'));
         return `<select class="nb-timeframe-select" data-reports-sel="${_esc(reportsSel)}">${parts.join('')}</select>`;
     }
 
@@ -506,13 +509,6 @@
         if (!sourceFile)
             sourceWarn = `<span class="nb-source-warn">no source <button class="nb-specialty-action nb-link-source-btn" data-reports-sel="${_esc(note.selector || '')}" data-notebook="${_esc(note.notebook || '')}">link…</button></span>`;
 
-        let dropdownHtml = '';
-        if (sourceFile) {
-            const markers = await _fetchSourceMarkers(note);
-            const sel = _timeframeState.get(note.selector || '') || 'current';
-            dropdownHtml = _timeframeDropdown(markers, sel, note.selector || '');
-        }
-
         let pills = [];
         if (note.meta?.status) pills.push(note.meta.status);
         const pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
@@ -526,7 +522,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             <span class="nb-specialty-icon">${icon}</span>
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${dropdownHtml}${pillsHtml}${extraActions}${helpBtn}
+            ${pairLink}${sourceWarn}${pillsHtml}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
