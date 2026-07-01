@@ -5911,6 +5911,13 @@ def api_edit_note():
     if not selector:
         return jsonify({'error': 'selector required'}), 400
 
+    # Special case: .nb:.nb.md → global config file (mirrors api_note GET handling)
+    if selector == '.nb:.nb.md':
+        user = session.get('user', {})
+        if not _level_gte(user.get('level', ''), 'admin'):
+            return jsonify({'error': 'forbidden'}), 403
+        selector = str(NB_DIR / '.nb.md')
+
     # Resolve dotfolder selectors to absolute paths so the existing path-write code handles them
     dot_path = _dot_selector_to_path(selector)
     if dot_path is not None:
