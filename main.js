@@ -5609,7 +5609,18 @@ const NbMain = (() => {
         document.getElementById('nb-count').textContent = '…';
         document.getElementById('nb-type-breakdown').textContent = '';
 
-        const nbwebPlugins = NbWeb.list();
+        // Merge NbWeb.list() with settings so each plugin entry carries its url + type
+        const [rawPlugins, settings] = await Promise.all([
+            Promise.resolve(NbWeb.list()),
+            fetch('/api/nb-settings').then(r => r.json()).catch(() => ({})),
+        ]);
+        const settingsList = settings.plugins || [];
+        const nbwebPlugins = rawPlugins.map(p => {
+            const entry = settingsList.find(s =>
+                s.url?.toLowerCase().includes(p.name.toLowerCase()) ||
+                s.name?.toLowerCase().includes(p.name.toLowerCase()));
+            return { ...p, url: entry?.url || '', pluginType: entry?.type || 'plugin' };
+        });
 
         let nbPlugins = [];
         try {
@@ -5705,6 +5716,9 @@ const NbMain = (() => {
                     () => _openNbwebPlugin(p)
                 );
             });
+
+            _addItem('+ Add plugin', 'Install from URL, path, or file', '➕',
+                'nb-plugin-add', () => _openInstallPlugin());
         }
 
         if (nbPlugins.length) {
@@ -5739,7 +5753,6 @@ const NbMain = (() => {
                 const ct = r.headers.get('content-type') || '';
                 if (r.ok && ct.includes('text/markdown') || ct.includes('text/plain') || p.spec.helpUrl.endsWith('.md')) {
                     const md = await r.text();
-                    // Bail if Flask served the SPA fallback instead of a real file
                     if (!md.includes('nb-preview-content')) {
                         helpHtml = `<div class="nb-plugin-help nb-markdown">${_parseMarkdownStatic(md)}</div>`;
                     }
@@ -5751,6 +5764,30 @@ const NbMain = (() => {
             : p.activeNotebooks.length ? p.activeNotebooks.join(', ') : 'none detected';
         const statusColor = p.error ? 'var(--red)' : p.enabled ? 'var(--green,#2ecc71)' : 'var(--text-dim)';
         const statusText  = p.error ? '✗ error' : p.enabled ? '● active' : '◌ disabled';
+
+        // Notebooks section — for plugins with notebookSetup, show active list + activate picker
+        let notebooksHtml = '';
+        const ns = p.spec?.notebookSetup;
+        if (ns && !p.global) {
+            const allNbs = NbWeb.notebooks();
+            const activeSet = new Set(p.activeNotebooks);
+            const inactive  = allNbs.filter(nb => !activeSet.has(nb.name));
+            const activeChips = p.activeNotebooks.length
+                ? p.activeNotebooks.map(n => `<span class="nb-plug-nb-chip nb-plug-nb-active">● ${_esc(n)}</span>`).join('')
+                : '<span style="color:var(--text-dim);font-size:12px">none yet</span>';
+            const nbOpts = inactive.map(nb => `<option value="${_esc(nb.name)}">${_esc(nb.name)}</option>`).join('');
+            notebooksHtml = `
+            <div class="nb-plugin-section nb-plug-notebooks">
+                <div class="nb-plugin-section-title">Notebooks</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${activeChips}</div>
+                ${inactive.length ? `
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                    <select id="nbplug-nb-select" class="nb-scope-select" style="min-width:120px">${nbOpts}</select>
+                    <button id="nbplug-nb-activate" class="nb-tool-btn nb-btn-primary">+ Activate</button>
+                    <span id="nbplug-nb-msg" style="font-size:11px;color:var(--text-dim)"></span>
+                </div>` : '<span style="font-size:11px;color:var(--text-dim)">Active in all notebooks</span>'}
+            </div>`;
+        }
 
         const ld = p.spec?.listDefaults;
         let listDefaultsHtml = '';
@@ -5786,6 +5823,7 @@ const NbMain = (() => {
             </div>`;
         }
 
+        const isCoreType = p.pluginType === 'core' || p.pluginType === 'bundled';
         content.innerHTML = `
             <div class="nb-plugin-header">
                 <span style="font-size:18px">🔌</span>
@@ -5794,12 +5832,14 @@ const NbMain = (() => {
                 <span class="nb-plugin-active-for">${_esc(activeFor)}</span>
             </div>
             ${p.spec?.description ? `<div class="nb-plugin-desc">${_esc(p.spec.description)}</div>` : ''}
+            ${notebooksHtml}
             ${helpHtml}
             ${listDefaultsHtml}
             <div id="nbplug-custom-content"></div>
             <div class="nb-plugin-section" style="display:flex;gap:8px;flex-wrap:wrap">
-                <button id="nbplug-toggle" class="nb-tool-btn">${p.enabled ? 'Disable' : 'Enable'}</button>
-                <button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>
+                ${!isCoreType ? `<button id="nbplug-toggle" class="nb-tool-btn">${p.enabled ? 'Disable' : 'Enable'}</button>` : ''}
+                ${!isCoreType ? `<button id="nbplug-remove" class="nb-tool-btn" style="color:var(--red)">Remove</button>` : ''}
+                ${isCoreType ? `<span style="font-size:11px;color:var(--text-dim)">Core plugin — cannot be removed</span>` : ''}
             </div>`;
 
         if (p.spec?.pluginContent) {
@@ -5817,6 +5857,31 @@ const NbMain = (() => {
                 }
             }
         }
+
+        // Notebook activate button
+        document.getElementById('nbplug-nb-activate')?.addEventListener('click', async () => {
+            const nb  = document.getElementById('nbplug-nb-select')?.value;
+            const msg = document.getElementById('nbplug-nb-msg');
+            if (!nb || !ns) return;
+            msg.textContent = 'Activating…';
+            msg.style.color = 'var(--text-dim)';
+            try {
+                const r = await fetch('/api/nb/plugin-activate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notebook: nb, config_file: ns.configFile, default_config: ns.defaultConfig || {} }),
+                });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || r.statusText);
+                msg.textContent = `✓ activated for ${nb}`;
+                msg.style.color = 'var(--green,#2ecc71)';
+                await NbWeb._init();
+                setTimeout(runPlugins, 800);
+            } catch(e) {
+                msg.textContent = '✗ ' + e.message;
+                msg.style.color = 'var(--red)';
+            }
+        });
 
         document.getElementById('nbplug-save')?.addEventListener('click', async () => {
             const sort = document.getElementById('nbplug-sort').value;
@@ -5838,28 +5903,25 @@ const NbMain = (() => {
             }
         });
 
-        document.getElementById('nbplug-toggle').addEventListener('click', async () => {
+        document.getElementById('nbplug-toggle')?.addEventListener('click', async () => {
+            if (!p.url) return;
             NbWeb.setEnabled(p.name, !p.enabled);
-            const s = await fetch('/api/nb-settings').then(r => r.json());
-            const plugins = (s.plugins || []).map(pl =>
-                pl.url?.includes(p.name) ? { ...pl, enabled: !p.enabled } : pl);
-            await fetch('/api/nb-settings', {
+            await fetch('/api/plugins/toggle', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ plugins }),
+                body: JSON.stringify({ url: p.url, enabled: !p.enabled }),
             });
             runPlugins();
         });
 
-        document.getElementById('nbplug-remove').addEventListener('click', async () => {
-            if (!confirm(`Remove plugin "${p.name}"?`)) return;
+        document.getElementById('nbplug-remove')?.addEventListener('click', async () => {
+            if (!p.url) return;
+            if (!confirm(`Remove plugin "${p.spec?.label || p.name}"?`)) return;
             NbWeb.unregister(p.name);
-            const s = await fetch('/api/nb-settings').then(r => r.json());
-            const plugins = (s.plugins || []).filter(pl => !pl.url?.includes(p.name));
-            await fetch('/api/nb-settings', {
-                method: 'PATCH',
+            await fetch('/api/plugins/uninstall', {
+                method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ plugins }),
+                body: JSON.stringify({ url: p.url }),
             });
             runPlugins();
         });
@@ -5892,6 +5954,81 @@ const NbMain = (() => {
                 `<div style="padding:8px 28px;font-size:12px;color:var(--text-dim)">
                     Run in terminal: <code>nb plugins uninstall ${_esc(p.name)}</code>
                 </div>`;
+        });
+    }
+
+    function _openInstallPlugin() {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = `
+            <div style="padding:28px 32px;max-width:520px">
+                <h2 style="margin:0 0 6px;font-size:16px">Install Plugin</h2>
+                <p style="margin:0 0 20px;font-size:12px;color:var(--text-dim)">
+                    Enter a URL, local path (<code>~/dev/myplugin/myplugin.js</code>), or use
+                    the file picker. The plugin file is copied to the managed plugins directory
+                    and registered in <code>nb-settings.json</code>.
+                </p>
+
+                <div class="nb-plugin-section">
+                    <div class="nb-plugin-section-title">URL or path</div>
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                        <input id="nbplug-install-url" type="text"
+                               placeholder="https://... or ~/dev/myplugin/myplugin.js"
+                               style="flex:1;min-width:200px;padding:5px 8px;font-size:12px;
+                                      border:1px solid var(--border);border-radius:4px;
+                                      background:var(--bg-input,var(--bg));color:var(--text)">
+                        <button id="nbplug-install-go" class="nb-tool-btn nb-btn-primary">Install</button>
+                    </div>
+                    <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+                        <label class="nb-tool-btn" style="cursor:pointer">
+                            Browse…<input id="nbplug-install-file" type="file" accept=".js" style="display:none">
+                        </label>
+                        <span style="font-size:11px;color:var(--text-dim)">Upload a .js file directly</span>
+                    </div>
+                    <div id="nbplug-install-msg" style="margin-top:10px;font-size:12px;min-height:16px"></div>
+                </div>
+            </div>`;
+
+        const msg = content.querySelector('#nbplug-install-msg');
+
+        const _doInstall = async (body, isFormData = false) => {
+            msg.textContent = 'Installing…';
+            msg.style.color = 'var(--text-dim)';
+            try {
+                const r = await fetch('/api/plugins/install', {
+                    method: 'POST',
+                    ...(isFormData ? { body } : {
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    }),
+                });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || r.statusText);
+                msg.textContent = `✓ Installed — reload to activate`;
+                msg.style.color = 'var(--green,#2ecc71)';
+                await NbWeb._init();
+                setTimeout(runPlugins, 1000);
+            } catch(e) {
+                msg.textContent = '✗ ' + e.message;
+                msg.style.color = 'var(--red)';
+            }
+        };
+
+        content.querySelector('#nbplug-install-go').addEventListener('click', () => {
+            const url = content.querySelector('#nbplug-install-url').value.trim();
+            if (!url) { msg.textContent = 'Enter a URL or path.'; msg.style.color = 'var(--red)'; return; }
+            _doInstall({ url });
+        });
+
+        content.querySelector('#nbplug-install-url').addEventListener('keydown', e => {
+            if (e.key === 'Enter') content.querySelector('#nbplug-install-go').click();
+        });
+
+        content.querySelector('#nbplug-install-file').addEventListener('change', e => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const fd = new FormData();
+            fd.append('file', file);
+            _doInstall(fd, true);
         });
     }
 

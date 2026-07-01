@@ -9800,6 +9800,34 @@ def api_plugin_toggle():
     return jsonify({'ok': True, 'plugins': _settings['plugins']})
 
 
+@app.route('/api/nb/plugin-activate', methods=['POST'])
+def api_nb_plugin_activate():
+    """Write a plugin config file into a notebook directory to activate that plugin."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'error': 'Admin access required'}), 403
+    body        = request.get_json(silent=True) or {}
+    notebook    = (body.get('notebook') or '').strip()
+    config_file = (body.get('config_file') or '').strip()
+    default_cfg = body.get('default_config', {})
+    if not notebook or not config_file:
+        return jsonify({'error': 'notebook and config_file required'}), 400
+    if not re.match(r'^\.nb-[\w-]+\.json$', config_file):
+        return jsonify({'error': 'config_file must match .nb-<name>.json'}), 400
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir() or not (nb_path / '.index').exists():
+        return jsonify({'error': f'Notebook not found: {notebook}'}), 404
+    dest = nb_path / config_file
+    if dest.exists():
+        return jsonify({'error': f'{config_file} already exists in {notebook}'}), 409
+    try:
+        content = json.dumps(default_cfg, indent=2) if isinstance(default_cfg, dict) else '{}'
+        dest.write_text(content + '\n', encoding='utf-8')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True, 'path': str(dest)})
+
+
 # ---------------------------------------------------------------------------
 # NbWeb-cine: film production scheduling
 # ---------------------------------------------------------------------------
