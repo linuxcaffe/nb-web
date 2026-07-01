@@ -811,6 +811,83 @@
         _initCollapseToggle(el);
     }
 
+    // Extract checklist items from body, optionally scoped to a named section.
+    // filter = heading text to match (case-insensitive); null = whole body.
+    // Returns [{done, text}].
+    function _checklistExtract(body, filter) {
+        const lines = body.split('\n');
+        let inSection = !filter, items = [];
+        const headingRe = /^#{1,6}\s+(.+)/;
+        for (const line of lines) {
+            const hm = line.match(headingRe);
+            if (hm) {
+                inSection = !filter || hm[1].trim().toLowerCase().includes(filter.toLowerCase());
+                continue;
+            }
+            if (!inSection) continue;
+            const cm = line.match(/^[-*]\s+\[([ xX])\]\s+(.*)/);
+            if (cm) items.push({ done: cm[1].trim().toLowerCase() === 'x', text: cm[2].trim() });
+        }
+        return items;
+    }
+
+    // CBQL checklist block: fetch source, extract items, render with completion badge.
+    // Deliverables are static plan items — no timeframe slicing; filter: matches a heading.
+    async function _loadChecklistCBQLBlock(el) {
+        const note   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const params = _cbqlParams(el.dataset.src || '', note?.meta);
+        if (!params) { el.innerHTML = '<div class="nb-timeline-empty">No source specified</div>'; return; }
+
+        const noteSel = note?.selector || '';
+        let sourceSel = params.source;
+        if (!sourceSel.includes(':')) {
+            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
+                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
+            if (nb) sourceSel = `${nb}:${sourceSel}`;
+        }
+
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
+            if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
+            const d     = await r.json();
+            const items = _checklistExtract(d.body || '', params.filter || null);
+
+            el.innerHTML = '';
+            const done  = items.filter(i => i.done).length;
+            const total = items.length;
+
+            const { hdr, meta: metaEl } = _buildBarHeader(el, {
+                lang: 'checklist', onRefresh: () => _loadChecklistCBQLBlock(el),
+            });
+            const section = params.filter ? _esc(params.filter) : 'all';
+            metaEl.textContent = total ? `${done}/${total} done · ${section}` : `empty · ${section}`;
+            el.appendChild(hdr);
+            _initCollapseToggle(el);
+
+            const body = document.createElement('div');
+            body.className = 'nb-checklist-body';
+            if (!items.length) {
+                body.innerHTML = '<div class="nb-timedot-empty">No checklist items found</div>';
+            } else {
+                const list = document.createElement('ul');
+                list.className = 'nb-checklist-list';
+                for (const item of items) {
+                    const li = document.createElement('li');
+                    li.className = 'nb-checklist-item' + (item.done ? ' nb-checklist-done' : '');
+                    li.innerHTML =
+                        `<span class="nb-checklist-box">${item.done ? '☑' : '☐'}</span>` +
+                        `<span class="nb-checklist-text">${_esc(item.text)}</span>`;
+                    list.appendChild(li);
+                }
+                body.appendChild(list);
+            }
+            el.appendChild(body);
+        } catch (e) {
+            el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
+        }
+    }
+
     function _twInfoTrunc(text) {
         const lines = text.split('\n');
         let dashes = 0;
@@ -5416,6 +5493,22 @@
                     NbWeb.statusPill?.add(blocks.length);
                     await Promise.all(blocks.map(async el => {
                         try { await _loadTimelineCBQLBlock(el); }
+                        finally { NbWeb.statusPill?.tick(); }
+                    }));
+                },
+            },
+            {
+                lang:  'checklist',
+                html:  text => {
+                    const cbql = /^source:\s*\S/m.test(text);
+                    return `<div class="nb-checklist-block"${cbql ? ' data-cbql="1"' : ''} data-src="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`;
+                },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-checklist-block')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => {
+                        try { await _loadChecklistCBQLBlock(el); }
                         finally { NbWeb.statusPill?.tick(); }
                     }));
                 },

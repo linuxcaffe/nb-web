@@ -3779,3 +3779,14 @@ span.nb-cb-icon.nb-cb-icon--emoji {
   font-size: 0.75em; color: #d4ac0d;
   font-family: var(--font-mono, monospace); white-space: nowrap;
 }
+
+/* ── checklist codeblock ────────────────────────────────────────────────────── */
+.nb-checklist-block  { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin: 0.5em 0; }
+.nb-checklist-body   { padding: 0.3em 0; }
+.nb-checklist-list   { list-style: none; margin: 0; padding: 0; font-size: 0.9em; }
+.nb-checklist-item   { display: flex; align-items: baseline; gap: 0.5em; padding: 3px 12px; }
+.nb-checklist-item:hover { background: var(--bg2); }
+.nb-checklist-box    { flex-shrink: 0; color: var(--text-muted); font-size: 1em; }
+.nb-checklist-text   { color: var(--text); }
+.nb-checklist-done .nb-checklist-box { color: var(--accent); }
+.nb-checklist-done .nb-checklist-text { color: var(--text-dim); text-decoration: line-through; }
