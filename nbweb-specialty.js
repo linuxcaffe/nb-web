@@ -138,10 +138,10 @@
         let pairLink = '';
         if (note.type === 'project') {
             const stem = (note.filename || '').replace(/\.md$/i, '');
-            const reportSel = _pairedSel(note, `${stem}-report.md`);
-            if (reportSel) pairLink = `<a class="nb-specialty-link" href="#" data-open="${_esc(reportSel)}">report</a>`;
-        } else if (note.type === 'report') {
-            const stem = (note.filename || '').replace(/-report\.md$/i, '').replace(/\.md$/i, '');
+            const reportSel = _pairedSel(note, `${stem}-reports.md`);
+            if (reportSel) pairLink = `<a class="nb-specialty-link" href="#" data-open="${_esc(reportSel)}">reports</a>`;
+        } else if (note.type === 'reports') {
+            const stem = (note.filename || '').replace(/-reports\.md$/i, '').replace(/\.md$/i, '');
             const projectSel = _pairedSel(note, `${stem}.md`);
             if (projectSel) pairLink = `<a class="nb-specialty-link" href="#" data-open="${_esc(projectSel)}">project</a>`;
         }
