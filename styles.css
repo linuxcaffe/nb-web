@@ -3738,3 +3738,13 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-timeline-chip[data-marker="closed"]    { background: color-mix(in srgb, #7f8c8d 15%, var(--bg)); color: #7f8c8d; }
 .nb-timeline-ref   { color: var(--text); }
 .nb-timeline-empty { color: var(--text-dim); font-style: italic; font-size: 0.9em; padding: 4px 0; }
+.nb-timeline-row--dim { opacity: 0.32; }
+/* TODAY separator — gold line with label */
+.nb-timeline-sep-today {
+  display: flex; align-items: center; gap: 0.5em;
+  margin: 4px 0; border-top: 1px solid #d4ac0d;
+}
+.nb-timeline-sep-label {
+  font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em;
+  color: #d4ac0d; white-space: nowrap; padding-top: 3px;
+}

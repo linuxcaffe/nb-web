@@ -4361,34 +4361,111 @@
         }
     }
 
-    // Extract markers from a body slice for the timeline block.
-    // Scans for > MARKER: lines; attaches the nearest ## YYYY-MM-DD heading above each.
-    // Skips > TODAY: (cursor marker, not an event).
-    function _cbqlExtractMarkers(body) {
+    // Extract ALL markers from a full project body (never pre-sliced).
+    // Returns { items, hasTodayMarker } where items are in document order.
+    // Future items (below > TODAY:) get date:null and future:true.
+    // TODAY itself is skipped — the hasTodayMarker flag is its signal.
+    function _cbqlExtractAllMarkers(body) {
         const lines = body.split('\n');
-        let currentDate = null;
-        const markers = [];
+        let currentDate = null, pastToday = false;
+        const items = [];
         for (const line of lines) {
             const dateM = line.match(/^## (\d{4}-\d{2}-\d{2})\b/);
-            if (dateM) { currentDate = dateM[1]; continue; }
+            if (dateM) { if (!pastToday) currentDate = dateM[1]; continue; }
             const markerM = line.match(/^> ([A-Z]{2,}):[ \t]*(.*)/);
             if (!markerM) continue;
             const type = markerM[1].toLowerCase();
-            if (type === 'today') continue;
-            markers.push({ date: currentDate, type, ref: markerM[2].trim() });
+            if (type === 'today') { pastToday = true; continue; }
+            items.push({ date: pastToday ? null : currentDate, type, ref: markerM[2].trim(), future: pastToday });
         }
-        return markers;
+        return { items, hasTodayMarker: pastToday };
     }
 
-    // Render a CBQL timeline block: fetch source, slice to timeframe, render marker list.
+    // Compute which item indices are "in scope" for a given timeframe.
+    // Returns a Set<number>. TODAY separator is never in/out of scope — it's structural.
+    function _timelineScope(items, hasTodayMarker, timeframe) {
+        const all = new Set(items.map((_, i) => i));
+        if (!timeframe || timeframe === 'all') return all;
+        if (timeframe === 'current') {
+            if (!hasTodayMarker) return all;
+            return new Set(items.reduce((s, m, i) => (m.future ? s : [...s, i]), []));
+        }
+        // Specific marker label — scope = items from after the previous marker up to & including this one
+        const endIdx = items.findIndex(m => `${m.type.toUpperCase()}: ${m.ref}` === timeframe);
+        if (endIdx < 0) return new Set();
+        let prevIdx = -1;
+        for (let i = endIdx - 1; i >= 0; i--) {
+            if (items[i].type !== items[endIdx].type || items[i].ref !== items[endIdx].ref) {
+                prevIdx = i; break;
+            }
+        }
+        // Actually: previous marker of any kind is the phase open boundary
+        prevIdx = endIdx - 1; // phase = just from the item before to endIdx
+        // Cumulative scope: everything from 0..endIdx so the full arc is readable
+        return new Set(items.map((_, i) => i).filter(i => i <= endIdx));
+    }
+
+    // Re-render a timeline list in-place using cached data (no re-fetch).
+    function _renderTimelineFromData(el, timeframe) {
+        const data = el._timelineData;
+        if (!data) return;
+        const { items, hasTodayMarker } = data;
+        const scope = _timelineScope(items, hasTodayMarker, timeframe);
+
+        el.innerHTML = '';
+        if (!items.length && !hasTodayMarker) {
+            el.innerHTML = '<div class="nb-timeline-empty">No markers yet</div>';
+            return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'nb-timeline-list';
+
+        let todayInserted = false;
+        for (let i = 0; i < items.length; i++) {
+            const m = items[i];
+            // Insert TODAY separator before the first future item
+            if (m.future && !todayInserted) {
+                todayInserted = true;
+                const sep = document.createElement('div');
+                sep.className = 'nb-timeline-sep-today';
+                sep.innerHTML = '<span class="nb-timeline-sep-label">TODAY</span>';
+                list.appendChild(sep);
+            }
+            const inScope = scope.has(i);
+            const row = document.createElement('div');
+            row.className = 'nb-timeline-row' + (inScope ? '' : ' nb-timeline-row--dim');
+            row.innerHTML =
+                `<span class="nb-timeline-date">${_esc(m.date || '—')}</span>` +
+                `<span class="nb-timeline-chip" data-marker="${_esc(m.type)}">${_esc(m.type.toUpperCase())}</span>` +
+                `<span class="nb-timeline-ref">${_esc(m.ref)}</span>`;
+            list.appendChild(row);
+        }
+        // TODAY separator at the end if hasTodayMarker and all items were past
+        if (hasTodayMarker && !todayInserted) {
+            const sep = document.createElement('div');
+            sep.className = 'nb-timeline-sep-today';
+            sep.innerHTML = '<span class="nb-timeline-sep-label">TODAY</span>';
+            list.appendChild(sep);
+        }
+
+        el.appendChild(list);
+    }
+
+    // Load a CBQL timeline block: fetch source once, cache data, render with scope.
+    // Timeframe changes re-scope client-side without re-fetching.
     async function _loadTimelineCBQLBlock(el) {
-        const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
-        const params  = _cbqlParams(el.dataset.src || '', note?.meta);
+        // If cached data exists (timeframe change), just re-render
+        if (el._timelineData) {
+            _renderTimelineFromData(el, el.dataset.activeTimeframe ?? 'all');
+            return;
+        }
+
+        const note   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const params = _cbqlParams(el.dataset.src || '', note?.meta);
         if (!params) { el.innerHTML = '<div class="nb-timeline-empty">No source specified</div>'; return; }
 
-        const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'all';
-        const noteSel   = note?.selector || '';
-
+        const noteSel = note?.selector || '';
         let sourceSel = params.source;
         if (!sourceSel.includes(':')) {
             const nb = noteSel.includes(':') ? noteSel.split(':')[0]
@@ -4400,27 +4477,10 @@
         try {
             const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
             if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
-            const d       = await r.json();
-            const slice   = _cbqlSliceBody(d.body || '', timeframe);
-            const markers = _cbqlExtractMarkers(slice);
-
-            el.innerHTML = '';
-            const list = document.createElement('div');
-            list.className = 'nb-timeline-list';
-            if (!markers.length) {
-                list.innerHTML = '<div class="nb-timeline-empty">No markers in this timeframe</div>';
-            } else {
-                for (const m of markers) {
-                    const row = document.createElement('div');
-                    row.className = 'nb-timeline-row';
-                    row.innerHTML =
-                        `<span class="nb-timeline-date">${_esc(m.date || '—')}</span>` +
-                        `<span class="nb-timeline-chip" data-marker="${_esc(m.type)}">${_esc(m.type.toUpperCase())}</span>` +
-                        `<span class="nb-timeline-ref">${_esc(m.ref)}</span>`;
-                    list.appendChild(row);
-                }
-            }
-            el.appendChild(list);
+            const d = await r.json();
+            el._timelineData = _cbqlExtractAllMarkers(d.body || '');
+            const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'all';
+            _renderTimelineFromData(el, timeframe);
         } catch (e) {
             el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
         }
@@ -5407,7 +5467,7 @@
         });
         document.querySelectorAll('.nb-timeline-block[data-cbql]').forEach(el => {
             el.dataset.activeTimeframe = timeframe;
-            _loadTimelineCBQLBlock(el);
+            _renderTimelineFromData(el, timeframe); // re-scope from cache, no re-fetch
         });
     });
 
