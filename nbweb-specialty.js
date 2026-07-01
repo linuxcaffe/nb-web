@@ -138,6 +138,21 @@
             });
         }
         NbMain.openEditor(note.selector);
+
+        // After openEditor re-fetches and populates the textarea, position the
+        // cursor on the blank line just below the inserted heading (before > TODAY:).
+        let attempts = 0;
+        const positionCursor = () => {
+            const ta = document.getElementById('nb-editor');
+            if (ta && ta.value.includes(heading)) {
+                const pos = ta.value.indexOf(heading) + heading.length + 1; // past \n
+                ta.setSelectionRange(pos, pos);
+                ta.focus();
+                return;
+            }
+            if (++attempts < 60) requestAnimationFrame(positionCursor);
+        };
+        requestAnimationFrame(positionCursor);
     }
 
     // Derive the selector for a paired note by swapping the filename suffix.
