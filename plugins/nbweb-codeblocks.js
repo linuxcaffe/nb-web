@@ -4552,7 +4552,6 @@
         const tfSel = el.querySelector('.nb-timeline-tf-sel');
         if (tfSel) tfSel.value = timeframe;
         _renderTimelineFromData(el, timeframe);
-        }
     }
 
     // Rebuild a timedot file from all ```timedot blocks in raw note text.
