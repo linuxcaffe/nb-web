@@ -741,6 +741,76 @@
         });
     }
 
+    // Extract tw: codeblock query strings from a body slice.
+    // Strips CBQL keys (source/filter/timeframe) in case a project note's tw block has them.
+    function _twExtractQueries(body) {
+        const queries = [];
+        const lines = body.split('\n');
+        let inBlock = false, blockLines = [];
+        for (const line of lines) {
+            if (!inBlock) {
+                if (/^```tw\b/i.test(line)) { inBlock = true; blockLines = []; }
+                continue;
+            }
+            if (/^```\s*$/.test(line)) {
+                const q = blockLines
+                    .filter(l => !/^(source|filter|timeframe):\s*/i.test(l))
+                    .join(' ').trim();
+                if (q) queries.push(q);
+                inBlock = false; blockLines = [];
+                continue;
+            }
+            blockLines.push(line);
+        }
+        return queries;
+    }
+
+    // CBQL tw block: fetch source note, slice to timeframe, run extracted tw queries.
+    async function _loadTwCBQLBlock(el) {
+        if (!_cbCan(el, 'tw', 'read')) { _cbDenyRead(el); return; }
+        const note   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const params = _cbqlParams(el.dataset.src || '', note?.meta);
+        if (!params) return _loadTwBlock(el);
+
+        const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
+        const noteSel   = note?.selector || '';
+        let sourceSel   = params.source;
+        if (!sourceSel.includes(':')) {
+            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
+                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
+            if (nb) sourceSel = `${nb}:${sourceSel}`;
+        }
+
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
+            if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
+            const d       = await r.json();
+            const slice   = _cbqlSliceBody(d.body || '', timeframe);
+            const queries = _twExtractQueries(slice);
+
+            if (!queries.length) {
+                el.innerHTML = '<div class="nb-timedot-empty">No tasks in this timeframe</div>';
+                return;
+            }
+
+            const combined = queries.length === 1
+                ? queries[0]
+                : queries.map(q => `( ${q} )`).join(' or ');
+
+            const tr = await fetch(`/api/task-query?q=${encodeURIComponent(combined)}`);
+            const td = await tr.json();
+            if (td.error) { _cbError(el, 'tw', td.error, () => _loadTwCBQLBlock(el)); return; }
+            const twLaunch = td.twTerminalMode ? { terminal: true, cmd: td.twLaunchCmd }
+                           : td.twWebUrl       ? { url: td.twWebUrl }
+                           : null;
+            _buildTwTable(el, (td.tasks || []).sort((a, b) => (b.urgency || 0) - (a.urgency || 0)), combined, null, twLaunch);
+        } catch (e) {
+            _cbError(el, 'tw', e.message, () => _loadTwCBQLBlock(el));
+        }
+        _initCollapseToggle(el);
+    }
+
     function _twInfoTrunc(text) {
         const lines = text.split('\n');
         let dashes = 0;
@@ -5272,8 +5342,12 @@
         codeblockRenderers: [
             {
                 lang:   'tw',
-                html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-tw-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
-                renderOne: async el => { const w = await NbWeb.checkWhich('task'); return w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md'); },
+                html:   text => {
+                    const cbql = /^source:\s*\S/m.test(text);
+                    const {readLevel, writeLevel, query} = _cbParseGates(text);
+                    return `<div class="nb-tw-block"${cbql ? ' data-cbql="1"' : ''}${_cbGateAttrs(readLevel,writeLevel)} data-src="${text.replace(/"/g,'&quot;')}" data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`;
+                },
+                renderOne: async el => { const w = await NbWeb.checkWhich('task'); return w.found ? (el.dataset.cbql ? _loadTwCBQLBlock(el) : _loadTwBlock(el)) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md'); },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-tw-block')];
                     if (!blocks.length) return;
@@ -5281,7 +5355,7 @@
                     try {
                         const w = await NbWeb.checkWhich('task');
                         await Promise.all(blocks.map(async el => {
-                            try { await (w.found ? _loadTwBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md')); }
+                            try { await (w.found ? (el.dataset.cbql ? _loadTwCBQLBlock(el) : _loadTwBlock(el)) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/tw-requirements.md')); }
                             finally { NbWeb.statusPill?.tick(); }
                         }));
                     } catch { blocks.forEach(() => NbWeb.statusPill?.tick()); }
@@ -5531,13 +5605,17 @@
 
     });
 
-    // Re-render CBQL blocks when the reports bar broadcasts a timeframe change.
+    // Re-render CBQL blocks when the timeline block broadcasts a timeframe change.
     document.addEventListener('nb-timeframe-changed', e => {
         const { timeframe } = e.detail || {};
         if (!timeframe) return;
         document.querySelectorAll('.nb-timedot-block[data-cbql]').forEach(el => {
             el.dataset.activeTimeframe = timeframe;
             _loadTimedotCBQLBlock(el);
+        });
+        document.querySelectorAll('.nb-tw-block[data-cbql]').forEach(el => {
+            el.dataset.activeTimeframe = timeframe;
+            _loadTwCBQLBlock(el);
         });
         document.querySelectorAll('.nb-timeline-block[data-cbql]').forEach(el => {
             if (el.dataset.activeTimeframe === timeframe) return; // already current
