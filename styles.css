@@ -3725,9 +3725,15 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 /* ── timeline codeblock ─────────────────────────────────────────────────────── */
 .nb-timeline-block { margin: 0.5em 0; }
 .nb-timeline-list  { font-size: 0.9em; }
-.nb-timeline-row   { display: flex; align-items: center; gap: 0.7em; padding: 5px 0; border-bottom: 1px solid var(--border); }
+/* 4-col grid: date | chip | ref | badge — badge col reserved for future totals */
+.nb-timeline-row {
+  display: grid;
+  grid-template-columns: 6.4em auto 1fr auto;
+  align-items: center; gap: 0.6em;
+  padding: 5px 0; border-bottom: 1px solid var(--border);
+}
 .nb-timeline-row:last-child { border-bottom: none; }
-.nb-timeline-date  { color: var(--text-muted); font-family: var(--font-mono, monospace); font-size: 0.86em; white-space: nowrap; min-width: 6.2em; }
+.nb-timeline-date  { color: var(--text-muted); font-family: var(--font-mono, monospace); font-size: 0.86em; white-space: nowrap; }
 .nb-timeline-chip  { font-size: 0.72em; font-weight: 700; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 10px; white-space: nowrap; background: var(--bg2); color: var(--text-muted); }
 .nb-timeline-chip[data-marker="invoiced"]  { background: color-mix(in srgb, #c0392b 15%, var(--bg)); color: #c0392b; }
 .nb-timeline-chip[data-marker="approved"]  { background: color-mix(in srgb, #2980b9 15%, var(--bg)); color: #2980b9; }
@@ -3737,14 +3743,32 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-timeline-chip[data-marker="resumed"]   { background: color-mix(in srgb, #16a085 15%, var(--bg)); color: #16a085; }
 .nb-timeline-chip[data-marker="closed"]    { background: color-mix(in srgb, #7f8c8d 15%, var(--bg)); color: #7f8c8d; }
 .nb-timeline-ref   { color: var(--text); }
+.nb-timeline-badge { color: var(--text-muted); font-size: 0.82em; white-space: nowrap; text-align: right; }
 .nb-timeline-empty { color: var(--text-dim); font-style: italic; font-size: 0.9em; padding: 4px 0; }
 .nb-timeline-row--dim { opacity: 0.32; }
-/* TODAY separator — gold line with label */
+/* Timeline block header: type filter | timeframe | today's date */
+.nb-timeline-hdr {
+  display: flex; align-items: center; gap: 0.5em;
+  padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.nb-timeline-type-sel,
+.nb-timeline-tf-sel {
+  font-size: 0.8em; padding: 1px 4px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); color: var(--text); cursor: pointer;
+}
+.nb-timeline-type-sel { max-width: 7em; }
+.nb-timeline-tf-sel   { max-width: 12em; }
+.nb-timeline-hdr-date {
+  margin-left: auto; font-size: 0.8em;
+  color: #d4ac0d; font-family: var(--font-mono, monospace); white-space: nowrap;
+}
+/* TODAY separator — simple gold rule */
 .nb-timeline-sep-today {
   display: flex; align-items: center; gap: 0.5em;
-  margin: 4px 0; border-top: 1px solid #d4ac0d;
+  margin: 6px 0; border-top: 1px solid #d4ac0d; padding-top: 3px;
 }
 .nb-timeline-sep-label {
   font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em;
-  color: #d4ac0d; white-space: nowrap; padding-top: 3px;
+  color: #d4ac0d; white-space: nowrap;
 }

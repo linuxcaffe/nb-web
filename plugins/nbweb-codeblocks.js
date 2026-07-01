@@ -4405,84 +4405,153 @@
         return new Set(items.map((_, i) => i).filter(i => i <= endIdx));
     }
 
-    // Re-render a timeline list in-place using cached data (no re-fetch).
+    function _timelineTodaySep() {
+        const sep = document.createElement('div');
+        sep.className = 'nb-timeline-sep-today';
+        sep.innerHTML = '<span class="nb-timeline-sep-label">TODAY</span>';
+        return sep;
+    }
+
+    // Build the timeline block header: type filter + timeframe + today's date.
+    // Replaces the specialty bar dropdown. Rendered once; list is rebuilt separately.
+    function _buildTimelineHeader(items) {
+        const n = new Date();
+        const days   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const dateStr = `${days[n.getDay()]}, ${months[n.getMonth()]} ${n.getDate()}, ${n.getFullYear()}`;
+
+        // Type filter — fixed vocabulary: ALL, MILESTONE, INVOICED, OTHER
+        const typeSet = new Set(items.map(m => m.type));
+        const typeOpts = [
+            { val: 'all',      label: 'ALL'      },
+            { val: 'milestone',label: 'MILESTONE', show: typeSet.has('milestone') },
+            { val: 'invoiced', label: 'INVOICED',  show: typeSet.has('invoiced')  },
+            { val: 'other',    label: 'OTHER',
+              show: [...typeSet].some(t => t !== 'milestone' && t !== 'invoiced') },
+        ].filter(o => o.show !== false);
+        const typeSel = document.createElement('select');
+        typeSel.className = 'nb-timeline-type-sel';
+        typeSel.innerHTML = typeOpts.map(o =>
+            `<option value="${_esc(o.val)}">${_esc(o.label)}</option>`).join('');
+
+        // Timeframe — TODAY first, all markers in doc order, All time last
+        const tfSel = document.createElement('select');
+        tfSel.className = 'nb-timeline-tf-sel';
+        let tfHtml = `<option value="current">TODAY</option>`;
+        if (items.length) {
+            tfHtml += `<option disabled>──────</option>`;
+            for (const m of items)
+                tfHtml += `<option value="${_esc(`${m.type.toUpperCase()}: ${m.ref}`)}">${_esc(`${m.type.toUpperCase()}: ${m.ref}`)}</option>`;
+        }
+        tfHtml += `<option disabled>──────</option><option value="all">All time</option>`;
+        tfSel.innerHTML = tfHtml;
+
+        const hdr = document.createElement('div');
+        hdr.className = 'nb-timeline-hdr';
+        hdr.appendChild(typeSel);
+        hdr.appendChild(tfSel);
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'nb-timeline-hdr-date';
+        dateSpan.textContent = dateStr;
+        hdr.appendChild(dateSpan);
+        return hdr;
+    }
+
+    // Re-render only the list portion (header stays). Type hides; timeframe dims.
     function _renderTimelineFromData(el, timeframe) {
         const data = el._timelineData;
         if (!data) return;
         const { items, hasTodayMarker } = data;
-        const scope = _timelineScope(items, hasTodayMarker, timeframe);
+        const typeFilter = el.dataset.activeTypeFilter ?? 'all';
+        const scope      = _timelineScope(items, hasTodayMarker, timeframe);
 
-        el.innerHTML = '';
-        if (!items.length && !hasTodayMarker) {
-            el.innerHTML = '<div class="nb-timeline-empty">No markers yet</div>';
+        const typeMatch = type => {
+            if (typeFilter === 'all')      return true;
+            if (typeFilter === 'other')    return type !== 'milestone' && type !== 'invoiced';
+            return type === typeFilter;
+        };
+
+        let list = el.querySelector('.nb-timeline-list');
+        if (!list) {
+            list = document.createElement('div');
+            list.className = 'nb-timeline-list';
+            el.appendChild(list);
+        }
+        list.innerHTML = '';
+
+        const visible = items.reduce((acc, m, i) => (typeMatch(m.type) ? [...acc, i] : acc), []);
+        if (!visible.length && !hasTodayMarker) {
+            list.innerHTML = '<div class="nb-timeline-empty">No markers match this filter</div>';
             return;
         }
 
-        const list = document.createElement('div');
-        list.className = 'nb-timeline-list';
-
         let todayInserted = false;
-        for (let i = 0; i < items.length; i++) {
+        for (const i of visible) {
             const m = items[i];
-            // Insert TODAY separator before the first future item
-            if (m.future && !todayInserted) {
-                todayInserted = true;
-                const sep = document.createElement('div');
-                sep.className = 'nb-timeline-sep-today';
-                sep.innerHTML = '<span class="nb-timeline-sep-label">TODAY</span>';
-                list.appendChild(sep);
-            }
-            const inScope = scope.has(i);
+            if (m.future && !todayInserted) { todayInserted = true; list.appendChild(_timelineTodaySep()); }
             const row = document.createElement('div');
-            row.className = 'nb-timeline-row' + (inScope ? '' : ' nb-timeline-row--dim');
+            row.className = 'nb-timeline-row' + (scope.has(i) ? '' : ' nb-timeline-row--dim');
             row.innerHTML =
                 `<span class="nb-timeline-date">${_esc(m.date || '—')}</span>` +
                 `<span class="nb-timeline-chip" data-marker="${_esc(m.type)}">${_esc(m.type.toUpperCase())}</span>` +
-                `<span class="nb-timeline-ref">${_esc(m.ref)}</span>`;
+                `<span class="nb-timeline-ref">${_esc(m.ref)}</span>` +
+                `<span class="nb-timeline-badge"></span>`;
             list.appendChild(row);
         }
-        // TODAY separator at the end if hasTodayMarker and all items were past
-        if (hasTodayMarker && !todayInserted) {
-            const sep = document.createElement('div');
-            sep.className = 'nb-timeline-sep-today';
-            sep.innerHTML = '<span class="nb-timeline-sep-label">TODAY</span>';
-            list.appendChild(sep);
-        }
-
-        el.appendChild(list);
+        if (hasTodayMarker && !todayInserted) list.appendChild(_timelineTodaySep());
     }
 
-    // Load a CBQL timeline block: fetch source once, cache data, render with scope.
-    // Timeframe changes re-scope client-side without re-fetching.
+    // Load a CBQL timeline block: fetch source once, build header with controls, cache data.
+    // Type changes and timeframe changes both re-render the list without re-fetching.
     async function _loadTimelineCBQLBlock(el) {
-        // If cached data exists (timeframe change), just re-render
-        if (el._timelineData) {
-            _renderTimelineFromData(el, el.dataset.activeTimeframe ?? 'all');
-            return;
-        }
-
         const note   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
         const params = _cbqlParams(el.dataset.src || '', note?.meta);
         if (!params) { el.innerHTML = '<div class="nb-timeline-empty">No source specified</div>'; return; }
 
-        const noteSel = note?.selector || '';
-        let sourceSel = params.source;
-        if (!sourceSel.includes(':')) {
-            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
-                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
-            if (nb) sourceSel = `${nb}:${sourceSel}`;
+        if (!el._timelineData) {
+            const noteSel = note?.selector || '';
+            let sourceSel = params.source;
+            if (!sourceSel.includes(':')) {
+                const nb = noteSel.includes(':') ? noteSel.split(':')[0]
+                         : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
+                if (nb) sourceSel = `${nb}:${sourceSel}`;
+            }
+            el.innerHTML = '<span class="nb-spin">⟳</span>';
+            try {
+                const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
+                if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
+                const d = await r.json();
+                el._timelineData = _cbqlExtractAllMarkers(d.body || '');
+            } catch (e) {
+                el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
+                return;
+            }
+
+            // Build header once (type sel + timeframe sel + today's date)
+            el.innerHTML = '';
+            el.appendChild(_buildTimelineHeader(el._timelineData.items));
+
+            // Wire block-level controls
+            el.addEventListener('change', ev => {
+                const tfSel   = el.querySelector('.nb-timeline-tf-sel');
+                const typeSel = el.querySelector('.nb-timeline-type-sel');
+                const tf   = tfSel?.value   || 'current';
+                const type = typeSel?.value || 'all';
+                el.dataset.activeTimeframe  = tf;
+                el.dataset.activeTypeFilter = type;
+                _renderTimelineFromData(el, tf);
+                // Broadcast timeframe change so timedot blocks stay in sync
+                if (ev.target === tfSel)
+                    document.dispatchEvent(new CustomEvent('nb-timeframe-changed', { detail: { timeframe: tf } }));
+            });
         }
 
-        el.innerHTML = '<span class="nb-spin">⟳</span>';
-        try {
-            const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
-            if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
-            const d = await r.json();
-            el._timelineData = _cbqlExtractAllMarkers(d.body || '');
-            const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'all';
-            _renderTimelineFromData(el, timeframe);
-        } catch (e) {
-            el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
+        const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
+        el.dataset.activeTimeframe = timeframe;
+        // Sync the tf-sel dropdown to current timeframe state
+        const tfSel = el.querySelector('.nb-timeline-tf-sel');
+        if (tfSel) tfSel.value = timeframe;
+        _renderTimelineFromData(el, timeframe);
         }
     }
 
@@ -5466,8 +5535,11 @@
             _loadTimedotCBQLBlock(el);
         });
         document.querySelectorAll('.nb-timeline-block[data-cbql]').forEach(el => {
+            if (el.dataset.activeTimeframe === timeframe) return; // already current
             el.dataset.activeTimeframe = timeframe;
-            _renderTimelineFromData(el, timeframe); // re-scope from cache, no re-fetch
+            const tfSel = el.querySelector('.nb-timeline-tf-sel');
+            if (tfSel) tfSel.value = timeframe;
+            _renderTimelineFromData(el, timeframe);
         });
     });
 
