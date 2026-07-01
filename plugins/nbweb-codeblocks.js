@@ -4361,6 +4361,71 @@
         }
     }
 
+    // Extract markers from a body slice for the timeline block.
+    // Scans for > MARKER: lines; attaches the nearest ## YYYY-MM-DD heading above each.
+    // Skips > TODAY: (cursor marker, not an event).
+    function _cbqlExtractMarkers(body) {
+        const lines = body.split('\n');
+        let currentDate = null;
+        const markers = [];
+        for (const line of lines) {
+            const dateM = line.match(/^## (\d{4}-\d{2}-\d{2})\b/);
+            if (dateM) { currentDate = dateM[1]; continue; }
+            const markerM = line.match(/^> ([A-Z]{2,}):[ \t]*(.*)/);
+            if (!markerM) continue;
+            const type = markerM[1].toLowerCase();
+            if (type === 'today') continue;
+            markers.push({ date: currentDate, type, ref: markerM[2].trim() });
+        }
+        return markers;
+    }
+
+    // Render a CBQL timeline block: fetch source, slice to timeframe, render marker list.
+    async function _loadTimelineCBQLBlock(el) {
+        const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const params  = _cbqlParams(el.dataset.src || '', note?.meta);
+        if (!params) { el.innerHTML = '<div class="nb-timeline-empty">No source specified</div>'; return; }
+
+        const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'all';
+        const noteSel   = note?.selector || '';
+
+        let sourceSel = params.source;
+        if (!sourceSel.includes(':')) {
+            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
+                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
+            if (nb) sourceSel = `${nb}:${sourceSel}`;
+        }
+
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
+            if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
+            const d       = await r.json();
+            const slice   = _cbqlSliceBody(d.body || '', timeframe);
+            const markers = _cbqlExtractMarkers(slice);
+
+            el.innerHTML = '';
+            const list = document.createElement('div');
+            list.className = 'nb-timeline-list';
+            if (!markers.length) {
+                list.innerHTML = '<div class="nb-timeline-empty">No markers in this timeframe</div>';
+            } else {
+                for (const m of markers) {
+                    const row = document.createElement('div');
+                    row.className = 'nb-timeline-row';
+                    row.innerHTML =
+                        `<span class="nb-timeline-date">${_esc(m.date || '—')}</span>` +
+                        `<span class="nb-timeline-chip" data-marker="${_esc(m.type)}">${_esc(m.type.toUpperCase())}</span>` +
+                        `<span class="nb-timeline-ref">${_esc(m.ref)}</span>`;
+                    list.appendChild(row);
+                }
+            }
+            el.appendChild(list);
+        } catch (e) {
+            el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
+        }
+    }
+
     // Rebuild a timedot file from all ```timedot blocks in raw note text.
     // Date context comes from heading lines (## YYYY-MM-DD).
     // :sub shortcuts are expanded via _timedotRewrite.
@@ -5132,6 +5197,22 @@
                 },
             },
             {
+                lang:  'timeline',
+                html:  text => {
+                    const cbql = /^source:\s*\S/m.test(text);
+                    return `<div class="nb-timeline-block"${cbql ? ' data-cbql="1"' : ''} data-src="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`;
+                },
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-timeline-block')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => {
+                        try { await _loadTimelineCBQLBlock(el); }
+                        finally { NbWeb.statusPill?.tick(); }
+                    }));
+                },
+            },
+            {
                 lang:   'nav',
                 html:   text => { const {readLevel,writeLevel,query} = _cbParseGates(text); return `<div class="nb-nav-block"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"><span class="nb-spin">⟳</span></div>`; },
                 renderOne: async el => _loadNavBlock(el),
@@ -5316,13 +5397,17 @@
 
     });
 
-    // Re-render CBQL timedot blocks when the reports bar broadcasts a timeframe change.
+    // Re-render CBQL blocks when the reports bar broadcasts a timeframe change.
     document.addEventListener('nb-timeframe-changed', e => {
         const { timeframe } = e.detail || {};
         if (!timeframe) return;
         document.querySelectorAll('.nb-timedot-block[data-cbql]').forEach(el => {
             el.dataset.activeTimeframe = timeframe;
             _loadTimedotCBQLBlock(el);
+        });
+        document.querySelectorAll('.nb-timeline-block[data-cbql]').forEach(el => {
+            el.dataset.activeTimeframe = timeframe;
+            _loadTimelineCBQLBlock(el);
         });
     });
 
