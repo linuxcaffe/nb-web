@@ -71,6 +71,19 @@ const NbTheme = (() => {
         });
     }
 
+    function applyRaw(vars) {
+        _applyVars(vars);
+    }
+
+    async function getTheme(slug) {
+        return await _fetchOne(slug);
+    }
+
+    function clearCache() {
+        _cache = {};
+        _allThemes = null;
+    }
+
     function getSlug() { return _slug; }
     function getMode() { return _mode; }
 
@@ -78,5 +91,5 @@ const NbTheme = (() => {
         await apply(_slug, _mode);
     }
 
-    return { apply, toggleMode, listThemes, saveToNotebook, getSlug, getMode, init };
+    return { apply, applyRaw, getTheme, clearCache, toggleMode, listThemes, saveToNotebook, getSlug, getMode, init };
 })();

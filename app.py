@@ -10721,6 +10721,39 @@ def api_theme_set_key():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/theme-save', methods=['POST'])
+def api_theme_save():
+    data = request.json or {}
+    name = (data.get('name') or '').strip() or 'Untitled'
+    slug = (data.get('slug') or '').strip().lower()
+    if not slug:
+        slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'theme'
+    slug = re.sub(r'[^a-z0-9-]', '', slug)
+    if not slug or slug.startswith('.') or '/' in slug:
+        return jsonify({'error': 'invalid slug'}), 400
+    desc  = (data.get('desc') or '').strip()
+    dark  = data.get('dark',  {})
+    light = data.get('light', {})
+    import yaml
+    meta    = {'type': 'theme', 'name': name, 'dark': dark, 'light': light}
+    body    = f'\n{desc}' if desc else ''
+    content = f"---\n{yaml.dump(meta, default_flow_style=False, allow_unicode=True).strip()}\n---\n{body}"
+    THEMES_DIR.mkdir(exist_ok=True)
+    (THEMES_DIR / f'{slug}.md').write_text(content)
+    return jsonify({'ok': True, 'slug': slug})
+
+
+@app.route('/api/theme-delete/<slug>', methods=['DELETE'])
+def api_theme_delete(slug):
+    if '/' in slug or slug.startswith('.') or slug == 'default':
+        return jsonify({'error': 'cannot delete'}), 400
+    path = THEMES_DIR / f'{slug}.md'
+    if not path.exists():
+        return jsonify({'error': 'not found'}), 404
+    path.unlink()
+    return jsonify({'ok': True})
+
+
 # ---------------------------------------------------------------------------
 # Static / SPA
 # ---------------------------------------------------------------------------
