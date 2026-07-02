@@ -10614,6 +10614,89 @@ def api_cine_lock():
     return jsonify({'ok': True})
 
 
+@app.route('/api/cine/export-fountain')
+def api_cine_export_fountain():
+    """Export all script/ scenes in alias order as a Fountain plain-text file.
+
+    Reads cover note (type: script) for title-page FM. Skips non-numeric aliases.
+    Returns a downloadable .fountain file.
+    """
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    nb_path = NB_DIR / notebook
+    if not nb_path.is_dir():
+        return jsonify({'error': 'notebook not found'}), 404
+
+    script_dir = nb_path / 'script'
+    if not script_dir.is_dir():
+        return jsonify({'error': 'no script/ folder'}), 404
+
+    # Find cover note (type: script) for title page metadata
+    cover_meta = {}
+    for f in script_dir.glob('*.md'):
+        if f.name.startswith('.'):
+            continue
+        try:
+            meta, _ = parse_frontmatter(f.read_text(errors='replace'))
+            if str(meta.get('type', '')) == 'script':
+                cover_meta = meta
+                break
+        except Exception:
+            pass
+
+    # Title page
+    parts = []
+    if cover_meta:
+        for key, val in [('Title',      cover_meta.get('title')),
+                         ('Author',     cover_meta.get('author')),
+                         ('Draft Date', cover_meta.get('draft')),
+                         ('Copyright',  f"© {cover_meta['copyright']}" if cover_meta.get('copyright') else None)]:
+            if val:
+                parts.append(f'{key}: {val}')
+    if parts:
+        parts.append('')
+        parts.append('')
+
+    # Gather scenes with numeric aliases, sorted
+    scenes = []
+    for f in script_dir.glob('*.md'):
+        if f.name.startswith('.'):
+            continue
+        try:
+            meta, body = parse_frontmatter(f.read_text(errors='replace'))
+            alias = str(meta.get('alias', ''))
+            if not alias.isdigit():
+                continue
+            scenes.append((int(alias), meta, body.strip()))
+        except Exception:
+            pass
+    scenes.sort(key=lambda x: x[0])
+
+    # Emit each scene: Fountain slug + body
+    for _, meta, body in scenes:
+        ie  = 'INT.' if str(meta.get('int_ext',   '')).upper().startswith('I') else 'EXT.'
+        dn  = 'DAY'  if str(meta.get('day_night', '')).upper().startswith('D') else 'NIGHT'
+        loc = str(meta.get('loc', '')).upper()
+        parts.append(f'{ie} {loc} - {dn}')
+        parts.append('')
+        parts.append(body)
+        parts.append('')
+        parts.append('')
+
+    content  = '\n'.join(parts)
+    title    = str(cover_meta.get('title', notebook))
+    filename = re.sub(r'[^\w\s-]', '', title).strip()
+    filename = re.sub(r'\s+', '-', filename).lower() or 'script'
+    filename = f'{filename}.fountain'
+
+    return Response(
+        content,
+        mimetype='text/plain; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dev: restart server
 # ---------------------------------------------------------------------------
