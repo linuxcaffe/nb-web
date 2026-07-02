@@ -938,6 +938,7 @@ INDICATORS = {
     'journal':     '📒',
     'timedot':     '⏱️',
     'strip':       '🎞️',
+    'script':      '🎬',
     'shot':        '🎬',
     'scene':       '📜',
     'storyline':   '🧵',   # main story lane (sits above plotlines)
@@ -987,7 +988,7 @@ INDICATORS = {
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
-_FM_TYPES = frozenset({'strip', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile', 'journal',
+_FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile', 'journal',
                        'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
