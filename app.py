@@ -10614,25 +10614,22 @@ def api_cine_lock():
     return jsonify({'ok': True})
 
 
-@app.route('/api/cine/export-fountain')
-def api_cine_export_fountain():
-    """Export all script/ scenes in alias order as a Fountain plain-text file.
+_AW_BIN = Path(__file__).parent / 'node_modules' / '.bin' / 'afterwriting'
+
+
+def _build_fountain(notebook):
+    """Return (fountain_text, title_slug) for all script/ scenes in alias order.
 
     Reads cover note (type: script) for title-page FM. Skips non-numeric aliases.
-    Returns a downloadable .fountain file.
+    Raises ValueError with a message on structural errors.
     """
-    notebook = request.args.get('notebook', '').strip()
-    if not notebook:
-        return jsonify({'error': 'notebook required'}), 400
-    nb_path = NB_DIR / notebook
-    if not nb_path.is_dir():
-        return jsonify({'error': 'notebook not found'}), 404
-
+    nb_path    = NB_DIR / notebook
     script_dir = nb_path / 'script'
+    if not nb_path.is_dir():
+        raise ValueError('notebook not found')
     if not script_dir.is_dir():
-        return jsonify({'error': 'no script/ folder'}), 404
+        raise ValueError('no script/ folder')
 
-    # Find cover note (type: script) for title page metadata
     cover_meta = {}
     for f in script_dir.glob('*.md'):
         if f.name.startswith('.'):
@@ -10645,20 +10642,21 @@ def api_cine_export_fountain():
         except Exception:
             pass
 
-    # Title page
     parts = []
     if cover_meta:
         for key, val in [('Title',      cover_meta.get('title')),
+                         ('Credit',     cover_meta.get('credit', 'Written by') if cover_meta.get('author') else None),
                          ('Author',     cover_meta.get('author')),
+                         ('Source',     cover_meta.get('source')),
                          ('Draft Date', cover_meta.get('draft')),
-                         ('Copyright',  f"© {cover_meta['copyright']}" if cover_meta.get('copyright') else None)]:
+                         ('Copyright',  f"© {cover_meta['copyright']}" if cover_meta.get('copyright') else None),
+                         ('Contact',    cover_meta.get('contact'))]:
             if val:
                 parts.append(f'{key}: {val}')
     if parts:
         parts.append('')
         parts.append('')
 
-    # Gather scenes with numeric aliases, sorted
     scenes = []
     for f in script_dir.glob('*.md'):
         if f.name.startswith('.'):
@@ -10673,7 +10671,6 @@ def api_cine_export_fountain():
             pass
     scenes.sort(key=lambda x: x[0])
 
-    # Emit each scene: Fountain slug + body
     for _, meta, body in scenes:
         ie  = 'INT.' if str(meta.get('int_ext',   '')).upper().startswith('I') else 'EXT.'
         dn  = 'DAY'  if str(meta.get('day_night', '')).upper().startswith('D') else 'NIGHT'
@@ -10684,16 +10681,63 @@ def api_cine_export_fountain():
         parts.append('')
         parts.append('')
 
-    content  = '\n'.join(parts)
-    title    = str(cover_meta.get('title', notebook))
-    filename = re.sub(r'[^\w\s-]', '', title).strip()
-    filename = re.sub(r'\s+', '-', filename).lower() or 'script'
-    filename = f'{filename}.fountain'
+    title = str(cover_meta.get('title', notebook))
+    slug  = re.sub(r'[^\w\s-]', '', title).strip()
+    slug  = re.sub(r'\s+', '-', slug).lower() or 'script'
+    return '\n'.join(parts), slug, cover_meta
 
+
+@app.route('/api/cine/export-fountain')
+def api_cine_export_fountain():
+    """Download all script/ scenes as a .fountain file."""
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    try:
+        content, slug, _ = _build_fountain(notebook)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
     return Response(
         content,
         mimetype='text/plain; charset=utf-8',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+        headers={'Content-Disposition': f'attachment; filename="{slug}.fountain"'}
+    )
+
+
+@app.route('/api/cine/export-pdf')
+def api_cine_export_pdf():
+    """Generate a WGA-format PDF via afterwriting and return it as a download."""
+    notebook = request.args.get('notebook', '').strip()
+    if not notebook:
+        return jsonify({'error': 'notebook required'}), 400
+    if not _AW_BIN.exists():
+        return jsonify({'error': 'afterwriting not installed (run: npm install afterwriting)'}), 503
+    try:
+        content, slug, cover_meta = _build_fountain(notebook)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / f'{slug}.fountain'
+        out = Path(tmp) / f'{slug}.pdf'
+        src.write_text(content, encoding='utf-8')
+        paper   = str(cover_meta.get('paper', 'usletter')).lower().replace(' ', '')
+        profile = 'usletter' if paper in ('usletter', 'letter', 'us') else 'a4'
+        result = subprocess.run(
+            [str(_AW_BIN), '--source', str(src), '--pdf', str(out), '--overwrite',
+             '--setting', f'print_profile={profile}'],
+            capture_output=True, timeout=60
+        )
+        if not out.exists():
+            err = result.stderr.decode(errors='replace') or result.stdout.decode(errors='replace')
+            return jsonify({'error': f'afterwriting failed: {err[:200]}'}), 500
+        pdf_bytes = out.read_bytes()
+
+    return Response(
+        pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="{slug}.pdf"'}
     )
 
 
