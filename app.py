@@ -9647,6 +9647,20 @@ def serve_web_plugin(filename):
     return send_from_directory(str(WEB_PLUGINS_DIR), filename)
 
 
+_COURIER_PRIME_DIR = Path('/usr/share/fonts/opentype/courier-prime')
+_COURIER_PRIME_ALLOWED = {
+    'Courier Prime.otf', 'Courier Prime Bold.otf',
+    'Courier Prime Italic.otf', 'Courier Prime Bold Italic.otf',
+}
+
+@app.route('/fonts/courier-prime/<path:filename>')
+def serve_courier_prime(filename):
+    """Serve Courier Prime OTF files from system font directory (apt: fonts-courier-prime)."""
+    if filename not in _COURIER_PRIME_ALLOWED or not _COURIER_PRIME_DIR.is_dir():
+        return '', 404
+    return send_from_directory(str(_COURIER_PRIME_DIR), filename)
+
+
 _RE_PLUGIN_TAG = re.compile(r'^//\s*@(\w+)\s*(.*?)\s*$')
 
 def _read_plugin_meta(path: Path) -> dict:
