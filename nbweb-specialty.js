@@ -626,8 +626,9 @@
         }
     });
 
-    // Theme picker popup
-    let _themePopup = null;
+    // ── Theme picker ──────────────────────────────────────────────────────────
+    let _themePopup     = null;
+    let _pickerNotebook = null;
 
     function _closeThemePopup() {
         _themePopup?.remove();
@@ -636,7 +637,8 @@
 
     async function _openThemePicker(btn, notebook) {
         _closeThemePopup();
-        const themes = await NbTheme.listThemes();
+        _pickerNotebook = notebook;
+        const themes  = await NbTheme.listThemes();
         const current = NbTheme.getSlug();
         const mode    = NbTheme.getMode();
 
@@ -645,6 +647,7 @@
         popup.innerHTML = `
             <div class="nb-theme-popup-toolbar">
                 <span class="nb-theme-popup-title">Theme</span>
+                <button class="nb-theme-new-btn" title="New theme">+</button>
                 <button class="nb-theme-mode-toggle" title="Toggle light/dark">${mode === 'dark' ? '☀ Light' : '☾ Dark'}</button>
             </div>
             <div class="nb-theme-cards"></div>`;
@@ -663,14 +666,26 @@
                     <span style="background:${vars.green  || '#4a4'}"></span>
                     <span style="background:${vars.red    || '#a44'}"></span>
                 </span>
-                <span class="nb-theme-card-name">${_esc(t.name)}</span>`;
+                <span class="nb-theme-card-name">${_esc(t.name)}</span>
+                <button class="nb-theme-card-edit" title="Edit theme">✏</button>`;
             card.addEventListener('click', async () => {
                 await NbTheme.apply(t.slug, NbTheme.getMode());
                 await NbTheme.saveToNotebook(t.slug, notebook);
                 _closeThemePopup();
             });
+            card.querySelector('.nb-theme-card-edit').addEventListener('click', async e => {
+                e.stopPropagation();
+                _closeThemePopup();
+                const data = await NbTheme.getTheme(t.slug);
+                _openThemeEditor(t.slug, data);
+            });
             cards.appendChild(card);
         }
+
+        popup.querySelector('.nb-theme-new-btn').addEventListener('click', () => {
+            _closeThemePopup();
+            _openThemeEditor(null, null);
+        });
 
         popup.querySelector('.nb-theme-mode-toggle').addEventListener('click', async () => {
             await NbTheme.toggleMode();
@@ -678,11 +693,10 @@
             _openThemePicker(btn, notebook);
         });
 
-        // Stop ALL clicks inside the popup from reaching document-level handlers
         popup.addEventListener('click', e => e.stopPropagation());
 
         document.body.appendChild(popup);
-        _themePopup = popup;   // set before positioning so any stray event finds it set
+        _themePopup = popup;
         const r = btn.getBoundingClientRect();
         popup.style.top  = `${r.bottom + 6}px`;
         popup.style.left = `${Math.min(r.left, window.innerWidth - popup.offsetWidth - 8)}px`;
@@ -700,12 +714,261 @@
     });
 
     document.addEventListener('nb-theme-changed', () => {
-        // Refresh active-card highlight if popup is open
         if (!_themePopup) return;
         _themePopup.querySelectorAll('.nb-theme-card').forEach(c => {
             c.classList.toggle('nb-theme-card-active', c.dataset.slug === NbTheme.getSlug());
         });
     });
+
+    // ── Theme editor ──────────────────────────────────────────────────────────
+    const _TEE_VARS = ['bg','bg2','bg3','border','text','text-muted','text-dim',
+                       'accent','accent-dim','green','red','yellow','alert','alert-bg','alert-border'];
+
+    let _teeOverlay = null;
+    let _teeSlug    = null;
+    let _teeIsBI    = false;
+    let _teeSnap    = null;
+    let _teeMode    = 'dark';
+    let _teeState   = null;
+    let _teeName    = '';
+    let _teeDesc    = '';
+
+    function _teeModeDefaults(dark) {
+        return dark
+            ? { bg:'#1a1e24', bg2:'#22272e', bg3:'#2b3038', text:'#cdd9e5',
+                accent:'#5b9bd5', green:'#57ab5a', red:'#e5534b', yellow:'#c69026',
+                alert:'#c69026', borderColor:'#ffffff', borderAlpha:0.08 }
+            : { bg:'#f5f5f5', bg2:'#ffffff', bg3:'#ebebeb', text:'#1a1a1a',
+                accent:'#3d8fd4', green:'#2a9d5c', red:'#d94040', yellow:'#c47a00',
+                alert:'#c47a00', borderColor:'#000000', borderAlpha:0.12 };
+    }
+
+    function _teeParseColor(color) {
+        if (!color) return { hex: '#888888', alpha: 1 };
+        if (color.startsWith('#')) return { hex: color.slice(0, 7), alpha: 1 };
+        const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+        if (m) {
+            const hex = '#' + [m[1], m[2], m[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
+            return { hex, alpha: m[4] !== undefined ? parseFloat(m[4]) : 1 };
+        }
+        return { hex: '#888888', alpha: 1 };
+    }
+
+    function _teeHexRgba(hex, a) {
+        if (a >= 1) return hex;
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},${a})`;
+    }
+
+    function _teeVarsFromData(vars) {
+        const bc = _teeParseColor(vars.border);
+        return {
+            bg:          vars.bg          || '#1a1e24',
+            bg2:         vars.bg2         || '#22272e',
+            bg3:         vars.bg3         || '#2b3038',
+            text:        vars.text        || '#cdd9e5',
+            accent:      vars.accent      || '#5b9bd5',
+            green:       vars.green       || '#57ab5a',
+            red:         vars.red         || '#e5534b',
+            yellow:      vars.yellow      || '#c69026',
+            alert:       vars.alert       || vars.yellow || '#c69026',
+            borderColor: bc.hex,
+            borderAlpha: bc.alpha,
+        };
+    }
+
+    function _teeCompute(s) {
+        return {
+            bg:             s.bg,
+            bg2:            s.bg2,
+            bg3:            s.bg3,
+            border:         _teeHexRgba(s.borderColor, s.borderAlpha),
+            text:           s.text,
+            'text-muted':   _teeHexRgba(s.text, 0.45),
+            'text-dim':     _teeHexRgba(s.text, 0.25),
+            accent:         s.accent,
+            'accent-dim':   _teeHexRgba(s.accent, 0.18),
+            green:          s.green,
+            red:            s.red,
+            yellow:         s.yellow,
+            alert:          s.alert,
+            'alert-bg':     _teeHexRgba(s.alert, 0.12),
+            'alert-border': _teeHexRgba(s.alert, 0.38),
+        };
+    }
+
+    function _teeRefresh() {
+        if (!_teeOverlay) return;
+        const vars = _teeCompute(_teeState[_teeMode]);
+        _teeOverlay.querySelectorAll('[data-d]').forEach(el => {
+            el.style.background = vars[el.dataset.d] || 'transparent';
+        });
+        const sw = _teeOverlay.querySelector('.nb-tee-preview-swatches');
+        if (sw) {
+            [vars.bg, vars.bg2, vars.accent, vars.green, vars.red].forEach((c, i) => {
+                if (sw.children[i]) sw.children[i].style.background = c;
+            });
+        }
+        NbTheme.applyRaw(vars);
+    }
+
+    function _teeLoadInputs() {
+        if (!_teeOverlay) return;
+        const s = _teeState[_teeMode];
+        _teeOverlay.querySelectorAll('[data-k]').forEach(inp => {
+            const k = inp.dataset.k;
+            if (inp.type === 'range') inp.value = s[k] ?? 1;
+            else inp.value = s[k] || '#888888';
+        });
+        _teeRefresh();
+    }
+
+    async function _openThemeEditor(slug, themeData) {
+        if (_teeOverlay) _closeThemeEditor(true);
+        _teeSlug = slug;
+        _teeIsBI = slug === 'default';
+        _teeMode = NbTheme.getMode();
+
+        const style = getComputedStyle(document.documentElement);
+        _teeSnap = Object.fromEntries(_TEE_VARS.map(k => [k, style.getPropertyValue(`--${k}`).trim()]));
+
+        if (themeData && slug) {
+            _teeState = {
+                dark:  _teeVarsFromData(themeData.dark  || {}),
+                light: _teeVarsFromData(themeData.light || {}),
+            };
+            _teeName = themeData.name || slug;
+            _teeDesc = themeData.desc || '';
+        } else {
+            _teeState = { dark: _teeModeDefaults(true), light: _teeModeDefaults(false) };
+            _teeName  = '';
+            _teeDesc  = '';
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'nb-tee-overlay';
+        overlay.innerHTML = `
+<div class="nb-tee-modal">
+  <div class="nb-tee-header">
+    <input type="text" class="nb-tee-name" placeholder="Theme name" value="${_esc(_teeName)}"/>
+    <button class="nb-tee-close" title="Close">×</button>
+  </div>
+  <div class="nb-tee-tabs">
+    <button class="nb-tee-tab${_teeMode==='dark'?' active':''}" data-m="dark">☾ Dark</button>
+    <button class="nb-tee-tab${_teeMode==='light'?' active':''}" data-m="light">☀ Light</button>
+    <div class="nb-tee-preview-wrap">
+      <span class="nb-tee-preview-label">Preview</span>
+      <span class="nb-tee-preview-swatches"><span></span><span></span><span></span><span></span><span></span></span>
+    </div>
+  </div>
+  <div class="nb-tee-grid">
+    <div class="nb-tee-section">Surfaces</div>
+    <label class="nb-tee-item">bg<input type="color" data-k="bg"/></label>
+    <label class="nb-tee-item">bg2<input type="color" data-k="bg2"/></label>
+    <label class="nb-tee-item">bg3<input type="color" data-k="bg3"/></label>
+    <div class="nb-tee-section">Text</div>
+    <label class="nb-tee-item">text<input type="color" data-k="text"/></label>
+    <div class="nb-tee-item nb-tee-derived"><span class="nb-tee-dswatch" data-d="text-muted"></span>muted</div>
+    <div class="nb-tee-item nb-tee-derived"><span class="nb-tee-dswatch" data-d="text-dim"></span>dim</div>
+    <div class="nb-tee-section">Chrome</div>
+    <div class="nb-tee-border-item">border
+      <input type="color" data-k="borderColor"/>
+      <input type="range" min="0" max="1" step="0.01" data-k="borderAlpha" class="nb-tee-alpha" title="Opacity"/>
+    </div>
+    <label class="nb-tee-item">accent<input type="color" data-k="accent"/></label>
+    <div class="nb-tee-item nb-tee-derived"><span class="nb-tee-dswatch" data-d="accent-dim"></span>dim</div>
+    <div class="nb-tee-section">Semantic</div>
+    <label class="nb-tee-item">green<input type="color" data-k="green"/></label>
+    <label class="nb-tee-item">red<input type="color" data-k="red"/></label>
+    <label class="nb-tee-item">yellow<input type="color" data-k="yellow"/></label>
+    <div class="nb-tee-section">Alert</div>
+    <label class="nb-tee-item">alert<input type="color" data-k="alert"/></label>
+    <div class="nb-tee-item nb-tee-derived"><span class="nb-tee-dswatch" data-d="alert-bg"></span>bg</div>
+    <div class="nb-tee-item nb-tee-derived"><span class="nb-tee-dswatch" data-d="alert-border"></span>border</div>
+  </div>
+  <textarea class="nb-tee-desc" placeholder="Description (optional)">${_esc(_teeDesc)}</textarea>
+  <div class="nb-tee-footer">
+    <button class="nb-tee-save">Save theme</button>
+    <button class="nb-tee-cancel">Cancel</button>
+    ${!_teeIsBI && slug ? '<button class="nb-tee-delete">Delete</button>' : ''}
+  </div>
+</div>`;
+
+        overlay.querySelector('.nb-tee-close').addEventListener('click',  () => _closeThemeEditor(true));
+        overlay.querySelector('.nb-tee-cancel').addEventListener('click', () => _closeThemeEditor(true));
+        overlay.querySelector('.nb-tee-name').addEventListener('input', e => { _teeName = e.target.value; });
+        overlay.querySelector('.nb-tee-desc').addEventListener('input', e => { _teeDesc = e.target.value; });
+
+        overlay.querySelectorAll('.nb-tee-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _teeMode = btn.dataset.m;
+                overlay.querySelectorAll('.nb-tee-tab').forEach(b => b.classList.toggle('active', b === btn));
+                _teeLoadInputs();
+            });
+        });
+
+        overlay.querySelectorAll('[data-k]').forEach(inp => {
+            inp.addEventListener('input', () => {
+                const k = inp.dataset.k;
+                _teeState[_teeMode][k] = inp.type === 'range' ? parseFloat(inp.value) : inp.value;
+                _teeRefresh();
+            });
+        });
+
+        overlay.querySelector('.nb-tee-save').addEventListener('click', _teeSave);
+        overlay.querySelector('.nb-tee-delete')?.addEventListener('click', _teeDelete);
+
+        document.body.appendChild(overlay);
+        _teeOverlay = overlay;
+        _teeLoadInputs();
+    }
+
+    function _closeThemeEditor(restoreVars) {
+        if (!_teeOverlay) return;
+        if (restoreVars && _teeSnap) {
+            const root = document.documentElement;
+            for (const [k, v] of Object.entries(_teeSnap))
+                root.style.setProperty(`--${k}`, v);
+        }
+        _teeOverlay.remove();
+        _teeOverlay = null;
+    }
+
+    async function _teeSave() {
+        const name = _teeName.trim() || 'Untitled';
+        const slug = _teeSlug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'theme';
+        const dark  = _teeCompute(_teeState.dark);
+        const light = _teeCompute(_teeState.light);
+        try {
+            const r = await fetch('/api/theme-save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slug, name, desc: _teeDesc.trim(), dark, light }),
+            });
+            if (!r.ok) throw new Error(await r.text());
+            NbTheme.clearCache();
+            await NbTheme.apply(slug, _teeMode);
+            _closeThemeEditor(false);
+        } catch (err) {
+            alert('Could not save theme: ' + err.message);
+        }
+    }
+
+    async function _teeDelete() {
+        if (!_teeSlug || _teeIsBI) return;
+        if (!confirm(`Delete theme "${_teeName}"?`)) return;
+        try {
+            const r = await fetch(`/api/theme-delete/${encodeURIComponent(_teeSlug)}`, { method: 'DELETE' });
+            if (!r.ok) throw new Error(await r.text());
+            NbTheme.clearCache();
+            await NbTheme.apply('default', _teeMode);
+            _closeThemeEditor(true);
+        } catch (err) {
+            alert('Could not delete theme: ' + err.message);
+        }
+    }
 
     // Public API — plugins call these after this script loads
     window.NbSpecialty = {
