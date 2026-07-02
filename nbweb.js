@@ -188,7 +188,16 @@ const NbWeb = (() => {
         const multi = active.find(m => m.previewRenderers?.length);
         if (multi) return note => {
             const r = multi.previewRenderers.find(pr => !pr.detect || pr.detect(note));
-            return r ? r.render(note) : null;
+            if (r) return r.render(note);
+            // No multi-renderer claimed this note — fall through to single previewRenderer modules
+            // (e.g. specialty handles project/dotfile/dashboard in a cine notebook)
+            for (const m of active) {
+                if (!m.previewRenderers && m.previewRenderer) {
+                    const html = m.previewRenderer(note);
+                    if (html != null) return html;
+                }
+            }
+            return null;
         };
         return active.find(m => m.previewRenderer)?.previewRenderer ?? null;
     }
