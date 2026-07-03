@@ -1429,7 +1429,7 @@
 
         // Inject journal: FM key as positional path when no file already in query.
         const _fmNote   = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
-        const _fmJournal = _fmNote?.meta?.journal || '';
+        const _fmJournal = _fmNote?.meta?.journal || _fmNote?.effective_fm?.journal || '';
         if (_fmJournal) {
             const _qt = q.trim();
             const _firstTok = _qt.split(/\s+/)[0]?.toLowerCase() || '';
