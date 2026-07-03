@@ -11,6 +11,11 @@
 
     // ── Specialty nav popup ───────────────────────────────────────────────────
     let _navPop = null, _navTrigger = null;
+    const _navCache = new Map(); // notebook → Promise<notes[]>, session-scoped
+
+    function _navBtn(notebook, icon) {
+        return `<button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(notebook)}" title="All specialty notes in ${_esc(notebook || 'this notebook')}">${icon}</button>`;
+    }
 
     function _closeNavPop() {
         _navPop?.remove(); _navPop = null;
@@ -32,7 +37,9 @@
         pop.style.left = `${Math.min(rect.left, window.innerWidth - 280)}px`;
 
         try {
-            const d = await fetch(`/api/notes?notebook=${encodeURIComponent(notebook)}`).then(r => r.json());
+            if (!_navCache.has(notebook))
+                _navCache.set(notebook, fetch(`/api/notes?notebook=${encodeURIComponent(notebook)}`).then(r => r.json()));
+            const d = await _navCache.get(notebook);
             const notes = (d.notes || []).filter(n => _cfg[n.type]);
 
             if (!notes.length) {
@@ -409,7 +416,7 @@
             return `<div class="nb-project-marker" data-marker="${markerType}">${content}</div>\n`;
         });
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(note.notebook || '')}" title="All specialty notes in ${_esc(note.notebook || 'this notebook')}">${icon}</button>
+            ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
             ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(body, note.selector);
@@ -443,7 +450,7 @@
         const keysPill   = keyCount ? `<span class="nb-specialty-pill">${keyCount} keys</span>` : '';
 
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(note.notebook || '')}" title="All specialty notes in ${_esc(note.notebook || 'this notebook')}">⚙️</button>
+            ${_navBtn(note.notebook || '', '⚙️')}
             <span class="nb-specialty-label">${_esc(label)}</span>
             ${dashLink}
             ${scopePill}${parentPill}${keysPill}
@@ -496,7 +503,7 @@
             : '';
 
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(nb)}" title="All specialty notes in ${_esc(nb || 'this notebook')}">🗂️</button>
+            ${_navBtn(nb, '🗂️')}
             <span class="nb-specialty-label">${_esc(domain)}</span>
             ${configLink}
             <span class="nb-specialty-pill">${fileCount} files</span>
@@ -573,7 +580,7 @@
             : '';
 
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(note.notebook || '')}" title="All specialty notes in ${_esc(note.notebook || 'this notebook')}">${icon}</button>
+            ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
             ${pairLink}${sourceWarn}${pillsHtml}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
