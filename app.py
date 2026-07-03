@@ -7617,8 +7617,8 @@ def api_nb_config_sync():
     remote_r = _nb_config_git('remote', 'get-url', 'origin')
     if remote_r.returncode != 0:
         return jsonify({'error': 'No remote configured'}), 400
-    pull_r = _nb_config_git('pull', '--no-edit', 'origin', 'master', timeout=30)
-    push_r = _nb_config_git('push', 'origin', 'HEAD:master', timeout=30)
+    pull_r = _nb_config_git('pull', '--no-edit', 'origin', 'nb-config', timeout=30)
+    push_r = _nb_config_git('push', 'origin', 'HEAD:nb-config', timeout=30)
     return jsonify({
         'success': push_r.returncode == 0,
         'output':  pull_r.stdout + pull_r.stderr + push_r.stdout + push_r.stderr,
