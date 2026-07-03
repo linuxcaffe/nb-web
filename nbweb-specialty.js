@@ -539,8 +539,9 @@
     });
 
     NbWeb.registerModule('specialty', {
-        label:        'NbWeb Specialty',
-        description:  'Typed note headers for project, invoice, quote, budget and related FM types.',
+        label:                'NbWeb Specialty',
+        description:          'Typed note headers for project, invoice, quote, budget and related FM types.',
+        previewRendererDetect: note => !!_cfg[note.type],
         previewRenderer: note => {
             if (note.type === 'dashboard') return _renderDashboardNote(note);
             if (note.type === 'dotfile')   return _renderDotfileNote(note);
