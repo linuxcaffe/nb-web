@@ -29,7 +29,7 @@
   <button id="nb-logo-btn" class="nb-logo-btn" data-i18n-title="tip_menu" title="Menu"><img src="/nb-logo.png" alt="nb" class="nb-logo-img"></button>
   <span class="nb-cmd-group-sep" aria-hidden="true"></span>
   <div id="nb-cmds-builtin">
-    <button class="nb-cmd" data-cmd="add" data-i18n="btn_add">Add</button>
+    <button class="nb-cmd nb-action-write" data-cmd="add" data-i18n="btn_add">Add</button>
     <button class="nb-cmd active" data-cmd="list" data-i18n="btn_list">List</button>
   </div>
   <span class="nb-cmd-group-sep" aria-hidden="true"></span>
@@ -95,12 +95,12 @@
       </div>
       <div id="nb-preview-actions">
         <span id="nb-pin-indicator" hidden data-i18n-title="tip_pin" title="Pinned to list top — click to unpin">📌</span>
-        <button id="nb-done-btn"       class="nb-tool-btn nb-btn-primary" data-i18n="btn_done"    hidden>Done</button>
-        <button id="nb-sheet-save-btn" class="nb-tool-btn nb-btn-primary" data-i18n="btn_save"    hidden>Save</button>
+        <button id="nb-done-btn"       class="nb-tool-btn nb-btn-primary nb-action-write" data-i18n="btn_done"    hidden>Done</button>
+        <button id="nb-sheet-save-btn" class="nb-tool-btn nb-btn-primary nb-action-write" data-i18n="btn_save"    hidden>Save</button>
         <button id="nb-open-ext-btn"   class="nb-tool-btn" hidden title="Open with system viewer" data-i18n="btn_open">↗ Open</button>
-        <button id="nb-changes-btn" class="nb-tool-btn" hidden data-i18n="btn_fm" data-i18n-title="tip_fm" title="Edit frontmatter fields">FM</button>
-        <button id="nb-edit-btn"   class="nb-tool-btn" data-i18n="btn_edit">Edit</button>
-        <button id="nb-delete-btn" class="nb-tool-btn nb-btn-danger" data-i18n="btn_delete">Delete</button>
+        <button id="nb-changes-btn" class="nb-tool-btn nb-action-write" hidden data-i18n="btn_fm" data-i18n-title="tip_fm" title="Edit frontmatter fields">FM</button>
+        <button id="nb-edit-btn"   class="nb-tool-btn nb-action-write" data-i18n="btn_edit">Edit</button>
+        <button id="nb-delete-btn" class="nb-tool-btn nb-btn-danger nb-action-write" data-i18n="btn_delete">Delete</button>
       </div>
     </div>
 
@@ -125,7 +125,7 @@
         <button id="nb-ln-btn"       class="nb-tool-btn" title="Toggle line numbers">ln#</button>
         <button id="nb-mkd-ref-btn"  class="nb-tool-btn" title="Markdown quick reference">mkd ref</button>
         <span class="nb-spacer"></span>
-        <button id="nb-save-btn"   class="nb-tool-btn nb-btn-primary" data-i18n="btn_save">Save</button>
+        <button id="nb-save-btn"   class="nb-tool-btn nb-btn-primary nb-action-write" data-i18n="btn_save">Save</button>
         <button id="nb-cancel-btn" class="nb-tool-btn" data-i18n="btn_cancel">Cancel</button>
       </div>
       <div id="nb-editor-area">

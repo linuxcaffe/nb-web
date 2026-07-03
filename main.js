@@ -1922,8 +1922,8 @@ const NbMain = (() => {
                 <div class="nb-ann-bar">
                     <span class="nb-ann-label">📝 Annotation</span>
                     <span class="nb-ann-actions">
-                        <button class="nb-ann-edit-btn nb-tw-btn">Edit</button>
-                        <button class="nb-ann-del-btn nb-tw-btn">Delete</button>
+                        <button class="nb-ann-edit-btn nb-tw-btn nb-action-write">Edit</button>
+                        <button class="nb-ann-del-btn nb-tw-btn nb-action-write">Delete</button>
                     </span>
                 </div>
                 <div class="nb-ann-body nb-rendered">${_renderMarkdown(displayText)}</div>`;

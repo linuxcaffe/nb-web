@@ -3894,3 +3894,20 @@ span.nb-cb-icon.nb-cb-icon--emoji {
   color: var(--text-muted); min-width: 72px; flex-shrink: 0; }
 .nb-sa-cfgs { display: flex; flex-direction: column; gap: 4px; }
 .nb-sa-cfg-row { display: flex; align-items: center; gap: 6px; }
+
+/* ── Auth-level CSS gates ────────────────────────────────────────────────────
+   body[data-user-level] is stamped by nb-auth.js immediately after /api/me.
+   .nb-action-write  — requires user+   (Edit, Delete, Add, Save, Rename…)
+   .nb-action-office — requires office+ (billing, sensitive ops)
+   .nb-action-admin  — requires admin+  (Configure, Settings, dotfile edit…)
+   Add the class to any button/element; visibility is automatic.
+   Backend write guards are the real enforcement — these gates just clean up UI.
+   --------------------------------------------------------------------------- */
+body[data-user-level="guest"] .nb-action-write,
+body[data-user-level="guest"] .nb-action-office,
+body[data-user-level="guest"] .nb-action-admin  { display: none !important; }
+
+body[data-user-level="user"]  .nb-action-office,
+body[data-user-level="user"]  .nb-action-admin  { display: none !important; }
+
+body[data-user-level="office"] .nb-action-admin { display: none !important; }
