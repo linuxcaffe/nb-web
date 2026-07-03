@@ -9354,6 +9354,140 @@ def api_sysadmin():
 
 
 # ---------------------------------------------------------------------------
+# API: User management (admin+)
+# ---------------------------------------------------------------------------
+
+def _admin_check():
+    """Return error response or None. Requires admin+ level."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify(error='forbidden'), 403
+    return None
+
+def _read_all_users():
+    """Return sorted list of user dicts (no password_hash)."""
+    users = []
+    if not USERS_DIR.exists():
+        return users
+    for path in sorted(USERS_DIR.glob('*.md')):
+        stem = path.stem
+        if not _RE_USERNAME.match(stem):
+            continue
+        try:
+            meta, _ = parse_frontmatter(path.read_text())
+            nbs = meta.get('notebooks')
+            users.append({
+                'username':  stem,
+                'name':      str(meta.get('name', stem)),
+                'level':     str(meta.get('level', 'user')),
+                'notebooks': list(nbs) if isinstance(nbs, (list, tuple)) else [],
+                'selector':  f'.users:{stem}.md',
+            })
+        except Exception:
+            continue
+    users.sort(key=lambda u: (LEVELS.index(u['level']) if u['level'] in LEVELS else 0, u['username']), reverse=True)
+    return users
+
+@app.route('/api/users')
+def api_list_users():
+    err = _admin_check()
+    if err: return err
+    return jsonify({'users': _read_all_users()})
+
+@app.route('/api/users', methods=['POST'])
+def api_create_user():
+    err = _admin_check()
+    if err: return err
+    data     = request.get_json(force=True) or {}
+    username = (data.get('username') or '').strip().lower()
+    name     = (data.get('name') or '').strip()
+    level    = (data.get('level') or 'user').strip()
+    password = (data.get('password') or '').strip()
+    notebooks = data.get('notebooks') or []
+
+    if not username or not _RE_USERNAME.match(username):
+        return jsonify(error='Invalid username'), 400
+    if level not in LEVELS:
+        return jsonify(error='Invalid level'), 400
+    if not password:
+        return jsonify(error='Password required'), 400
+
+    # Prevent privilege escalation: can't create user with higher level than yourself
+    caller = session.get('user', {})
+    if LEVELS.index(level) > LEVELS.index(caller.get('level', 'guest')):
+        return jsonify(error='Cannot create user with higher level than your own'), 403
+
+    path = USERS_DIR / f'{username}.md'
+    if path.exists():
+        return jsonify(error=f'User {username!r} already exists'), 409
+
+    pw_hash = generate_password_hash(password)
+    nb_yaml = '\n'.join(f'  - {nb}' for nb in notebooks) if notebooks else ''
+    nb_line  = f'notebooks:\n{nb_yaml}' if nb_yaml else 'notebooks: []'
+    content  = f'---\nname: {name or username}\nlevel: {level}\n{nb_line}\npassword_hash: "{pw_hash}"\n---\n'
+    USERS_DIR.mkdir(exist_ok=True)
+    path.write_text(content)
+    return jsonify({'success': True, 'selector': f'.users:{username}.md'})
+
+@app.route('/api/users/<username>', methods=['PUT'])
+def api_update_user(username):
+    err = _admin_check()
+    if err: return err
+    if not _RE_USERNAME.match(username):
+        return jsonify(error='Invalid username'), 400
+
+    path = USERS_DIR / f'{username}.md'
+    if not path.exists():
+        return jsonify(error='User not found'), 404
+
+    data     = request.get_json(force=True) or {}
+    caller   = session.get('user', {})
+
+    try:
+        meta, body = parse_frontmatter(path.read_text())
+    except Exception:
+        return jsonify(error='Could not read user card'), 500
+
+    if 'name' in data:
+        meta['name'] = str(data['name']).strip()
+    if 'level' in data:
+        new_level = str(data['level']).strip()
+        if new_level not in LEVELS:
+            return jsonify(error='Invalid level'), 400
+        if LEVELS.index(new_level) > LEVELS.index(caller.get('level', 'guest')):
+            return jsonify(error='Cannot elevate user above your own level'), 403
+        meta['level'] = new_level
+    if 'notebooks' in data:
+        meta['notebooks'] = list(data['notebooks'])
+    if 'password' in data and data['password']:
+        meta['password_hash'] = generate_password_hash(str(data['password']))
+
+    # Reconstruct YAML frontmatter preserving password_hash
+    nbs = meta.get('notebooks', [])
+    nb_yaml = '\n'.join(f'  - {nb}' for nb in nbs) if nbs else ''
+    nb_line  = f'notebooks:\n{nb_yaml}' if nb_yaml else 'notebooks: []'
+    content  = (f'---\nname: {meta.get("name", username)}\nlevel: {meta.get("level", "user")}\n'
+                f'{nb_line}\npassword_hash: "{meta.get("password_hash", "")}"\n---\n{body}')
+    path.write_text(content)
+    return jsonify({'success': True})
+
+@app.route('/api/users/<username>', methods=['DELETE'])
+def api_delete_user(username):
+    err = _admin_check()
+    if err: return err
+    if not _RE_USERNAME.match(username):
+        return jsonify(error='Invalid username'), 400
+    caller = session.get('user', {})
+    if caller.get('username') == username:
+        return jsonify(error='Cannot delete your own account'), 400
+    path = USERS_DIR / f'{username}.md'
+    if not path.exists():
+        return jsonify(error='User not found'), 404
+    path.unlink()
+    return jsonify({'success': True})
+
+
+# ---------------------------------------------------------------------------
 # API: Rename / Move note
 # ---------------------------------------------------------------------------
 

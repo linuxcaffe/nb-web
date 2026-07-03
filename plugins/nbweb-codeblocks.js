@@ -4056,6 +4056,137 @@
 
     // ── sysadmin ──────────────────────────────────────────────────────────────
 
+    function _dispatchSysadminBlock(el) {
+        return el.dataset.mode === 'users' ? _loadSysadminUsersBlock(el) : _loadSysadminBlock(el);
+    }
+
+    const _SA_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];
+
+    async function _loadSysadminUsersBlock(el) {
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch('/api/users');
+            if (r.status === 403) { el.innerHTML = '<span class="nb-sa-muted">User management requires admin level.</span>'; return; }
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            const myLevel = window.NbAuth?.level() || 'guest';
+            const myUsername = window.NbUser?.username || '';
+
+            const renderRow = u => {
+                const isSelf = u.username === myUsername;
+                const levelSel = _SA_LEVELS.map(l =>
+                    `<option value="${l}"${l === u.level ? ' selected' : ''}>${l}</option>`
+                ).join('');
+                const nbs = u.notebooks?.length ? u.notebooks.join(', ') : '(all)';
+                const delBtn = isSelf ? '' :
+                    `<button class="nb-sa-user-del nb-action-admin" data-username="${_esc(u.username)}" title="Delete user">🗑</button>`;
+                return `<tr data-username="${_esc(u.username)}">
+                    <td class="nb-sa-name">
+                        <a href="#" class="nb-sa-link" data-open="${_esc(u.selector)}">${_esc(u.username)}</a>
+                        ${isSelf ? '<span class="nb-sa-self-badge">you</span>' : ''}
+                    </td>
+                    <td><select class="nb-sa-level-sel nb-action-admin" data-username="${_esc(u.username)}" data-orig="${_esc(u.level)}">${levelSel}</select></td>
+                    <td class="nb-sa-muted">${_esc(u.name)}</td>
+                    <td class="nb-sa-muted nb-sa-notebooks">${_esc(nbs)}</td>
+                    <td>${delBtn}</td>
+                </tr>`;
+            };
+
+            const rows = (d.users || []).map(renderRow).join('');
+
+            el.innerHTML = `
+                <div class="nb-sa-section">
+                    <div class="nb-sa-heading">Users
+                        <span class="nb-sa-muted">${(d.users || []).length} accounts</span>
+                        <button class="nb-sa-add-user-btn nb-action-admin">+ Add user</button>
+                    </div>
+                    <table class="nb-sa-table nb-sa-users-table">
+                        <thead><tr><th>Username</th><th>Level</th><th>Name</th><th>Notebooks</th><th></th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                    <div class="nb-sa-add-form" hidden>
+                        <div class="nb-sa-form-row">
+                            <input class="nb-sa-input" name="username" placeholder="username" autocomplete="off">
+                            <input class="nb-sa-input" name="name"     placeholder="display name">
+                            <select class="nb-sa-input" name="level">
+                                ${_SA_LEVELS.map(l => `<option value="${l}"${l==='user'?' selected':''}>${l}</option>`).join('')}
+                            </select>
+                            <input class="nb-sa-input" name="password" type="password" placeholder="password">
+                            <button class="nb-sa-form-create nb-btn-primary">Create</button>
+                            <button class="nb-sa-form-cancel">Cancel</button>
+                        </div>
+                        <div class="nb-sa-form-err" hidden></div>
+                    </div>
+                </div>`;
+
+            // Level change
+            el.addEventListener('change', async ev => {
+                const sel = ev.target.closest('.nb-sa-level-sel');
+                if (!sel) return;
+                const username = sel.dataset.username;
+                const level    = sel.value;
+                sel.disabled   = true;
+                try {
+                    const r = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ level }),
+                    });
+                    if (!r.ok) {
+                        const e = await r.json().catch(() => ({}));
+                        alert(e.error || `Failed to update ${username}`);
+                        sel.value = sel.dataset.orig;
+                    } else {
+                        sel.dataset.orig = level;
+                    }
+                } finally { sel.disabled = false; }
+            });
+
+            // Delete user
+            el.addEventListener('click', async ev => {
+                const btn = ev.target.closest('.nb-sa-user-del');
+                if (!btn) return;
+                const username = btn.dataset.username;
+                if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+                btn.disabled = true;
+                const r = await fetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+                if (r.ok) {
+                    btn.closest('tr').remove();
+                } else {
+                    const e = await r.json().catch(() => ({}));
+                    alert(e.error || 'Delete failed');
+                    btn.disabled = false;
+                }
+            });
+
+            // Add user form toggle
+            const addBtn  = el.querySelector('.nb-sa-add-user-btn');
+            const form    = el.querySelector('.nb-sa-add-form');
+            const errEl   = el.querySelector('.nb-sa-form-err');
+            addBtn.addEventListener('click', () => { form.hidden = false; addBtn.hidden = true; });
+            el.querySelector('.nb-sa-form-cancel').addEventListener('click', () => { form.hidden = true; addBtn.hidden = false; errEl.hidden = true; });
+
+            el.querySelector('.nb-sa-form-create').addEventListener('click', async () => {
+                const get = name => form.querySelector(`[name="${name}"]`).value.trim();
+                const body = { username: get('username'), name: get('name'), level: get('level'), password: get('password') };
+                if (!body.username || !body.password) { errEl.textContent = 'Username and password required.'; errEl.hidden = false; return; }
+                const r = await fetch('/api/users', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+                });
+                if (r.ok) {
+                    _loadSysadminUsersBlock(el);  // refresh
+                } else {
+                    const e = await r.json().catch(() => ({}));
+                    errEl.textContent = e.error || 'Create failed';
+                    errEl.hidden = false;
+                }
+            });
+
+        } catch(e) {
+            el.innerHTML = `<span style="color:var(--red)">⚠ ${_esc(String(e))}</span>`;
+        }
+    }
+
     async function _loadSysadminBlock(el) {
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
@@ -5827,11 +5958,14 @@
             },
             {
                 lang:      'sysadmin',
-                html:      () => `<div class="nb-sysadmin-block"><span class="nb-spin">⟳</span></div>`,
-                renderOne: async el => _loadSysadminBlock(el),
+                html:      text => {
+                    const mode = (text || '').trim() || 'inventory';
+                    return `<div class="nb-sysadmin-block" data-mode="${_esc(mode)}"><span class="nb-spin">⟳</span></div>`;
+                },
+                renderOne: async el => _dispatchSysadminBlock(el),
                 render:    async container => {
                     const blocks = [...container.querySelectorAll('.nb-sysadmin-block')];
-                    await Promise.all(blocks.map(el => _loadSysadminBlock(el)));
+                    await Promise.all(blocks.map(el => _dispatchSysadminBlock(el)));
                 },
             },
             {

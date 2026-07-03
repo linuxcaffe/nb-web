@@ -3911,3 +3911,22 @@ body[data-user-level="user"]  .nb-action-office,
 body[data-user-level="user"]  .nb-action-admin  { display: none !important; }
 
 body[data-user-level="office"] .nb-action-admin { display: none !important; }
+
+/* ── Sysadmin users block ────────────────────────────────────────────────── */
+.nb-sa-users-table { width: 100%; }
+.nb-sa-users-table td, .nb-sa-users-table th { vertical-align: middle; }
+.nb-sa-level-sel { font-size: 0.82em; padding: 1px 4px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+.nb-sa-self-badge { font-size: 0.72em; padding: 1px 5px; border-radius: 8px;
+  background: var(--bg3); color: var(--text-muted); margin-left: 4px; }
+.nb-sa-user-del { background: none; border: none; cursor: pointer; opacity: 0.5; font-size: 0.9em; }
+.nb-sa-user-del:hover { opacity: 1; }
+.nb-sa-add-user-btn { font-size: 0.82em; padding: 2px 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--accent); cursor: pointer;
+  margin-left: auto; }
+.nb-sa-add-user-btn:hover { background: var(--bg2); }
+.nb-sa-form-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.nb-sa-input { font-size: 0.85em; padding: 3px 7px; border-radius: 5px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.nb-sa-form-err { color: var(--red, #c44); font-size: 0.85em; margin-top: 4px; }
+.nb-sa-notebooks { font-size: 0.82em; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
