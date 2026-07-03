@@ -639,6 +639,35 @@ def _can_access(user, note_meta, nb_meta):
         return user.get('level') == 'tech' or user.get('username') == access
     return _level_gte(user.get('level', ''), access)
 
+
+def _can_write(user, selector, notebook=None):
+    """Return True if user may write (edit/delete/rename/move) a note.
+
+    Rules:
+      - minimum level: 'user' (guests never write)
+      - must pass _can_access read check for the resolved note
+      - username-access notes (access: djp) only writable by that user (or tech)
+
+    Pass selector=None and notebook=<name> to check create-in-notebook access.
+    """
+    if not _level_gte(user.get('level', ''), 'user'):
+        return False
+    if selector is None:
+        # Create check: notebook must be accessible to this user
+        nb_meta = _notebook_config(notebook) if notebook else {}
+        return _can_access(user, {}, nb_meta)
+    path = _resolve_to_nb_path(selector)
+    if path is None:
+        return False
+    nb_name = selector.split(':')[0] if ':' in selector else (notebook or '')
+    try:
+        note_meta, _ = parse_frontmatter(path.read_text(errors='replace'))
+    except OSError:
+        note_meta = {}
+    nb_meta = _notebook_config(nb_name) if nb_name else {}
+    return _can_access(user, note_meta, nb_meta)
+
+
 @app.before_request
 def _check_auth():
     if request.path in ('/login', '/logout', '/setup'):
@@ -5715,8 +5744,8 @@ def api_create_note():
     tags     = data.get('tags', [])
     ntype    = data.get('type', 'note')   # note | bookmark | todo
 
+    user = session.get('user', {})
     if _is_dot_notebook(notebook):
-        user = session.get('user', {})
         if not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
         filename = re.sub(r'[^\w\-.]', '_', title or 'note').strip('_') + '.md'
@@ -5726,6 +5755,9 @@ def api_create_note():
         except OSError as e:
             return jsonify({'error': str(e)}), 500
         return jsonify({'success': True, 'selector': f'{notebook}:{filename}'})
+
+    if not _can_write(user, None, notebook=notebook):
+        return jsonify({'error': 'forbidden'}), 403
 
     target = f"{notebook}:" + (f"{folder}/" if folder else '')
 
@@ -5919,9 +5951,10 @@ def api_edit_note():
     if not selector:
         return jsonify({'error': 'selector required'}), 400
 
+    user = session.get('user', {})
+
     # Special case: .nb:.nb.md → global config file (mirrors api_note GET handling)
     if selector == '.nb:.nb.md':
-        user = session.get('user', {})
         if not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
         selector = str(NB_DIR / '.nb.md')
@@ -5929,10 +5962,13 @@ def api_edit_note():
     # Resolve dotfolder selectors to absolute paths so the existing path-write code handles them
     dot_path = _dot_selector_to_path(selector)
     if dot_path is not None:
-        user = session.get('user', {})
         if not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
         selector = str(dot_path)
+    elif not selector.startswith('/'):
+        # Regular note — enforce per-note access
+        if not _can_write(user, selector):
+            return jsonify({'error': 'forbidden'}), 403
 
     if append is not None:
         if selector.startswith('/'):
@@ -6133,9 +6169,9 @@ def api_delete_note():
     selector = request.args.get('selector', '')
     if not selector:
         return jsonify({'error': 'selector required'}), 400
+    user = session.get('user', {})
     dot_path = _dot_selector_to_path(selector)
     if dot_path is not None:
-        user = session.get('user', {})
         if not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
         try:
@@ -6143,6 +6179,8 @@ def api_delete_note():
             return jsonify({'success': True, 'stderr': ''})
         except OSError as e:
             return jsonify({'error': str(e)}), 500
+    if not _can_write(user, selector):
+        return jsonify({'error': 'forbidden'}), 403
     r = run_nb('delete', selector, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
 
@@ -6159,6 +6197,9 @@ def api_todo_toggle():
     task_num = data.get('task', None)
     if not selector:
         return jsonify({'error': 'selector required'}), 400
+    user = session.get('user', {})
+    if not _can_write(user, selector):
+        return jsonify({'error': 'forbidden'}), 403
     cmd = 'do' if done else 'undo'
     args = [cmd, selector]
     if task_num is not None:
@@ -9338,6 +9379,10 @@ def api_rename():
     if not selector or not name:
         return jsonify({'error': 'selector and name required'}), 400
 
+    user = session.get('user', {})
+    if not _can_write(user, selector):
+        return jsonify({'error': 'forbidden'}), 403
+
     path_r = run_nb('show', selector, '--path')
     if not nb_ok(path_r):
         return jsonify({'error': 'not found'}), 404
@@ -9384,6 +9429,10 @@ def api_move():
     if not selector or not dest:
         return jsonify({'error': 'selector and dest required'}), 400
 
+    user = session.get('user', {})
+    if not _can_write(user, selector):
+        return jsonify({'error': 'forbidden'}), 403
+
     # Capture annotation path before the move
     path_r   = run_nb('show', selector, '--path')
     fpath    = Path(path_r['stdout'].strip()) if nb_ok(path_r) else None
@@ -9417,6 +9466,10 @@ def api_copy():
     dest     = data.get('dest', '').strip()   # e.g. "work:" or "tasks:folder/"
     if not selector or not dest:
         return jsonify({'error': 'selector and dest required'}), 400
+
+    user = session.get('user', {})
+    if not _can_write(user, selector):
+        return jsonify({'error': 'forbidden'}), 403
 
     fpath_r  = run_nb('show', selector, '--path')
     fpath    = Path(fpath_r['stdout'].strip()) if nb_ok(fpath_r) else None
