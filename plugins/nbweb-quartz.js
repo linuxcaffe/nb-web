@@ -150,6 +150,11 @@
         },
 
         // Handles both shop items (by path) and quartz content pages (by frontmatter).
+        previewRendererDetect: note => {
+            const m = note.meta || {};
+            return !!(note.selector && /:items\//.test(note.selector)) ||
+                   !!('caption' in m || 'SEO' in m || 'footnote' in m || 'with_tags' in m);
+        },
         previewRenderer: (note) => {
             const m      = note.meta || {};
             const isItem = note.selector && /:items\//.test(note.selector);
