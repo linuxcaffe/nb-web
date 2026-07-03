@@ -9,6 +9,59 @@
 
     const _esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
+    // ── Specialty nav popup ───────────────────────────────────────────────────
+    let _navPop = null, _navTrigger = null;
+
+    function _closeNavPop() {
+        _navPop?.remove(); _navPop = null;
+        _navTrigger?.classList.remove('nb-active'); _navTrigger = null;
+    }
+
+    async function _showSpecialtyNav(trigger, notebook, currentSel) {
+        _navTrigger = trigger;
+        trigger.classList.add('nb-active');
+
+        const pop = document.createElement('div');
+        pop.className = 'nb-specialty-nav-pop';
+        pop.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted)">⟳</div>';
+        document.body.appendChild(pop);
+        _navPop = pop;
+
+        const rect = trigger.getBoundingClientRect();
+        pop.style.top  = `${Math.min(rect.bottom + 4, window.innerHeight - 400)}px`;
+        pop.style.left = `${Math.min(rect.left, window.innerWidth - 280)}px`;
+
+        try {
+            const d = await fetch(`/api/notes?notebook=${encodeURIComponent(notebook)}`).then(r => r.json());
+            const notes = (d.notes || []).filter(n => _cfg[n.type]);
+
+            if (!notes.length) {
+                pop.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted);font-size:0.85em">No specialty notes in this notebook</div>';
+                return;
+            }
+
+            // Group in _cfg key order so type order is stable
+            const groups = Object.entries(
+                Object.fromEntries(Object.keys(_cfg).map(t => [t, []]))
+            );
+            for (const n of notes) groups.find(([t]) => t === n.type)?.[1].push(n);
+
+            pop.innerHTML = groups
+                .filter(([, items]) => items.length)
+                .map(([type, items]) => {
+                    const { icon, label } = _cfg[type];
+                    return `<div class="nb-specialty-nav-group">
+                        <div class="nb-specialty-nav-type">${icon} ${_esc(label)}</div>
+                        ${items.map(n =>
+                            `<a class="nb-specialty-nav-item${n.selector === currentSel ? ' nb-specialty-nav-current' : ''}" href="#" data-open="${_esc(n.selector)}">${_esc(n.title || n.filename || n.selector)}</a>`
+                        ).join('')}
+                    </div>`;
+                }).join('');
+        } catch {
+            pop.innerHTML = '<div style="padding:10px 12px;color:var(--red);font-size:0.85em">Error loading notes</div>';
+        }
+    }
+
     // Core type registry — plugins may add entries via NbSpecialty.register()
     const _cfg = {
         tools:     { icon: '🔧', label: 'Tool Inventory' },
@@ -356,7 +409,7 @@
             return `<div class="nb-project-marker" data-marker="${markerType}">${content}</div>\n`;
         });
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <span class="nb-specialty-icon">${icon}</span>
+            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(note.notebook || '')}" title="All specialty notes in ${_esc(note.notebook || 'this notebook')}">${icon}</button>
             <span class="nb-specialty-label">${_esc(label)}</span>
             ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(body, note.selector);
@@ -390,7 +443,7 @@
         const keysPill   = keyCount ? `<span class="nb-specialty-pill">${keyCount} keys</span>` : '';
 
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <span class="nb-specialty-icon">⚙️</span>
+            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(note.notebook || '')}" title="All specialty notes in ${_esc(note.notebook || 'this notebook')}">⚙️</button>
             <span class="nb-specialty-label">${_esc(label)}</span>
             ${dashLink}
             ${scopePill}${parentPill}${keysPill}
@@ -443,7 +496,7 @@
             : '';
 
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <span class="nb-specialty-icon">🗂️</span>
+            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(nb)}" title="All specialty notes in ${_esc(nb || 'this notebook')}">🗂️</button>
             <span class="nb-specialty-label">${_esc(domain)}</span>
             ${configLink}
             <span class="nb-specialty-pill">${fileCount} files</span>
@@ -520,7 +573,7 @@
             : '';
 
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            <span class="nb-specialty-icon">${icon}</span>
+            <button class="nb-specialty-icon nb-specialty-nav-btn" data-nb-nav="${_esc(note.notebook || '')}" title="All specialty notes in ${_esc(note.notebook || 'this notebook')}">${icon}</button>
             <span class="nb-specialty-label">${_esc(label)}</span>
             ${pairLink}${sourceWarn}${pillsHtml}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
@@ -536,6 +589,35 @@
         document.dispatchEvent(new CustomEvent('nb-timeframe-changed', {
             detail: { timeframe, selector: reportsSel },
         }));
+    });
+
+    // ── Specialty nav popup — click wiring ───────────────────────────────────
+    document.addEventListener('click', e => {
+        // Nav item inside popup — direct open
+        const navItem = e.target.closest('.nb-specialty-nav-item');
+        if (navItem) {
+            e.preventDefault();
+            const sel = navItem.dataset.open;
+            _closeNavPop();
+            if (sel) NbMain.openNote(sel);
+            return;
+        }
+        // Nav trigger — toggle popup
+        const btn = e.target.closest('.nb-specialty-nav-btn');
+        if (btn) {
+            e.stopPropagation();
+            const wasOpen = _navTrigger === btn;
+            _closeNavPop();
+            if (!wasOpen) {
+                const header = btn.closest('.nb-specialty-header');
+                const currentSel = header?.dataset.selector || '';
+                const notebook = btn.dataset.nbNav || _selNotebook(currentSel);
+                if (notebook) _showSpecialtyNav(btn, notebook, currentSel);
+            }
+            return;
+        }
+        // Click outside — close
+        if (_navPop && !e.target.closest('.nb-specialty-nav-pop')) _closeNavPop();
     });
 
     NbWeb.registerModule('specialty', {
