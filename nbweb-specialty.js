@@ -585,10 +585,18 @@
             ? `<button class="nb-specialty-action nb-specialty-help-btn" data-help-topic="${_esc(helpTopic)}" title="Help">?</button>`
             : '';
 
+        const status = (note.meta?.status || '').toLowerCase();
+        const markerBtns = status !== 'closed'
+            ? `<button class="nb-specialty-action nb-marker-btn" data-marker="PAUSED"
+                  data-source-sel="${_esc(projectSel)}" title="Pause this project">⏸</button>
+               <button class="nb-specialty-action nb-marker-btn" data-marker="CLOSED"
+                  data-source-sel="${_esc(projectSel)}" title="Close this project">✓ close</button>`
+            : '';
+
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${extraActions}${helpBtn}
+            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
@@ -695,6 +703,39 @@
         if (!btn) return;
         e.stopPropagation();
         _showTypeHelp(btn, btn.dataset.helpTopic);
+    });
+
+    document.addEventListener('click', async e => {
+        const btn = e.target.closest('.nb-marker-btn[data-marker]');
+        if (!btn) return;
+        e.stopPropagation();
+        const marker    = btn.dataset.marker || '';
+        const sourceSel = btn.dataset.sourceSel || '';
+        if (!sourceSel) return;
+        const ref = marker === 'CLOSED'
+            ? (prompt(`Reason for closing (optional):`) ?? null)
+            : (prompt(`Reason for pausing (optional):`) ?? null);
+        if (ref === null) return;  // user cancelled
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = '…';
+        try {
+            const r = await fetch('/api/project/write-marker', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ selector: sourceSel, marker, ref: ref.trim(), position: 'before_today' }),
+            });
+            if (!r.ok) throw new Error(await r.text());
+            if (marker === 'CLOSED') {
+                btn.closest('.nb-specialty-header')
+                   ?.querySelectorAll('.nb-marker-btn')
+                   .forEach(b => b.remove());
+            }
+        } catch (err) {
+            btn.disabled = false;
+            btn.textContent = prev;
+            alert(`Could not write ${marker} marker: ${err.message}`);
+        }
     });
 
     document.addEventListener('click', async e => {
