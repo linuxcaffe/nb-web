@@ -4786,11 +4786,17 @@
             if (m.future && !todayInserted) { todayInserted = true; list.appendChild(_timelineTodaySep()); }
             const row = document.createElement('div');
             row.className = 'nb-timeline-row' + (scope.has(i) ? '' : ' nb-timeline-row--dim');
+            const deliverBtn = m.type === 'milestone'
+                ? `<button class="nb-timeline-deliver-btn" data-marker="DELIVERED"
+                      data-ref="${_esc(m.ref)}"
+                      data-source-sel="${_esc(el.dataset.sourceSel || '')}"
+                      title="Mark delivered">✓ deliver</button>`
+                : '';
             row.innerHTML =
                 `<span class="nb-timeline-date">${_esc(m.date || '—')}</span>` +
                 `<span class="nb-timeline-chip" data-marker="${_esc(m.type)}">${_esc(m.type.toUpperCase())}</span>` +
                 `<span class="nb-timeline-ref">${_esc(m.ref)}</span>` +
-                `<span class="nb-timeline-badge"></span>`;
+                `<span class="nb-timeline-badge">${deliverBtn}</span>`;
             list.appendChild(row);
         }
         if (hasTodayMarker && !todayInserted) list.appendChild(_timelineTodaySep());
@@ -4811,6 +4817,7 @@
                          : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
                 if (nb) sourceSel = `${nb}:${sourceSel}`;
             }
+            el.dataset.sourceSel = sourceSel;
             el.innerHTML = '<span class="nb-spin">⟳</span>';
             try {
                 const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
@@ -5847,6 +5854,40 @@
             },
         ],
 
+    });
+
+    // CBQL DELIVERED button — write > DELIVERED: marker into the project source note.
+    document.addEventListener('click', async e => {
+        const btn = e.target.closest('.nb-timeline-deliver-btn[data-marker]');
+        if (!btn) return;
+        e.stopPropagation();
+        const sourceSel = btn.dataset.sourceSel || '';
+        const milestoneRef = btn.dataset.ref || '';
+        if (!sourceSel) return;
+        const note = prompt(`Delivery note for "${milestoneRef}" (optional):`);
+        if (note === null) return;  // cancelled
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = '…';
+        try {
+            const r = await fetch('/api/project/write-marker', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    selector: sourceSel,
+                    marker: 'DELIVERED',
+                    ref: (milestoneRef + (note.trim() ? ` — ${note.trim()}` : '')).trim(),
+                    position: 'before_today',
+                }),
+            });
+            if (!r.ok) throw new Error(await r.text());
+            btn.textContent = '✓ delivered';
+            btn.classList.add('nb-timeline-delivered');
+        } catch (err) {
+            btn.disabled = false;
+            btn.textContent = prev;
+            alert(`Could not write DELIVERED marker: ${err.message}`);
+        }
     });
 
     // Re-render CBQL blocks when the timeline block broadcasts a timeframe change.

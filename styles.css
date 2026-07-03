@@ -3810,6 +3810,9 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-timeline-chip[data-marker="closed"]    { background: color-mix(in srgb, #7f8c8d 15%, var(--bg)); color: #7f8c8d; }
 .nb-timeline-ref   { color: var(--text); }
 .nb-timeline-badge { color: var(--text-muted); font-size: 0.82em; white-space: nowrap; text-align: right; }
+.nb-timeline-deliver-btn { font-size: 0.78em; padding: 1px 7px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); cursor: pointer; }
+.nb-timeline-deliver-btn:hover { background: color-mix(in srgb, #8e44ad 12%, var(--bg)); color: #8e44ad; border-color: #8e44ad; }
+.nb-timeline-deliver-btn.nb-timeline-delivered { color: #8e44ad; border-color: #8e44ad; opacity: 0.6; cursor: default; }
 .nb-timeline-empty { color: var(--text-dim); font-style: italic; font-size: 0.9em; padding: 4px 0; }
 .nb-timeline-row--dim { opacity: 0.32; }
 /* Timeline block header: type filter | timeframe | today's date */
