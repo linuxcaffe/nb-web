@@ -1,0 +1,34 @@
+# nb-web core — load-bearing identifiers
+# These are the contracts that plugins and the UI depend on.
+# Add a new line whenever you introduce a function that everything else calls.
+
+# ── Plugin API (nbweb.js) ─────────────────────────────────────────────────────
+nbweb.js:registerModule
+nbweb.js:registerRenderer
+nbweb.js:getPreviewRenderer
+nbweb.js:getPreviewRenderers
+nbweb.js:getRenderers
+nbweb.js:getRendererTypes
+nbweb.js:loadNotebookConfig
+nbweb.js:bustNotebookConfigCache
+
+# ── Render pipeline (main.js) ─────────────────────────────────────────────────
+main.js:async function renderPreview
+main.js:_enrichRendered
+main.js:_finishRendered
+main.js:_renderMarkdown
+main.js:_resolveInlineQueries
+main.js:_buildFmBlocks
+
+# ── Navigation (nav.js) ───────────────────────────────────────────────────────
+nav.js:const NbNav
+nav.js:_openSyncDialog
+nav.js:activateCmd
+
+# ── Flask backend (app.py) ────────────────────────────────────────────────────
+app.py:def run_nb
+app.py:def api_note
+app.py:def api_edit_note
+app.py:def api_notes
+app.py:def api_inline_query
+app.py:def api_cine_data
