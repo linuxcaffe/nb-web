@@ -422,7 +422,7 @@
         </div>` + NbMain.renderMarkdown(body, note.selector);
     }
 
-    function _renderDotfileNote(note) {
+    async function _renderDotfileNote(note) {
         const nb       = note.notebook || '';
         const filename = note.filename || '';
         const path     = note.path    || '';
@@ -440,8 +440,15 @@
             ? Object.keys(note.meta).filter(k => k !== 'type' && k !== 'title').length
             : 0;
 
-        // Dashboard pair: notebook-level dashboard is always {nb.toLowerCase()}.md
-        const dashSel = nb ? `${nb}:${nb.toLowerCase()}.md` : '';
+        // Dashboard pair: find the actual type:dashboard note (reuse nav cache — no extra fetch)
+        let dashSel = '';
+        if (nb) {
+            if (!_navCache.has(nb))
+                _navCache.set(nb, fetch(`/api/notes?notebook=${encodeURIComponent(nb)}`).then(r => r.json()));
+            const d = await _navCache.get(nb).catch(() => ({}));
+            const dashNote = (d.notes || []).find(n => n.type === 'dashboard');
+            dashSel = dashNote?.selector || '';
+        }
         const dashLink = dashSel
             ? `<a class="nb-specialty-link" href="#" data-open="${_esc(dashSel)}">dashboard</a>`
             : '';
