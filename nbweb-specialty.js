@@ -487,10 +487,8 @@
             syncLabel = parts.join(' '); syncCls = ' nb-pill-dirty';
         }
 
-        // Config file: prepend "." to the selector filename (e.g. djp:djp.md → djp:.djp.md)
-        const configSel = note.selector
-            ? note.selector.replace(/(:|\/)([\w.-]+\.md)$/, '$1.$2')
-            : '';
+        // Config file: .{NotebookName}.md — canonical dotfile uses notebook name, case-preserved
+        const configSel = nb ? `${nb}:.${nb}.md` : '';
         const configLink = configSel
             ? `<a class="nb-specialty-link" href="#" data-open="${_esc(configSel)}">config</a>`
             : '';
