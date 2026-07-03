@@ -4781,6 +4781,71 @@
         }
     }
 
+    // Render an hl block in CBQL mode: fetch source → slice → extract timedot → hledger.
+    async function _loadHledgerCBQLBlock(el) {
+        const note     = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const params   = _cbqlParams(el.dataset.src || '', note?.meta);
+        if (!params) return _loadHledgerBlock(el);
+
+        const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
+        const noteSel   = note?.selector || '';
+        const rate      = parseFloat(note?.meta?.rate) || 0;
+        const project   = (note?.meta?.project || '').trim();
+        const commodity = (note?.meta?.commodity || 'CAD').trim();
+
+        // hledger query = lines in the block after CBQL params
+        const query = (el.dataset.src || '').split('\n')
+            .filter(l => !/^(source|filter|timeframe|group):\s*/.test(l) && l.trim())
+            .join(' ').trim() || 'bal';
+
+        let sourceSel = params.source;
+        if (!sourceSel.includes(':')) {
+            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
+                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
+            if (nb) sourceSel = `${nb}:${sourceSel}`;
+        }
+
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
+            if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
+            const d = await r.json();
+            const slice   = _cbqlSliceBody(d.body || '', timeframe);
+            const timedot = _timedotExtractFile(slice, project);
+
+            if (!timedot.trim()) {
+                el.innerHTML = '<div class="nb-timedot-empty">No entries in this timeframe</div>';
+                return;
+            }
+
+            const resp = await fetch('/api/hledger/cbql-query', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ timedot, query, rate, commodity }),
+            });
+            if (!resp.ok) throw new Error(`hledger error: ${resp.status}`);
+            const rd = await resp.json();
+            if (rd.error) throw new Error(rd.error);
+
+            el.innerHTML = '';
+            const { hdr, meta: metaEl } = _buildBarHeader(el, {
+                lang: 'hl', onRefresh: () => _loadHledgerCBQLBlock(el),
+            });
+            const srcLabel = sourceSel.split(':').pop().replace(/\.md$/i, '');
+            const tfLabel  = timeframe === 'current' ? 'current phase'
+                           : timeframe === 'all'     ? 'all time' : timeframe;
+            metaEl.textContent = `${srcLabel} · ${tfLabel}`;
+            el.appendChild(hdr);
+            _initCollapseToggle(el);
+            const body = document.createElement('pre');
+            body.className = 'nb-hl-cbql-result';
+            body.textContent = rd.result || '(no output)';
+            el.appendChild(body);
+        } catch (e) {
+            el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
+        }
+    }
+
     // Extract ALL markers from a full project body (never pre-sliced).
     // Returns { items, hasTodayMarker } where items are in document order.
     // Future items (below > TODAY:) get date:null and future:true.
@@ -5722,10 +5787,18 @@
                 lang:   'hl',
                 html:   text => {
                     const collapsed = /^#\s*collapsed\b/im.test(text);
+                    const cbql      = /^source:\s*\S/m.test(text);
                     const {readLevel, writeLevel, query} = _cbParseGates(text.split('\n').filter(l => !/^#\s*collapsed\b/i.test(l.trim())).join('\n'));
+                    if (cbql)
+                        return `<div class="nb-hl-block${collapsed ? ' nb-collapsed' : ''}" data-cbql="1"${_cbGateAttrs(readLevel,writeLevel)} data-src="${text.replace(/"/g,'&quot;')}"${collapsed ? ' data-init-collapsed' : ''}><span class="nb-spin">⟳</span></div>`;
                     return `<div class="nb-hl-block${collapsed ? ' nb-collapsed' : ''}"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"${collapsed ? ' data-init-collapsed' : ''}><span class="nb-spin">⟳</span></div>`;
                 },
-                renderOne: async el => { const w = await NbWeb.checkWhich('hledger'); return w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md'); },
+                renderOne: async el => {
+                    const w = await NbWeb.checkWhich('hledger');
+                    return w.found
+                        ? (el.dataset.cbql ? _loadHledgerCBQLBlock(el) : _loadHledgerBlock(el))
+                        : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md');
+                },
                 render: async container => {
                     const blocks = [...container.querySelectorAll('.nb-hl-block')];
                     if (!blocks.length) return;
@@ -5733,7 +5806,9 @@
                     try {
                         const w = await NbWeb.checkWhich('hledger');
                         await Promise.all(blocks.map(async el => {
-                            try { await (w.found ? _loadHledgerBlock(el) : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md')); }
+                            try { await (w.found
+                                ? (el.dataset.cbql ? _loadHledgerCBQLBlock(el) : _loadHledgerBlock(el))
+                                : NbWeb.renderRequirementsCard(el, '/plugins/requirements/hledger-requirements.md')); }
                             finally { NbWeb.statusPill?.tick(); }
                         }));
                     } catch { blocks.forEach(() => NbWeb.statusPill?.tick()); }
@@ -6051,6 +6126,10 @@
             const tfSel = el.querySelector('.nb-timeline-tf-sel');
             if (tfSel) tfSel.value = timeframe;
             _renderTimelineFromData(el, timeframe);
+        });
+        document.querySelectorAll('.nb-hl-block[data-cbql]').forEach(el => {
+            el.dataset.activeTimeframe = timeframe;
+            _loadHledgerCBQLBlock(el);
         });
     });
 

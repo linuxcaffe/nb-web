@@ -3758,6 +3758,7 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 }
 .nb-timedot-edit-btns { display: flex; gap: 6px; padding: 6px 8px 8px; }
 .nb-timedot-err { color: var(--accent-neg, #e74c3c); font-size: 0.85em; padding: 4px 8px; }
+.nb-hl-cbql-result { font-size: 0.88em; padding: 8px 12px; margin: 0; white-space: pre; overflow-x: auto; }
 
 /* FM log view */
 .nb-timedot-log-body { padding: 0; }

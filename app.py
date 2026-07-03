@@ -3302,6 +3302,55 @@ def api_hledger_chart():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/hledger/cbql-query', methods=['POST'])
+def api_hledger_cbql_query():
+    """Run a hledger query against timedot content extracted from a CBQL source note.
+
+    Body: { timedot, query, rate, commodity }
+      timedot   — raw timedot (pre-sliced to timeframe; accounts already expanded)
+      query     — hledger command + args (e.g. 'bal' or 'reg --daily')
+      rate      — hourly rate as float; 0 = no price conversion
+      commodity — currency code (e.g. 'CAD')
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'guest'):
+        return jsonify(error='forbidden'), 403
+
+    data      = request.get_json(force=True) or {}
+    timedot   = (data.get('timedot') or '').strip()
+    query     = (data.get('query') or 'bal').strip()
+    rate      = float(data.get('rate') or 0)
+    commodity = (data.get('commodity') or 'CAD').strip()
+
+    if not timedot:
+        return jsonify({'result': ''}), 200
+
+    args = shlex.split(query)
+    if not args or args[0] not in (_HLEDGER_READ_CMDS | _HLEDGER_TEXT_CMDS):
+        return jsonify({'error': f'command not allowed: {args[0] if args else ""}'}), 400
+
+    price_line = f'P {datetime.now().strftime("%Y-%m-%d")} h {rate:.2f} {commodity}\n' if rate else ''
+    content    = price_line + timedot + '\n'
+
+    import tempfile as _tf, os as _os2
+    with _tf.NamedTemporaryFile(mode='w', suffix='.timedot', delete=False, prefix='nb-cbql-') as tf:
+        tf.write(content)
+        tf_path = tf.name
+    try:
+        result = subprocess.run(
+            ['hledger', '-f', tf_path] + args,
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return jsonify({'error': result.stderr or 'hledger error'}), 500
+        return jsonify({'result': result.stdout})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        try: _os2.unlink(tf_path)
+        except: pass
+
+
 @app.route('/api/t/status')
 def api_t_status():
     return jsonify(_t_parse_status(_t_tc_file(request.args.get('file'))))
@@ -3692,6 +3741,10 @@ def api_t_invoice_preflight():
     client_raw = str(meta.get('client', '')).strip()
     client     = client_raw.replace('contacts:', '').replace('.md', '')
     journal_key = str(meta.get('journal', '')).strip()
+    if not journal_key:
+        _notebook = selector.split(':')[0] if ':' in selector else ''
+        if _notebook:
+            journal_key = str(_folder_config(_notebook, str(note_path)).get('journal', '')).strip()
 
     labour_total, expense_dict = _invoice_journal_totals(journal_key)
     mat_sub   = sum(v[0] for v in expense_dict.values())
@@ -3747,6 +3800,10 @@ def api_t_invoice_generate():
     client      = client_raw.replace('contacts:', '').replace('.md', '')
     journal_key = str(meta.get('journal', '')).strip()
     timedot_key = str(meta.get('timedot_file', '')).strip()
+    if not journal_key:
+        _notebook = selector.split(':')[0] if ':' in selector else ''
+        if _notebook:
+            journal_key = str(_folder_config(_notebook, str(note_path)).get('journal', '')).strip()
 
     labour_total, expense_dict = _invoice_journal_totals(journal_key)
     mat_sub   = sum(v[0] for v in expense_dict.values())
