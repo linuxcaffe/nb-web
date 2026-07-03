@@ -199,7 +199,18 @@ const NbWeb = (() => {
             }
             return null;
         };
-        return active.find(m => m.previewRenderer)?.previewRenderer ?? null;
+        // No multi-renderer module active — chain through all single-previewRenderer modules.
+        // (Returning only the first module's fn breaks when that module returns null for
+        // the current note type, e.g. contacts returns null for project notes.)
+        return note => {
+            for (const m of active) {
+                if (!m.previewRenderers && m.previewRenderer) {
+                    const html = m.previewRenderer(note);
+                    if (html != null) return html;
+                }
+            }
+            return null;
+        };
     }
 
     // Fetch and cache the parsed meta from .<notebook>.md.
