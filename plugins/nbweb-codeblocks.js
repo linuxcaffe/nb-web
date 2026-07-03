@@ -5990,6 +5990,15 @@
 
     });
 
+    // Sysadmin block links — open note on [data-open] clicks inside sysadmin blocks.
+    document.addEventListener('click', e => {
+        const link = e.target.closest('.nb-sa-link[data-open]');
+        if (!link) return;
+        e.preventDefault();
+        const sel = link.dataset.open;
+        if (sel) NbMain.openNote(sel);
+    });
+
     // CBQL DELIVERED button — write > DELIVERED: marker into the project source note.
     document.addEventListener('click', async e => {
         const btn = e.target.closest('.nb-timeline-deliver-btn[data-marker]');
