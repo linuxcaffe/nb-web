@@ -39,5 +39,11 @@
         },
     };
 
+    // Stamp body with level so CSS can gate whole classes of UI elements:
+    //   .nb-action-write  — requires user+   (Edit, Delete, Add, Save, Rename…)
+    //   .nb-action-office — requires office+
+    //   .nb-action-admin  — requires admin+  (Configure, Settings, dotfile edit…)
+    document.body.dataset.userLevel = window.NbAuth.level();
+
     document.dispatchEvent(new Event('nb-auth-ready'));
 })();
