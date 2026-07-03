@@ -423,6 +423,7 @@
     }
 
     function _renderDotfileNote(note) {
+        const nb       = note.notebook || '';
         const filename = note.filename || '';
         const path     = note.path    || '';
 
@@ -439,8 +440,8 @@
             ? Object.keys(note.meta).filter(k => k !== 'type' && k !== 'title').length
             : 0;
 
-        // Dashboard pair: remove leading dot from selector filename to get the front-of-house note
-        const dashSel = note.selector ? note.selector.replace(/(:|\/)\.([\w.-]+\.md)$/, '$1$2') : '';
+        // Dashboard pair: notebook-level dashboard is always {nb.toLowerCase()}.md
+        const dashSel = nb ? `${nb}:${nb.toLowerCase()}.md` : '';
         const dashLink = dashSel
             ? `<a class="nb-specialty-link" href="#" data-open="${_esc(dashSel)}">dashboard</a>`
             : '';
