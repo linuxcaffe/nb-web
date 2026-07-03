@@ -3861,3 +3861,33 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-checklist-group-hdr   { display: flex; align-items: center; justify-content: space-between; padding: 5px 12px 2px; }
 .nb-checklist-group-label { font-size: 0.78em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
 .nb-checklist-group-count { font-size: 0.78em; color: var(--text-dim); }
+
+/* ── sysadmin block ─────────────────────────────────────────────────────── */
+.nb-sysadmin-block { font-size: 0.85em; }
+.nb-sa-section { margin: 0 0 18px; }
+.nb-sa-heading { font-weight: 700; font-size: 0.9em; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
+.nb-sa-heading .nb-sa-muted { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.9em; }
+.nb-sa-table { border-collapse: collapse; width: 100%; }
+.nb-sa-table th { text-align: left; font-size: 0.78em; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-muted); padding: 3px 10px 3px 0; border-bottom: 1px solid var(--border); }
+.nb-sa-table td { padding: 3px 10px 3px 0; border-bottom: 1px solid var(--border2,var(--border)); vertical-align: middle; }
+.nb-sa-table tr:last-child td { border-bottom: none; }
+.nb-sa-name { font-weight: 500; }
+.nb-sa-center { text-align: center; }
+.nb-sa-count { text-align: right; font-variant-numeric: tabular-nums; }
+.nb-sa-ok     { color: var(--green, #4a9); }
+.nb-sa-missing { color: var(--red, #c44); }
+.nb-sa-gap    { color: var(--text-dim); }
+.nb-sa-muted  { color: var(--text-muted); }
+.nb-sa-link   { color: var(--accent); text-decoration: none; }
+.nb-sa-link:hover { text-decoration: underline; }
+.nb-sa-chip   { display: inline-block; padding: 1px 6px; margin: 1px 2px; border-radius: 3px;
+  background: var(--bg3); color: var(--text); font-size: 0.85em; }
+.nb-sa-disabled { opacity: 0.45; }
+.nb-sa-plugins { display: flex; flex-direction: column; gap: 4px; }
+.nb-sa-plugin-group { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.nb-sa-type-label { font-size: 0.78em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted); min-width: 72px; flex-shrink: 0; }
+.nb-sa-cfgs { display: flex; flex-direction: column; gap: 4px; }
+.nb-sa-cfg-row { display: flex; align-items: center; gap: 6px; }

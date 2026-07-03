@@ -9157,6 +9157,94 @@ def api_check_batch():
     return jsonify(results)
 
 
+@app.route('/api/sysadmin')
+def api_sysadmin():
+    """Return sysadmin dashboard data: notebook inventory, plugin list, config file status."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify(error='forbidden'), 403
+
+    # ── Notebook inventory ────────────────────────────────────────────────────
+    notebooks = []
+    for entry in sorted(NB_DIR.iterdir()):
+        if not entry.is_dir() or entry.name.startswith('.'):
+            continue
+        dotfile = entry / f'.{entry.name}.md'
+        has_dot = dotfile.exists()
+        plugins_list = []
+        wired = False
+        remote = ''
+        branch = ''
+        if has_dot:
+            try:
+                meta, _ = parse_frontmatter(dotfile.read_text())
+                plugins_list = meta.get('plugins') or []
+                if isinstance(plugins_list, str):
+                    plugins_list = [plugins_list]
+            except Exception:
+                pass
+        git_dir = entry / '.git'
+        if git_dir.exists():
+            try:
+                r = subprocess.run(['git', 'remote', 'get-url', 'origin'],
+                                   cwd=str(entry), capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    wired = True
+                    remote = r.stdout.strip().split('/')[-1].replace('.git', '')
+            except Exception:
+                pass
+            try:
+                r = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                                   cwd=str(entry), capture_output=True, text=True, timeout=5)
+                branch = r.stdout.strip()
+            except Exception:
+                pass
+        has_checks = (entry / '.checks').is_dir()
+        try:
+            count = len([f for f in entry.rglob('*.md')
+                         if not f.name.startswith('.') and f.is_file()])
+        except Exception:
+            count = 0
+        notebooks.append({
+            'name':       entry.name,
+            'has_dotfile': has_dot,
+            'wired':      wired,
+            'remote':     remote,
+            'branch':     branch,
+            'plugins':    plugins_list,
+            'has_checks': has_checks,
+            'note_count': count,
+            'selector':   f'{entry.name}:.{entry.name}.md' if has_dot else None,
+        })
+
+    # ── Plugin list ───────────────────────────────────────────────────────────
+    settings_path = Path(__file__).parent / 'nb-settings.json'
+    plugins = []
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+            plugins = settings.get('plugins') or []
+        except Exception:
+            pass
+
+    # ── Key config files ──────────────────────────────────────────────────────
+    config_files = [
+        {'label': 'Global dotfile',  'selector': '.nb:.nb.md',          'exists': (NB_DIR / '.nb.md').exists()},
+        {'label': 'Manifest',        'selector': '.nb:.manifest.md',     'exists': (NB_DIR / '.manifest.md').exists()},
+        {'label': 'Checks index',    'selector': '.nb:.checks/check-index.md', 'exists': (NB_DIR / '.checks' / 'check-index.md').exists()},
+        {'label': 'Guards rule',     'selector': '.nb:.rules/guards.md', 'exists': (NB_DIR / '.rules' / 'guards.md').exists()},
+        {'label': 'Tools index',     'selector': '.nb:.tools/tools.md',  'exists': (NB_DIR / '.tools' / 'tools.md').exists()},
+        {'label': 'nb-settings',     'path': str(settings_path),         'exists': settings_path.exists()},
+    ]
+
+    return jsonify({
+        'notebooks':    notebooks,
+        'plugins':      plugins,
+        'config_files': config_files,
+        'check_count':  len(list(CHECK_DIR.glob('*.sh'))) if CHECK_DIR.is_dir() else 0,
+    })
+
+
 # ---------------------------------------------------------------------------
 # API: Rename / Move note
 # ---------------------------------------------------------------------------

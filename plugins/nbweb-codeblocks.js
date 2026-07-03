@@ -4054,6 +4054,79 @@
         });
     }
 
+    // ── sysadmin ──────────────────────────────────────────────────────────────
+
+    async function _loadSysadminBlock(el) {
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch('/api/sysadmin');
+            if (!r.ok) { el.innerHTML = `<span style="color:var(--red)">Sysadmin error ${r.status}</span>`; return; }
+            const d = await r.json();
+
+            const nbRows = (d.notebooks || []).map(nb => {
+                const nameCell = nb.selector
+                    ? `<a href="#" data-open="${_esc(nb.selector)}" class="nb-sa-link">${_esc(nb.name)}</a>`
+                    : `<span class="nb-sa-muted">${_esc(nb.name)}</span>`;
+                const tick = v => v ? '<span class="nb-sa-ok">✓</span>' : '<span class="nb-sa-gap">·</span>';
+                const chips = (nb.plugins || []).map(p => `<span class="nb-sa-chip">${_esc(p)}</span>`).join('');
+                return `<tr>
+                    <td class="nb-sa-name">${nameCell}</td>
+                    <td class="nb-sa-center">${tick(nb.has_dotfile)}</td>
+                    <td class="nb-sa-center">${tick(nb.wired)}</td>
+                    <td class="nb-sa-center">${tick(nb.has_checks)}</td>
+                    <td>${chips}</td>
+                    <td class="nb-sa-count nb-sa-muted">${nb.note_count}</td>
+                </tr>`;
+            }).join('');
+
+            const pluginsByType = {};
+            for (const p of (d.plugins || [])) {
+                const t = p.type || 'other';
+                (pluginsByType[t] = pluginsByType[t] || []).push(p);
+            }
+            const pluginHtml = Object.entries(pluginsByType).map(([type, list]) =>
+                `<div class="nb-sa-plugin-group">
+                    <span class="nb-sa-type-label">${_esc(type)}</span>
+                    ${list.map(p =>
+                        `<span class="nb-sa-chip${p.enabled ? '' : ' nb-sa-disabled'}" title="${_esc(p.url || '')}">${_esc(p.name)}</span>`
+                    ).join('')}
+                </div>`
+            ).join('');
+
+            const cfgHtml = (d.config_files || []).map(f => {
+                const cls  = f.exists ? 'nb-sa-ok' : 'nb-sa-missing';
+                const icon = f.exists ? '✓' : '✗';
+                const link = f.selector
+                    ? `<a href="#" data-open="${_esc(f.selector)}" class="nb-sa-link">${_esc(f.label)}</a>`
+                    : `<code>${_esc(f.label)}</code>`;
+                return `<div class="nb-sa-cfg-row"><span class="${cls}">${icon}</span> ${link}</div>`;
+            }).join('');
+
+            el.innerHTML = `
+                <div class="nb-sa-section">
+                    <div class="nb-sa-heading">Notebooks
+                        <span class="nb-sa-muted">${d.notebooks.length} notebooks · ${d.check_count} checks available</span>
+                    </div>
+                    <table class="nb-sa-table">
+                        <thead><tr>
+                            <th>Notebook</th><th>config</th><th>wired</th><th>.checks</th><th>plugins</th><th>notes</th>
+                        </tr></thead>
+                        <tbody>${nbRows}</tbody>
+                    </table>
+                </div>
+                <div class="nb-sa-section">
+                    <div class="nb-sa-heading">Plugins</div>
+                    <div class="nb-sa-plugins">${pluginHtml}</div>
+                </div>
+                <div class="nb-sa-section">
+                    <div class="nb-sa-heading">Config files</div>
+                    <div class="nb-sa-cfgs">${cfgHtml}</div>
+                </div>`;
+        } catch(e) {
+            el.innerHTML = `<span style="color:var(--red)">⚠ ${_esc(String(e))}</span>`;
+        }
+    }
+
     // ── gallery ───────────────────────────────────────────────────────────────
 
     const _GALLERY_SIZES = { thumb: 80, small: 140, med: 220, large: 320 };
@@ -5743,6 +5816,15 @@
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
                     blocks.forEach(el => { try { _loadTocBlock(el); } finally { NbWeb.statusPill?.tick(); } });
+                },
+            },
+            {
+                lang:      'sysadmin',
+                html:      () => `<div class="nb-sysadmin-block"><span class="nb-spin">⟳</span></div>`,
+                renderOne: async el => _loadSysadminBlock(el),
+                render:    async container => {
+                    const blocks = [...container.querySelectorAll('.nb-sysadmin-block')];
+                    await Promise.all(blocks.map(el => _loadSysadminBlock(el)));
                 },
             },
             {
