@@ -5860,6 +5860,8 @@ def api_create_note():
             note_dir = nb_root / folder if folder else nb_root
             note_dir.mkdir(parents=True, exist_ok=True)
             note_path = note_dir / note_filename
+            if note_path.exists():
+                return jsonify({'error': f'A note named {note_filename!r} already exists in this location'}), 409
             note_path.write_text(note_content)
             rel_in_nb = note_path.relative_to(nb_root)
             # Write to the folder's own .index (not the root .index)
