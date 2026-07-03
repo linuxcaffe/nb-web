@@ -593,11 +593,83 @@
                   data-source-sel="${_esc(projectSel)}" title="Close this project">✓ close</button>`
             : '';
 
+        const invoiceBtn = projectSel && status !== 'closed'
+            ? `<button class="nb-specialty-action nb-invoice-trigger"
+                  data-reports-sel="${_esc(note.selector || '')}"
+                  title="Generate invoice for current phase">🧾</button>`
+            : '';
+
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${extraActions}${helpBtn}
+            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${invoiceBtn}${extraActions}${helpBtn}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
+    }
+
+    // ── Invoice dialog ───────────────────────────────────────────────────────
+    async function _showInvoiceDialog(reportsSel) {
+        const r = await fetch(`/api/t/invoice/preflight?selector=${encodeURIComponent(reportsSel)}`);
+        if (!r.ok) { alert(`Invoice preflight failed: ${(await r.json()).error || r.status}`); return; }
+        const d = await r.json();
+
+        const HST = 0.13;
+        const isCash = d.billing_type === 'cash';
+        const subtotal = d.labour_total + (d.materials_gross || 0);
+        const hstAmt   = isCash ? 0 : Math.round(subtotal * HST * 100) / 100;
+        const total    = isCash ? subtotal : subtotal + hstAmt;
+
+        const ov = document.createElement('div');
+        ov.className = 'nb-invoice-overlay';
+        ov.innerHTML = `
+<div class="nb-invoice-panel">
+  <div class="nb-invoice-hdr">Invoice — ${_esc(d.client || d.project)}</div>
+  <div class="nb-invoice-sub">${_esc(d.project)} · ${_esc(d.billing_type)}</div>
+  <table class="nb-invoice-tbl">
+    <thead><tr><th>Date</th><th>Description</th><th>Hrs</th><th>Rate</th><th>Amount</th></tr></thead>
+    <tbody>
+      <tr><td colspan="2">Labour (${d.labour_hours}h @ $${d.rate}/h)</td><td>${d.labour_hours}</td><td>$${d.rate}</td><td>$${d.labour_total.toFixed(2)}</td></tr>
+      ${d.materials_gross ? `<tr><td colspan="2">Materials</td><td>—</td><td>—</td><td>$${d.materials_gross.toFixed(2)}</td></tr>` : ''}
+    </tbody>
+    <tfoot>
+      ${!isCash && hstAmt ? `<tr><td colspan="4" class="nb-inv-tax">HST (13%)</td><td class="nb-inv-tax">$${hstAmt.toFixed(2)}</td></tr>` : ''}
+      <tr><td colspan="4"><strong>Total</strong></td><td><strong>$${total.toFixed(2)}</strong>${isCash ? ' <span class="nb-inv-tax">(cash)</span>' : ''}</td></tr>
+    </tfoot>
+  </table>
+  <div class="nb-invoice-fields">
+    <label>Invoice # <input class="nb-inv-num" value="${_esc(d.suggested_num)}"></label>
+    <label>Date      <input class="nb-inv-date" type="date" value="${_esc(d.date)}"></label>
+    <label>Notes     <input class="nb-inv-notes" placeholder="optional"></label>
+  </div>
+  <div class="nb-invoice-btns">
+    <button class="nb-inv-cancel">Cancel</button>
+    <button class="nb-inv-confirm nb-inv-primary">Generate</button>
+  </div>
+</div>`;
+        document.body.appendChild(ov);
+
+        ov.querySelector('.nb-inv-cancel').onclick = () => ov.remove();
+        ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+        ov.querySelector('.nb-inv-confirm').onclick = async () => {
+            const num   = ov.querySelector('.nb-inv-num').value.trim();
+            const date  = ov.querySelector('.nb-inv-date').value.trim();
+            const notes = ov.querySelector('.nb-inv-notes').value.trim();
+            if (!num) { alert('Invoice number required'); return; }
+            const btn = ov.querySelector('.nb-inv-confirm');
+            btn.disabled = true; btn.textContent = '…';
+            const gr = await fetch('/api/t/invoice/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ selector: reportsSel, invoice_num: num, date, notes }),
+            });
+            if (!gr.ok) {
+                btn.disabled = false; btn.textContent = 'Generate';
+                alert(`Generate failed: ${(await gr.json()).error || gr.status}`); return;
+            }
+            const gd = await gr.json();
+            ov.remove();
+            if (gd.selector) NbMain.openNote(gd.selector);
+        };
     }
 
     // Timeframe dropdown change → persist state + broadcast event
@@ -659,6 +731,14 @@
         e.preventDefault();
         const note = NbMain.activeNote();
         if (note) _appendTodayAndEdit(note);
+    });
+
+    document.addEventListener('click', e => {
+        const btn = e.target.closest('.nb-invoice-trigger');
+        if (!btn) return;
+        e.preventDefault();
+        const reportsSel = btn.dataset.reportsSel;
+        if (reportsSel) _showInvoiceDialog(reportsSel);
     });
 
     document.addEventListener('click', async e => {
