@@ -9157,6 +9157,73 @@ def api_check_batch():
     return jsonify(results)
 
 
+@app.route('/api/project/write-marker', methods=['POST'])
+def api_write_marker():
+    """Insert a state-transition marker into a project note.
+
+    Body: { selector, marker, ref, position }
+      marker   — ALLCAPS name, e.g. PAUSED, CLOSED, DELIVERED
+      ref      — optional reason/label appended after the colon
+      position — 'before_today' (default) | 'today_section' | 'end'
+
+    before_today: inserts the line immediately before > TODAY:
+    today_section: appends to today's ## YYYY-MM-DD section (creates it if absent)
+    end: appends at end of file
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify(error='forbidden'), 403
+
+    data     = request.get_json(force=True) or {}
+    selector = (data.get('selector') or '').strip()
+    marker   = (data.get('marker') or '').strip().upper()
+    ref      = (data.get('ref') or '').strip()
+    position = (data.get('position') or 'before_today').strip()
+
+    if not selector:
+        return jsonify(error='selector required'), 400
+    if not re.match(r'^[A-Z]{2,20}$', marker):
+        return jsonify(error='invalid marker name'), 400
+
+    note_path = _resolve_to_nb_path(selector)
+    if not note_path or not Path(note_path).exists():
+        return jsonify(error='note not found'), 404
+
+    note_path = Path(note_path)
+    text      = note_path.read_text(errors='replace')
+    line      = f'> {marker}: {ref}' if ref else f'> {marker}:'
+
+    if position == 'before_today':
+        if '> TODAY:' in text:
+            text = text.replace('> TODAY:', f'{line}\n\n> TODAY:', 1)
+        else:
+            text = text.rstrip('\n') + f'\n\n{line}\n'
+    elif position == 'today_section':
+        today   = datetime.now().strftime('%Y-%m-%d')
+        heading = f'## {today}'
+        if heading in text:
+            idx  = text.index(heading) + len(heading)
+            text = text[:idx] + f'\n\n{line}' + text[idx:]
+        elif '> TODAY:' in text:
+            text = text.replace('> TODAY:', f'{heading}\n\n{line}\n\n> TODAY:', 1)
+        else:
+            text = text.rstrip('\n') + f'\n\n{line}\n'
+    else:  # 'end'
+        text = text.rstrip('\n') + f'\n\n{line}\n'
+
+    note_path.write_text(text)
+
+    notebook = selector.split(':')[0]
+    nb_root  = NB_DIR / notebook
+    rel      = note_path.relative_to(nb_root)
+    env      = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add', str(rel)], cwd=str(nb_root), capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m', f'[nb] {marker}: {ref or selector}'],
+                   cwd=str(nb_root), capture_output=True, env=env)
+
+    return jsonify(ok=True, line=line)
+
+
 @app.route('/api/sysadmin')
 def api_sysadmin():
     """Return sysadmin dashboard data: notebook inventory, plugin list, config file status."""
