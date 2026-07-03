@@ -774,12 +774,7 @@
 
         const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
         const noteSel   = note?.selector || '';
-        let sourceSel   = params.source;
-        if (!sourceSel.includes(':')) {
-            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
-                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
-            if (nb) sourceSel = `${nb}:${sourceSel}`;
-        }
+        let sourceSel   = _cbqlResolveSel(params.source, noteSel);
 
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
@@ -860,12 +855,7 @@
         if (!params) { el.innerHTML = '<div class="nb-timeline-empty">No source specified</div>'; return; }
 
         const noteSel = note?.selector || '';
-        let sourceSel = params.source;
-        if (!sourceSel.includes(':')) {
-            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
-                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
-            if (nb) sourceSel = `${nb}:${sourceSel}`;
-        }
+        let sourceSel = _cbqlResolveSel(params.source, noteSel);
 
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
@@ -4661,6 +4651,22 @@
     // ── CBQL timedot (step 7) ─────────────────────────────────────────────────
 
     // Parse CBQL params from block text. Returns {source, filter, timeframe} or null.
+    // Resolve a bare source filename against the current note's notebook + folder.
+    // 'nathan.md' in 'djp:projects/gbct/nathan/nathan-reports.md'
+    //   → 'djp:projects/gbct/nathan/nathan.md'
+    function _cbqlResolveSel(sourceSel, noteSel) {
+        if (sourceSel.includes(':')) return sourceSel;
+        const nb = noteSel.includes(':') ? noteSel.split(':')[0]
+                 : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
+        if (!nb) return sourceSel;
+        if (!sourceSel.includes('/') && noteSel.includes('/')) {
+            const afterColon = noteSel.slice(noteSel.indexOf(':') + 1);
+            const folder     = afterColon.slice(0, afterColon.lastIndexOf('/'));
+            return `${nb}:${folder}/${sourceSel}`;
+        }
+        return `${nb}:${sourceSel}`;
+    }
+
     function _cbqlParams(text, meta) {
         const out = {};
         for (const line of (text || '').split('\n')) {
@@ -4718,12 +4724,7 @@
         const rate      = parseFloat(note?.meta?.rate) || null;
 
         // Resolve source selector — inherit notebook from current note if no prefix
-        let sourceSel = params.source;
-        if (!sourceSel.includes(':')) {
-            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
-                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
-            if (nb) sourceSel = `${nb}:${sourceSel}`;
-        }
+        let sourceSel = _cbqlResolveSel(params.source, noteSel);
 
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
@@ -4798,12 +4799,7 @@
             .filter(l => !/^(source|filter|timeframe|group):\s*/.test(l) && l.trim())
             .join(' ').trim() || 'bal';
 
-        let sourceSel = params.source;
-        if (!sourceSel.includes(':')) {
-            const nb = noteSel.includes(':') ? noteSel.split(':')[0]
-                     : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
-            if (nb) sourceSel = `${nb}:${sourceSel}`;
-        }
+        let sourceSel = _cbqlResolveSel(params.source, noteSel);
 
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
@@ -5007,12 +5003,7 @@
 
         if (!el._timelineData) {
             const noteSel = note?.selector || '';
-            let sourceSel = params.source;
-            if (!sourceSel.includes(':')) {
-                const nb = noteSel.includes(':') ? noteSel.split(':')[0]
-                         : (typeof NbNav !== 'undefined' ? NbNav.notebook : '');
-                if (nb) sourceSel = `${nb}:${sourceSel}`;
-            }
+            let sourceSel = _cbqlResolveSel(params.source, noteSel);
             el.dataset.sourceSel = sourceSel;
             el.innerHTML = '<span class="nb-spin">⟳</span>';
             try {
