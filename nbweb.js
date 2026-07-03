@@ -182,9 +182,10 @@ const NbWeb = (() => {
         return out;
     }
 
-    // Compat fallback used by renderPreview when getPreviewRenderers() returns [].
-    // Chains through ALL active modules with previewRenderer in load order, returning
-    // the first non-null result. Catches plugins without previewRendererDetect declared.
+    // Compat fallback — reached only when getPreviewRenderers() returns [] (i.e. a plugin
+    // has previewRenderer but no previewRendererDetect). All current plugins declare
+    // previewRendererDetect, so this path is never taken in practice. Candidate for
+    // removal once we're confident no external plugin omits the predicate.
     function getPreviewRenderer(notebook) {
         const active = _activeFor(notebook);
         const multi = active.find(m => m.previewRenderers?.length);
