@@ -5844,7 +5844,12 @@ def api_create_note():
             # Timestamp prefix for casual root-level notes; suppressed by config,
             # folder context, or template (template = structured, needs stable URL).
             if folder or using_template or not prepend_date:
-                note_filename = f"{dot_prefix}{slug}.md"
+                if dot_prefix:
+                    # Dotfile convention: .{ScopeName}.md — case-preserved from scope
+                    scope_name = folder.split('/')[-1] if folder else notebook
+                    note_filename = f'.{scope_name}.md'
+                else:
+                    note_filename = f"{slug}.md"
             else:
                 note_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md"
 
