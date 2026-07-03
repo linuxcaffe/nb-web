@@ -182,9 +182,11 @@ const NbWeb = (() => {
         return out;
     }
 
+    // Compat fallback used by renderPreview when getPreviewRenderers() returns [].
+    // Chains through ALL active modules with previewRenderer in load order, returning
+    // the first non-null result. Catches plugins without previewRendererDetect declared.
     function getPreviewRenderer(notebook) {
         const active = _activeFor(notebook);
-        // new multi-renderer API: return first renderer's render fn as a backward-compat shim
         const multi = active.find(m => m.previewRenderers?.length);
         if (multi) return note => {
             const r = multi.previewRenderers.find(pr => !pr.detect || pr.detect(note));
@@ -242,15 +244,29 @@ const NbWeb = (() => {
         _notebookTypeConfigs.delete(notebook);
     }
 
-    // Returns all renderers from the first active module that has previewRenderers,
-    // filtered to those whose detect(note) returns true.
-    // If the notebook config has a types[note.type].renderer preference, that
-    // renderer is promoted to first (becoming the toggle default) without hiding
-    // the others — the user can still switch per-session via the toolbar toggle.
+    // Returns all renderers for the given notebook + note, across all active modules.
+    // Collects from two sources in plugin-load order:
+    //   1. previewRenderers[] arrays (multi-renderer modules, e.g. cine)
+    //   2. previewRenderer + previewRendererDetect pairs (single-renderer modules, e.g. specialty)
+    // Modules with only previewRenderer and no previewRendererDetect are excluded here;
+    // they remain reachable via getPreviewRenderer()'s chain fallback.
+    // If the notebook config has a types[note.type].renderer preference, that renderer
+    // is promoted to first (becoming the toggle default).
     function getPreviewRenderers(notebook, note) {
-        const spec = _activeFor(notebook).find(m => m.previewRenderers?.length);
-        if (!spec) return [];
-        const renderers = spec.previewRenderers.filter(r => !r.detect || r.detect(note));
+        const active = _activeFor(notebook);
+        const renderers = [];
+        for (const m of active) {
+            if (m.previewRenderers?.length) {
+                renderers.push(...m.previewRenderers.filter(r => !r.detect || r.detect(note)));
+            } else if (m.previewRenderer && m.previewRendererDetect?.(note)) {
+                renderers.push({
+                    id:     `${m.name}-preview`,
+                    icon:   m.icon  ?? null,
+                    label:  m.label ?? m.name,
+                    render: m.previewRenderer,
+                });
+            }
+        }
         if (!renderers.length) return renderers;
 
         const preferredId = _notebookTypeConfigs.get(notebook)?.types?.[note?.type]?.renderer;
