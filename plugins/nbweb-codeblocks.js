@@ -4698,13 +4698,12 @@
         const markers = _cbqlMarkerLines(body);
         if (!timeframe || timeframe === 'all') return body;
         if (timeframe === 'current') {
-            // Everything before > TODAY: is the active log (TODAY is the insertion cursor)
-            const todayM = markers.find(m => /^TODAY:/i.test(m.label));
-            if (todayM) return lines.slice(0, todayM.line).join('\n');
-            // No TODAY marker: everything since the last billing boundary
+            const todayM  = markers.find(m => /^TODAY:/i.test(m.label));
             const billing = markers.filter(m => /^(INVOICED|CLOSED):/i.test(m.label));
-            const last    = billing[billing.length - 1];
-            return last ? lines.slice(last.line + 1).join('\n') : body;
+            const lastBill = billing[billing.length - 1];
+            const start = lastBill ? lastBill.line + 1 : 0;
+            const end   = todayM   ? todayM.line       : lines.length;
+            return lines.slice(start, end).join('\n');
         }
         // Specific marker label — the phase ending AT that marker
         const idx = markers.findIndex(m => m.label === timeframe);
@@ -4783,41 +4782,62 @@
     }
 
     // Render an hl block in CBQL mode: fetch source → slice → extract timedot → hledger.
+    // Extract a {from, to} date range for a timeframe from marker labels.
+    // Journals are complete records; this range is applied at query time only.
+    function _cbqlDateRange(body, timeframe) {
+        const markers = _cbqlMarkerLines(body);
+        const billing = markers.filter(m => /^(INVOICED|CLOSED):/i.test(m.label));
+        const todayM  = markers.find(m => /^TODAY:/i.test(m.label));
+        const today   = new Date().toISOString().slice(0, 10);
+
+        const dateFromLabel = label => { const m = label.match(/\b(\d{4}-\d{2}-\d{2})\b/); return m ? m[1] : null; };
+        const nextDay = d => { if (!d) return null; const dt = new Date(d + 'T12:00:00Z'); dt.setDate(dt.getDate() + 1); return dt.toISOString().slice(0, 10); };
+
+        if (!timeframe || timeframe === 'all') return { from: null, to: null };
+
+        if (timeframe === 'current') {
+            const last = billing[billing.length - 1];
+            return { from: nextDay(last ? dateFromLabel(last.label) : null), to: todayM ? dateFromLabel(todayM.label) : today };
+        }
+
+        // Specific marker label (e.g. "INVOICED: INV-2026-004  2026-06-27 ...")
+        const idx = markers.findIndex(m => m.label === timeframe);
+        if (idx < 0) return { from: null, to: null };
+        const prev = billing.filter(b => b.line < markers[idx].line).pop();
+        return { from: nextDay(prev ? dateFromLabel(prev.label) : null), to: dateFromLabel(markers[idx].label) };
+    }
+
     async function _loadHledgerCBQLBlock(el) {
-        const note     = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
-        const params   = _cbqlParams(el.dataset.src || '', note?.meta);
+        const note    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const params  = _cbqlParams(el.dataset.src || '', note?.meta);
         if (!params) return _loadHledgerBlock(el);
 
-        const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
-        const noteSel   = note?.selector || '';
-        const rate      = parseFloat(note?.meta?.rate) || 0;
-        const project   = (note?.meta?.project || '').trim();
-        const commodity = (note?.meta?.commodity || 'CAD').trim();
+        const timeframe  = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
+        const noteSel    = note?.selector || '';
+        const journalKey = note?.meta?.journal || note?.effective_fm?.journal || '';
+        const sourceSel  = _cbqlResolveSel(params.source, noteSel);
 
-        // hledger query = lines in the block after CBQL params
-        const query = (el.dataset.src || '').split('\n')
+        // Base query = block lines that aren't CBQL params
+        const baseQuery = (el.dataset.src || '').split('\n')
             .filter(l => !/^(source|filter|timeframe|group):\s*/.test(l) && l.trim())
             .join(' ').trim() || 'bal';
 
-        let sourceSel = _cbqlResolveSel(params.source, noteSel);
-
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
+            // Fetch diary to extract marker-based date range
             const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
             if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
-            const d = await r.json();
-            const slice   = _cbqlSliceBody(d.body || '', timeframe);
-            const timedot = _timedotExtractFile(slice, project);
+            const d   = await r.json();
+            const { from, to } = _cbqlDateRange(d.body || '', timeframe);
 
-            if (!timedot.trim()) {
-                el.innerHTML = '<div class="nb-timedot-empty">No entries in this timeframe</div>';
-                return;
-            }
+            // Append date filter to query — journals are complete, timeframe is reporting only
+            const datePart = from ? `date:${from}..${to || ''}` : to ? `date:..${to}` : '';
+            const query = datePart ? `${baseQuery} ${datePart}` : baseQuery;
 
             const resp = await fetch('/api/hledger/cbql-query', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ timedot, query, rate, commodity }),
+                body: JSON.stringify({ journalFile: journalKey, query }),
             });
             if (!resp.ok) throw new Error(`hledger error: ${resp.status}`);
             const rd = await resp.json();
@@ -4833,10 +4853,10 @@
             metaEl.textContent = `${srcLabel} · ${tfLabel}`;
             el.appendChild(hdr);
             _initCollapseToggle(el);
-            const body = document.createElement('pre');
-            body.className = 'nb-hl-cbql-result';
-            body.textContent = rd.result || '(no output)';
-            el.appendChild(body);
+            const pre = document.createElement('pre');
+            pre.className = 'nb-hl-cbql-result';
+            pre.textContent = rd.result || '(no output)';
+            el.appendChild(pre);
         } catch (e) {
             el.innerHTML = `<div class="nb-timedot-err">CBQL: ${_esc(e.message)}</div>`;
         }
@@ -5092,7 +5112,8 @@
             if (end >= 0) body = raw.slice(end + 4).replace(/^\n+/, '');
         }
         const out = [
-            `; ${project} labour journal — auto-synced from note timedot blocks`,
+            `; ${project} labour journal — DO NOT HAND EDIT`,
+            `; Auto-generated from note timedot blocks. Edit source blocks in nb-web.`,
             ``,
             `account ${ar}`,
             `account ${inc}`,
@@ -5300,9 +5321,13 @@
         if (!wd.success) throw new Error(wd.stderr || 'Save failed');
         el.dataset.src = newContent.trimEnd();
 
-        // Sync timedot_file: + labour journal when set on this note
+        // Sync timedot_file: + labour journal when set on this note.
+        // Falls back to deriving timedot path from journal: (direct or via effective_fm).
         const _syncNote    = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
-        const _syncFile    = _syncNote?.meta?.timedot_file;
+        const _journalKey  = _syncNote?.meta?.journal || _syncNote?.effective_fm?.journal || '';
+        const _syncFile    = _syncNote?.meta?.timedot_file
+                          || _syncNote?.effective_fm?.timedot_file
+                          || (_journalKey ? _journalKey.replace(/\.journal$/, '-gen.timedot') : '');
         if (_syncFile) {
             const _proj    = _syncNote?.meta?.project || null;
             const _rate    = parseFloat(_syncNote?.meta?.rate) || null;
@@ -5310,9 +5335,10 @@
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ file, content }),
             });
-            await _write(_syncFile, _timedotExtractFile(raw, _proj));
-            const _labourFile = _syncFile.replace(/\.timedot$/, '.labour.journal');
-            if (_rate && _labourFile !== _syncFile)
+            const _genHdr  = `; DO NOT HAND EDIT — generated from note blocks. Edit source in nb-web.\n`;
+            await _write(_syncFile, _genHdr + _timedotExtractFile(raw, _proj));
+            const _labourFile = _journalKey ? _journalKey.replace(/\.journal$/, '-gen.labour.journal') : '';
+            if (_rate && _labourFile)
                 await _write(_labourFile, _timedotExtractLabourJournal(raw, _proj, _rate));
         }
 
@@ -6122,7 +6148,53 @@
             el.dataset.activeTimeframe = timeframe;
             _loadHledgerCBQLBlock(el);
         });
+
+        // Recalc journals from the CBQL source note so non-CBQL hl blocks and
+        // inline queries reflect the same data as the CBQL blocks.
+        _recalcSourceJournals();
     });
+
+    // Rebuild timedot + labour journal from the CBQL source note on demand.
+    // Mirrors the timedot block save sync; called on timeframe change.
+    async function _recalcSourceJournals() {
+        const note = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        if (!note) return;
+        const sourceFM = note.meta?.source || note.effective_fm?.source || '';
+        if (!sourceFM) return;
+
+        const noteSel  = note.selector || '';
+        const sourceSel = (typeof _cbqlResolveSel === 'function')
+            ? _cbqlResolveSel(sourceFM, noteSel)
+            : sourceFM;
+
+        let sourceNote;
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
+            if (!r.ok) return;
+            sourceNote = await r.json();
+        } catch { return; }
+
+        const raw      = (sourceNote.raw || sourceNote.body || '');
+        const meta     = sourceNote.meta || {};
+        const effFm    = sourceNote.effective_fm || {};
+        const project  = meta.project || '';
+        const rate     = parseFloat(meta.rate || effFm.rate) || 0;
+        const journalKey = meta.journal || effFm.journal || '';
+        const syncFile   = meta.timedot_file || effFm.timedot_file
+                        || (journalKey ? journalKey.replace(/\.journal$/, '-gen.timedot') : '');
+        if (!syncFile) return;
+
+        const _write = (file, content) => fetch('/api/t/timedot/write', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file, content }),
+        }).catch(() => {});
+
+        const genHdr   = `; DO NOT HAND EDIT — generated from note blocks. Edit source in nb-web.\n`;
+        await _write(syncFile, genHdr + _timedotExtractFile(raw, project));
+        const labourFile = journalKey ? journalKey.replace(/\.journal$/, '-gen.labour.journal') : '';
+        if (rate && labourFile)
+            await _write(labourFile, _timedotExtractLabourJournal(raw, project, rate));
+    }
 
     // Export FM utilities so main.js can use them in the card-footer Changes button
     // without duplicating the helpers.

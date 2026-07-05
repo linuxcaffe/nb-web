@@ -137,6 +137,22 @@ Fenced code blocks with recognised language tags render as live, interactive wid
 
 ---
 
+### Project diaries and live reports
+
+[screenshot: reports page showing timeline, time totals, and financial summary]
+
+A `type: project` note is a **diary** — dated headings, prose, time entries, expense records, decisions. Nothing is forced; you write what happened and the system reads it.
+
+A companion `type: reports` note is a **live projection** of that diary. A timeframe selector on the reports bar lets you navigate between billing phases — current work, a past invoice period, or the full project history. Every block on the page responds instantly, scoping its totals to the selected window.
+
+The two notes are a pair. The project note accumulates; the reports note presents. When billing time comes, the Invoice button reads the current phase, generates an invoice note, and writes a marker back into the diary as its own receipt. To regenerate: delete the marker, click Invoice again.
+
+Your project notes are always plain Markdown. The reports are assembled on demand — no separate database, no import step.
+
+→ [[PROJECT-REPORTS]]
+
+---
+
 ### Notebooks
 
 [screenshot: notebooks panel showing list and detail]
@@ -331,6 +347,7 @@ The full documentation lives in the `docs` notebook — importable as `docs.nbz`
 | [[SYSADMIN]] | Dotfile vs dashboard split, `cfg: org`, admin templates |
 | [[WIKILINKS]] | Syntax, anchor links, backlinks |
 | [[CODEBLOCKS]] | All live block types and configuration |
+| [[PROJECT-REPORTS]] | Project diary pattern, timeframe selector, invoice generation |
 | [[SEARCH_TAGS]] | Search, tag filter, cross-notebook search |
 | [[CONTACTS]] | Contact notes, VCF import |
 | [[Import / Export]] | .nbz archive format, import workflow |

@@ -3316,27 +3316,52 @@ def api_hledger_cbql_query():
     if not _level_gte(user.get('level', ''), 'guest'):
         return jsonify(error='forbidden'), 403
 
-    data      = request.get_json(force=True) or {}
-    timedot   = (data.get('timedot') or '').strip()
-    query     = (data.get('query') or 'bal').strip()
-    rate      = float(data.get('rate') or 0)
-    commodity = (data.get('commodity') or 'CAD').strip()
-
-    if not timedot:
-        return jsonify({'result': ''}), 200
+    data         = request.get_json(force=True) or {}
+    journal_file = (data.get('journalFile') or '').strip()  # path to real journal (preferred)
+    journal      = (data.get('journal') or '').strip()       # inline journal content
+    timedot      = (data.get('timedot') or '').strip()       # inline timedot content
+    query        = (data.get('query') or 'bal').strip()
 
     args = shlex.split(query)
     if not args or args[0] not in (_HLEDGER_READ_CMDS | _HLEDGER_TEXT_CMDS):
         return jsonify({'error': f'command not allowed: {args[0] if args else ""}'}), 400
 
-    price_line = f'P {datetime.now().strftime("%Y-%m-%d")} h {rate:.2f} {commodity}\n' if rate else ''
-    content    = price_line + timedot + '\n'
+    if journal_file:
+        # Query a real journal file directly — no temp files, journals are complete records
+        jpath = Path(os.path.expanduser(journal_file)).resolve()
+        try:
+            rel = jpath.relative_to(NB_DIR.resolve())
+        except ValueError:
+            return jsonify({'error': 'invalid journal path'}), 400
+        if not jpath.exists():
+            return jsonify({'error': f'journal not found: {journal_file}'}), 404
+        notebook = rel.parts[0] if rel.parts else ''
+        nb_meta = _notebook_config(notebook) if notebook else {}
+        if not _can_access(user, {}, nb_meta):
+            return jsonify({'error': 'Access denied'}), 403
+        try:
+            result = subprocess.run(
+                ['hledger', '-f', str(jpath)] + args,
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                return jsonify({'error': result.stderr or 'hledger error'}), 500
+            return jsonify({'result': result.stdout})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
+    # Inline content path (timedot CBQL blocks, etc.)
+    content = journal or timedot
+    if not content:
+        return jsonify({'result': ''}), 200
+
+    suffix = '.journal' if journal else '.timedot'
     import tempfile as _tf, os as _os2
-    with _tf.NamedTemporaryFile(mode='w', suffix='.timedot', delete=False, prefix='nb-cbql-') as tf:
-        tf.write(content)
-        tf_path = tf.name
+    tf_path = None
     try:
+        with _tf.NamedTemporaryFile(mode='w', suffix=suffix, delete=False, prefix='nb-cbql-') as tf:
+            tf.write(content + '\n')
+            tf_path = tf.name
         result = subprocess.run(
             ['hledger', '-f', tf_path] + args,
             capture_output=True, text=True, timeout=10
@@ -3347,8 +3372,9 @@ def api_hledger_cbql_query():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
-        try: _os2.unlink(tf_path)
-        except: pass
+        if tf_path:
+            try: _os2.unlink(tf_path)
+            except: pass
 
 
 @app.route('/api/t/status')
@@ -3444,6 +3470,22 @@ def api_t_timedot_append():
     return jsonify({'success': True, 'path': str(td)})
 
 
+def _nb_index_add(file_path: Path):
+    """Add file_path to its notebook's .index if not already listed (walk-up search)."""
+    p = Path(file_path).resolve()
+    candidate = p.parent
+    while candidate != candidate.parent:
+        idx = candidate / '.index'
+        if idx.exists():
+            rel = str(p.relative_to(candidate))
+            lines = idx.read_text(errors='replace').splitlines()
+            if rel not in lines:
+                with open(idx, 'a') as f:
+                    f.write(rel + '\n')
+            return
+        candidate = candidate.parent
+
+
 def _ensure_journal_stubs(journal_path: Path):
     """Touch any files named in include directives of journal_path that don't exist yet."""
     if not journal_path or not journal_path.exists():
@@ -3464,7 +3506,9 @@ def api_t_timedot_write():
     content = data.get('content', '')
     td.parent.mkdir(parents=True, exist_ok=True)
     td.write_text(content)
-    _ensure_journal_stubs(td.with_suffix('.journal'))
+    master_stem = td.stem.removesuffix('-gen')
+    _ensure_journal_stubs(td.parent / f'{master_stem}.journal')
+    _nb_index_add(td)
     _hledger_cache.clear()
     return jsonify({'success': True, 'path': str(td)})
 
@@ -3500,12 +3544,12 @@ def api_t_journal_from_csv():
         return jsonify({'success': False, 'error': 'journal: FM key not set'}), 400
 
     journal_path  = Path(os.path.expanduser(journal_key))
-    out_path      = journal_path.with_name(f'{journal_path.stem}.{token}.journal')
+    out_path      = journal_path.with_name(f'{journal_path.stem}-gen.{token}.journal')
 
     # clear=true: block was removed from note — write empty stub so journal is blank
     if data.get('clear'):
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(f'; {project} {token} journal — cleared (block removed)\n')
+        out_path.write_text(f'; {project} {token} journal — cleared\n; DO NOT HAND EDIT — generated file\n')
         _hledger_cache.clear()
         return jsonify({'success': True, 'cleared': True, 'path': str(out_path)})
 
@@ -3568,7 +3612,8 @@ def api_t_journal_from_csv():
     txn_date = meta.get('started') or str(_date.today())
 
     jlines = [
-        f'; {project} {token} journal — auto-synced from note csv block on save',
+        f'; {project} {token} journal — DO NOT HAND EDIT',
+        f'; Auto-generated from csv block in note. Edit source blocks in nb-web.',
         f'',
         f'account {mat_acct}',
         f'',
@@ -3582,6 +3627,7 @@ def api_t_journal_from_csv():
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text('\n'.join(jlines))
+    _nb_index_add(out_path)
     _hledger_cache.clear()
     return jsonify({'success': True, 'path': str(out_path)})
 
@@ -3610,7 +3656,7 @@ def _parse_labour_entries(journal_key: str):
     if not journal_key:
         return [], 0.0
     jpath = Path(os.path.expanduser(journal_key))
-    labour_j = jpath.with_name(jpath.stem + '.labour.journal')
+    labour_j = jpath.with_name(jpath.stem + '-gen.labour.journal')
     if not labour_j.exists():
         return [], 0.0
     cutoff = _last_invoice_cutoff(journal_key)
@@ -3641,8 +3687,8 @@ def _invoice_journal_totals(journal_key: str):
     expense_dict = {}
     if journal_key:
         jpath = Path(os.path.expanduser(journal_key))
-        for p in sorted(jpath.parent.glob(f'{jpath.stem}.*.journal')):
-            token = p.name[len(jpath.stem) + 1:].removesuffix('.journal')
+        for p in sorted(jpath.parent.glob(f'{jpath.stem}-gen.*.journal')):
+            token = p.name[len(jpath.stem) + 5:].removesuffix('.journal')  # skip '-gen.'
             if token == 'labour':
                 continue
             sub = gross = 0.0
@@ -3793,17 +3839,17 @@ def api_t_invoice_generate():
         return jsonify({'error': 'note not found'}), 404
 
     meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
-    project    = str(meta.get('project', note_path.stem))
-    rate       = float(meta.get('rate', 0) or 0)
-    btype      = str(meta.get('billing_type', 't&m')).strip()
-    client_raw  = str(meta.get('client', '')).strip()
-    client      = client_raw.replace('contacts:', '').replace('.md', '')
-    journal_key = str(meta.get('journal', '')).strip()
-    timedot_key = str(meta.get('timedot_file', '')).strip()
-    if not journal_key:
-        _notebook = selector.split(':')[0] if ':' in selector else ''
-        if _notebook:
-            journal_key = str(_folder_config(_notebook, str(note_path)).get('journal', '')).strip()
+    notebook   = selector.split(':')[0] if ':' in selector else 'home'
+    _fcfg      = _folder_config(notebook, str(note_path))
+    project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
+    rate       = float(meta.get('rate') or _fcfg.get('rate') or 0)
+    btype      = str(meta.get('billing_type') or _fcfg.get('billing_type') or 't&m').strip()
+    client_raw = str(meta.get('client') or _fcfg.get('client') or '').strip()
+    client     = client_raw.replace('contacts:', '').replace('.md', '')
+    journal_key = str(meta.get('journal') or _fcfg.get('journal') or '').strip()
+    timedot_key = str(meta.get('timedot_file') or _fcfg.get('timedot_file') or '').strip()
+    if not timedot_key and journal_key:
+        timedot_key = journal_key.replace('.journal', '-gen.timedot')
 
     labour_total, expense_dict = _invoice_journal_totals(journal_key)
     mat_sub   = sum(v[0] for v in expense_dict.values())
@@ -3811,7 +3857,6 @@ def api_t_invoice_generate():
     labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
 
     # Derive notebook + relative folder
-    notebook    = selector.split(':')[0] if ':' in selector else 'home'
     nb_root     = NB_DIR / notebook
     project_dir = note_path.parent
     rel_folder  = str(project_dir.relative_to(nb_root))

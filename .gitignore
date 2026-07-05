@@ -7,3 +7,4 @@ dist/
 .DS_Store
 errors.txt
 nb-settings.json
+node_modules/
