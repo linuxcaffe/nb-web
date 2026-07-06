@@ -1744,6 +1744,13 @@ const NbMain = (() => {
     // check: hl-          → one block running all hl-* scripts
     // check: [nb-, hl-]   → two blocks, one per prefix
     // check: ""           → empty string suppresses inherited (returns '')
+    // check_add: unions in additions from every config level (never overrides)
+    // check_skip: subtracts from the resolved (check ∪ check_add) set — a
+    //             skip entry ending in '-' excludes any token sharing that
+    //             family prefix (whole family-glob token or individual
+    //             script name alike); an exact entry excludes only itself.
+    //             Applies unconditionally from every level, same as
+    //             check_add — a note's own check: does not grant immunity.
     // Dotfiles are the SOURCE of config — never self-inject.
     function _virtualTestPrefix(note) {
         if (note?.meta?.type === 'dotfile') return '';
@@ -1764,7 +1771,18 @@ const NbMain = (() => {
 
         const all = [...new Set([...base, ...adds])];
         if (!all.length) return '';
-        return all.map(p => `\`\`\`check\n${p}\n\`\`\``).join('\n') + '\n\n';
+
+        // check_skip: unions from note FM + every config level (never overrides)
+        const skipRaw = [note?.meta?.check_skip, note?.effective_check_skip]
+            .filter(Boolean).join(' ');
+        const skips = skipRaw.trim().split(/[\s,]+/).filter(Boolean);
+
+        const filtered = skips.length
+            ? all.filter(tok => !skips.some(skip =>
+                skip.endsWith('-') ? (tok === skip || tok.startsWith(skip)) : tok === skip))
+            : all;
+        if (!filtered.length) return '';
+        return filtered.map(p => `\`\`\`check\n${p}\n\`\`\``).join('\n') + '\n\n';
     }
 
     const _ACCESS_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];

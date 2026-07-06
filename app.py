@@ -445,12 +445,14 @@ def _global_config():
         return {}
 
 
-def _collect_check_add(notebook, note_path):
-    """Union all check_add: values from global → notebook → folder configs.
+def _collect_cascading_tokens(key, notebook, note_path):
+    """Union all `key`: values from global → notebook → folder configs.
 
-    Unlike check: (which overrides), check_add: accumulates across every
-    level so more-specific configs extend rather than replace the base set.
-    Returns a deduplicated space-separated string of prefixes/names.
+    Shared by check_add: (accumulates additions to the effective check set)
+    and check_skip: (accumulates exclusions from it) — both never override,
+    always union across every level so more-specific configs extend rather
+    than replace the base set. Returns a deduplicated space-separated
+    string of prefixes/names.
     """
     def _read_raw(path):
         try:
@@ -460,7 +462,7 @@ def _collect_check_add(notebook, note_path):
             return {}
 
     def _extract(meta):
-        val = meta.get('check_add')
+        val = meta.get(key)
         if not val:
             return []
         if isinstance(val, list):
@@ -497,6 +499,26 @@ def _collect_check_add(notebook, note_path):
         if t:
             seen[t] = None
     return ' '.join(seen.keys())
+
+
+def _collect_check_add(notebook, note_path):
+    """Union all check_add: values from global → notebook → folder configs.
+
+    Unlike check: (which overrides), check_add: accumulates across every
+    level so more-specific configs extend rather than replace the base set.
+    """
+    return _collect_cascading_tokens('check_add', notebook, note_path)
+
+
+def _collect_check_skip(notebook, note_path):
+    """Union all check_skip: values from global → notebook → folder configs.
+
+    Subtracted from the resolved (check: ∪ check_add:) set at render time —
+    see main.js _virtualTestPrefix. A skip entry ending in '-' excludes any
+    token in that family (exact family-glob token, or any individual script
+    name sharing the prefix); an exact entry excludes only that exact token.
+    """
+    return _collect_cascading_tokens('check_skip', notebook, note_path)
 
 
 def _notebook_config(notebook):
@@ -5550,6 +5572,7 @@ def api_note():
         'effective_access': _effective_access(meta, nb_meta),
         'effective_checks':     nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
         'effective_check_add':  _collect_check_add(note_notebook, fpath) if note_notebook else '',
+        'effective_check_skip': _collect_check_skip(note_notebook, fpath) if note_notebook else '',
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'parent_meta': parent_meta,
