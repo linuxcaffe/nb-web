@@ -4926,7 +4926,7 @@ def _list_notes(notebook, folder, limit):
             'selector':   f"{notebook}:{sel_path}",
             'excerpt':    excerpt,
             'updated':    '',
-            'pinned':     meta.get('pinned', '') == 'true' or bool(folder_pinned and fname in (folder_pinned, folder_pinned if folder_pinned.endswith('.md') else folder_pinned + '.md')),
+            'pinned':     str(meta.get('pinned', '')).strip().lower() == 'true' or bool(folder_pinned and fname in (folder_pinned, folder_pinned if folder_pinned.endswith('.md') else folder_pinned + '.md')),
             'status':     todo_status,
             'annotation': _read_annotation(str(fpath)),
         }
