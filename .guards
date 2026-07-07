@@ -20,11 +20,14 @@ main.js:_renderMarkdown
 main.js:_resolveInlineQueries
 main.js:_buildFmBlocks
 
-# ── Shared display utilities exposed to satellites (main.js) ──────────────────
-# Load-bearing seam: sync.js calls these via NbMain.*; runGrep/import (still in
-# this file) call the bare private versions directly.
+# ── Shared display/rendering utilities exposed to satellites (main.js) ────────
+# Load-bearing seam: showCmdOutput/showPreviewLoading called by sync.js via
+# NbMain.*; parseMarkdownStatic called by plugins-page.js via NbMain.* (also
+# used bare by kernel renderPreview + the not-yet-extracted Templates block).
+# runGrep/import (still in this file) call the bare private versions directly.
 main.js:_showCmdOutput
 main.js:_showPreviewLoading
+main.js:_parseMarkdownStatic
 
 # ── Navigation (nav.js) ───────────────────────────────────────────────────────
 nav.js:const NbNav
@@ -48,6 +51,9 @@ search.js:const NbSearch
 
 # ── Sync / run-command (sync.js) ───────────────────────────────────────────────
 sync.js:const NbSync
+
+# ── Plugins page (plugins-page.js) ─────────────────────────────────────────────
+plugins-page.js:const NbPluginsPage
 
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
