@@ -161,8 +161,7 @@ const NbMain = (() => {
 
     async function init() {
         await NbNav.init();
-        _bindSearch();
-        _bindTags();
+        NbSearch.init();
         NbNoteActions.init();
         _bindPreviewActions();
         _bindListMenu();
@@ -4701,119 +4700,6 @@ const NbMain = (() => {
         });
     }
 
-    // ── Search ─────────────────────────────────────────────────────
-
-    // Parse CLI-style grep args: "g -B 2 -A 3 -I pattern"
-    function _parseGrepArgs(raw) {
-        const opts = { before: 0, after: 0, caseSensitive: false,
-                       fixed: false, word: false, all: false, invert: false, pattern: '' };
-        let s = raw;
-        s = s.replace(/-B\s*(\d+)/g,  (_, n) => { opts.before = +n; return ''; });
-        s = s.replace(/-A\s*(\d+)/g,  (_, n) => { opts.after  = +n; return ''; });
-        s = s.replace(/-C\s*(\d+)/g,  (_, n) => { opts.before = opts.after = +n; return ''; });
-        s = s.replace(/--all\b/g,     () => { opts.all           = true; return ''; });
-        s = s.replace(/-I\b/g,        () => { opts.caseSensitive = true; return ''; });
-        s = s.replace(/-F\b/g,        () => { opts.fixed         = true; return ''; });
-        s = s.replace(/-w\b/g,        () => { opts.word          = true; return ''; });
-        s = s.replace(/-v\b/g,        () => { opts.invert        = true; return ''; });
-        opts.pattern = s.trim().replace(/\s{2,}/g, ' ');
-        return opts;
-    }
-
-    // Matches nb selectors: notebook:id, notebook:filename, or bare id
-    // e.g. tasks:87  home:20260430.md  claude:3
-    const _selectorPat = /^([a-z][a-z0-9_-]*):(\d+|[\w.-]+\.(?:md|org|txt|adoc))$/i;
-    const _bareIdPat   = /^\d+$/;
-
-    function _dispatchQuery(raw) {
-        const q = raw.trim();
-        if (!q) {
-            NbNav.reexecute();
-            return;
-        }
-
-        // Cal is active — re-run it with the updated search query as a post-filter
-        if (NbNav.activeCmd === 'cal') { NbNav.reexecute(); return; }
-
-        // Grep shorthand: "g <args>" in search bar — full flag parsing
-        const gMatch = q.match(/^(?:nb\s+)?g\s+(.+)/i);
-        if (gMatch) {
-            const opts = _parseGrepArgs(gMatch[1]);
-            if (opts.pattern) runGrep(opts);
-            return;
-        }
-
-        // Direct selector: notebook:id or notebook:filename.md → open immediately
-        if (_selectorPat.test(q)) {
-            openNote(q);
-            return;
-        }
-        // Bare number → treat as id in current notebook
-        if (_bareIdPat.test(q) && NbNav.notebook !== '_all') {
-            openNote(`${NbNav.notebook}:${q}`);
-            return;
-        }
-        NbNav.reexecute();
-    }
-
-    function _bindTags() {
-        const input = document.getElementById('nb-tags');
-        if (!input) return;
-        const clear = document.getElementById('nb-tags-clear');
-        let _tagsTimer;
-
-        input.addEventListener('input', () => {
-            clear.hidden = !input.value;
-            clearTimeout(_tagsTimer);
-            const raw = input.value.trim();
-            const q   = raw ? raw.split(/[\s,]+/).filter(Boolean).map(tok => {
-                if (tok.startsWith('-')) {
-                    const rest = tok.slice(1);
-                    return '-' + (rest.startsWith('#') ? rest : '#' + rest);
-                }
-                return tok.startsWith('#') ? tok : '#' + tok;
-            }).join(' ') : '';
-            NbNav.setTagsQuery(q);
-            _tagsTimer = setTimeout(() => {
-                NbNav.reexecute();
-            }, 400);
-        });
-
-        clear.addEventListener('click', () => {
-            input.value = '';
-            clear.hidden = true;
-            NbNav.setTagsQuery('');
-            NbNav.reexecute();
-        });
-    }
-
-    function _bindSearch() {
-        const input = document.getElementById('nb-search');
-        const clear = document.getElementById('nb-search-clear');
-
-        input.addEventListener('input', () => {
-            clear.hidden = !input.value;
-            NbNav.setSearchQuery(input.value);
-            clearTimeout(_searchTimer);
-            _searchTimer = setTimeout(() => _dispatchQuery(input.value), 400);
-        });
-
-        input.addEventListener('keydown', e => {
-            if (e.key === 'Enter') {
-                clearTimeout(_searchTimer);
-                _dispatchQuery(input.value);
-            }
-        });
-
-        clear.addEventListener('click', () => {
-            input.value = '';
-            clear.hidden = true;
-            NbNav.setSearchQuery('');
-            if (NbNav.activeCmd === 'cal') NbNav.reexecute();
-            else loadNotes();
-        });
-    }
-
     // ── Sync ───────────────────────────────────────────────────────
 
     async function doSync() {
@@ -7233,6 +7119,8 @@ const NbMain = (() => {
              setEncPassword: pw => { _encPassword = pw; },
              clearActiveSelector: () => { _activeSelector = null; },
              setNoAutoSelect: v => { _noAutoSelect = v; },
+             clearSearchTimer: () => { clearTimeout(_searchTimer); },
+             setSearchTimer: id => { _searchTimer = id; },
              runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, runAccount, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor, saveNote: _saveNote,
              isEditing: () => _editing,

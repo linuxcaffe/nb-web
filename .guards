@@ -37,6 +37,9 @@ drag-handles.js:const NbDragHandles
 # ── Note actions (note-actions.js) ─────────────────────────────────────────────
 note-actions.js:const NbNoteActions
 
+# ── Search (search.js) ─────────────────────────────────────────────────────────
+search.js:const NbSearch
+
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
 app.py:def api_note
