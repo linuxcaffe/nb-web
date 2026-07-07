@@ -274,6 +274,24 @@ def run_nb(*args, input_text=None, readonly=False):
     }
 
 
+def _nb_index_reconcile(path):
+    """Run `nb index reconcile <path>` directly -- NOT via run_nb(), because
+    run_nb()'s unconditional trailing `--no-color` breaks this specific
+    subcommand: `_index()`'s reconcile arg-parser only recognizes
+    `--ancestors`/`--commit`/`--checkpoint`, and treats any other trailing arg
+    (including `--no-color`) as an override for the folder-path argument that
+    came before it -- silently reconciling the wrong (nonexistent) path instead
+    of `path`. NO_COLOR=1 in the env is sufficient for quiet output; verified
+    against a scratch copy that this reconciles the intended folder and
+    correctly de-duplicates .index (confirmed root cause of a real ~/.nb/djp
+    corruption incident, 2026-07-07 -- see feedback_test_isolation_subprocess_env
+    memory for the unrelated but similarly-shaped pytest bug found the same day).
+    """
+    subprocess.run([NB_BIN, 'index', 'reconcile', str(path)],
+                   capture_output=True, text=True,
+                   env={**os.environ, 'NO_COLOR': '1'})
+
+
 def nb_ok(r):
     return r['returncode'] == 0
 
@@ -7549,7 +7567,7 @@ def api_nb_import():
                    'imported_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}
     (dest / '.nb_archive').write_text(json.dumps(import_meta, indent=2))
 
-    run_nb('index', 'reconcile', f'{notebook}:')
+    _nb_index_reconcile(dest)
 
     if not (dest / '.git').exists():
         git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true'}
@@ -8725,7 +8743,7 @@ def api_import():
                     fname = f"{slug}_{uuid.uuid4().hex[:4]}.md"
                     dest  = NB_DIR / 'contacts' / fname
                 dest.write_text(md)
-                run_nb('index', 'reconcile', 'contacts:')
+                _nb_index_reconcile(dest.parent)
                 created.append(c.get('name', fname))
             return jsonify({'success': True, 'output': f"Imported {len(created)} contact(s): {', '.join(created)}"})
         except Exception as e:
@@ -8797,7 +8815,7 @@ def api_contact_from_vcf():
         dest  = contacts_dir / fname
 
     dest.write_text(md)
-    run_nb('index', 'reconcile', 'contacts:')
+    _nb_index_reconcile(contacts_dir)
 
     idx      = read_index('contacts')
     note_id  = (idx.index(fname) + 1) if fname in idx else None
@@ -8833,7 +8851,7 @@ def api_link_file():
 
     try:
         os.symlink(src, dest)
-        run_nb('index', 'reconcile', f'{notebook}:')
+        _nb_index_reconcile(nb_dir)
         selector = None
         try:
             idx_lines = (nb_dir / '.index').read_text().splitlines()
