@@ -4401,7 +4401,7 @@ const NbMain = (() => {
 
     function _currentHistoryEntry() {
         if (_activeSelector) return { sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 };
-        if (_activeCmd)      return { cmd: _activeCmd };
+        if (NbNav.activeCmd) return { cmd: NbNav.activeCmd };
         return null;
     }
 
