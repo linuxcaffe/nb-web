@@ -221,7 +221,14 @@
 <script src="nbweb.js"></script>
 <script src="theme.js"></script>
 <script src="nav.js"></script>
+<!-- Load order below is cosmetic, not functional: every cross-module reference
+     runs inside a function body invoked after DOMContentLoaded, by which point
+     all synchronous scripts below have already executed regardless of order.
+     Convention only: modules NbMain.init() calls synchronously during its own
+     boot (drag-handles.js, note-actions.js) are listed before main.js; modules
+     invoked lazily on user interaction (terminal.js, dialog.js) are listed after. -->
 <script src="drag-handles.js"></script>
+<script src="note-actions.js"></script>
 <script src="main.js"></script>
 <script src="terminal.js"></script>
 <script src="dialog.js"></script>

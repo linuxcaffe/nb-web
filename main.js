@@ -10,7 +10,6 @@ const NbMain = (() => {
     let _editing        = false;
     const _undoBuffer   = {};     // selector → raw content before last edit (level-1 undo)
     let _searchTimer    = null;
-    let _todayInfo      = null;
     let _lastNotes      = [];       // original load order, for client-side sort
     let _sortMode       = 'default';
     let _defaultSortMode = 'default'; // effective default for the current notebook (set by resetSort)
@@ -164,7 +163,7 @@ const NbMain = (() => {
         await NbNav.init();
         _bindSearch();
         _bindTags();
-        _bindAppend();
+        NbNoteActions.init();
         _bindPreviewActions();
         _bindListMenu();
         _bindSortBtn();
@@ -4702,72 +4701,6 @@ const NbMain = (() => {
         });
     }
 
-    // ── Today / Journal ────────────────────────────────────────────
-
-    async function openToday() {
-        try {
-            const r = await fetch('/api/today');
-            const d = await r.json();
-            _todayInfo = {path: d.path};
-
-            const content = document.getElementById('nb-preview-content');
-            const toolbar = document.getElementById('nb-preview-toolbar');
-            toolbar.hidden = false;
-            document.getElementById('nb-preview-title').textContent = _t('msg_today_journal');
-            const ref = document.getElementById('nb-preview-ref');
-            if (ref) ref.textContent = '';
-
-            const html = _renderMarkdown(d.body || d.raw || '');
-            content.innerHTML = `<div class="nb-rendered">${html}</div>`;
-
-            document.getElementById('nb-append-bar').hidden = false;
-            document.getElementById('nb-append-input').focus();
-
-            _activeSelector = null;
-        } catch(e) {
-            console.error('openToday:', e);
-        }
-    }
-
-    function _bindAppend() {
-        const input = document.getElementById('nb-append-input');
-        const btn   = document.getElementById('nb-append-btn');
-
-        // Auto-grow textarea
-        input.addEventListener('input', () => {
-            input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-        });
-
-        input.addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _doAppend(); }
-        });
-        btn.addEventListener('click', _doAppend);
-    }
-
-    async function _doAppend() {
-        const input   = document.getElementById('nb-append-input');
-        const content = input.value.trim();
-        if (!content) return;
-        input.disabled = true;
-        try {
-            const r = await fetch('/api/today', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({content}),
-            });
-            const d = await r.json();
-            if (d.success) {
-                input.value = '';
-                input.style.height = '';
-                openToday();   // refresh preview
-            }
-        } finally {
-            input.disabled = false;
-            input.focus();
-        }
-    }
-
     // ── Search ─────────────────────────────────────────────────────
 
     // Parse CLI-style grep args: "g -B 2 -A 3 -I pattern"
@@ -4881,114 +4814,6 @@ const NbMain = (() => {
         });
     }
 
-    // ── Add (now driven by cmd_bar "Add" button via NbNav) ─────────
-
-    function showAddForm(type) {
-        const title   = type === 'bookmark' ? 'New Bookmark' :
-                        type === 'todo'     ? 'New Todo' :
-                        type === 'folder'   ? 'New Folder' : 'New Note';
-        const content = document.getElementById('nb-preview-content');
-        document.getElementById('nb-preview-toolbar').hidden = true;
-        content.hidden = false;
-        document.getElementById('nb-editor-wrap').hidden = true;
-
-        let extraFields = '';
-        if (type === 'bookmark') {
-            extraFields = `<label>URL <input type="url" id="nf-url" placeholder="https://…" style="width:100%;margin-top:4px"></label>
-                           <label>Comment <input type="text" id="nf-comment" placeholder="Optional comment…" style="width:100%;margin-top:4px"></label>`;
-        }
-
-        content.innerHTML = `
-          <div style="max-width:600px;padding:8px 0">
-            <h2 style="margin-bottom:16px;font-size:1.1em;color:var(--text-muted)">${_esc(title)}</h2>
-            <div style="display:flex;flex-direction:column;gap:10px">
-              <label>Title<br><input type="text" id="nf-title" placeholder="${_esc(title)}" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
-              ${extraFields}
-              <label>Tags (comma-separated)<br><input type="text" id="nf-tags" placeholder="tag1, tag2" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px"></label>
-              ${type === 'note' ? '<label>Content<br><textarea id="nf-content" rows="6" style="width:100%;margin-top:4px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px;font-family:var(--font-mono);font-size:13px;resize:vertical"></textarea></label>' : ''}
-              <div style="display:flex;gap:8px;margin-top:4px">
-                <button id="nf-save" class="nb-tool-btn nb-btn-primary">Create</button>
-                <button id="nf-cancel" class="nb-tool-btn">Cancel</button>
-              </div>
-            </div>
-          </div>`;
-
-        document.getElementById('nf-title').focus();
-
-        document.getElementById('nf-cancel').addEventListener('click', () => {
-            content.innerHTML = '<div id="nb-welcome"><h2>nb-web</h2><p>Select a note, or choose a command above.</p></div>';
-        });
-        document.getElementById('nf-save').addEventListener('click', () => _submitAdd(type));
-
-        // Enter → Create; Ctrl+Enter → Create and open editor
-        // Attach directly to each input (not delegated) to avoid interference
-        // from the global document keydown guard that returns early for INPUTs.
-        ['nf-title', 'nf-tags', 'nf-url', 'nf-comment'].forEach(id => {
-            document.getElementById(id)?.addEventListener('keydown', e => {
-                if (e.key !== 'Enter' || e.shiftKey) return;
-                const btn = document.getElementById('nf-save');
-                if (btn?.disabled) return;   // guard against key-repeat during async submit
-                e.preventDefault();
-                _submitAdd(type, e.ctrlKey || e.metaKey);
-            });
-        });
-        document.getElementById('nf-content')?.addEventListener('keydown', e => {
-            if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
-            const btn = document.getElementById('nf-save');
-            if (btn?.disabled) return;
-            e.preventDefault();
-            _submitAdd(type, true);
-        });
-    }
-
-    async function _submitAdd(type, andEdit = false) {
-        const titleEl   = document.getElementById('nf-title');
-        const tagsEl    = document.getElementById('nf-tags');
-        const contentEl = document.getElementById('nf-content');
-        const urlEl     = document.getElementById('nf-url');
-        const commentEl = document.getElementById('nf-comment');
-
-        const body = {
-            notebook: NbNav.notebook,
-            folder:   NbNav.folder,
-            type,
-            title:   titleEl?.value.trim() || '',
-            tags:    tagsEl?.value.split(',').map(t=>t.trim()).filter(Boolean) || [],
-            content: contentEl?.value || '',
-            url:     urlEl?.value.trim() || '',
-            comment: commentEl?.value.trim() || '',
-        };
-
-        const btn = document.getElementById('nf-save');
-        btn.textContent = _t('btn_creating'); btn.disabled = true;
-        try {
-            const r = await fetch('/api/notes', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify(body),
-            });
-            const d = await r.json();
-            if (d.success) {
-                _noAutoSelect = true;
-                NbNav.activateCmd('list', { internal: true });
-                if (andEdit && d.selector) {
-                    await openNote(d.selector);
-                    _noAutoSelect = false;
-                    _openEditor(d.selector);
-                } else if (d.selector) {
-                    openNote(d.selector).finally(() => { _noAutoSelect = false; });
-                } else {
-                    _noAutoSelect = false;
-                }
-            } else {
-                alert('Create failed: ' + (d.error || 'unknown'));
-                btn.textContent = _t('btn_create'); btn.disabled = false;
-            }
-        } catch(e) {
-            btn.textContent = _t('btn_create'); btn.disabled = false;
-        }
-    }
-
     // ── Sync ───────────────────────────────────────────────────────
 
     async function doSync() {
@@ -5064,45 +4889,6 @@ const NbMain = (() => {
             '<p>Use the <strong>scope:</strong> dropdown above to set the active notebook.</p>' +
             '<p style="margin-top:8px;font-size:12px;color:var(--text-dim)">The selected scope applies to List, Bookmark, Todo, and other commands.</p></div>';
         _activeSelector = null;
-    }
-
-    // ── Add note (called from opts bar form) ───────────────────────
-
-    async function addNote({ notebook, folder, type, title, url, template_path, template_content }) {
-        try {
-            const r = await fetch('/api/notes', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ notebook, folder: folder || '', type, title, url,
-                                       tags: [], content: '', comment: '',
-                                       template_path:    template_path    || '',
-                                       template_content: template_content || '' }),
-            });
-            const d = await r.json();
-            if (d.success) { return d; }
-            alert('Add failed: ' + (d.error || 'unknown'));
-            return null;
-        } catch(e) {
-            alert('Add failed: ' + String(e));
-            return null;
-        }
-    }
-
-    async function addEncryptedNote({ notebook, title, template_path, password, folder }) {
-        try {
-            const r = await fetch('/api/note/new-encrypted', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ notebook, folder: folder || '', title, tags: [], content: '', password }),
-            });
-            const d = await r.json();
-            if (d.success) { _encPassword = password; return d; }
-            alert('Add failed: ' + (d.error || 'unknown'));
-            return null;
-        } catch(e) {
-            alert('Add failed: ' + String(e));
-            return null;
-        }
     }
 
     // ── Templates view ─────────────────────────────────────────────
@@ -7434,8 +7220,19 @@ const NbMain = (() => {
         if (_lastNotes?.length) renderList(_getSortedNotes(_lastNotes), true);
     }
 
-    return { init, loadNotes, resetAndLoad, resetSort, search, openNote, openToday,
-             showAddForm, addNote, addEncryptedNote, encPassword: () => _encPassword,
+    return { init, loadNotes, resetAndLoad, resetSort, search, openNote,
+             openToday: NbNoteActions.openToday,
+             showAddForm: NbNoteActions.showAddForm,
+             addNote: NbNoteActions.addNote,
+             addEncryptedNote: NbNoteActions.addEncryptedNote,
+             encPassword: () => _encPassword,
+             // Kernel-state setters exposed for satellite extractions (design doc §2) —
+             // added lazily, one per extraction that provably needs to touch shared
+             // state it doesn't own. Tier 4 (UI chrome) will add several more of these
+             // (setSortMode, pin/unpin, setKbPane) — keep them grouped here.
+             setEncPassword: pw => { _encPassword = pw; },
+             clearActiveSelector: () => { _activeSelector = null; },
+             setNoAutoSelect: v => { _noAutoSelect = v; },
              runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, runAccount, loadTemplatesForAdd,
              doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor, saveNote: _saveNote,
              isEditing: () => _editing,

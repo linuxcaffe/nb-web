@@ -34,6 +34,9 @@ dialog.js:const NbDialog
 # ── Drag handles (drag-handles.js) ─────────────────────────────────────────────
 drag-handles.js:const NbDragHandles
 
+# ── Note actions (note-actions.js) ─────────────────────────────────────────────
+note-actions.js:const NbNoteActions
+
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
 app.py:def api_note
