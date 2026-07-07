@@ -29,6 +29,20 @@
 // original inventory estimate: Notebooks-settings and Plugins-page used to sit
 // physically between this block's two halves (~1400 lines apart); with both
 // already extracted, the whole cluster was already contiguous before this move.
+//
+// De-duped in a same-day follow-up pass (djp: "move it, then de-dupe it, both
+// good and that's the right order" -- verbatim move first, verified by tests
+// and review, THEN cleanup, not combined into one commit):
+//   _templatePreviewHtml(icon, name, label, raw) -- shared by _previewTemplate/
+//     _previewVirtualTemplate, which rendered the identical header+FM+body
+//     shape with only icon/label/raw-source differing.
+//   _groupTemplatesByModule()/_appendModuleHeader() -- shared by runTemplates/
+//     loadTemplatesForAdd's plugin-template grouping. Only the grouping+header
+//     step was identical; the per-item rendering stayed separate in each
+//     caller since it's genuinely different behavior (loadTemplatesForAdd's
+//     items are selectable picker entries with an async singleton/seeded-
+//     status check; runTemplates' are plain read-only previews) -- not worth
+//     forcing into one parametrized function just to save a few lines.
 
 const NbTemplates = (() => {
     const _t = key => NbWeb.t(key);
@@ -36,7 +50,50 @@ const NbTemplates = (() => {
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    // Shared by runTemplates/loadTemplatesForAdd: both group plugin templates
+    // by their owning module for section-header display. The per-item
+    // rendering after grouping stays separate in each caller -- runTemplates'
+    // items are read-only previews, loadTemplatesForAdd's are selectable
+    // picker items with an async seeded-status check for singleton templates,
+    // genuinely different behavior, not worth forcing into one function.
+    function _groupTemplatesByModule(pluginTemplates) {
+        const byModule = new Map();
+        pluginTemplates.forEach(t => {
+            if (!byModule.has(t.moduleName)) byModule.set(t.moduleName, []);
+            byModule.get(t.moduleName).push(t);
+        });
+        return byModule;
+    }
+
+    function _appendModuleHeader(list, moduleLabel) {
+        const hdr = document.createElement('li');
+        hdr.className = 'nb-list-section-header';
+        hdr.textContent = moduleLabel;
+        list.appendChild(hdr);
+    }
+
     // ── Templates view ─────────────────────────────────────────────
+
+    // Shared by _previewTemplate/_previewVirtualTemplate: both render the same
+    // header + FM-fields + parsed-body shape, differing only in icon/label and
+    // where the raw content comes from (fetched vs already in memory). `label`
+    // is inserted as-is (caller's responsibility to escape it, matching each
+    // call site's original behavior: a fixed literal for the real-template
+    // case, `_esc(moduleLabel)` for the plugin-template case).
+    function _templatePreviewHtml(icon, name, label, raw) {
+        const fmHtml  = _renderFrontmatterFields(raw);
+        const bodyRaw = raw.replace(/^---[\s\S]*?---\r?\n?/, '');
+        const bodyHtml = bodyRaw.trim()
+            ? `<div class="nb-rendered" style="margin-top:12px">${NbMain.parseMarkdownStatic(bodyRaw)}</div>` : '';
+        return `
+            <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
+                        font-family:var(--font-mono);border-bottom:1px solid var(--border);
+                        display:flex;align-items:center;gap:12px">
+                <span>${icon} <strong>${_esc(name)}</strong></span>
+                <span style="opacity:0.6">${label}</span>
+            </div>
+            <div style="padding:16px 32px 24px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
+    }
 
     // Preview-only: shows template content without a create form (used by Add mode)
     async function _previewTemplate(path, name, scope) {
@@ -48,18 +105,7 @@ const NbTemplates = (() => {
             const d = await r.json();
             const raw = d.content || '';
             const scopeLabel = scope === 'local' ? '📒 notebook' : '🌐 global';
-            const fmHtml  = _renderFrontmatterFields(raw);
-            const bodyRaw = raw.replace(/^---[\s\S]*?---\r?\n?/, '');
-            const bodyHtml = bodyRaw.trim()
-                ? `<div class="nb-rendered" style="margin-top:12px">${NbMain.parseMarkdownStatic(bodyRaw)}</div>` : '';
-            content.innerHTML = `
-                <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
-                            font-family:var(--font-mono);border-bottom:1px solid var(--border);
-                            display:flex;align-items:center;gap:12px">
-                    <span>📋 <strong>${_esc(name)}</strong></span>
-                    <span style="opacity:0.6">${scopeLabel}</span>
-                </div>
-                <div style="padding:16px 32px 24px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
+            content.innerHTML = _templatePreviewHtml('📋', name, scopeLabel, raw);
         } catch(e) {
             content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Could not load template.</div>';
         }
@@ -68,18 +114,7 @@ const NbTemplates = (() => {
     function _previewVirtualTemplate(raw, name, moduleLabel) {
         const el = document.getElementById('nb-preview-content');
         document.getElementById('nb-preview-toolbar').hidden = true;
-        const fmHtml  = _renderFrontmatterFields(raw);
-        const bodyRaw = raw.replace(/^---[\s\S]*?---\r?\n?/, '');
-        const bodyHtml = bodyRaw.trim()
-            ? `<div class="nb-rendered" style="margin-top:12px">${NbMain.parseMarkdownStatic(bodyRaw)}</div>` : '';
-        el.innerHTML = `
-            <div style="padding:10px 32px 8px;font-size:11px;color:var(--text-dim);
-                        font-family:var(--font-mono);border-bottom:1px solid var(--border);
-                        display:flex;align-items:center;gap:12px">
-                <span>🔌 <strong>${_esc(name)}</strong></span>
-                <span style="opacity:0.6">${_esc(moduleLabel || 'plugin template')}</span>
-            </div>
-            <div style="padding:16px 32px 24px;opacity:0.85">${fmHtml}${bodyHtml}</div>`;
+        el.innerHTML = _templatePreviewHtml('🔌', name, _esc(moduleLabel || 'plugin template'), raw);
     }
 
     // Populate list pane with available templates when in Add mode
@@ -165,20 +200,11 @@ const NbTemplates = (() => {
             const nbObj = NbWeb.notebooks().find(n => n.name === nb) || { name: nb };
             const pluginTemplates = NbWeb.getTemplatesForNotebook(nb).filter(t => t.activeForNotebook);
             if (pluginTemplates.length) {
-                // Group by module
-                const byModule = new Map();
-                pluginTemplates.forEach(t => {
-                    if (!byModule.has(t.moduleName)) byModule.set(t.moduleName, []);
-                    byModule.get(t.moduleName).push(t);
-                });
+                const byModule = _groupTemplatesByModule(pluginTemplates);
 
                 for (const [, tmplGroup] of byModule) {
                     const moduleLabel = tmplGroup[0].moduleLabel;
-
-                    const hdr = document.createElement('li');
-                    hdr.className = 'nb-list-section-header';
-                    hdr.textContent = moduleLabel;
-                    list.appendChild(hdr);
+                    _appendModuleHeader(list, moduleLabel);
 
                     for (const t of tmplGroup) {
                         const content = typeof t.content === 'function' ? t.content(nbObj) : t.content;
@@ -312,17 +338,10 @@ const NbTemplates = (() => {
             // Plugin templates (read-only preview — only from modules active for this notebook)
             const pluginTemplates = NbWeb.getTemplatesForNotebook(nb).filter(t => t.activeForNotebook);
             if (pluginTemplates.length) {
-                const byModule = new Map();
-                pluginTemplates.forEach(t => {
-                    if (!byModule.has(t.moduleName)) byModule.set(t.moduleName, []);
-                    byModule.get(t.moduleName).push(t);
-                });
+                const byModule = _groupTemplatesByModule(pluginTemplates);
                 for (const [, tmplGroup] of byModule) {
                     const moduleLabel = tmplGroup[0].moduleLabel;
-                    const hdr = document.createElement('li');
-                    hdr.className = 'nb-list-section-header';
-                    hdr.textContent = moduleLabel;
-                    list.appendChild(hdr);
+                    _appendModuleHeader(list, moduleLabel);
 
                     for (const t of tmplGroup) {
                         const content = typeof t.content === 'function' ? t.content({ name: nb }) : t.content;
