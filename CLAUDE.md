@@ -13,6 +13,8 @@ Flask (`app.py`, port 5001) + vanilla JS (`main.js`, `nav.js`). No build step. R
 | `app.py` | Flask backend — all API endpoints, nb subprocess wrappers, git ops |
 | `main.js` | Note rendering, editor, wikilinks, codeblocks, pre-close rules, annotations |
 | `nav.js` | `NbNav` singleton — notebook/folder scope, breadcrumb, sync dialog, menu |
+| `terminal.js` | `NbTerminal` singleton — pty terminal pane + settings-in-preview (extracted from main.js, tier-1 modularization) |
+| `dialog.js` | `NbDialog` singleton — import/export/move/copy/rename + folder ops panel (extracted from main.js, tier-1 modularization) |
 | `styles.css` | All styling — no preprocessor |
 | `nb-settings.json` | Runtime config — default_git_remote, git_repos aliases, plugin list |
 | `plugins/` | Core plugins (nbweb-codeblocks, nbweb-contacts, nbweb-archive, nbweb-quartz) |
@@ -51,7 +53,7 @@ not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
 5. **Template schema:** change generator functions AND seeded templates together — one without the other breaks notes
 6. **nb subprocess stdin:** `input=''` not `input=None` in `run_nb()` — prevents Flask hangs on interactive prompts
 7. **`renderPreview` must be `async`:** it calls `await NbWeb.loadNotebookConfig(...)`. Making it non-async is a parse-time SyntaxError that kills the entire NbMain IIFE — nothing displays, nothing is clickable. Check `async function renderPreview` before editing near it.
-8. **ServiceWorker cache (`sw.js`):** bump `CACHE = 'nb-web-vN'` whenever `main.js`, `nav.js`, `styles.css`, `nbweb.js`, or any plugin file changes. Without a version bump, browsers serve stale cached assets and users see old behaviour. Commit `sw.js` in the same PR as the asset change.
+8. **ServiceWorker cache (`sw.js`):** bump `CACHE = 'nb-web-vN'` whenever `main.js`, `nav.js`, `styles.css`, `nbweb.js`, `terminal.js`, `dialog.js`, or any plugin file changes. Without a version bump, browsers serve stale cached assets and users see old behaviour. Commit `sw.js` in the same PR as the asset change. **Note:** `app.py`'s `/sw.js` route (`serve_sw()`) already rewrites `CACHE` to the current git short hash at serve time on every request, so this is belt-and-suspenders rather than strictly load-bearing — the manual bump is still good practice (keeps the repo file's literal readable/meaningful, and covers any deployment that serves `sw.js` as a static file instead of through this route), but don't panic if you forget it.
 9. **`api_note` GET/PUT symmetry:** special-case selectors (e.g. `.nb:.nb.md`) handled in `api_note` (GET) must also be handled in `api_edit_note` (PUT) — omitting it causes silent save failure ("unknown error") since the PUT falls through to `run_nb show` which doesn't know the selector.
 
 ## nb notebook layout

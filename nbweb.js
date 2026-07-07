@@ -623,7 +623,7 @@ const NbWeb = (() => {
     }
 
     // ── Terminal API ──────────────────────────────────────────────────────────────
-    // Delegates to NbTerminal (defined in main.js). Plugins should always call
+    // Delegates to NbTerminal (defined in terminal.js). Plugins should always call
     // NbWeb.runInTerminal() rather than NbTerminal directly — this indirection
     // keeps NbTerminal an implementation detail and gives a stable plugin API.
 

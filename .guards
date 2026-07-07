@@ -25,6 +25,12 @@ nav.js:const NbNav
 nav.js:_openSyncDialog
 nav.js:activateCmd
 
+# ── Terminal (terminal.js) ─────────────────────────────────────────────────────
+terminal.js:const NbTerminal
+
+# ── Folder dialog + file-ops tabs (dialog.js) ──────────────────────────────────
+dialog.js:const NbDialog
+
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
 app.py:def api_note
