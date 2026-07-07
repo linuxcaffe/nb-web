@@ -22,9 +22,9 @@ main.js:_buildFmBlocks
 
 # ── Shared display/rendering utilities exposed to satellites (main.js) ────────
 # Load-bearing seam: showCmdOutput/showPreviewLoading called by sync.js via
-# NbMain.*; parseMarkdownStatic called by plugins-page.js via NbMain.* (also
-# used bare by kernel renderPreview + the not-yet-extracted Templates block).
-# runGrep/import (still in this file) call the bare private versions directly.
+# NbMain.*; parseMarkdownStatic called by plugins-page.js and templates.js via
+# NbMain.* (also used bare by kernel renderPreview). runGrep/import (still in
+# this file) call the bare private versions directly.
 main.js:_showCmdOutput
 main.js:_showPreviewLoading
 main.js:_parseMarkdownStatic
@@ -36,6 +36,14 @@ main.js:_parseMarkdownStatic
 # note-list sort too. The notebooks array itself and the sort/render logic are
 # satellite-local (moved wholesale -- no other kernel code needed them).
 main.js:getNbSortMode
+
+# ── List-generation counter accessors (main.js) ────────────────────────────────
+# Load-bearing seam: templates.js reads/checks kernel-owned _listSeq through
+# these -- kernel's own loadNotes/search AND not-yet-extracted runCal/runGrep
+# also increment/check the same counter, so it stays private behind these two
+# intent-named operations rather than a raw get/set of the value itself.
+main.js:bumpListSeq
+main.js:isStaleListSeq
 
 # ── Navigation (nav.js) ───────────────────────────────────────────────────────
 nav.js:const NbNav
@@ -65,6 +73,9 @@ plugins-page.js:const NbPluginsPage
 
 # ── Notebooks settings page (notebooks-page.js) ─────────────────────────────────
 notebooks-page.js:const NbNotebooksPage
+
+# ── Templates view (templates.js) ──────────────────────────────────────────────
+templates.js:const NbTemplates
 
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
