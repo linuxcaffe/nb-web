@@ -4700,83 +4700,6 @@ const NbMain = (() => {
         });
     }
 
-    // ── Sync ───────────────────────────────────────────────────────
-
-    async function doSync() {
-        // Sync is handled by the nav sync dialog; this is a no-op fallback.
-    }
-
-    async function showNbGitWire() {
-        _showCmdOutput('wire remotes', 'Working… (pushing each notebook, may take 10–30s)');
-        try {
-            const r = await fetch('/api/nb/git-wire', { method: 'POST' });
-            if (!r.ok) { _showCmdOutput('wire remotes', `Server error: ${r.status}`); return; }
-            const d = await r.json();
-            if (d.error) { _showCmdOutput('wire remotes', d.error); return; }
-            const lines = (d.results || []).map(r => {
-                const icon = r.status === 'ok' ? '✓' : r.status === 'skip' ? '·' : '✗';
-                return `${icon}  ${r.notebook.padEnd(16)}  ${r.message}`;
-            });
-            _showCmdOutput('wire remotes', lines.join('\n') || '(no notebooks found)');
-        } catch(e) {
-            _showCmdOutput('wire remotes', String(e));
-        }
-    }
-
-    async function showNbGitLog() {
-        const nb = (!NbNav.notebook || NbNav.notebook === '_all') ? 'home' : NbNav.notebook;
-        _showPreviewLoading();
-        try {
-            const d = await fetch(`/api/nb/git-log?notebook=${encodeURIComponent(nb)}&n=30`)
-                          .then(r => r.json());
-            _showCmdOutput(`git log · ${nb}`, d.output || d.error || '(no output)');
-        } catch(e) {
-            _showCmdOutput('git log', String(e));
-        }
-    }
-
-    function _bindSync() { /* sync is handled by nav.js dialog */ }
-
-    // ── Run command (cal / daily / info / weather / notebooks) ─────
-
-    async function runCmd(cmd, opts = {}) {
-        _showPreviewLoading();
-        try {
-            const params = new URLSearchParams({ cmd });
-            if (opts.month) params.set('month', opts.month);
-            if (opts.year)  params.set('year',  opts.year);
-            if (opts.date)  params.set('date',  opts.date);
-            const r = await fetch('/api/run?' + params);
-            const d = await r.json();
-            _showCmdOutput(cmd, d.output || d.stderr || '(no output)');
-        } catch (e) {
-            _showCmdOutput(cmd, String(e));
-        }
-    }
-
-    function _showPreviewLoading() {
-        document.getElementById('nb-preview-toolbar').hidden = true;
-        document.getElementById('nb-preview-content').innerHTML =
-            '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
-        document.getElementById('nb-editor-wrap').hidden = true;
-    }
-
-    function _showCmdOutput(cmd, text) {
-        const content = document.getElementById('nb-preview-content');
-        content.innerHTML = `<pre class="nb-cmd-output">${_esc(text)}</pre>`;
-        document.getElementById('nb-preview-toolbar').hidden = true;
-        _activeSelector = null;
-    }
-
-    function showNotebooksWelcome() {
-        document.getElementById('nb-preview-toolbar').hidden = true;
-        document.getElementById('nb-preview-content').innerHTML =
-            '<div id="nb-welcome"><h2>📚 Notebooks</h2>' +
-            '<p>Use the <strong>scope:</strong> dropdown above to set the active notebook.</p>' +
-            '<p style="margin-top:8px;font-size:12px;color:var(--text-dim)">The selected scope applies to List, Bookmark, Todo, and other commands.</p></div>';
-        _activeSelector = null;
-    }
-
     // ── Templates view ─────────────────────────────────────────────
 
     // Preview-only: shows template content without a create form (used by Add mode)
@@ -6677,6 +6600,26 @@ const NbMain = (() => {
         }
     }
 
+    // ── Shared preview-pane display utilities ───────────────────────
+    // Used by runGrep/the import flow below (still in this file) and by
+    // NbSync (sync.js, tier-2d) via the NbMain.showCmdOutput/showPreviewLoading
+    // exposures on the return object -- kept in the kernel rather than moved,
+    // since ownership genuinely spans multiple satellites, not just Sync.
+
+    function _showPreviewLoading() {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-preview-content').innerHTML =
+            '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+        document.getElementById('nb-editor-wrap').hidden = true;
+    }
+
+    function _showCmdOutput(cmd, text) {
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = `<pre class="nb-cmd-output">${_esc(text)}</pre>`;
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        _activeSelector = null;
+    }
+
     // ── Grep ────────────────────────────────────────────────────────
 
     async function runGrep(opts) {
@@ -7121,8 +7064,15 @@ const NbMain = (() => {
              setNoAutoSelect: v => { _noAutoSelect = v; },
              clearSearchTimer: () => { clearTimeout(_searchTimer); },
              setSearchTimer: id => { _searchTimer = id; },
-             runCmd, runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, runAccount, loadTemplatesForAdd,
-             doSync, showNbGitLog, showNbGitWire, doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor, saveNote: _saveNote,
+             // Generic preview-pane display utilities -- exposed here (not moved) because
+             // they're genuinely shared across satellites: NbSync (sync.js) and runGrep/the
+             // import flow (still in this file, Grep/Util sections) all call them.
+             showCmdOutput: _showCmdOutput,
+             showPreviewLoading: _showPreviewLoading,
+             runCmd: NbSync.runCmd,
+             runCal, runGrep, runTemplates, runNbNotebooks, runPlugins, runAccount, loadTemplatesForAdd,
+             showNbGitLog: NbSync.showNbGitLog, showNbGitWire: NbSync.showNbGitWire,
+             doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor, saveNote: _saveNote,
              isEditing: () => _editing,
              setFoldersFirst,
              importFiles: (files, nb, folder) => _importFiles(files, nb, folder),

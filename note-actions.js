@@ -14,12 +14,12 @@
 //                                kernel state, read by renderPreview/_decryptAndRender/_openEditor)
 //   _todayInfo               -> privatized to a local module variable (nothing else reads it)
 //
-// NOT extracted this round: Search (_bindSearch/_bindTags/_dispatchQuery) and
-// Sync/Run-command (doSync/runCmd/showNbGitLog/showNbGitWire) -- both have real
-// entanglement with code still living inside NbMain's closure (_searchTimer is
-// also cleared by resetAndLoad() in the Util section; _showCmdOutput/_showPreviewLoading
-// are also called by runGrep and the import flow) that needs its own careful
-// extraction, not folded in here just because it was nearby in the file.
+// NOT extracted this round: Search and Sync/Run-command -- both had real
+// entanglement with code still living inside NbMain's closure at the time
+// (_searchTimer also cleared by resetAndLoad(); _showCmdOutput/_showPreviewLoading
+// also called by runGrep and the import flow) that needed its own careful
+// handling, not folded in here just because it was nearby in the file. Both
+// have since been extracted: see search.js (tier-2c) and sync.js (tier-2d).
 //
 // TODO(tier-5 dead-code pass): openToday/showAddForm (and their only caller,
 // _submitAdd) have zero callers anywhere in the codebase as of this extraction

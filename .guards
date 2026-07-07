@@ -20,6 +20,12 @@ main.js:_renderMarkdown
 main.js:_resolveInlineQueries
 main.js:_buildFmBlocks
 
+# ── Shared display utilities exposed to satellites (main.js) ──────────────────
+# Load-bearing seam: sync.js calls these via NbMain.*; runGrep/import (still in
+# this file) call the bare private versions directly.
+main.js:_showCmdOutput
+main.js:_showPreviewLoading
+
 # ── Navigation (nav.js) ───────────────────────────────────────────────────────
 nav.js:const NbNav
 nav.js:_openSyncDialog
@@ -39,6 +45,9 @@ note-actions.js:const NbNoteActions
 
 # ── Search (search.js) ─────────────────────────────────────────────────────────
 search.js:const NbSearch
+
+# ── Sync / run-command (sync.js) ───────────────────────────────────────────────
+sync.js:const NbSync
 
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb

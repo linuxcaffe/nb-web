@@ -221,15 +221,19 @@
 <script src="nbweb.js"></script>
 <script src="theme.js"></script>
 <script src="nav.js"></script>
-<!-- Load order below is cosmetic, not functional: every cross-module reference
-     runs inside a function body invoked after DOMContentLoaded, by which point
-     all synchronous scripts below have already executed regardless of order.
-     Convention only: modules NbMain.init() calls synchronously during its own
-     boot (drag-handles.js, note-actions.js) are listed before main.js; modules
-     invoked lazily on user interaction (terminal.js, dialog.js) are listed after. -->
+<!-- Load order below is load-bearing, not cosmetic: bare `NbX.method` refs in
+     NbMain's return object (e.g. `runCmd: NbSync.runCmd`) evaluate the moment
+     NbMain's IIFE runs -- not deferred like a function body -- so any module
+     referenced that way must load BEFORE main.js or NbMain throws and dies
+     entirely (learned the hard way, tier-2d). Currently: drag-handles.js,
+     note-actions.js, search.js, sync.js before main.js; terminal.js, dialog.js
+     after (safe only because their touch points are all inside function
+     bodies, never a bare return-object reference). Recheck this before adding
+     a new bare `NbX.method` entry to NbMain's return object. -->
 <script src="drag-handles.js"></script>
 <script src="note-actions.js"></script>
 <script src="search.js"></script>
+<script src="sync.js"></script>
 <script src="main.js"></script>
 <script src="terminal.js"></script>
 <script src="dialog.js"></script>
