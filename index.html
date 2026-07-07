@@ -226,16 +226,17 @@
      NbMain's IIFE runs -- not deferred like a function body -- so any module
      referenced that way must load BEFORE main.js or NbMain throws and dies
      entirely (learned the hard way, tier-2d). Currently: drag-handles.js,
-     note-actions.js, search.js, sync.js, plugins-page.js before main.js;
-     terminal.js, dialog.js after (safe only because their touch points are
-     all inside function bodies, never a bare return-object reference).
-     Recheck this before adding a new bare `NbX.method` entry to NbMain's
-     return object. -->
+     note-actions.js, search.js, sync.js, plugins-page.js, notebooks-page.js
+     before main.js; terminal.js, dialog.js after (safe only because their
+     touch points are all inside function bodies, never a bare return-object
+     reference). Recheck this before adding a new bare `NbX.method` entry to
+     NbMain's return object. -->
 <script src="drag-handles.js"></script>
 <script src="note-actions.js"></script>
 <script src="search.js"></script>
 <script src="sync.js"></script>
 <script src="plugins-page.js"></script>
+<script src="notebooks-page.js"></script>
 <script src="main.js"></script>
 <script src="terminal.js"></script>
 <script src="dialog.js"></script>

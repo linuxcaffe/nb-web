@@ -29,6 +29,14 @@ main.js:_showCmdOutput
 main.js:_showPreviewLoading
 main.js:_parseMarkdownStatic
 
+# ── Notebooks-settings kernel-state accessor (main.js) ─────────────────────────
+# Load-bearing seam: notebooks-page.js reads kernel-owned _nbSortMode through
+# this -- kernel's own _bindSortBtn (Panel menus) also reads it for the shared
+# #nb-sort-btn dropdown's active-item checkmarks, which serves the plain
+# note-list sort too. The notebooks array itself and the sort/render logic are
+# satellite-local (moved wholesale -- no other kernel code needed them).
+main.js:getNbSortMode
+
 # ── Navigation (nav.js) ───────────────────────────────────────────────────────
 nav.js:const NbNav
 nav.js:_openSyncDialog
@@ -54,6 +62,9 @@ sync.js:const NbSync
 
 # ── Plugins page (plugins-page.js) ─────────────────────────────────────────────
 plugins-page.js:const NbPluginsPage
+
+# ── Notebooks settings page (notebooks-page.js) ─────────────────────────────────
+notebooks-page.js:const NbNotebooksPage
 
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
