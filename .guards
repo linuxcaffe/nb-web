@@ -31,6 +31,9 @@ terminal.js:const NbTerminal
 # ── Folder dialog + file-ops tabs (dialog.js) ──────────────────────────────────
 dialog.js:const NbDialog
 
+# ── Drag handles (drag-handles.js) ─────────────────────────────────────────────
+drag-handles.js:const NbDragHandles
+
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
 app.py:def api_note
