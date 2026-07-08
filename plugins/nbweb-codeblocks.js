@@ -3665,7 +3665,6 @@
             // Dangling dash — resolve to a group
             if (token.endsWith('-')) {
                 if (!_cbCan(el, 'check', 'read')) { el.remove(); return; }
-                el.innerHTML = '<span class="nb-spin">⟳</span>';
                 const names = await _resolveTestGlob(token);
                 if (!names.length) { el.innerHTML = `<span class="nb-hl-muted">No scripts match ${_esc(token)}*.sh</span>`; return; }
                 const scripts = names.map(n => ({ script: n, label: n.replace(/\.sh$/, '') }));
@@ -3677,7 +3676,7 @@
 
             if (!_cbCan(el, 'check', 'read')) { el.remove(); return; }
             if (label) { _buildTestBtn(el, token, label); }
-            else       { el.innerHTML = '<span class="nb-spin">⟳</span>'; await _runTest(el, token, null, null, batchMap.get(token) ?? null); }
+            else       { await _runTest(el, token, null, null, batchMap.get(token) ?? null); }
             return;
         }
 
@@ -3706,7 +3705,6 @@
         if (groupLabel) {
             _buildGroupBtn(el, scripts, groupLabel);
         } else {
-            el.innerHTML = '<span class="nb-spin">⟳</span>';
             await _runGroupTest(el, scripts, null, null, batchMap);
         }
     }
@@ -3768,23 +3766,45 @@
         if (!failures.length) { if (!btn) el.remove(); return; }
 
         const result  = document.createElement('div');
-        result.className = 'nb-test-result';
-
-        const dismiss = document.createElement('button');
-        dismiss.className = 'nb-test-dismiss';
-        dismiss.title = 'Dismiss until next render';
-        dismiss.textContent = '×';
-        dismiss.addEventListener('click', () => { el.innerHTML = ''; });
-        result.appendChild(dismiss);
+        result.className = 'nb-test-result nb-test-result--group';
 
         const worstSeverity = failures.some(r => r.severity === 'error') ? 'error' : 'warn';
         const wrap = document.createElement('div');
         wrap.className = 'nb-rendered nb-group-result' + _severityClass(worstSeverity);
 
-        const hdr = document.createElement('p');
-        hdr.className = 'nb-group-hdr';
-        hdr.textContent = `${failures.length} of ${scripts.length} check${scripts.length !== 1 ? 's' : ''} failed`;
-        wrap.appendChild(hdr);
+        // A shared domain icon (all failures from the same script family, e.g. all
+        // "hl-") is hoisted to the header instead of repeated on every subtest row —
+        // otherwise a "12 of 23 failed" group shows the same icon 12 times in a row.
+        // Mixed-domain groups fall back to per-row icons, where they're informative.
+        const failureIcons = new Set(failures.map(({ script }) => _checkDomainIcon(script)));
+        const sharedIcon = failureIcons.size === 1 ? [...failureIcons][0] : '';
+
+        const headRow = document.createElement('div');
+        headRow.className = 'nb-group-headrow';
+
+        const toggle = document.createElement('button');
+        toggle.className = 'nb-group-toggle';
+        toggle.dataset.open = '0';
+        toggle.innerHTML = sharedIcon + _esc(`${failures.length} of ${scripts.length} check${scripts.length !== 1 ? 's' : ''} failed`);
+        headRow.appendChild(toggle);
+
+        const dismiss = document.createElement('button');
+        dismiss.className = 'nb-test-dismiss nb-group-dismiss';
+        dismiss.title = 'Dismiss until next render';
+        dismiss.textContent = '×';
+        dismiss.addEventListener('click', () => { el.innerHTML = ''; });
+        headRow.appendChild(dismiss);
+
+        wrap.appendChild(headRow);
+
+        const groupBody = document.createElement('div');
+        groupBody.className = 'nb-group-body';
+        groupBody.hidden = true;
+        toggle.addEventListener('click', () => {
+            const open = toggle.dataset.open === '1';
+            toggle.dataset.open = open ? '0' : '1';
+            groupBody.hidden = open;
+        });
 
         failures.forEach(({ script, text, severity }) => {
             const entry = scripts.find(s => s.script === script);
@@ -3795,7 +3815,7 @@
 
             const toggleBtn = document.createElement('button');
             toggleBtn.className = 'nb-subtest-toggle';
-            const iconHtml = _checkDomainIcon(script);
+            const iconHtml = sharedIcon ? '' : _checkDomainIcon(script);
             if (iconHtml) {
                 toggleBtn.innerHTML = iconHtml + _esc(label);
             } else {
@@ -3820,9 +3840,10 @@
 
             row.appendChild(toggleBtn);
             row.appendChild(body);
-            wrap.appendChild(row);
+            groupBody.appendChild(row);
         });
 
+        wrap.appendChild(groupBody);
         result.appendChild(wrap);
         if (out) { out.appendChild(result); }
         else      { el.innerHTML = ''; el.appendChild(result); }

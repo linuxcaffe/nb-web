@@ -2992,6 +2992,7 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 
 /* test codeblock */
 .nb-test-block  { margin: 4px 0; }
+.nb-test-block:empty { margin: 0; display: none; }
 .nb-test-name { font-weight: 600; color: var(--text-muted); margin-right: 4px; }
 .nb-test-btn {
   background: none; border: 1px solid var(--border); border-radius: 4px;
@@ -3026,6 +3027,7 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 }
 .nb-check-list-name-btn:hover { color: var(--accent); }
 .nb-test-result { position: relative; padding-right: 28px; }
+.nb-test-result--group { padding-right: 0; }
 .nb-test-dismiss {
   position: absolute; top: 4px; right: 4px;
   background: none; border: none; cursor: pointer;
@@ -3087,7 +3089,27 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-group-result { padding-left: 10px; }
 .nb-group-result.nb-test-fail { border-left: 3px solid var(--red, #c0392b); }
 .nb-group-result.nb-test-warn { border-left: 3px solid var(--alert, #e67e22); }
-.nb-group-hdr { font-size: 0.85em; color: var(--text-muted); margin: 0 0 6px 0; }
+.nb-group-headrow { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 0; }
+.nb-group-toggle {
+  background: none; border: none; cursor: pointer; padding: 0;
+  color: var(--text-muted); font-size: 0.85em; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 5px;
+  text-align: left; min-width: 0; flex: 1 1 auto;
+}
+.nb-group-toggle::before {
+  content: '▶';
+  color: var(--text-dim); font-size: 0.72em;
+  display: inline-block; flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.nb-group-toggle[data-open="1"]::before { transform: rotate(90deg); }
+.nb-group-toggle:hover { color: var(--accent); }
+.nb-group-toggle .nb-check-icon,
+.nb-group-toggle .nb-check-icon--chip { margin-right: 2px; }
+/* Group dismiss sits inline in the header row instead of absolutely positioned —
+   the row's own flex layout keeps it pinned to the right edge regardless of the
+   bordered/padded group box around it. */
+.nb-group-dismiss { position: static; flex-shrink: 0; }
 
 .nb-hl-help-pop {
   position: fixed;
