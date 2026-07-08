@@ -205,6 +205,34 @@
     }
     .plugin-group-label:first-child { margin-top: 0; padding-top: 0; }
 
+    .repo-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88em;
+    }
+    .repo-row:last-child { border-bottom: none; }
+    .repo-name   { flex: 1; font-weight: 500; min-width: 0; }
+    .repo-badge {
+      font-size: 0.72em; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+      border-radius: 3px; padding: 1px 6px; flex-shrink: 0;
+    }
+    .repo-badge-app      { background: rgba(87,171,90,.15);  color: #57ab5a; border: 1px solid rgba(87,171,90,.3); }
+    .repo-badge-plugin   { background: rgba(229,141,75,.12); color: #e58d4b; border: 1px solid rgba(229,141,75,.25); }
+    .repo-badge-upstream { background: rgba(205,217,229,.08); color: var(--text-muted); border: 1px solid var(--border); }
+    .repo-status  { font-size: 0.85em; color: var(--text-muted); flex-shrink: 0; }
+    .repo-status-dirty { color: #e58d4b; }
+    .repo-status-missing { color: #e5534b; }
+    a.repo-remote {
+      font-size: 0.8em; color: var(--text-dim); text-decoration: none; flex-shrink: 0;
+    }
+    a.repo-remote:hover { color: var(--accent); }
+    a.repo-plugins-link {
+      font-size: 0.78em; color: var(--text-dim); text-decoration: none; flex-shrink: 0;
+      border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px;
+    }
+    a.repo-plugins-link:hover { color: var(--accent); border-color: var(--accent); }
+
     #nbz-drop {
       display: flex; align-items: center; justify-content: center;
       height: 72px;
@@ -510,6 +538,13 @@
     <button class="tool-btn" id="btn-restart">Restart server</button>
     <span class="status" id="status-restart"></span>
   </div>
+</section>
+
+<!-- ── System repos (tech+) ─────────────────────────────────────── -->
+<section id="sec-repos" hidden data-min-level="tech">
+  <h2>Repos</h2>
+  <p class="hint" style="margin-bottom:1em">App/plugin/upstream repos from <code>.manifest.md</code> — local git hygiene only (dirty state, ahead/behind, sync). Not a diff or log viewer; use the ↗ link to each repo's actual remote for anything deeper. The <code>nb-notes</code> config repo has its own section above.</p>
+  <div id="repo-list">Loading…</div>
 </section>
 
 <script>
@@ -1212,6 +1247,101 @@
     });
 
     loadConfigStatus();
+  });
+
+  // ── System repos (tech+) ─────────────────────────────────────────
+  // Maps a manifest repo name to its Plugins-section display name, for
+  // repos that are also independently registered there. Deliberately not
+  // fully automatic name-matching — see design doc's "naming mismatch"
+  // note (manifest says "nbweb-cine", settings/Plugins says "NbWeb Cine").
+  const _REPO_PLUGINS_LINK = {
+    'nbweb-cine':    'NbWeb Cine',
+    'nbweb-hledger': 'NbWeb hledger',
+  };
+
+  function _repoRemoteUrl(primary, mirror) {
+    const val = (primary && primary !== '-') ? primary : mirror;
+    if (!val || val === '-') return '';
+    const slash = val.indexOf('/');
+    if (slash < 0) return '';
+    const host = val.slice(0, slash);
+    const path = val.slice(slash + 1);
+    const hostUrl = host === 'codeberg' ? 'https://codeberg.org/'
+                  : host === 'github'   ? 'https://github.com/' : '';
+    return hostUrl ? hostUrl + path : '';
+  }
+
+  function _renderRepoList(repos) {
+    const el = document.getElementById('repo-list');
+    if (!repos.length) { el.innerHTML = '<p class="hint">No repos found in .manifest.md.</p>'; return; }
+
+    el.innerHTML = repos.map(r => {
+      if (!r.exists) {
+        return `<div class="repo-row" data-name="${r.name}">
+          <span class="repo-name">${r.name}</span>
+          <span class="repo-badge repo-badge-${r.type}">${r.type}</span>
+          <span class="repo-status repo-status-missing">not found on disk (${r.local})</span>
+        </div>`;
+      }
+      const dirty = r.files && r.files.length;
+      const statusCls = dirty ? 'repo-status-dirty' : '';
+      const statusText = dirty ? `${r.files.length} file(s) changed`
+                        : (r.ahead || r.behind) ? `${r.ahead} ahead, ${r.behind} behind origin/${r.branch}`
+                        : 'clean';
+      const remoteUrl = _repoRemoteUrl(r.primary, r.mirror);
+      const remoteLink = remoteUrl
+        ? `<a class="repo-remote" href="${remoteUrl}" target="_blank" title="${remoteUrl}">↗</a>` : '';
+      const pluginsName = _REPO_PLUGINS_LINK[r.name];
+      const pluginsLink = pluginsName
+        ? `<a class="repo-plugins-link" href="#sec-plugins" title="See ${pluginsName} in Plugins">→ Plugins</a>` : '';
+      return `
+      <div class="repo-row" data-name="${r.name}">
+        <span class="repo-name">${r.name}</span>
+        <span class="repo-badge repo-badge-${r.type}">${r.type}</span>
+        <span class="repo-status ${statusCls}">${statusText}</span>
+        ${remoteLink}
+        ${pluginsLink}
+        <button class="tool-btn repo-sync-btn" data-name="${r.name}">Sync</button>
+        <span class="status repo-sync-status" data-name="${r.name}"></span>
+      </div>`;
+    }).join('');
+
+    el.querySelectorAll('.repo-sync-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const name = btn.dataset.name;
+        const st = el.querySelector(`.repo-sync-status[data-name="${name}"]`);
+        btn.disabled = true;
+        st.textContent = 'Syncing…'; st.className = 'status repo-sync-status';
+        try {
+          const d = await fetch('/api/system/repos/sync', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name}),
+          }).then(r => r.json());
+          st.textContent = d.success ? '✓ Synced' : ('✗ ' + (d.error || 'Failed'));
+          st.className = 'status repo-sync-status ' + (d.success ? 'ok' : 'err');
+        } catch(e) {
+          st.textContent = '✗ ' + e.message;
+          st.className = 'status repo-sync-status err';
+        }
+        loadRepoList();
+      });
+    });
+  }
+
+  async function loadRepoList() {
+    const el = document.getElementById('repo-list');
+    try {
+      const d = await fetch('/api/system/repos').then(r => r.json());
+      _renderRepoList(d.repos || []);
+    } catch(e) {
+      el.innerHTML = `<p class="hint">Could not load repo status: ${e.message}</p>`;
+    }
+  }
+
+  document.addEventListener('nb-auth-ready', () => {
+    if (!NbAuth.is('tech')) return;
+    document.getElementById('sec-repos').hidden = false;
+    loadRepoList();
   });
 </script>
 </body>

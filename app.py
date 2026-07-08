@@ -7791,6 +7791,88 @@ def api_nb_config_log():
 
 
 # ---------------------------------------------------------------------------
+# API: System repos — .manifest.md app/plugin/upstream repos, local git
+# hygiene only (status + sync). Not a diff/log viewer — every repo already
+# has a real remote (github/codeberg); link out to it for anything deeper.
+# ---------------------------------------------------------------------------
+
+_REPO_GIT_ENV = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true',
+                 'GIT_PAGER': 'cat', 'NO_COLOR': '1'}
+
+def _repo_git(path, *args, timeout=10):
+    return subprocess.run(['git', *args], cwd=str(path), capture_output=True,
+                          text=True, timeout=timeout, env=_REPO_GIT_ENV)
+
+def _repo_level_check():
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'Tech access required'}), 403
+    return None
+
+def _manifest_repos():
+    """Parse .manifest.md's ## Repos CSV section, excluding type=config
+    (nb-notes / ~/.nb root has its own section — see api_nb_config_*)."""
+    manifest = NB_DIR / '.manifest.md'
+    if not manifest.is_file():
+        return []
+    m = re.search(r'^## Repos\s*$.*?```csv\s*\n(.*?)```', manifest.read_text(), re.S | re.M)
+    if not m:
+        return []
+    lines = [l for l in m.group(1).splitlines() if l.strip()]
+    if not lines:
+        return []
+    return [row for row in csv.DictReader(lines) if row.get('type') != 'config']
+
+@app.route('/api/system/repos')
+def api_system_repos():
+    err = _repo_level_check()
+    if err: return err
+    repos = []
+    for row in _manifest_repos():
+        path = Path(os.path.expanduser(row['local']))
+        entry = {'name': row['name'], 'type': row['type'], 'local': str(path),
+                  'primary': row['primary'], 'mirror': row['mirror'],
+                  'upstream': row['upstream'], 'notes': row['notes'],
+                  'exists': (path / '.git').is_dir()}
+        if entry['exists']:
+            status_r = _repo_git(path, 'status', '--porcelain')
+            entry['files'] = [{'status': l[:2].strip(), 'path': l[3:]}
+                               for l in status_r.stdout.splitlines() if l.strip()]
+            branch = _repo_git(path, 'branch', '--show-current').stdout.strip()
+            entry['branch'] = branch
+            entry['ahead'] = entry['behind'] = 0
+            if branch:
+                ab_r = _repo_git(path, 'rev-list', '--left-right', '--count',
+                                  f'origin/{branch}...HEAD')
+                parts = ab_r.stdout.split()
+                if ab_r.returncode == 0 and len(parts) == 2:
+                    entry['behind'], entry['ahead'] = int(parts[0]), int(parts[1])
+        repos.append(entry)
+    return jsonify({'repos': repos})
+
+@app.route('/api/system/repos/sync', methods=['POST'])
+def api_system_repos_sync():
+    err = _repo_level_check()
+    if err: return err
+    name = (request.get_json() or {}).get('name', '').strip()
+    match = next((r for r in _manifest_repos() if r['name'] == name), None)
+    if not match:
+        return jsonify({'error': 'Unknown repo'}), 404
+    path = Path(os.path.expanduser(match['local']))
+    if not (path / '.git').is_dir():
+        return jsonify({'error': 'Not a git repo on disk'}), 400
+    branch = _repo_git(path, 'branch', '--show-current').stdout.strip()
+    if not branch:
+        return jsonify({'error': 'Could not determine current branch'}), 400
+    pull_r = _repo_git(path, 'pull', '--no-rebase', '--no-edit', 'origin', branch, timeout=30)
+    push_r = _repo_git(path, 'push', 'origin', f'HEAD:{branch}', timeout=30)
+    return jsonify({
+        'success': push_r.returncode == 0,
+        'output':  pull_r.stdout + pull_r.stderr + push_r.stdout + push_r.stderr,
+    })
+
+
+# ---------------------------------------------------------------------------
 # API: Cal — return structured dated-note entries for a date range
 # ---------------------------------------------------------------------------
 
