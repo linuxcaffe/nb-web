@@ -10140,7 +10140,7 @@ def serve_web_plugin(filename):
     return send_from_directory(str(WEB_PLUGINS_DIR), filename)
 
 
-_COURIER_PRIME_DIR = Path('/home/djp/dev/nbweb-cine/fonts/courier-prime')
+_COURIER_PRIME_DIR = Path.home() / 'dev' / 'nbweb-cine' / 'fonts' / 'courier-prime'
 _COURIER_PRIME_ALLOWED = {
     'Courier Prime.otf', 'Courier Prime Bold.otf',
     'Courier Prime Italic.otf', 'Courier Prime Bold Italic.otf',
