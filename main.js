@@ -781,6 +781,19 @@ const NbMain = (() => {
             : (NbWeb.getPreviewRenderer(note.notebook)?.(note) ?? null);
         const _pluginHtml = (_pluginRaw instanceof Promise) ? await _pluginRaw : _pluginRaw;
 
+        // Check-script output (check:/check_add: FM cascade) -- computed once here so
+        // every branch below that reaches the shared render step gets identical,
+        // cascade-consistent check rendering, spliced in at the same relative
+        // position (after any FM-fallback table, before type-specific content) the
+        // generic-fallback branch already used before this fix. No-op (empty string)
+        // when no check config resolves for this note -- zero behavior change for
+        // notes that don't opt in. See claude:mainjs-check-cascade-fix.md.
+        // Still excluded (early-return branches below never reach this variable,
+        // pre-existing, not new): pdf, code/timedot, html, ebook/document, archive,
+        // sheet, encrypted, and the large-note /api/render path.
+        const _checkPrefix = _virtualTestPrefix(note);
+        const _checkHtml   = _checkPrefix ? _renderMarkdown(_checkPrefix, note.selector) : '';
+
         // ── Lock / Unlock UI ───────────────────────────────────────────────
         document.getElementById('nb-unlock-btn')?.remove();
         const _isLocked = /^(yes|on|true|1)$/i.test(String(note.meta?.lock ?? ''));
@@ -856,18 +869,18 @@ const NbMain = (() => {
         }
 
         if (note.type === 'image') {
-            html = `<div style="text-align:center"><img src="${fileUrl}" class="nb-img-preview" alt="${_esc(note.title)}"></div>`;
+            html = _checkHtml + `<div style="text-align:center"><img src="${fileUrl}" class="nb-img-preview" alt="${_esc(note.title)}"></div>`;
         } else if (note.type === 'audio') {
-            html = `<div class="nb-audio-wrap">
+            html = _checkHtml + `<div class="nb-audio-wrap">
                       <div style="font-size:1.1em;font-weight:600">${_esc(note.title)}</div>
                       <audio controls class="nb-audio-player"><source src="${fileUrl}"></audio>
                     </div>`;
         } else if (note.type === 'video') {
             const ext = (note.filename || '').split('.').pop().toLowerCase();
             if (['mp4','webm'].includes(ext)) {
-                html = `<div style="text-align:center"><video controls class="nb-video-player"><source src="${fileUrl}"></video></div>`;
+                html = _checkHtml + `<div style="text-align:center"><video controls class="nb-video-player"><source src="${fileUrl}"></video></div>`;
             } else {
-                html = `<div class="nb-media-card">
+                html = _checkHtml + `<div class="nb-media-card">
                           <span class="nb-media-icon">📹</span>
                           <span class="nb-media-name">${_esc(note.filename)}</span>
                           <span class="nb-media-hint">${_esc(ext.toUpperCase())} — use ↗ Open to play</span>
@@ -918,15 +931,15 @@ const NbMain = (() => {
             }
             return;
         } else if (_pluginHtml !== null) {
-            html = (note.meta ? _renderFmFallback(note.meta) : '') + _pluginHtml;
+            html = (note.meta ? _renderFmFallback(note.meta) : '') + _checkHtml + _pluginHtml;
         } else if (note.type === 'sheet') {
             content.innerHTML = '<div class="nb-rendered"><div id="nb-sheet-host"></div></div>';
             _renderSheet(note);
             return;
         } else if (note.type === 'bookmark') {
-            html = _renderBookmark(note);
+            html = _checkHtml + _renderBookmark(note);
         } else if (note.type === 'todo') {
-            html = _renderTodo(note);
+            html = _checkHtml + _renderTodo(note);
         } else if (note.type === 'html') {
             content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
             fetch(`/api/preview?selector=${encodeURIComponent(note.selector)}`)
@@ -1029,9 +1042,8 @@ const NbMain = (() => {
                     .catch(e => { if (_activeNote !== note) return; content.innerHTML = `<div style="padding:40px;color:var(--red)">Render error: ${_esc(e.message)}</div>`; });
                 return;
             }
-            // Unknown types (plugin types like 'account', 'contact', etc.) render as markdown.
-                // Only raw-display if there's genuinely no body to render.
-                html = _renderFmFallback(note.meta) + _renderMarkdown(_virtualTestPrefix(note) + (note.body || ''), note.selector);
+            // Unknown types render as markdown. Only raw-display if there's genuinely no body to render.
+                html = _renderFmFallback(note.meta) + _checkHtml + _renderMarkdown(note.body || '', note.selector);
         }
 
         content.innerHTML = `<div class="nb-rendered">${html}</div>`;
@@ -1746,9 +1758,16 @@ const NbMain = (() => {
     //             script name alike); an exact entry excludes only itself.
     //             Applies unconditionally from every level, same as
     //             check_add — a note's own check: does not grant immunity.
-    // Dotfiles are the SOURCE of config — never self-inject.
+    // Dotfiles used to be hardcoded-excluded here ("dotfiles are the SOURCE
+    // of config, never self-inject"). Removed 2026-07-07: dotfiles cascade
+    // like every other note type now (djp's own real .djp.md sets check_add:
+    // and expects it to render) -- see claude:mainjs-check-cascade-fix.md for
+    // the full reasoning. Note dotfiles were ALSO independently broken by the
+    // renderPreview() branch-dispatch bug this same fix addresses (they go
+    // through the _pluginHtml !== null branch via nbweb-specialty.js's
+    // registered renderer, not the generic fallback) -- both bugs applied to
+    // dotfiles simultaneously; both are fixed here.
     function _virtualTestPrefix(note) {
-        if (note?.meta?.type === 'dotfile') return '';
         // Per-note FM check: wins; fall back to effective value from config chain
         const raw = (note?.meta?.check !== undefined)
             ? note.meta.check
