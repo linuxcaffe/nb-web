@@ -1573,6 +1573,7 @@ const NbMain = (() => {
         _appendAnnotation(container, note);
         if (note?.effective_xref ?? note?.meta?.xref) _enrichXref(container, note);
         _injectAccessBadge(note);
+        _injectClaudeBadge(note);
     }
 
     async function _buildTabs(note) {
@@ -1831,6 +1832,40 @@ const NbMain = (() => {
         badge.dataset.level = isUser ? 'username' : access;
         badge.textContent   = isUser ? `@${access}` : access;
         badge.title = `access: ${access}${inherited ? ' (inherited)' : ' (inherited from notebook)'}`;
+        bar.insertBefore(badge, clearBtn);
+        bar.hidden = false;
+    }
+
+    // nbweb-claude's badge — a one-off kernel function mirroring
+    // _injectAccessBadge exactly (option 1, confirmed 2026-07-09; option 2,
+    // a generic registerEnrichHook plugins could hook into instead of the
+    // kernel calling a plugin-specific function by name, flagged as a
+    // followup — see claude:nbweb-claude v2 design doc § Repo & installation
+    // mechanics). Badge logic lives here rather than in the plugin repo
+    // because no such hook exists yet; revisit if/when it does.
+    function _injectClaudeBadge(note) {
+        const oldBadge = document.getElementById('nb-claude-badge');
+        if (oldBadge) oldBadge.remove();
+
+        // effective_claude from backend is the resolved cascade (note claude:
+        // → notebook config claude: → '' if unset anywhere). Empty means no
+        // badge — unlike access, there's no fallback default; unconfigured
+        // is a real, common, silent "off" state, not an edge case.
+        const model = note?.effective_claude ? String(note.effective_claude) : '';
+        if (!model) return;
+
+        const clearBtn = document.getElementById('nb-cmd-output-clear');
+        const bar      = document.getElementById('nb-cmd-output-bar');
+        if (!clearBtn || !bar) return;
+
+        const inherited = !note?.meta?.claude;
+
+        const badge = document.createElement('span');
+        badge.id        = 'nb-claude-badge';
+        badge.className = 'nb-claude-badge' + (inherited ? ' nb-claude-badge--inherited' : '');
+        badge.dataset.model = model;
+        badge.textContent   = `claude: ${model}`;
+        badge.title = `claude: ${model}${inherited ? ' (inherited from notebook)' : ''}`;
         bar.insertBefore(badge, clearBtn);
         bar.hidden = false;
     }

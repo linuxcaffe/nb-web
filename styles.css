@@ -1348,6 +1348,32 @@ body {
 .nb-access-badge[data-level="tech"]     { background: #343a40; color: #f8f9fa; }
 .nb-access-badge[data-level="username"] { background: #e2d9f3; color: #4a1b8a; }
 
+/* nbweb-claude badge — same pill shape as .nb-access-badge, sits next to it
+   rather than pushed to the far right (no margin-left: auto — only one badge
+   in the bar can claim that flex slot). */
+.nb-claude-badge {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.18em 0.6em;
+    border-radius: 999px;
+    font-family: var(--font-mono, monospace);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.nb-claude-badge--inherited {
+    opacity: 0.6;
+    font-style: italic;
+    text-transform: none;
+    font-weight: 500;
+}
+.nb-claude-badge[data-model="opus"]   { background: #2d1b4e; color: #d8c9f7; }
+.nb-claude-badge[data-model="sonnet"] { background: #1b3a2e; color: #a8e6c9; }
+.nb-claude-badge[data-model="haiku"]  { background: #3a2a1b; color: #f0c98a; }
+
 /* ── Barblock shared chrome ─────────────────────────────────────────────────
    All collapsible codeblocks (nav, front, config, git, gallery, nb, tw, hledger)
    add .nb-barblock to their header div alongside their block-specific class.
