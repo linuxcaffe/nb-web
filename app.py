@@ -11645,6 +11645,60 @@ def _assert_nb_auto_sync_off():
         print(f'[nb-web] NB_AUTO_SYNC check failed: {e}', flush=True)
 
 
+# ---------------------------------------------------------------------------
+# API: nbweb-claude Rung 1 — headless claude CLI shell-out
+# ---------------------------------------------------------------------------
+# tech-gated deliberately, not the full per-level access this will eventually
+# need: shells out to the HOST MACHINE's own authenticated `claude` CLI, so
+# every click uses the same one Anthropic account regardless of who's asking.
+# That's fine today (single real user, djp, on his own laptop) but doesn't
+# generalize past one self-hosted operator -- a real per-user auth story
+# (MCP wrapper + per-session credentials, or a vendor-key SaaS mode) is a
+# known, deferred gap, not an oversight. See claude:nbweb-claude v2 design
+# doc's "Deferred/future" section and the security-architecture thread.
+
+@app.route('/api/claude/ask', methods=['POST'])
+def api_claude_ask():
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+
+    data     = request.get_json(silent=True) or {}
+    selector = (data.get('selector') or '').strip()
+    question = (data.get('question') or '').strip()
+    if not question:
+        return jsonify({'error': 'question required'}), 400
+
+    # cwd double-duty (design doc §4): run inside the note's notebook dir so
+    # CLAUDE.md/.rules auto-load for free, same trick the real dev sessions use.
+    cwd = NB_DIR
+    if ':' in selector:
+        candidate = NB_DIR / selector.split(':')[0]
+        if candidate.is_dir():
+            cwd = candidate
+
+    try:
+        result = subprocess.run(
+            ['claude', '-p', question, '--output-format', 'json'],
+            cwd=str(cwd), capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'claude CLI timed out'}), 504
+    except FileNotFoundError:
+        return jsonify({'error': 'claude CLI not found on this host'}), 502
+
+    if result.returncode != 0:
+        return jsonify({'error': result.stderr.strip() or 'claude exited non-zero'}), 502
+
+    try:
+        payload = json.loads(result.stdout)
+        answer  = payload.get('result') or result.stdout
+    except (json.JSONDecodeError, AttributeError):
+        answer = result.stdout
+
+    return jsonify({'answer': answer})
+
+
 if __name__ == '__main__':
     WEB_PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
     _assert_nb_auto_sync_off()
