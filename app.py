@@ -11702,6 +11702,38 @@ def _assert_nb_auto_sync_off():
 _NBWEB_CLAUDE_MCP_SERVER = Path.home() / 'dev' / 'nbweb-claude' / 'mcp_server.py'
 
 
+def _build_context_prompt(selector, context):
+    """One-line 'what is the user currently looking at' blurb for
+    --append-system-prompt. Purely informational -- never touches an access
+    decision, so client-supplied values need no validation here; MCP tool
+    calls still independently re-check _can_access on every real data pull.
+    """
+    parts = []
+    if selector:
+        parts.append(f"note {selector}")
+    notebook = (context.get('notebook') or '').strip()
+    if notebook:
+        parts.append(f"notebook '{notebook}'")
+    folder = (context.get('folder') or '').strip()
+    if folder:
+        parts.append(f"folder '{folder}'")
+    active_cmd = (context.get('activeCmd') or '').strip()
+    if active_cmd:
+        parts.append(f"view '{active_cmd}'")
+    sort_mode = (context.get('sortMode') or '').strip()
+    if sort_mode and sort_mode != 'default':
+        parts.append(f"sort '{sort_mode}'")
+    search_query = (context.get('searchQuery') or '').strip()
+    if search_query:
+        parts.append(f'search "{search_query}"')
+    tags_query = (context.get('tagsQuery') or '').strip()
+    if tags_query:
+        parts.append(f'tags "{tags_query}"')
+    if not parts:
+        return ''
+    return 'Current nb-web view: ' + ', '.join(parts) + '.'
+
+
 @app.route('/api/claude/ask', methods=['POST'])
 def api_claude_ask():
     user = session.get('user', {})
@@ -11711,6 +11743,7 @@ def api_claude_ask():
     data     = request.get_json(silent=True) or {}
     selector = (data.get('selector') or '').strip()
     question = (data.get('question') or '').strip()
+    context  = data.get('context') or {}
     if not question:
         return jsonify({'error': 'question required'}), 400
 
@@ -11723,6 +11756,9 @@ def api_claude_ask():
             cwd = candidate
 
     cmd = ['claude', '-p', question, '--output-format', 'json']
+    context_prompt = _build_context_prompt(selector, context)
+    if context_prompt:
+        cmd += ['--append-system-prompt', context_prompt]
     mcp_config_path = None
     if _NBWEB_CLAUDE_MCP_SERVER.exists():
         token = _mint_mcp_token(user)
