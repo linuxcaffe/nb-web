@@ -22,6 +22,8 @@ Flask (`app.py`, port 5001) + vanilla JS (`main.js`, `nav.js`). No build step. R
 | `plugins-page.js` | `NbPluginsPage` singleton — Plugins settings page (NbWeb + nb CLI plugin list/detail, install/uninstall) (extracted from main.js, tier-2e modularization) |
 | `notebooks-page.js` | `NbNotebooksPage` singleton — Notebooks settings view (list, sync, lock, config, type renderers, danger zone) (extracted from main.js, tier-2f modularization) |
 | `templates.js` | `NbTemplates` singleton — Templates view (list, preview, edit/duplicate/delete) + Add-mode template picker (extracted from main.js, tier-2g modularization) |
+| `ui-access.js` | `NbUiAccess` — client-side UI access gating, `can(el, group, mode)`; mirrors the codeblock plugin's `_cbAccess`/`_cbCan` pattern for non-codeblock UI (tier-4a modularization). Loads right after `nav.js`, zero dependencies. |
+| `ui-chrome.js` | `NbUiChrome` singleton — panel menus (list/sort dropdowns), extras toggle, preview-toolbar menu + actions (pin, fullscreen, undo, history, save-as-template), multi-select, keyboard navigation (extracted from main.js, tier-4 modularization) |
 | `styles.css` | All styling — no preprocessor |
 | `nb-settings.json` | Runtime config — default_git_remote, git_repos aliases, plugin list |
 | `plugins/` | Core plugins (nbweb-codeblocks, nbweb-contacts, nbweb-archive, nbweb-quartz) |
@@ -33,6 +35,18 @@ External plugins live in `~/dev/nbweb-*/` and are wired via `nb-settings.json`.
 - **User docs:** `~/.nb/docs/` — all files have `processed: true` frontmatter; open in nb-web
 - **Dev docs:** `~/.nb/docs/dev/` — 11 files; index at `docs:DEVELOPERS.md`
 - **AI meta-index:** `~/.claude/projects/-home-djp/memory/reference_nb_web_index.md` — "where is X?" for any topic
+
+## Testing
+
+The test suite lives in a **separate sibling repo**, not inside this one: `~/dev/nb-web-tests/`, path-pinned to this repo via `sys.path.insert` in its `conftest.py`. Don't go looking for `tests/` in here — it doesn't exist in `nb-web` itself.
+
+| Layer | Location | Run |
+|-------|----------|-----|
+| pytest (backend logic, synthetic fixtures) | `~/dev/nb-web-tests/*.py` | `cd ~/dev/nb-web-tests && python3 -m pytest -q` |
+| Playwright e2e (real browser, real `/login` form) | `~/dev/nb-web-tests/e2e/tests/*.spec.js` | `cd ~/dev/nb-web-tests/e2e && npx playwright test` |
+| Pre-flight lint (cross-module reference/order check) | `.tools/check-module-refs.py` (in this repo) | `python3 .tools/check-module-refs.py` |
+
+Run all three before considering any `main.js`-adjacent change (new satellite extraction, kernel accessor change, `index.html` script-order edit) done. Full strategy doc: `docs:dev/dev-test-suite.md`. Status/history: `reference_nb_web_index.md` in memory, or grep `claude:` notebook for `nb-web-tests`.
 
 ## Wikilink convention
 
@@ -60,7 +74,7 @@ not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
 5. **Template schema:** change generator functions AND seeded templates together — one without the other breaks notes
 6. **nb subprocess stdin:** `input=''` not `input=None` in `run_nb()` — prevents Flask hangs on interactive prompts
 7. **`renderPreview` must be `async`:** it calls `await NbWeb.loadNotebookConfig(...)`. Making it non-async is a parse-time SyntaxError that kills the entire NbMain IIFE — nothing displays, nothing is clickable. Check `async function renderPreview` before editing near it.
-8. **ServiceWorker cache (`sw.js`):** bump `CACHE = 'nb-web-vN'` whenever `main.js`, `nav.js`, `styles.css`, `nbweb.js`, `terminal.js`, `dialog.js`, `drag-handles.js`, `note-actions.js`, `search.js`, `sync.js`, `plugins-page.js`, `notebooks-page.js`, `templates.js`, `settings.html`, or any plugin file changes. Without a version bump, browsers serve stale cached assets and users see old behaviour. Commit `sw.js` in the same PR as the asset change. **Note:** `app.py`'s `/sw.js` route (`serve_sw()`) already rewrites `CACHE` to the current git short hash at serve time on every request, so this is belt-and-suspenders rather than strictly load-bearing — the manual bump is still good practice (keeps the repo file's literal readable/meaningful, and covers any deployment that serves `sw.js` as a static file instead of through this route), but don't panic if you forget it.
+8. **ServiceWorker cache (`sw.js`):** bump `CACHE = 'nb-web-vN'` whenever `main.js`, `nav.js`, `styles.css`, `nbweb.js`, `terminal.js`, `dialog.js`, `drag-handles.js`, `note-actions.js`, `search.js`, `sync.js`, `plugins-page.js`, `notebooks-page.js`, `templates.js`, `ui-access.js`, `ui-chrome.js`, `settings.html`, or any plugin file changes. Without a version bump, browsers serve stale cached assets and users see old behaviour. Commit `sw.js` in the same PR as the asset change. **Note:** `app.py`'s `/sw.js` route (`serve_sw()`) already rewrites `CACHE` to the current git short hash at serve time on every request, so this is belt-and-suspenders rather than strictly load-bearing — the manual bump is still good practice (keeps the repo file's literal readable/meaningful, and covers any deployment that serves `sw.js` as a static file instead of through this route), but don't panic if you forget it.
 9. **`api_note` GET/PUT symmetry:** special-case selectors (e.g. `.nb:.nb.md`) handled in `api_note` (GET) must also be handled in `api_edit_note` (PUT) — omitting it causes silent save failure ("unknown error") since the PUT falls through to `run_nb show` which doesn't know the selector.
 10. **`renderPreview`'s type-dispatch branches must include `_checkHtml`:** every branch that builds `html = ...` and falls through to the shared `content.innerHTML = ...; _finishRendered(...)` convergence point must splice in `_checkHtml +` at that assignment (see the existing image/audio/video/`_pluginHtml !== null`/bookmark/todo/fallback branches for the pattern). `_checkHtml` is computed once near the top of `renderPreview`, right after `_pluginHtml` is resolved — omitting it from a new branch silently drops `check:`/`check_add:` FM output for that note type with no error, exactly the bug fixed 2026-07-07 (see `claude:mainjs-check-cascade-fix.md`). Branches that legitimately don't need it (pdf, code/timedot, html, ebook/document, archive, sheet, encrypted, and the large-note `/api/render` path) `return` early before the convergence point and are exempt by construction.
 11. **`settings.html`'s `data-min-level`-gated sections each need their own independent `document.addEventListener('nb-auth-ready', ...)` block** — don't nest a new section's gate check inside an existing section's listener. `sec-config-repo`'s block does `if (!NbAuth.is('admin')) return;` near the top; nesting a `tech`-gated section's code after that line works today only because `tech` implies `admin` in `LEVELS` — it would silently never run if that early return's level or position ever changed. Independent listeners (see `sec-repos`, added 2026-07-08) avoid the coupling entirely.
