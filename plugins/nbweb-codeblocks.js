@@ -1258,6 +1258,7 @@
     // window.Terminal must be loaded before calling this.
     function _tuiWire(outer) {
         const cmd        = outer.dataset.tuiCmd;
+        const selector   = NbMain.activeSelector() || '';
         const header     = outer.querySelector('.nb-tui-header');
         const wrap       = outer.querySelector('.nb-tui-wrap');
         const container  = outer.querySelector('.nb-tui-container');
@@ -1305,7 +1306,7 @@
             ws.onopen = () => {
                 requestAnimationFrame(() => {
                     _fit();
-                    ws.send(JSON.stringify({ cmd, cols: term.cols, rows: term.rows }));
+                    ws.send(JSON.stringify({ cmd, selector, cols: term.cols, rows: term.rows }));
                 });
             };
             ws.onmessage = e => term?.write(e.data);

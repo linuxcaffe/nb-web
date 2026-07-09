@@ -4159,13 +4159,23 @@ def ws_pty(ws):
     try:
         payload  = json.loads(first)
         cwd_str  = payload.get('cwd',  '').strip()
+        selector = payload.get('selector', '').strip()   # "this note" cwd resolution
         cmd_str  = payload.get('cmd',  '').strip()   # direct spawn — no shell wrapper
         init_str = payload.get('init', '').strip()   # shell mode — typed into shell
         cols     = int(payload.get('cols', 80))
         rows     = int(payload.get('rows', 24))
     except Exception:
-        cwd_str = cmd_str = init_str = ''
+        cwd_str = selector = cmd_str = init_str = ''
         cols, rows = 80, 24
+
+    # "This note" resolution -- same cwd double-duty trick as /api/claude/ask:
+    # a block that doesn't ask for an explicit cwd runs in its own note's
+    # notebook dir, so CLAUDE.md/.rules auto-load for free. Explicit cwd
+    # (from the codeblock body itself, e.g. --cwd or a leading `cd`) wins.
+    if not cwd_str and ':' in selector:
+        candidate = NB_DIR / selector.split(':')[0]
+        if candidate.is_dir():
+            cwd_str = str(candidate)
 
     cwd = None
     if cwd_str:
