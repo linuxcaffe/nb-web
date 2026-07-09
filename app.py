@@ -22,6 +22,7 @@ except ImportError:
 import csv
 import hashlib
 import io
+import secrets
 import shlex
 import shutil
 import socket
@@ -728,9 +729,44 @@ def _can_write(user, selector, notebook=None):
     return _can_access(user, note_meta, nb_meta)
 
 
+# ---------------------------------------------------------------------------
+# MCP scoped tokens — minted per /api/claude/ask call, not the raw session
+# cookie. The nbweb-claude MCP server subprocess authenticates its own HTTP
+# calls back to this same process with one of these instead of a cookie, so
+# a headless `claude -p` invocation sees exactly what the asking user could
+# see -- _can_access, guest-invisible filtering, everything -- with zero new
+# enforcement code. See claude:nbweb-claude v2 design doc, "Market 1".
+# ---------------------------------------------------------------------------
+_MCP_TOKENS = {}
+_MCP_TOKEN_TTL = 300  # seconds -- comfortably longer than one claude -p turn
+
+
+def _mint_mcp_token(user):
+    token = secrets.token_urlsafe(32)
+    _MCP_TOKENS[token] = {'user': dict(user), 'expires': time.time() + _MCP_TOKEN_TTL}
+    return token
+
+
+def _resolve_mcp_token(token):
+    entry = _MCP_TOKENS.get(token)
+    if not entry:
+        return None
+    if entry['expires'] < time.time():
+        del _MCP_TOKENS[token]
+        return None
+    return entry['user']
+
+
 @app.before_request
 def _check_auth():
     if request.path in ('/login', '/logout', '/setup'):
+        return
+    mcp_token = request.headers.get('X-Nbweb-Mcp-Token')
+    if mcp_token:
+        mcp_user = _resolve_mcp_token(mcp_token)
+        if mcp_user is None:
+            return jsonify(error='invalid or expired MCP token'), 401
+        session['user'] = mcp_user
         return
     if not session.get('user'):
         if request.path.startswith('/api/') or request.path.startswith('/ws'):
@@ -11656,6 +11692,15 @@ def _assert_nb_auto_sync_off():
 # (MCP wrapper + per-session credentials, or a vendor-key SaaS mode) is a
 # known, deferred gap, not an oversight. See claude:nbweb-claude v2 design
 # doc's "Deferred/future" section and the security-architecture thread.
+#
+# The MCP wrapper piece IS built (nbweb-claude's mcp_server.py, sibling repo):
+# a scoped token minted below rides in an env var into that subprocess, so
+# its own calls back to /api/* run as the asking user, not the host operator.
+# That closes the "zero tool access" gap in the shell-out, but not the
+# whose-Anthropic-account-pays gap above -- still one CLI, one host.
+
+_NBWEB_CLAUDE_MCP_SERVER = Path.home() / 'dev' / 'nbweb-claude' / 'mcp_server.py'
+
 
 @app.route('/api/claude/ask', methods=['POST'])
 def api_claude_ask():
@@ -11677,15 +11722,41 @@ def api_claude_ask():
         if candidate.is_dir():
             cwd = candidate
 
+    cmd = ['claude', '-p', question, '--output-format', 'json']
+    mcp_config_path = None
+    if _NBWEB_CLAUDE_MCP_SERVER.exists():
+        token = _mint_mcp_token(user)
+        mcp_config = {
+            'mcpServers': {
+                'nbweb': {
+                    'command': 'python3',
+                    'args':    [str(_NBWEB_CLAUDE_MCP_SERVER)],
+                    'env': {
+                        'NBWEB_MCP_TOKEN': token,
+                        'NBWEB_MCP_BASE':  f'http://127.0.0.1:{PORT}',
+                    },
+                },
+            },
+        }
+        fd, mcp_config_path = tempfile.mkstemp(prefix='nbweb-mcp-', suffix='.json')
+        with os.fdopen(fd, 'w') as f:
+            json.dump(mcp_config, f)
+        cmd += ['--mcp-config', mcp_config_path, '--strict-mcp-config']
+
     try:
         result = subprocess.run(
-            ['claude', '-p', question, '--output-format', 'json'],
-            cwd=str(cwd), capture_output=True, text=True, timeout=120,
+            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=120,
         )
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'claude CLI timed out'}), 504
     except FileNotFoundError:
         return jsonify({'error': 'claude CLI not found on this host'}), 502
+    finally:
+        if mcp_config_path:
+            try:
+                os.unlink(mcp_config_path)
+            except OSError:
+                pass
 
     if result.returncode != 0:
         return jsonify({'error': result.stderr.strip() or 'claude exited non-zero'}), 502
