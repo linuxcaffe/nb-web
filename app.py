@@ -680,6 +680,26 @@ def _can_access(user, note_meta, nb_meta):
     return _level_gte(user.get('level', ''), access)
 
 
+def _effective_claude(note_meta, nb_meta):
+    """Return the claude: model/availability specifier for a note, or '' if
+    unconfigured anywhere in the cascade (nbweb-claude's badge simply doesn't
+    render on ''  — no fallback model, unlike _effective_access's 'user' default).
+
+    Resolution order (nearest-wins, note+notebook only for now — deliberately
+    matching _effective_access's own scope rather than the full folder-walk
+    cascade _folder_config gives check_skip/etc.; widen only if a real need
+    for folder-level override shows up):
+      note claude:     → explicit override, always wins. Empty string is a
+                         real value here, not "unset" — it's the documented
+                         convention for turning availability off down a branch.
+      notebook config  → claude: in .<notebook>.md
+      unset            → '' (no badge)
+    """
+    if 'claude' in note_meta:
+        return str(note_meta['claude'] or '')
+    return str(nb_meta.get('claude') or '')
+
+
 def _can_write(user, selector, notebook=None):
     """Return True if user may write (edit/delete/rename/move) a note.
 
@@ -5588,6 +5608,7 @@ def api_note():
         'locked':   locked,
         'lock_reason': lock_reason,
         'effective_access': _effective_access(meta, nb_meta),
+        'effective_claude': _effective_claude(meta, nb_meta),
         'effective_checks':     nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
         'effective_check_add':  _collect_check_add(note_notebook, fpath) if note_notebook else '',
         'effective_check_skip': _collect_check_skip(note_notebook, fpath) if note_notebook else '',

@@ -31,11 +31,34 @@ main.js:_parseMarkdownStatic
 
 # ── Notebooks-settings kernel-state accessor (main.js) ─────────────────────────
 # Load-bearing seam: notebooks-page.js reads kernel-owned _nbSortMode through
-# this -- kernel's own _bindSortBtn (Panel menus) also reads it for the shared
-# #nb-sort-btn dropdown's active-item checkmarks, which serves the plain
-# note-list sort too. The notebooks array itself and the sort/render logic are
-# satellite-local (moved wholesale -- no other kernel code needed them).
+# this -- kernel's own _applyNbSort (still in main.js, called by ui-chrome.js's
+# moved dropdown-building code) also writes it for the shared #nb-sort-btn
+# dropdown's active-item checkmarks, which serves the plain note-list sort too.
+# The notebooks array itself and the sort/render logic are satellite-local
+# (moved wholesale -- no other kernel code needed them).
 main.js:getNbSortMode
+
+# ── UI chrome kernel-state accessors (main.js, tier 4, 2026-07-08) ─────────────
+# Load-bearing seam: ui-chrome.js reaches these to touch state that stays
+# kernel-declared because kernel code elsewhere also reads/writes it (openNote,
+# _populateEditor, _deleteNote/loadNotes, _applySort/_applyNbSort, _setKbPane).
+# Sets/objects are exposed as live references (satellite calls .has/.add/.delete
+# directly); primitives get paired get/set.
+main.js:applySort
+main.js:applyNbSort
+main.js:getSortMode
+main.js:getListDisplayMode
+main.js:setListDisplayMode
+main.js:getKbPane
+main.js:setKbPane
+main.js:getLastNotes
+main.js:pinnedSelectors
+main.js:undoBuffer
+main.js:pendingDeletes
+main.js:reRenderList
+main.js:resolveWikilinks
+main.js:deleteNote
+main.js:setActiveNote
 
 # ── List-generation counter accessors (main.js) ────────────────────────────────
 # Load-bearing seam: templates.js reads/checks kernel-owned _listSeq through
@@ -76,6 +99,18 @@ notebooks-page.js:const NbNotebooksPage
 
 # ── Templates view (templates.js) ──────────────────────────────────────────────
 templates.js:const NbTemplates
+
+# ── UI access gating (ui-access.js, tier 4a, 2026-07-08) ───────────────────────
+# Zero dependencies; loads right after nav.js. can() is the whole public surface.
+ui-access.js:const NbUiAccess
+ui-access.js:can
+
+# ── UI chrome (ui-chrome.js, tier 4, 2026-07-08) ───────────────────────────────
+# Panel menus, extras toggle, preview-toolbar menu + actions, multi-select,
+# keyboard nav. Loads immediately before main.js -- NbMain's return object
+# holds bare NbUiChrome.* references (exportFormats, doPrint, clearSelection,
+# deselect, selectedSelectors).
+ui-chrome.js:const NbUiChrome
 
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
