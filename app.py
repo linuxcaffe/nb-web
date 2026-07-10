@@ -11842,6 +11842,7 @@ def api_claude_ask():
     selector = (data.get('selector') or '').strip()
     question = (data.get('question') or '').strip()
     context  = data.get('context') or {}
+    resume   = (data.get('resume') or '').strip()
     if not question:
         return jsonify({'error': 'question required'}), 400
 
@@ -11857,6 +11858,8 @@ def api_claude_ask():
     model = _resolve_claude_model_flag(selector)
     if model:
         cmd += ['--model', model]
+    if resume:
+        cmd += ['--resume', resume]
     mcp_config_path = None
     token = None
     has_mcp = _NBWEB_CLAUDE_MCP_SERVER.exists()
@@ -11917,7 +11920,7 @@ def api_claude_ask():
         _substitute_session_placeholder(selector, session_id)
 
     reload_flag = bool(token and _MCP_TOKENS.get(token, {}).get('reload'))
-    return jsonify({'answer': answer, 'reload': reload_flag})
+    return jsonify({'answer': answer, 'reload': reload_flag, 'session_id': session_id})
 
 
 if __name__ == '__main__':
