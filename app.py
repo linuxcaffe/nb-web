@@ -11898,6 +11898,42 @@ def _build_note_text_block(context):
     return 'Full text of the note currently open (read this before deciding to look anything up):\n\n' + text
 
 
+_AGENT_SESSIONS_PATH = NB_DIR / 'claude' / 'accounting' / 'agent_sessions.md'
+
+
+def _log_agent_session(model, notebook, selector, session_id, payload):
+    """Append one timedot entry per /api/claude/ask call to
+    claude:accounting/agent_sessions.md -- real, measured values only
+    (duration_ms, usage, total_cost_usd from the claude -p JSON response),
+    never a self-reported estimate. Pure append, never rewrites existing
+    content -- same file-safety reasoning as everywhere else in this repo
+    that avoids --overwrite-shaped bugs: nothing here can ever corrupt a
+    prior entry, worst case is a missing one if this itself throws.
+    """
+    try:
+        usage = payload.get('usage') or {}
+        tokens = (usage.get('input_tokens', 0) + usage.get('output_tokens', 0)
+                  + usage.get('cache_creation_input_tokens', 0) + usage.get('cache_read_input_tokens', 0))
+        cost   = payload.get('total_cost_usd', 0) or 0
+        hours  = round(payload.get('duration_ms', 0) / 1000 / 3600, 4)
+        date   = datetime.now().strftime('%Y-%m-%d')
+        account = f'claude-modal:{model or "default"}'
+        comment = (f'session: {session_id} · notebook: {notebook} · '
+                   f'selector: {selector} · tokens: {tokens} · cost: ${cost:.4f}')
+        block = (f'\n## {date}\n```timedot\n{date}\n'
+                 f'{account}  {hours}  ; {comment}\n```\n')
+        with open(_AGENT_SESSIONS_PATH, 'a') as f:
+            f.write(block)
+        env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+        nb_root = NB_DIR / 'claude'
+        subprocess.run(['git', 'add', 'accounting/agent_sessions.md'],
+                       cwd=str(nb_root), capture_output=True, env=env)
+        subprocess.run(['git', 'commit', '-m', f'[nb] Log agent session: {model or "default"}'],
+                       cwd=str(nb_root), capture_output=True, env=env)
+    except Exception:
+        pass  # logging must never break the actual answer path
+
+
 _CLAUDE_SESSION_PLACEHOLDER = '__NBWEB_SESSION__'
 
 _CLAUDE_WRITE_GUIDANCE = (
@@ -12085,6 +12121,8 @@ def api_claude_ask():
         payload    = json.loads(result.stdout)
         answer     = payload.get('result') or result.stdout
         session_id = payload.get('session_id') or ''
+        notebook   = selector.split(':')[0] if ':' in selector else ''
+        _log_agent_session(model, notebook, selector, session_id, payload)
     except (json.JSONDecodeError, AttributeError):
         answer = result.stdout
         session_id = ''
