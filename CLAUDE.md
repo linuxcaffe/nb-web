@@ -170,7 +170,13 @@ FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyl
 
 ## NbWeb-cine plugin
 
-Plugin: `~/dev/nbweb-cine/nbweb-cine.js`. Activated when notebook has `.nb-cine.json`.
+Plugin: `~/dev/nbweb-cine/nbweb-cine.js`. Activated by a `cine:` block in the
+notebook's own `.{notebook}.md` dotfile (see `Takeout`'s config for a live
+example) — same mechanism as hledger below. A standalone `.nb-cine.json` file
+is still honored and takes precedence if one exists (legacy path,
+`_notebook_config()`/the notebooks-inventory endpoint check it first), but as
+of 2026-07-10 no notebook actually uses it — every notebook with cine active
+is on the FM path.
 
 **Three-identifier scheme** — every production note type carries:
 - `filename stem` — stable wikilink anchor, never changes
@@ -225,7 +231,7 @@ Text spans matching `{{provider: query}}` are replaced with `.nb-inline-query` s
 
 **Regen button:** when `/api/inline-query` returns a `regen: {notebook, script}` field, the span gets a `↻` button (`.nb-iq-refresh`) appended. On click: POSTs `{notebook, script}` to `/api/hledger/regen` (runs the script, clears hledger cache), then re-fetches the inline query and updates the result in place.
 
-**Wiring regen:** set `"regen_script": ".tools/gen-budget.py"` in the notebook's `.nb-hledger.json`. The `api_inline_query` endpoint reads this and includes `regen` in the response only when both `regen_script` and `notebook` are present. Script must live in `.tools/` and be a `.py` file (enforced by `/api/hledger/regen`).
+**Wiring regen:** set `regen_script: .tools/gen-budget.py` under the `hledger:` block in the notebook's own `.{notebook}.md` dotfile (see `djp`'s config for a live example) — or, legacy path, `"regen_script": ".tools/gen-budget.py"` in a standalone `.nb-hledger.json`, which still takes precedence if present (`_hledger_config_for_notebook()` in `app.py`). The `api_inline_query` endpoint reads this and includes `regen` in the response only when both `regen_script` and `notebook` are present. Script must live in `.tools/` and be a `.py` file (enforced by `/api/hledger/regen`).
 
 ## Active claude: notes
 
