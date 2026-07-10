@@ -701,6 +701,29 @@ def _effective_claude(note_meta, nb_meta):
     return str(nb_meta.get('claude') or '')
 
 
+def _resolve_claude_model_flag(selector):
+    """Resolve the claude: FM cascade to a --model value for the CLI, or ''
+    if unconfigured. Values already match the CLI's own alias vocabulary
+    ('opus', 'sonnet', 'fable', ...) verbatim -- no translation needed.
+    Previously this cascade only drove the badge display; the CLI call
+    ignored it entirely and always ran whatever the host's own claude
+    account defaults to.
+    """
+    if ':' not in selector:
+        return ''
+    notebook = selector.split(':')[0]
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return ''
+    try:
+        raw = fpath.read_text(errors='replace')
+    except OSError:
+        return ''
+    note_meta, _ = parse_frontmatter(raw)
+    nb_meta = _folder_config(notebook, fpath)
+    return _effective_claude(note_meta, nb_meta)
+
+
 def _can_write(user, selector, notebook=None):
     """Return True if user may write (edit/delete/rename/move) a note.
 
@@ -11831,6 +11854,9 @@ def api_claude_ask():
             cwd = candidate
 
     cmd = ['claude', '-p', question, '--output-format', 'json']
+    model = _resolve_claude_model_flag(selector)
+    if model:
+        cmd += ['--model', model]
     mcp_config_path = None
     token = None
     has_mcp = _NBWEB_CLAUDE_MCP_SERVER.exists()
