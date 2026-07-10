@@ -4152,7 +4152,9 @@ const NbMain = (() => {
     }
 
     function doLinkFile() {
-        const nb = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const nb     = NbNav.notebook === '_all' ? 'home' : NbNav.notebook;
+        const folder = NbNav.notebook === '_all' ? '' : NbNav.folder;
+        const dest   = folder ? `${nb}/${folder}` : nb;
 
         // Build a small inline prompt in the preview area
         const previewContent = document.getElementById('nb-preview-content');
@@ -4163,7 +4165,7 @@ const NbMain = (() => {
             <div style="padding:48px 40px;max-width:560px">
                 <h2 style="margin:0 0 .3em">Link file into notebook</h2>
                 <p style="color:var(--text-muted);font-size:0.88em;margin:0 0 1.6em">
-                    Creates a symlink in <strong>${_esc(nb)}</strong> pointing at a file on your filesystem.
+                    Creates a symlink in <strong>${_esc(dest)}</strong> pointing at a file on your filesystem.
                     Edits through nb-web will modify the original file.
                 </p>
                 <label style="display:block;font-size:0.8em;color:var(--text-muted);margin-bottom:4px">
@@ -4175,6 +4177,15 @@ const NbMain = (() => {
                     style="width:100%;background:var(--bg3);border:1px solid var(--border);
                            color:var(--text);border-radius:4px;padding:7px 10px;
                            font-family:var(--font-mono);font-size:0.88em;box-sizing:border-box">
+                <label style="display:block;font-size:0.8em;color:var(--text-muted);margin:12px 0 4px">
+                    Name in ${_esc(dest)}
+                </label>
+                <input id="nb-link-name" type="text"
+                    placeholder="suggested from the path above"
+                    autocomplete="off" spellcheck="false"
+                    style="width:100%;background:var(--bg3);border:1px solid var(--border);
+                           color:var(--text);border-radius:4px;padding:7px 10px;
+                           font-family:var(--font-mono);font-size:0.88em;box-sizing:border-box">
                 <div style="display:flex;gap:8px;margin-top:1.2em;align-items:center">
                     <button id="nb-link-btn" class="nb-btn-primary" style="padding:7px 20px">Link</button>
                     <span id="nb-link-status" style="font-size:0.85em;color:var(--text-muted)"></span>
@@ -4182,11 +4193,35 @@ const NbMain = (() => {
             </div>`;
 
         const pathInput = document.getElementById('nb-link-path');
+        const nameInput = document.getElementById('nb-link-name');
         const status    = document.getElementById('nb-link-status');
         pathInput.focus();
 
+        // Suggested name (<project>-<filename>, via git-repo-root detection
+        // server-side) fills in automatically as the path is typed, but only
+        // until the user actually touches the name field themselves -- after
+        // that their choice is left alone.
+        let nameEdited = false;
+        nameInput.addEventListener('input', () => { nameEdited = true; });
+
+        let suggestTimer = null;
+        pathInput.addEventListener('input', () => {
+            if (nameEdited) return;
+            clearTimeout(suggestTimer);
+            suggestTimer = setTimeout(async () => {
+                const path = pathInput.value.trim();
+                if (!path || nameEdited) return;
+                try {
+                    const r = await fetch('/api/link-file/suggest-name?path=' + encodeURIComponent(path));
+                    const d = await r.json();
+                    if (!nameEdited && d.name) nameInput.value = d.name;
+                } catch (e) { /* best-effort suggestion, ignore failures */ }
+            }, 300);
+        });
+
         async function doLink() {
             const path = pathInput.value.trim();
+            const name = nameInput.value.trim();
             if (!path) { status.textContent = 'Enter a path first'; return; }
             status.textContent = 'Linking…';
             status.style.color = '';
@@ -4194,7 +4229,7 @@ const NbMain = (() => {
                 const r = await fetch('/api/link-file', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path, notebook: nb }),
+                    body: JSON.stringify({ path, notebook: nb, name, folder }),
                 });
                 const d = await r.json();
                 if (d.success) {

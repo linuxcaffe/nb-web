@@ -8,3 +8,4 @@ dist/
 errors.txt
 nb-settings.json
 node_modules/
+.agent-locks.json

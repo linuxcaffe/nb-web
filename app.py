@@ -994,7 +994,7 @@ def _list_dotfolder_notes(dotfolder, limit=200):
         excerpt = _first_excerpt_line(body, meta)
         items.append({
             'type':      itype,
-            'indicator': _indicator(itype, None),
+            'indicator': _indicator(itype, None, fpath),
             'id':        '',
             'mtime':     fpath.stat().st_mtime,
             'filename':  fpath.name,
@@ -1187,7 +1187,18 @@ def _list_archive(fpath):
         pass
     return '(cannot list — install atool for .7z / .rar support)'
 
-def _indicator(itype, todo_status=None):
+def _indicator(itype, todo_status=None, fpath=None):
+    """List-item icon. A symlinked note (e.g. a plugin doc mirrored in via
+    /api/link-file) always shows 🔗 regardless of type -- "this points
+    somewhere else" is more useful at a glance than the type icon, since the
+    content itself isn't actually stored here.
+    """
+    if fpath is not None:
+        try:
+            if Path(fpath).is_symlink():
+                return '🔗'
+        except OSError:
+            pass
     if itype == 'todo' and todo_status:
         return INDICATORS.get(f'todo_{todo_status}', '✔️')
     return INDICATORS.get(itype, '')
@@ -4944,7 +4955,7 @@ def _build_all_notes() -> list:
                 mtime = 0
             all_items.append({
                 'type':      itype,
-                'indicator': _indicator(itype, todo_status),
+                'indicator': _indicator(itype, todo_status, fpath),
                 'mtime':     mtime,
                 'filename':  fname,
                 'title':     title,
@@ -5047,7 +5058,7 @@ def _list_notes(notebook, folder, limit):
         sel_path = (folder + '/' if folder else '') + fname
         item = {
             'type':       itype,
-            'indicator':  _indicator(itype, todo_status),
+            'indicator':  _indicator(itype, todo_status, fpath),
             'id':         item_id,
             'mtime':      fpath.stat().st_mtime,
             'filename':   fname,
@@ -5248,7 +5259,7 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
             'title':            title,
             'type':             itype,
             'status':           todo_status,
-            'indicator':        _indicator(itype, todo_status),
+            'indicator':        _indicator(itype, todo_status, fpath),
             'mtime':            mtime,
             'excerpt':          excerpt,
             'notebook':         nb_name,
@@ -5394,7 +5405,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
             'title':            real_title or title or raw_sel,
             'type':             itype,
             'status':           todo_status,
-            'indicator':        _indicator(itype, todo_status),
+            'indicator':        _indicator(itype, todo_status, fpath_r),
             'mtime':            fmtime,
             'excerpt':          excerpt,
             'notebook':         nb_part,
@@ -5438,8 +5449,9 @@ def _search_notes(notebook, folder, query, limit, tags=None):
                             continue
                     seen_sels.add(sel)
                     itype = classify(parent_fname, nb_name)
+                    parent_fpath = NB_DIR / nb_name / parent_fname
                     try:
-                        fmtime = (NB_DIR / nb_name / parent_fname).stat().st_mtime
+                        fmtime = parent_fpath.stat().st_mtime
                     except OSError:
                         fmtime = 0
                     items.append({
@@ -5448,7 +5460,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
                         'title':            note_title(parent_fname, ''),
                         'type':             itype,
                         'status':           None,
-                        'indicator':        _indicator(itype, None),
+                        'indicator':        _indicator(itype, None, parent_fpath),
                         'mtime':            fmtime,
                         'excerpt':          text[:120],
                         'notebook':         nb_name,
@@ -5493,7 +5505,7 @@ def _search_notes(notebook, folder, query, limit, tags=None):
                         'title':            dtitle,
                         'type':             itype,
                         'status':           None,
-                        'indicator':        _indicator(itype, None),
+                        'indicator':        _indicator(itype, None, dotfile),
                         'mtime':            fmtime,
                         'excerpt':          excerpt,
                         'notebook':         notebook,
@@ -5665,7 +5677,7 @@ def api_note():
         'title':    title,
         'type':     itype,
         'status':   todo_status,
-        'indicator': INDICATORS.get(itype, ''),
+        'indicator': _indicator(itype, todo_status, fpath),
         'raw':      raw,
         'body':     body,
         'meta':     meta,
@@ -7713,7 +7725,7 @@ def _resolve_file_to_note(fpath_str):
             'selector':  f"{nb_name}:{fname}",
             'title':     note_title(fname, body),
             'type':      itype,
-            'indicator': _indicator(itype, todo_status),
+            'indicator': _indicator(itype, todo_status, fpath),
         }
     return None
 
@@ -8995,17 +9007,67 @@ def api_contact_from_vcf():
     return jsonify({'success': True, 'selector': selector, 'filename': fname, 'name': name})
 
 
+def _find_project_name(dir_path):
+    """Best-effort project name for a suggested link destination -- walks up
+    from the file's directory looking for a git repo root (.git), since
+    that's a much better proxy for "which project is this" than the
+    immediate parent folder (often just a subdirectory like docs/ or
+    frontend/, not the project itself). Falls back to the immediate parent
+    directory name if no repo root turns up within a few levels (e.g. a
+    file that isn't inside any git repo).
+    """
+    home = Path.home()
+    current = dir_path
+    for _ in range(8):
+        if (current / '.git').exists():
+            return current.name
+        if current == current.parent or current == home:
+            break
+        current = current.parent
+    return dir_path.name
+
+
+@app.route('/api/link-file/suggest-name', methods=['GET'])
+def api_link_file_suggest_name():
+    """Suggested destination name for the Link-file dialog -- read-only, no
+    side effects, safe to call on every keystroke while the path is still
+    being typed. Server-side because the git-repo-root walk needs real
+    filesystem access the browser doesn't have.
+    """
+    src_str = (request.args.get('path') or '').strip()
+    if not src_str:
+        return jsonify({'name': ''})
+    src = Path(os.path.expanduser(src_str))
+    if not src.is_absolute() or not src.exists() or not src.is_file():
+        return jsonify({'name': ''})
+    src = src.resolve()
+    project = _find_project_name(src.parent)
+    return jsonify({'name': f'{project}-{src.name}' if project else src.name})
+
+
 @app.route('/api/link-file', methods=['POST'])
 def api_link_file():
-    """Create a symlink inside a notebook pointing to an existing filesystem path."""
+    """Create a symlink inside a notebook (optionally a subfolder) pointing
+    to an existing filesystem path. Collision/dedup checks are scoped to the
+    exact target folder, not the whole notebook -- each folder has its own
+    .index (see read_index), and there's no actual notebook-wide filename
+    constraint anywhere in nb-web's own note-creation path (api_add_note
+    checks the same way), so two same-named files (e.g. two plugins each
+    with their own README.md) coexist fine in sibling folders without
+    needing a disambiguating prefix.
+    """
     data     = request.get_json(silent=True) or {}
     src_str  = data.get('path', '').strip()
     notebook = data.get('notebook', 'home').strip() or 'home'
+    name_str = (data.get('name') or '').strip()
+    folder   = (data.get('folder') or '').strip().strip('/')
 
     if not _safe_notebook(notebook):
         return jsonify({'success': False, 'error': 'invalid notebook'}), 400
     if not src_str:
         return jsonify({'success': False, 'error': 'path is required'}), 400
+    if folder and ('..' in folder or folder.startswith('/')):
+        return jsonify({'success': False, 'error': 'invalid folder'}), 400
 
     src = Path(os.path.expanduser(src_str)).resolve()
     if not src.exists():
@@ -9013,27 +9075,78 @@ def api_link_file():
     if not src.is_file():
         return jsonify({'success': False, 'error': f'Not a file: {src}'}), 400
 
-    nb_dir = _nb_notebook_dir(notebook)
-    nb_dir.mkdir(parents=True, exist_ok=True)
-    dest = nb_dir / src.name
+    # Path(name_str).name strips any directory components a caller sent --
+    # defensive, this is a filename, never a path.
+    base_name = Path(name_str).name if name_str else src.name
+    if not base_name:
+        return jsonify({'success': False, 'error': 'invalid name'}), 400
 
+    nb_dir     = _nb_notebook_dir(notebook)
+    target_dir = (nb_dir / folder) if folder else nb_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Reconcile every intermediate folder level, not just the leaf --
+    # api/folders' recursive walker (_list_folders_recursive) requires an
+    # .index at every level to descend, so a freshly created nested folder
+    # (mkdir parents=True can create several levels at once) needs each
+    # ancestor indexed too, or everything under the un-indexed one is
+    # invisible in the UI even though the files and their own .index exist.
+    # The leaf (target_dir) is reconciled again below, after the symlink is
+    # actually created, so it picks up the new file.
+    if folder:
+        cur = nb_dir
+        for part in Path(folder).parts[:-1]:
+            cur = cur / part
+            _nb_index_reconcile(cur)
+
+    def _selector(filename):
+        rel = f'{folder}/{filename}' if folder else filename
+        return f'{notebook}:{rel}'
+
+    # Re-linking a file already linked into this exact folder is a no-op,
+    # not a duplicate -- common when a project's README (same basename as
+    # dozens of other projects') gets linked again after forgetting it's
+    # already there.
+    for existing in target_dir.iterdir():
+        if existing.is_symlink():
+            try:
+                if existing.resolve() == src:
+                    return jsonify({'success': True, 'name': existing.name,
+                                    'target': str(src), 'selector': _selector(existing.name),
+                                    'already_linked': True})
+            except OSError:
+                pass  # broken symlink -- not a match, fall through
+
+    # Collision on the chosen (or default) name -- auto-suffix as a fallback
+    # rather than failing outright; the dialog already lets the user pick a
+    # disambiguated name up front (e.g. <project>-<filename>), so this only
+    # fires when that still wasn't enough.
+    dest = target_dir / base_name
     if dest.exists() or dest.is_symlink():
-        return jsonify({'success': False,
-                        'error': f'{src.name} already exists in {notebook}'}), 409
+        stem, suffix = Path(base_name).stem, Path(base_name).suffix
+        for n in range(2, 100):
+            candidate = target_dir / f'{stem}-{n}{suffix}'
+            if not candidate.exists() and not candidate.is_symlink():
+                dest = candidate
+                break
+        else:
+            return jsonify({'success': False,
+                            'error': f'too many existing files named like {base_name} in {notebook}'}), 409
 
     try:
         os.symlink(src, dest)
-        _nb_index_reconcile(nb_dir)
-        selector = None
-        try:
-            idx_lines = (nb_dir / '.index').read_text().splitlines()
-            for i, line in enumerate(idx_lines, 1):
-                if line.strip() == src.name:
-                    selector = f'{notebook}:{i}'
-                    break
-        except Exception:
-            pass
-        return jsonify({'success': True, 'name': src.name, 'target': str(src), 'selector': selector})
+        _nb_index_reconcile(target_dir)
+        # Explicit, scoped commit -- same pattern api_add_note's direct-write
+        # path uses -- rather than leaving the symlink + .index change
+        # sitting uncommitted for some other process to eventually pick up.
+        rel_link  = dest.relative_to(nb_dir)
+        rel_index = (target_dir / '.index').relative_to(nb_dir)
+        env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+        subprocess.run(['git', 'add', str(rel_link), str(rel_index)],
+                       cwd=str(nb_dir), capture_output=True, env=env)
+        subprocess.run(['git', 'commit', '-m', f'[nb] Linked: {dest.name}'],
+                       cwd=str(nb_dir), capture_output=True, env=env)
+        return jsonify({'success': True, 'name': dest.name, 'target': str(src), 'selector': _selector(dest.name)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -11762,9 +11875,27 @@ def _build_context_prompt(selector, context):
     tags_query = (context.get('tagsQuery') or '').strip()
     if tags_query:
         parts.append(f'tags "{tags_query}"')
+    note_type = (context.get('noteType') or '').strip()
+    if note_type:
+        parts.append(f"type '{note_type}'")
+    note_help = (context.get('noteHelp') or '').strip()
+    if note_help:
+        parts.append(f"help topic '{note_help}' available via .lib/help-type-{note_help}.md")
     if not parts:
         return ''
     return 'Current nb-web view: ' + ', '.join(parts) + '.'
+
+
+def _build_note_text_block(context):
+    """The focused note's own body text, handed over directly rather than
+    requiring a get_note round-trip for content the user is already looking
+    at. Capped client-side (nbweb-claude.js) before it ever reaches here;
+    this is just presentation, not the size limit itself.
+    """
+    text = (context.get('noteText') or '').strip()
+    if not text:
+        return ''
+    return 'Full text of the note currently open (read this before deciding to look anything up):\n\n' + text
 
 
 _CLAUDE_SESSION_PLACEHOLDER = '__NBWEB_SESSION__'
@@ -11784,8 +11915,39 @@ _CLAUDE_WRITE_GUIDANCE = (
     "working notes); keep your direct answer for conversation. After using "
     "append_to_note, call the reload_note tool once so the note refreshes "
     "in the user's browser -- otherwise they won't see the change until "
-    "they refresh it themselves."
+    "they refresh it themselves. When referring to a note in your reply, use "
+    "the numeric selector (e.g. docs:29) internally for tool calls and links, "
+    "but when describing it in prose use notebook:Title (the exact title the "
+    "tool returned) instead -- an id number means nothing to the person "
+    "reading the answer. You also have create_note, toggle_todo, and "
+    "set_annotation -- each wraps the same endpoint the UI itself uses for "
+    "that action (see .rules/mcp-tools.md). Prefer these over append_to_note "
+    "when the request actually matches one of them (creating a new note, "
+    "closing a todo, setting an annotation) -- append_to_note is for content "
+    "that belongs inside an existing note's body (codeblocks, timedot "
+    "entries, working notes), not a substitute for the more specific tool. "
+    "Before calling create_note, always call list_templates first -- if a "
+    "template matches the note's intended type, pass its path as "
+    "template_path rather than hand-writing the note's shape yourself."
 )
+
+_HAIKU_RULES_PATH = Path.home() / '.nb' / '.rules' / 'haiku.md'
+
+
+def _load_haiku_guidance():
+    """Assistant-mode system prompt for haiku-tier sessions, replacing
+    _CLAUDE_WRITE_GUIDANCE entirely rather than combining with it -- the
+    dev-oriented write/codeblock instructions don't apply to this tier.
+    Read fresh every call (not cached) so edits to haiku.md take effect on
+    the next question, no server restart needed -- it's just a file read,
+    not a code change. Empty string (not an exception) if the file is
+    missing, so a not-yet-written rules file degrades to "no special
+    guidance" rather than a 500.
+    """
+    try:
+        return _HAIKU_RULES_PATH.read_text(errors='replace')
+    except OSError:
+        return ''
 
 
 def _substitute_session_placeholder(selector, session_id):
@@ -11867,7 +12029,17 @@ def api_claude_ask():
     context_prompt = _build_context_prompt(selector, context)
     if context_prompt:
         prompt_parts.append(context_prompt)
-    if has_mcp:
+    note_text_block = _build_note_text_block(context)
+    if note_text_block:
+        prompt_parts.append(note_text_block)
+    if model == 'haiku':
+        # Assistant mode: haiku.md replaces the dev-oriented write guidance
+        # entirely -- not additive. Tool access is unchanged for now
+        # (deliberately not narrowed yet), only the instructions are.
+        haiku_guidance = _load_haiku_guidance()
+        if haiku_guidance:
+            prompt_parts.append(haiku_guidance)
+    elif has_mcp:
         prompt_parts.append(_CLAUDE_WRITE_GUIDANCE)
     if prompt_parts:
         cmd += ['--append-system-prompt', '\n\n'.join(prompt_parts)]
@@ -11881,6 +12053,7 @@ def api_claude_ask():
                     'env': {
                         'NBWEB_MCP_TOKEN': token,
                         'NBWEB_MCP_BASE':  f'http://127.0.0.1:{PORT}',
+                        'NBWEB_MCP_TIER':  'haiku' if model == 'haiku' else 'dev',
                     },
                 },
             },
