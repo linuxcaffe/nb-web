@@ -6020,6 +6020,60 @@
                 },
             },
             {
+                lang: 'claude',
+                // Same underlying mechanism as `tui` (identical PTY/xterm wiring,
+                // `_tuiBuildHtml`/`_tuiWire` reused verbatim) -- own lang tag so a
+                // reader knows what this is at a glance, and own gate-group
+                // ('claude', not 'tui') so access defaults can be configured
+                // independently. Empty body defaults to a fresh `claude` --
+                // `-c`/continue-last-session doesn't recognize headless -p
+                // sessions as continuable (verified: "No conversation found
+                // to continue"), so real continuity from the modal's own
+                // Q&A goes through an explicit --resume <session_id>
+                // instead -- see _CLAUDE_WRITE_GUIDANCE / api_claude_ask's
+                // placeholder-substitution in app.py.
+                html: text => {
+                    const {readLevel, writeLevel, query} = _cbParseGates(text);
+                    const lines  = query.trim().split('\n');
+                    const height = (query.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
+                    const body   = lines.filter(l => !l.startsWith('#')).join(' ').trim();
+                    const pipe   = body.indexOf('|');
+                    const cmd    = (pipe >= 0 ? body.slice(0, pipe) : body).trim() || 'claude';
+                    const label  = pipe >= 0 ? body.slice(pipe + 1).trim() : '';
+                    return `<div class="nb-claude-block"${_cbGateAttrs(readLevel,writeLevel)}>${_tuiBuildHtml(cmd, label, parseInt(height) || 400)}</div>`;
+                },
+                render: async container => {
+                    const outers = [...container.querySelectorAll('.nb-claude-block > .nb-tui-outer:not([data-tui-wired])')];
+                    if (!outers.length) return;
+                    NbWeb.statusPill?.add(outers.length);
+                    _tuiInjectStyle();
+                    await _loadXterm();
+                    if (!window.Terminal) {
+                        outers.forEach(outer => {
+                            outer.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load</div>`;
+                            NbWeb.statusPill?.tick();
+                        });
+                        return;
+                    }
+                    for (const outer of outers) {
+                        const block = outer.closest('.nb-claude-block');
+                        if (block && !_cbCan(block, 'claude', 'read')) {
+                            _cbDenyRead(block);
+                            NbWeb.statusPill?.tick();
+                            continue;
+                        }
+                        outer.dataset.tuiWired = '1';
+                        try { _tuiWire(outer); }
+                        catch (e) {
+                            console.error('[claude] wire error:', e);
+                            outer.innerHTML = `<div style="padding:8px;color:var(--red,#ef4444);font-size:12px">⚠ claude error: ${_esc(String(e))}</div>`;
+                        } finally {
+                            NbWeb.statusPill?.tick();
+                        }
+                    }
+                },
+            },
+            {
                 lang:   'check',
                 html:   text => {
                     const {readLevel,writeLevel,query} = _cbParseGates(text);

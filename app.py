@@ -11744,6 +11744,53 @@ def _build_context_prompt(selector, context):
     return 'Current nb-web view: ' + ', '.join(parts) + '.'
 
 
+_CLAUDE_SESSION_PLACEHOLDER = '__NBWEB_SESSION__'
+
+_CLAUDE_WRITE_GUIDANCE = (
+    "You have an append_to_note MCP tool that appends content to the current "
+    "note's body. When the question calls for actually running commands or "
+    "producing streamable output rather than just an answer, append a fenced "
+    "```claude codeblock via append_to_note, rather than only describing "
+    "what to do in your reply. To continue this exact conversation "
+    "interactively in that codeblock, write the command as exactly "
+    f"\"claude --resume {_CLAUDE_SESSION_PLACEHOLDER}\" -- {_CLAUDE_SESSION_PLACEHOLDER} "
+    "is a literal placeholder token (copy it verbatim, do not invent a "
+    "session id yourself); the server substitutes the real session id in "
+    "after your response, once it's known. Use append_to_note for anything "
+    "that should persist in the note itself (codeblocks, timedot entries, "
+    "working notes); keep your direct answer for conversation."
+)
+
+
+def _substitute_session_placeholder(selector, session_id):
+    """Fill in the real session_id after the fact -- Claude can't know its
+    own session_id while still generating the answer that contains it (only
+    surfaces in the JSON envelope after the CLI process exits), so it writes
+    a literal placeholder via append_to_note and this closes the loop in the
+    same request, right after the id becomes known. No-ops if the
+    placeholder isn't present (most answers don't use it).
+    """
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return
+    try:
+        text = fpath.read_text(errors='replace')
+    except OSError:
+        return
+    if _CLAUDE_SESSION_PLACEHOLDER not in text:
+        return
+    fpath.write_text(text.replace(_CLAUDE_SESSION_PLACEHOLDER, session_id))
+    nb_root = NB_DIR / selector.split(':')[0]
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    try:
+        rel = fpath.relative_to(nb_root)
+        subprocess.run(['git', 'add', str(rel)], cwd=str(nb_root), capture_output=True, env=env)
+        subprocess.run(['git', 'commit', '-m', '[nb] Edit: fill in claude session id'],
+                        cwd=str(nb_root), capture_output=True, env=env)
+    except ValueError:
+        pass
+
+
 @app.route('/api/claude/ask', methods=['POST'])
 def api_claude_ask():
     user = session.get('user', {})
@@ -11766,11 +11813,17 @@ def api_claude_ask():
             cwd = candidate
 
     cmd = ['claude', '-p', question, '--output-format', 'json']
+    mcp_config_path = None
+    has_mcp = _NBWEB_CLAUDE_MCP_SERVER.exists()
+    prompt_parts = []
     context_prompt = _build_context_prompt(selector, context)
     if context_prompt:
-        cmd += ['--append-system-prompt', context_prompt]
-    mcp_config_path = None
-    if _NBWEB_CLAUDE_MCP_SERVER.exists():
+        prompt_parts.append(context_prompt)
+    if has_mcp:
+        prompt_parts.append(_CLAUDE_WRITE_GUIDANCE)
+    if prompt_parts:
+        cmd += ['--append-system-prompt', '\n\n'.join(prompt_parts)]
+    if has_mcp:
         token = _mint_mcp_token(user)
         mcp_config = {
             'mcpServers': {
@@ -11808,10 +11861,15 @@ def api_claude_ask():
         return jsonify({'error': result.stderr.strip() or 'claude exited non-zero'}), 502
 
     try:
-        payload = json.loads(result.stdout)
-        answer  = payload.get('result') or result.stdout
+        payload    = json.loads(result.stdout)
+        answer     = payload.get('result') or result.stdout
+        session_id = payload.get('session_id') or ''
     except (json.JSONDecodeError, AttributeError):
         answer = result.stdout
+        session_id = ''
+
+    if session_id and selector:
+        _substitute_session_placeholder(selector, session_id)
 
     return jsonify({'answer': answer})
 
