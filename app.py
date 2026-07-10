@@ -5070,6 +5070,12 @@ def _list_notes(notebook, folder, limit):
             'status':     todo_status,
             'annotation': _read_annotation(str(fpath)),
         }
+        try:
+            note_tokens = int(meta.get('tokens', 0) or 0)
+        except (TypeError, ValueError):
+            note_tokens = 0
+        if note_tokens:
+            item['tokens'] = note_tokens
         tag_color_src = meta.get('tag_color') or nb_tag_color
         if tag_color_src:
             item['tag_color'] = tag_color_src
@@ -11942,15 +11948,19 @@ def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hour
         pass  # logging must never break the actual answer path
 
 
-def _update_note_ai_stats(selector, tokens):
-    """Cumulative tokens: and a floor-level status: on the note a
-    /api/claude/ask call actually concerned -- written at the same
-    checkpoint as the accounting ledger entry, not a separate live-update
-    cadence. 'status: initiated' deliberately doesn't claim more than
-    "some claude interaction happened here" -- even an abandoned/
-    unsuccessful ask still cost real tokens, and richer lifecycle values
-    (working/done/stopped)
-    need the not-yet-built agent dispatcher to mean anything real.
+def _update_note_ai_stats(selector, tokens, session_id=''):
+    """Cumulative tokens:, a floor-level status:, and (when known) a
+    claude_ask: session id on the note a /api/claude/ask call actually
+    concerned -- written at the same checkpoint as the accounting ledger
+    entry, not a separate live-update cadence. One read-patch-write-commit
+    pass for all three fields, not three -- 'status: initiated'
+    deliberately doesn't claim more than "some claude interaction happened
+    here" -- even an abandoned/unsuccessful ask still cost real tokens,
+    and richer lifecycle values (working/done/stopped) need the not-yet-
+    built agent dispatcher to mean anything real. claude_ask: <session_id>
+    is what lets the claude_ask barblock (nbweb-claude.js) resume the same
+    conversation next time the note is opened, instead of only remembering
+    it for as long as the browser tab stays on that page.
     """
     try:
         fpath = _resolve_to_nb_path(selector)
@@ -11962,7 +11972,10 @@ def _update_note_ai_stats(selector, tokens):
             current = int(meta.get('tokens', 0) or 0)
         except (TypeError, ValueError):
             current = 0
-        patched = _patch_fm_fields(raw, tokens=current + tokens, status='initiated')
+        fields = {'tokens': current + tokens, 'status': 'initiated'}
+        if session_id:
+            fields['claude_ask'] = session_id
+        patched = _patch_fm_fields(raw, **fields)
         fpath.write_text(patched)
         notebook = fpath.relative_to(NB_DIR).parts[0]
         nb_path  = NB_DIR / notebook
@@ -12175,7 +12188,7 @@ def api_claude_ask():
         tokens, cost, hours = _extract_usage(payload)
         _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours)
         if selector:
-            _update_note_ai_stats(selector, tokens)
+            _update_note_ai_stats(selector, tokens, session_id)
     except (json.JSONDecodeError, AttributeError):
         answer = result.stdout
         session_id = ''

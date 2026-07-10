@@ -494,7 +494,18 @@ const NbMain = (() => {
                 titleRow.appendChild(annBadge);
             }
 
-            if (note.id) {
+            if (note.tokens) {
+                // Cumulative AI-interaction cost for this note (tokens: FM
+                // field, written by /api/claude/ask) replaces the ID badge
+                // in this same slot -- a note that's been asked about is
+                // more usefully identified by what it cost than by its
+                // position in the notebook's .index.
+                const tokEl = document.createElement('span');
+                tokEl.className = 'nb-list-id nb-list-tokens';
+                tokEl.textContent = note.tokens >= 1000 ? `${(note.tokens / 1000).toFixed(1)}k` : note.tokens;
+                tokEl.title = `${note.tokens} tokens (${note.selector})`;
+                titleRow.appendChild(tokEl);
+            } else if (note.id) {
                 const idEl = document.createElement('span');
                 idEl.className = 'nb-list-id';
                 idEl.textContent = note.id;
