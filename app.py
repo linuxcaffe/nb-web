@@ -12099,9 +12099,18 @@ def api_claude_ask():
             json.dump(mcp_config, f)
         cmd += ['--mcp-config', mcp_config_path, '--strict-mcp-config']
 
+    # 300s, not 120s -- profiled 2026-07-10: a genuine multi-hop MCP task
+    # isn't slow because of round-trip latency (measured ~10-150ms per
+    # call, nowhere near enough to explain 120s on its own), it's slow
+    # because a deep task legitimately needs many sequential reasoning
+    # turns and each one takes real generation time. 120s was an arbitrary
+    # wall a sufficiently complex task would always eventually hit; this
+    # just moves the wall further out. Doesn't fix the underlying
+    # "synchronous request bounded by a hard timeout" shape -- an async/
+    # streaming flow would, but that's a bigger, separate change.
     try:
         result = subprocess.run(
-            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=120,
+            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=300,
         )
     except subprocess.TimeoutExpired:
         return jsonify({'error': 'claude CLI timed out'}), 504
