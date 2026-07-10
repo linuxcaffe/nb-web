@@ -743,7 +743,7 @@ _MCP_TOKEN_TTL = 300  # seconds -- comfortably longer than one claude -p turn
 
 def _mint_mcp_token(user):
     token = secrets.token_urlsafe(32)
-    _MCP_TOKENS[token] = {'user': dict(user), 'expires': time.time() + _MCP_TOKEN_TTL}
+    _MCP_TOKENS[token] = {'user': dict(user), 'expires': time.time() + _MCP_TOKEN_TTL, 'reload': False}
     return token
 
 
@@ -11758,7 +11758,10 @@ _CLAUDE_WRITE_GUIDANCE = (
     "session id yourself); the server substitutes the real session id in "
     "after your response, once it's known. Use append_to_note for anything "
     "that should persist in the note itself (codeblocks, timedot entries, "
-    "working notes); keep your direct answer for conversation."
+    "working notes); keep your direct answer for conversation. After using "
+    "append_to_note, call the reload_note tool once so the note refreshes "
+    "in the user's browser -- otherwise they won't see the change until "
+    "they refresh it themselves."
 )
 
 
@@ -11791,6 +11794,21 @@ def _substitute_session_placeholder(selector, session_id):
         pass
 
 
+@app.route('/api/claude/mark-reload', methods=['POST'])
+def api_claude_mark_reload():
+    """Called by the reload_note MCP tool, immediately after append_to_note.
+    Flips a per-token flag that api_claude_ask checks once the CLI process
+    exits, so the *same* general-purpose refresh action a human triggers via
+    the toolbar button also fires for Claude -- one mechanism, two callers,
+    not a Claude-only side channel."""
+    token = request.headers.get('X-Nbweb-Mcp-Token')
+    entry = _MCP_TOKENS.get(token)
+    if not entry:
+        return jsonify({'error': 'invalid or expired MCP token'}), 401
+    entry['reload'] = True
+    return jsonify({'ok': True})
+
+
 @app.route('/api/claude/ask', methods=['POST'])
 def api_claude_ask():
     user = session.get('user', {})
@@ -11814,6 +11832,7 @@ def api_claude_ask():
 
     cmd = ['claude', '-p', question, '--output-format', 'json']
     mcp_config_path = None
+    token = None
     has_mcp = _NBWEB_CLAUDE_MCP_SERVER.exists()
     prompt_parts = []
     context_prompt = _build_context_prompt(selector, context)
@@ -11871,7 +11890,8 @@ def api_claude_ask():
     if session_id and selector:
         _substitute_session_placeholder(selector, session_id)
 
-    return jsonify({'answer': answer})
+    reload_flag = bool(token and _MCP_TOKENS.get(token, {}).get('reload'))
+    return jsonify({'answer': answer, 'reload': reload_flag})
 
 
 if __name__ == '__main__':

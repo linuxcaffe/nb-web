@@ -3511,6 +3511,9 @@ const NbMain = (() => {
         document.getElementById('nb-back-btn').addEventListener('click', _goBack);
         document.getElementById('nb-forward-btn').addEventListener('click', _goForward);
         document.getElementById('nb-done-btn').addEventListener('click', _markTodoDone);
+        document.getElementById('nb-refresh-btn').addEventListener('click', () => {
+            if (_activeSelector) openNote(_activeSelector, false);
+        });
         document.getElementById('nb-edit-btn').addEventListener('click', () => _openEditor());
         // nb-save-btn onclick is set contextually: _saveNote in _openEditor, _saveSheet in sheet onload
         document.getElementById('nb-cancel-btn').addEventListener('click', _closeEditor);
