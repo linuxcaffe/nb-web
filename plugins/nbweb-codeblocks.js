@@ -6074,6 +6074,60 @@
                 },
             },
             {
+                lang: 'claude_code',
+                // Same mechanism as `claude` (identical PTY/xterm wiring),
+                // but reachable as a frontmatter key too -- _buildFmBlocks
+                // (main.js) already lets any codeblock lang double as a
+                // same-named FM key, rendering into #nb-fm-blocks (the FM
+                // strip) instead of the note body. `claude_code: <cmd>|label`
+                // in frontmatter behaves exactly like a fenced
+                // ```claude_code block with that same content -- own lang
+                // tag (not `claude`) so it doesn't collide with the
+                // existing claude: FM key, which already means something
+                // else (badge + model cascade). Own wrapper class, same
+                // reason `claude` needed one distinct from `tui`.
+                html: text => {
+                    const {readLevel, writeLevel, query} = _cbParseGates(text);
+                    const lines  = query.trim().split('\n');
+                    const height = (query.match(/^#\s*height[=:]\s*(\d+)/m) || [])[1] || '400';
+                    const body   = lines.filter(l => !l.startsWith('#')).join(' ').trim();
+                    const pipe   = body.indexOf('|');
+                    const cmd    = (pipe >= 0 ? body.slice(0, pipe) : body).trim() || 'claude';
+                    const label  = pipe >= 0 ? body.slice(pipe + 1).trim() : 'Claude';
+                    return `<div class="nb-claude-code-block"${_cbGateAttrs(readLevel,writeLevel)}>${_tuiBuildHtml(cmd, label, parseInt(height) || 400)}</div>`;
+                },
+                render: async container => {
+                    const outers = [...container.querySelectorAll('.nb-claude-code-block > .nb-tui-outer:not([data-tui-wired])')];
+                    if (!outers.length) return;
+                    NbWeb.statusPill?.add(outers.length);
+                    _tuiInjectStyle();
+                    await _loadXterm();
+                    if (!window.Terminal) {
+                        outers.forEach(outer => {
+                            outer.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load</div>`;
+                            NbWeb.statusPill?.tick();
+                        });
+                        return;
+                    }
+                    for (const outer of outers) {
+                        const block = outer.closest('.nb-claude-code-block');
+                        if (block && !_cbCan(block, 'claude', 'read')) {
+                            _cbDenyRead(block);
+                            NbWeb.statusPill?.tick();
+                            continue;
+                        }
+                        outer.dataset.tuiWired = '1';
+                        try { _tuiWire(outer); }
+                        catch (e) {
+                            console.error('[claude_code] wire error:', e);
+                            outer.innerHTML = `<div style="padding:8px;color:var(--red,#ef4444);font-size:12px">⚠ claude_code error: ${_esc(String(e))}</div>`;
+                        } finally {
+                            NbWeb.statusPill?.tick();
+                        }
+                    }
+                },
+            },
+            {
                 lang:   'check',
                 html:   text => {
                     const {readLevel,writeLevel,query} = _cbParseGates(text);
