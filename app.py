@@ -701,6 +701,42 @@ def _effective_claude(note_meta, nb_meta):
     return str(nb_meta.get('claude') or '')
 
 
+def _effective_claude_account(note_meta, nb_meta):
+    """Return the claude_account: ledger-accounting label for a note, or ''
+    if unconfigured anywhere in the cascade. Same nearest-wins resolution
+    as _effective_claude -- a project's dashboard/notebook config can set a
+    sensible default (e.g. claude_account: nb-web) that individual todos
+    inherit unless they override with a more specific aspect
+    (claude_account: nb-web:help). The ledger writer falls back to a
+    model-based label when this resolves to '' -- deliberately not guessed
+    here from the notebook name, since the notebook a todo lives in and the
+    project it's about aren't reliably the same thing (a todo living in the
+    claude notebook can account to nb-web:help, and often should).
+    """
+    if 'claude_account' in note_meta:
+        return str(note_meta['claude_account'] or '')
+    return str(nb_meta.get('claude_account') or '')
+
+
+def _resolve_claude_account(selector):
+    """Resolve the claude_account: FM cascade for a selector, or '' if
+    unconfigured anywhere. Mirrors _resolve_claude_model_flag exactly.
+    """
+    if ':' not in selector:
+        return ''
+    notebook = selector.split(':')[0]
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return ''
+    try:
+        raw = fpath.read_text(errors='replace')
+    except OSError:
+        return ''
+    note_meta, _ = parse_frontmatter(raw)
+    nb_meta = _folder_config(notebook, fpath)
+    return _effective_claude_account(note_meta, nb_meta)
+
+
 def _resolve_claude_model_flag(selector):
     """Resolve the claude: FM cascade to a --model value for the CLI, or ''
     if unconfigured. Values already match the CLI's own alias vocabulary
@@ -11948,7 +11984,8 @@ def _extract_usage(payload, model=None):
     return tokens, cost, hours, context_pct
 
 
-def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours, context_pct):
+def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours,
+                        context_pct, account=''):
     """Append one timedot entry per /api/claude/ask call to
     claude:accounting/agent_sessions.md -- the single source of truth for
     token/cost accounting (a note's own FM only ever gets a cheap current
@@ -11957,18 +11994,27 @@ def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hour
     tracking the same fact). context_pct logged per-entry so a future
     richer view (a segmented history bar, one color per turn) can be
     reconstructed from these entries directly -- not built yet, this is
-    just making sure the data needed for it exists from day one. Pure
-    append, never rewrites existing content -- same file-safety reasoning
-    as everywhere else in this repo that avoids --overwrite-shaped bugs:
-    nothing here can ever corrupt a prior entry, worst case is a missing
-    one if this itself throws.
+    just making sure the data needed for it exists from day one.
+
+    Account is the resolved claude_account: cascade when a note/notebook
+    actually set one (e.g. nb-web:help) -- real project/aspect accounting,
+    matching the same convention dev_timelog.md already uses by hand.
+    Falls back to a model-based label (claude-modal:<model>) for anything
+    untagged, so every entry still has *some* account rather than a guess.
+    Model is always logged in the comment either way, so per-model cost
+    stays queryable (grep) even when the account itself is project-based.
+
+    Pure append, never rewrites existing content -- same file-safety
+    reasoning as everywhere else in this repo that avoids --overwrite-
+    shaped bugs: nothing here can ever corrupt a prior entry, worst case
+    is a missing one if this itself throws.
     """
     try:
         date    = datetime.now().strftime('%Y-%m-%d')
-        account = f'claude-modal:{model or "default"}'
+        account = account or f'claude-modal:{model or "default"}'
         comment = (f'session: {session_id} · notebook: {notebook} · '
-                   f'selector: {selector} · tokens: {tokens} · cost: ${cost:.4f} · '
-                   f'context: {context_pct}%')
+                   f'selector: {selector} · model: {model or "default"} · '
+                   f'tokens: {tokens} · cost: ${cost:.4f} · context: {context_pct}%')
         block = (f'\n## {date}\n```timedot\n{date}\n'
                  f'{account}  {hours}  ; {comment}\n```\n')
         with open(_AGENT_SESSIONS_PATH, 'a') as f:
@@ -12254,8 +12300,10 @@ def api_claude_ask():
         answer     = payload.get('result') or result.stdout
         session_id = payload.get('session_id') or ''
         notebook   = selector.split(':')[0] if ':' in selector else ''
+        account    = _resolve_claude_account(selector) if selector else ''
         tokens, cost, hours, context_pct = _extract_usage(payload, model)
-        _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours, context_pct)
+        _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours,
+                            context_pct, account)
         if selector:
             _update_note_ai_stats(selector, context_pct, session_id)
     except (json.JSONDecodeError, AttributeError):
