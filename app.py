@@ -10952,9 +10952,18 @@ def _patch_fm_fields(raw_text, **fields):
     Processes line-by-line to avoid regex \s* consuming newlines into the key
     prefix, which caused blank-line corruption when writing empty values.
     Also drops orphaned bare-integer continuation lines (e.g. 'day:\\n1').
+
+    A note with no frontmatter block at all (e.g. a plain `nb todo add`
+    note -- just `# [ ] Title`, no `---`) gets one created, rather than
+    silently no-op'ing. Confirmed real 2026-07-10: every #agent todo is
+    exactly this shape, so refusing to add fields here meant tokens:/
+    status:/claude_ask: never landed on the single most common target for
+    them -- "doesn't have FM yet" is the reason to add it, not a reason
+    to refuse.
     """
     if not raw_text.startswith('---'):
-        return raw_text
+        new_fm = '\n'.join(f'{k}: {v}' if v != '' else f'{k}:' for k, v in fields.items())
+        return f"---\n{new_fm}\n---\n{raw_text}"
     end = raw_text.find('\n---', 3)
     if end == -1:
         return raw_text
@@ -11948,6 +11957,42 @@ def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hour
         pass  # logging must never break the actual answer path
 
 
+def _ensure_note_ai_stats_baseline(selector):
+    """Write tokens:/status: the moment an ask starts, before the (possibly
+    slow, possibly abandoned) claude -p call even runs -- confirmed real
+    2026-07-10: a slow response or an abandoned tab shouldn't mean the note
+    never shows any trace that something was asked. Only initializes
+    tokens: if it isn't already present (never resets an existing
+    cumulative count); status: initiated is safe to (re)write
+    unconditionally -- it's a floor marker, not something that regresses.
+    claude_ask: isn't written here -- the real session id genuinely isn't
+    known until the call completes, and the client's own fresh-start block
+    already gives instant visual feedback regardless of FM state.
+    """
+    try:
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            return
+        raw = fpath.read_text(errors='replace')
+        meta, _ = parse_frontmatter(raw)
+        fields = {'status': 'initiated'}
+        if 'tokens' not in meta:
+            fields['tokens'] = 0
+        patched = _patch_fm_fields(raw, **fields)
+        if patched == raw:
+            return  # nothing to change -- skip a no-op commit
+        fpath.write_text(patched)
+        notebook = fpath.relative_to(NB_DIR).parts[0]
+        nb_path  = NB_DIR / notebook
+        if (nb_path / '.git').exists():
+            env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+            subprocess.run(['git', 'add', str(fpath)], capture_output=True, cwd=str(nb_path), env=env)
+            subprocess.run(['git', 'commit', '-m', f'[nb-web] AI stats: {fpath.name} (started)'],
+                           capture_output=True, cwd=str(nb_path), env=env)
+    except Exception:
+        pass  # never break the ask path
+
+
 def _update_note_ai_stats(selector, tokens, session_id=''):
     """Cumulative tokens:, a floor-level status:, and (when known) a
     claude_ask: session id on the note a /api/claude/ask call actually
@@ -12105,6 +12150,9 @@ def api_claude_ask():
         candidate = NB_DIR / selector.split(':')[0]
         if candidate.is_dir():
             cwd = candidate
+
+    if selector:
+        _ensure_note_ai_stats_baseline(selector)
 
     cmd = ['claude', '-p', question, '--output-format', 'json']
     model = _resolve_claude_model_flag(selector)
