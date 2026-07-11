@@ -797,7 +797,16 @@ def _can_write(user, selector, notebook=None):
 # enforcement code. See claude:nbweb-claude v2 design doc, "Market 1".
 # ---------------------------------------------------------------------------
 _MCP_TOKENS = {}
-_MCP_TOKEN_TTL = 300  # seconds -- comfortably longer than one claude -p turn
+_MCP_TOKEN_TTL = 420  # seconds -- must stay comfortably longer than the
+# /api/claude/ask subprocess timeout (300s, see api_claude_ask), not just
+# "one claude -p turn" in the abstract. Real bug, confirmed 2026-07-11: when
+# the subprocess timeout was raised from 120s to 300s, this was left at 300s
+# too -- identical durations started at nearly the same moment means a
+# request running close to the wall has its own auth token expire in its
+# final seconds, while still in flight, failing any late tool call with
+# "invalid or expired MCP token" (a 502 or a floundering retry that then
+# also hits the 504). Confirmed via real server log evidence (two 502s a
+# minute apart on a genuine test todo) before concluding this was the cause.
 
 
 def _mint_mcp_token(user):
