@@ -431,6 +431,18 @@ const NbMain = (() => {
             }
         });
 
+        // claude_status: -> bar color. Only 3 recognized values get a real
+        // color; anything else (including 'initiated', the floor marker
+        // _ensure_note_ai_stats_baseline writes, or free text a human
+        // types manually) stays grey -- deliberate, not a fallback to fix
+        // later. See conversation 2026-07-10: richer values need a real
+        // agent lifecycle behind them, not just a word in frontmatter.
+        const _CLAUDE_STATUS_COLOR = {
+            working: 'var(--orange, #e07b39)',
+            waiting: 'var(--red, #ef4444)',
+            done:    'var(--green, #4ade80)',
+        };
+
         notes.forEach(note => {
             const li = document.createElement('li');
             li.className = 'nb-list-item' + (note.type === 'folder' ? ' folder' : '') +
@@ -438,6 +450,15 @@ const NbMain = (() => {
             li.setAttribute('role', 'option');
             li.dataset.selector = note.selector;
             li.dataset.type     = note.type;
+
+            if (note.claude_context != null) {
+                const bar = document.createElement('div');
+                bar.className = 'nb-list-context-bar';
+                bar.style.width = Math.max(0, Math.min(100, note.claude_context)) + '%';
+                bar.style.background = _CLAUDE_STATUS_COLOR[note.claude_status] || 'var(--text-dim, #888)';
+                bar.title = `${note.claude_context}% context` + (note.claude_status ? ` · ${note.claude_status}` : '');
+                li.appendChild(bar);
+            }
 
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
@@ -494,18 +515,7 @@ const NbMain = (() => {
                 titleRow.appendChild(annBadge);
             }
 
-            if (note.tokens) {
-                // Cumulative AI-interaction cost for this note (tokens: FM
-                // field, written by /api/claude/ask) replaces the ID badge
-                // in this same slot -- a note that's been asked about is
-                // more usefully identified by what it cost than by its
-                // position in the notebook's .index.
-                const tokEl = document.createElement('span');
-                tokEl.className = 'nb-list-id nb-list-tokens';
-                tokEl.textContent = note.tokens >= 1000 ? `${(note.tokens / 1000).toFixed(1)}k` : note.tokens;
-                tokEl.title = `${note.tokens} tokens (${note.selector})`;
-                titleRow.appendChild(tokEl);
-            } else if (note.id) {
+            if (note.id) {
                 const idEl = document.createElement('span');
                 idEl.className = 'nb-list-id';
                 idEl.textContent = note.id;

@@ -5070,12 +5070,13 @@ def _list_notes(notebook, folder, limit):
             'status':     todo_status,
             'annotation': _read_annotation(str(fpath)),
         }
-        try:
-            note_tokens = int(meta.get('tokens', 0) or 0)
-        except (TypeError, ValueError):
-            note_tokens = 0
-        if note_tokens:
-            item['tokens'] = note_tokens
+        if meta.get('claude_status'):
+            item['claude_status'] = meta['claude_status']
+        if meta.get('claude_context') is not None:
+            try:
+                item['claude_context'] = float(meta['claude_context'])
+            except (TypeError, ValueError):
+                pass
         tag_color_src = meta.get('tag_color') or nb_tag_color
         if tag_color_src:
             item['tag_color'] = tag_color_src
@@ -11916,33 +11917,58 @@ def _build_note_text_block(context):
 _AGENT_SESSIONS_PATH = NB_DIR / 'claude' / 'accounting' / 'agent_sessions.md'
 
 
-def _extract_usage(payload):
+_MODEL_CONTEXT_WINDOWS = {
+    'sonnet': 1_000_000, 'opus': 1_000_000, 'fable': 1_000_000, 'haiku': 200_000,
+}
+
+
+def _extract_usage(payload, model=None):
     """Real, measured values only (duration_ms, usage, total_cost_usd from
     the claude -p JSON response) -- shared by the ledger write and the
-    note's own cumulative FM update so both agree on the same numbers,
+    note's own claude_context: update so both agree on the same numbers,
     never a self-reported estimate either place.
+
+    context_pct is the input side only (input + cache_creation +
+    cache_read, not output) -- that's what the model actually had to hold
+    to generate this turn's response, which is the "how close to the wall
+    was this" question, not "how much did this turn cost total" (that's
+    what `tokens` is for). Each turn's own usage already reflects the
+    accumulated conversation history at that point in a --resume'd
+    session, so this is a real, current snapshot, not something that
+    needs to be summed across turns.
     """
-    usage  = payload.get('usage') or {}
-    tokens = (usage.get('input_tokens', 0) + usage.get('output_tokens', 0)
-              + usage.get('cache_creation_input_tokens', 0) + usage.get('cache_read_input_tokens', 0))
-    cost   = payload.get('total_cost_usd', 0) or 0
-    hours  = round(payload.get('duration_ms', 0) / 1000 / 3600, 4)
-    return tokens, cost, hours
+    usage      = payload.get('usage') or {}
+    input_side = (usage.get('input_tokens', 0) + usage.get('cache_creation_input_tokens', 0)
+                  + usage.get('cache_read_input_tokens', 0))
+    tokens      = input_side + usage.get('output_tokens', 0)
+    cost        = payload.get('total_cost_usd', 0) or 0
+    hours       = round(payload.get('duration_ms', 0) / 1000 / 3600, 4)
+    window      = _MODEL_CONTEXT_WINDOWS.get(model, 1_000_000)
+    context_pct = round(input_side / window * 100, 1) if window else 0
+    return tokens, cost, hours, context_pct
 
 
-def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours):
+def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours, context_pct):
     """Append one timedot entry per /api/claude/ask call to
-    claude:accounting/agent_sessions.md. Pure append, never rewrites
-    existing content -- same file-safety reasoning as everywhere else in
-    this repo that avoids --overwrite-shaped bugs: nothing here can ever
-    corrupt a prior entry, worst case is a missing one if this itself
-    throws.
+    claude:accounting/agent_sessions.md -- the single source of truth for
+    token/cost accounting (a note's own FM only ever gets a cheap current
+    snapshot, claude_context:, never a cumulative total -- querying this
+    ledger is how you get a real total, not a second bookkeeping system
+    tracking the same fact). context_pct logged per-entry so a future
+    richer view (a segmented history bar, one color per turn) can be
+    reconstructed from these entries directly -- not built yet, this is
+    just making sure the data needed for it exists from day one. Pure
+    append, never rewrites existing content -- same file-safety reasoning
+    as everywhere else in this repo that avoids --overwrite-shaped bugs:
+    nothing here can ever corrupt a prior entry, worst case is a missing
+    one if this itself throws.
     """
     try:
         date    = datetime.now().strftime('%Y-%m-%d')
         account = f'claude-modal:{model or "default"}'
         comment = (f'session: {session_id} · notebook: {notebook} · '
-                   f'selector: {selector} · tokens: {tokens} · cost: ${cost:.4f}')
+                   f'selector: {selector} · tokens: {tokens} · cost: ${cost:.4f} · '
+                   f'context: {context_pct}%')
         block = (f'\n## {date}\n```timedot\n{date}\n'
                  f'{account}  {hours}  ; {comment}\n```\n')
         with open(_AGENT_SESSIONS_PATH, 'a') as f:
@@ -11958,27 +11984,27 @@ def _log_agent_session(model, notebook, selector, session_id, tokens, cost, hour
 
 
 def _ensure_note_ai_stats_baseline(selector):
-    """Write tokens:/status: the moment an ask starts, before the (possibly
+    """Write claude_status: the moment an ask starts, before the (possibly
     slow, possibly abandoned) claude -p call even runs -- confirmed real
     2026-07-10: a slow response or an abandoned tab shouldn't mean the note
-    never shows any trace that something was asked. Only initializes
-    tokens: if it isn't already present (never resets an existing
-    cumulative count); status: initiated is safe to (re)write
-    unconditionally -- it's a floor marker, not something that regresses.
-    claude_ask: isn't written here -- the real session id genuinely isn't
-    known until the call completes, and the client's own fresh-start block
-    already gives instant visual feedback regardless of FM state.
+    never shows any trace that something was asked. 'initiated' is a floor
+    marker, not a claim of progress -- safe to (re)write unconditionally.
+    Namespaced claude_status:/claude_context: (not the generic status:) --
+    status: is already a core nb-web FM key with its own, different
+    meaning (a project's own lifecycle, e.g. status: active/draft);
+    writing the bare key would have silently clobbered that on any note
+    that already used it, confirmed real risk 2026-07-10, caught before
+    shipping. claude_ask: and claude_context: aren't written here -- the
+    session id and context level genuinely aren't known until the call
+    completes, and the client's own fresh-start block already gives
+    instant visual feedback regardless of FM state.
     """
     try:
         fpath = _resolve_to_nb_path(selector)
         if not fpath or not fpath.is_file():
             return
         raw = fpath.read_text(errors='replace')
-        meta, _ = parse_frontmatter(raw)
-        fields = {'status': 'initiated'}
-        if 'tokens' not in meta:
-            fields['tokens'] = 0
-        patched = _patch_fm_fields(raw, **fields)
+        patched = _patch_fm_fields(raw, claude_status='initiated')
         if patched == raw:
             return  # nothing to change -- skip a no-op commit
         fpath.write_text(patched)
@@ -11993,31 +12019,26 @@ def _ensure_note_ai_stats_baseline(selector):
         pass  # never break the ask path
 
 
-def _update_note_ai_stats(selector, tokens, session_id=''):
-    """Cumulative tokens:, a floor-level status:, and (when known) a
-    claude_ask: session id on the note a /api/claude/ask call actually
-    concerned -- written at the same checkpoint as the accounting ledger
-    entry, not a separate live-update cadence. One read-patch-write-commit
-    pass for all three fields, not three -- 'status: initiated'
-    deliberately doesn't claim more than "some claude interaction happened
-    here" -- even an abandoned/unsuccessful ask still cost real tokens,
-    and richer lifecycle values (working/done/stopped) need the not-yet-
-    built agent dispatcher to mean anything real. claude_ask: <session_id>
-    is what lets the claude_ask barblock (nbweb-claude.js) resume the same
-    conversation next time the note is opened, instead of only remembering
-    it for as long as the browser tab stays on that page.
+def _update_note_ai_stats(selector, context_pct, session_id=''):
+    """claude_context: (current window-fill snapshot, overwritten each
+    call -- not cumulative, there's nothing to sum: it's "how full is the
+    window right now") and, when known, claude_ask: session id -- written
+    at the same checkpoint as the accounting ledger entry, one
+    read-patch-write-commit pass, not two. Token/cost totals live only in
+    the ledger (claude:accounting/agent_sessions.md, _log_agent_session)
+    -- deliberately no cumulative token counter here, that would be a
+    second bookkeeping system tracking the same fact the ledger already
+    tracks correctly. claude_ask: <session_id> is what lets the claude_ask
+    barblock (nbweb-claude.js) resume the same conversation next time the
+    note is opened, instead of only remembering it for as long as the
+    browser tab stays on that page.
     """
     try:
         fpath = _resolve_to_nb_path(selector)
         if not fpath or not fpath.is_file():
             return
-        raw  = fpath.read_text(errors='replace')
-        meta, _ = parse_frontmatter(raw)
-        try:
-            current = int(meta.get('tokens', 0) or 0)
-        except (TypeError, ValueError):
-            current = 0
-        fields = {'tokens': current + tokens, 'status': 'initiated'}
+        raw = fpath.read_text(errors='replace')
+        fields = {'claude_context': context_pct}
         if session_id:
             fields['claude_ask'] = session_id
         patched = _patch_fm_fields(raw, **fields)
@@ -12233,10 +12254,10 @@ def api_claude_ask():
         answer     = payload.get('result') or result.stdout
         session_id = payload.get('session_id') or ''
         notebook   = selector.split(':')[0] if ':' in selector else ''
-        tokens, cost, hours = _extract_usage(payload)
-        _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours)
+        tokens, cost, hours, context_pct = _extract_usage(payload, model)
+        _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours, context_pct)
         if selector:
-            _update_note_ai_stats(selector, tokens, session_id)
+            _update_note_ai_stats(selector, context_pct, session_id)
     except (json.JSONDecodeError, AttributeError):
         answer = result.stdout
         session_id = ''

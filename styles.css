@@ -663,8 +663,13 @@ body {
   border-bottom: 1px solid var(--border);
   transition: background 0.1s;
   user-select: none;
+  position: relative;   /* anchors .nb-list-context-bar */
 }
 .nb-list-item:hover { background: var(--bg3); }
+.nb-list-context-bar {
+  position: absolute; top: 0; left: 0; height: 2px;
+  border-radius: 0 2px 0 0;
+}
 .nb-list-item.active { background: var(--accent-dim); border-left: 2px solid var(--accent); }
 .nb-list-item.selected { background: var(--bg3); border-left: 2px solid var(--green, #4ade80); }
 .nb-list-item.selected.active { background: var(--accent-dim); border-left: 2px solid var(--green, #4ade80); }
@@ -695,9 +700,6 @@ body {
   flex-shrink: 0;
   cursor: default;
   user-select: all;   /* easy to copy */
-}
-.nb-list-tokens {
-  color: var(--accent, #3a7bd5);   /* distinguishes "this is a token count" from a plain ID */
 }
 .nb-list-ann-badge {
   font-size: 10px;
