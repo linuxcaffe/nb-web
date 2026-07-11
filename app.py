@@ -4324,8 +4324,27 @@ def ws_pty(ws):
         # says -- this can't be skipped or forgotten by whatever wrote it.
         # '--permission-mode not in args' guard means an explicit override
         # already present in the codeblock body is never silently doubled.
-        if args and args[0] == 'claude' and '--resume' in args and '--permission-mode' not in args:
+        is_claude_resume = args and args[0] == 'claude' and '--resume' in args
+        if is_claude_resume and '--permission-mode' not in args:
             args += _claude_permission_flags(selector)
+
+        # Wrap in a named tmux session, keyed to the resumed session id --
+        # 'new-session -A' attaches if that session already exists, else
+        # creates it. This is what actually solves "navigating away kills
+        # the session": the claude process runs as a child of the tmux
+        # *server* (a persistent daemon), not of this websocket's own
+        # subprocess, so it keeps running with zero client attached --
+        # confirmed directly (a real backgrounded tmux session kept
+        # producing output for 6+ seconds with nothing ever attached to
+        # it), not assumed from tmux's reputation. Navigating back just
+        # re-attaches to the same live process, full scrollback intact,
+        # instead of cold-starting claude again.
+        if is_claude_resume and shutil.which('tmux'):
+            resume_idx = args.index('--resume')
+            session_id = args[resume_idx + 1] if resume_idx + 1 < len(args) else ''
+            tmux_name = 'claude-' + re.sub(r'[^a-zA-Z0-9_-]', '', session_id)
+            if tmux_name != 'claude-':
+                args = ['tmux', 'new-session', '-A', '-s', tmux_name] + args
         try:
             proc = subprocess.Popen(
                 args,
