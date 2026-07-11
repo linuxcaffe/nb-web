@@ -4213,6 +4213,47 @@ invoice_num: {invoice_num}
                     'path': str(inv_path)})
 
 
+# Named permission groups for a claude_code terminal launch -- checkbox
+# labels in the claude_ask barblock, not raw --allowedTools syntax, so the
+# person picking a scope doesn't need to know Claude Code's own pattern
+# grammar. 'push' deliberately excluded from any bundling with 'commit' --
+# matches the "hard to reverse, affects shared state" caution elsewhere in
+# this codebase; an agent shouldn't get that by default alongside commit.
+_CLAUDE_PERMISSION_SCOPES = {
+    'edit':   ['Read(**)', 'Edit(**)', 'Write(**)'],
+    'commit': ['Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git add:*)', 'Bash(git commit:*)'],
+    'push':   ['Bash(git push:*)'],
+}
+
+
+def _claude_permission_flags(selector):
+    """Extra argv for a claude --resume launch, structurally enforcing the
+    scope set via the checkbox row next to Ask (claude_permissions: FM
+    field) -- not trusting whatever wrote the command string, model or
+    human, to have included the right safety flags itself. Resolved fresh
+    from the note's current FM at spawn time, so a checkbox change takes
+    effect on the next launch without needing to touch an already-running
+    session. No scope set anywhere -> dontAsk with an empty allow-list,
+    which denies everything beyond the built-in read-only set rather than
+    silently falling back to unrestricted access.
+    """
+    scopes = []
+    if selector:
+        fpath = _resolve_to_nb_path(selector)
+        if fpath and fpath.is_file():
+            try:
+                raw = fpath.read_text(errors='replace')
+                meta, _ = parse_frontmatter(raw)
+                scopes = [s.strip() for s in str(meta.get('claude_permissions', '') or '').split(',') if s.strip()]
+            except OSError:
+                pass
+    allowed = [pattern for scope in scopes for pattern in _CLAUDE_PERMISSION_SCOPES.get(scope, [])]
+    flags = ['--permission-mode', 'dontAsk']
+    if allowed:
+        flags += ['--allowedTools'] + allowed
+    return flags
+
+
 @app.route('/api/version')
 def api_version():
     return jsonify({'started': _STARTED_AT, 'rev': _GIT_REV})
@@ -4277,6 +4318,14 @@ def ws_pty(ws):
             args = [os.path.expanduser(a) for a in args]
         except ValueError:
             args = cmd_str.split()
+
+        # A claude --resume launch always gets a structurally-enforced
+        # permission scope, regardless of what the command string itself
+        # says -- this can't be skipped or forgotten by whatever wrote it.
+        # '--permission-mode not in args' guard means an explicit override
+        # already present in the codeblock body is never silently doubled.
+        if args and args[0] == 'claude' and '--resume' in args and '--permission-mode' not in args:
+            args += _claude_permission_flags(selector)
         try:
             proc = subprocess.Popen(
                 args,
@@ -12213,6 +12262,42 @@ def api_claude_mark_reload():
         return jsonify({'error': 'invalid or expired MCP token'}), 401
     entry['reload'] = True
     return jsonify({'ok': True})
+
+
+@app.route('/api/claude/set-permissions', methods=['POST'])
+def api_claude_set_permissions():
+    """Set the claude_permissions: scope for a note -- the checkbox row
+    next to Ask in the claude_ask barblock calls this on every change.
+    Read fresh by _claude_permission_flags() at the moment a claude_code
+    terminal actually spawns, so a checkbox change takes effect on the
+    next launch without needing to touch an already-running session.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+    data     = request.get_json(silent=True) or {}
+    selector = (data.get('selector') or '').strip()
+    perms    = data.get('permissions') or []
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    valid = [p for p in perms if p in _CLAUDE_PERMISSION_SCOPES]
+    try:
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            return jsonify({'error': 'not found'}), 404
+        raw = fpath.read_text(errors='replace')
+        patched = _patch_fm_fields(raw, claude_permissions=','.join(valid))
+        fpath.write_text(patched)
+        notebook = fpath.relative_to(NB_DIR).parts[0]
+        nb_path  = NB_DIR / notebook
+        if (nb_path / '.git').exists():
+            env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+            subprocess.run(['git', 'add', str(fpath)], capture_output=True, cwd=str(nb_path), env=env)
+            subprocess.run(['git', 'commit', '-m', f'[nb-web] Claude permissions: {fpath.name}'],
+                           capture_output=True, cwd=str(nb_path), env=env)
+        return jsonify({'success': True, 'permissions': valid})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/claude/ask', methods=['POST'])

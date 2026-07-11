@@ -2606,6 +2606,12 @@ body.nb-fullscreen #nb-cmd-bar::after {
   max-height: 360px; min-height: 60px; overflow-y: auto; resize: vertical;
   padding: 2px 2px 2px 0;
 }
+.nb-claude-ask-permissions {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 11px; color: var(--text-dim); margin-top: 6px;
+}
+.nb-claude-ask-perm-label { color: var(--text-muted); }
+.nb-claude-ask-permissions label { display: flex; align-items: center; gap: 3px; cursor: pointer; }
 .nb-claude-ask-inputrow { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .nb-claude-ask-question {
   width: 100%; resize: vertical; font-family: inherit; font-size: 13px; padding: 6px;
