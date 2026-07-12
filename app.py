@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """nb-web — Flask backend for nb note-taking web interface."""
 
+import fnmatch
 import json
 import os
 import re
@@ -758,6 +759,54 @@ def _resolve_claude_model_flag(selector):
     note_meta, _ = parse_frontmatter(raw)
     nb_meta = _folder_config(notebook, fpath)
     return _effective_claude(note_meta, nb_meta)
+
+
+# Tool names whose `input` carries a file_path worth scope-checking --
+# mutating file tools only, both using the same input.file_path shape
+# (NotebookEdit's own field name was never confirmed live, left out rather
+# than guessed). Read is deliberately excluded: reading outside the
+# declared scope is normal and often necessary context-gathering, the risk
+# this guards against is unexpected *writes*, exactly what the 2026-07-11
+# goal-mode regression scare was about.
+_SCOPE_CHECKED_TOOLS = {'Write', 'Edit'}
+
+
+def _resolve_claude_goal_scope(selector):
+    """Resolve claude_goal_scope: from the note's own FM -- comma-separated
+    fnmatch patterns (matched against a tool call's file path, relative to
+    the subprocess cwd) a goal-mode run is expected to stay within. Not
+    cascaded through notebook config -- same posture as claude_permissions:,
+    this is a per-task boundary, not a notebook-wide default. Empty/unset
+    means no guardrail is enforced, opt-in like every other claude_* control.
+    """
+    if not selector:
+        return []
+    fpath = _resolve_to_nb_path(selector)
+    if not fpath or not fpath.is_file():
+        return []
+    try:
+        raw = fpath.read_text(errors='replace')
+    except OSError:
+        return []
+    meta, _ = parse_frontmatter(raw)
+    raw_scope = str(meta.get('claude_goal_scope', '') or '')
+    return [s.strip() for s in raw_scope.split(',') if s.strip()]
+
+
+def _path_in_scope(file_path, cwd, patterns):
+    """True if file_path (absolute or relative, as the tool reported it)
+    matches at least one fnmatch pattern, checked against the path made
+    relative to cwd when possible -- so claude_goal_scope: styles.css
+    matches the file regardless of the absolute prefix a given host happens
+    to have. Falls back to matching the raw path if it isn't under cwd at
+    all (e.g. a tool touching something outside the repo entirely, which
+    should almost always fail every pattern and correctly trip the guard).
+    """
+    try:
+        rel = str(Path(file_path).resolve().relative_to(Path(cwd).resolve()))
+    except (ValueError, OSError):
+        rel = file_path
+    return any(fnmatch.fnmatch(rel, pattern) for pattern in patterns)
 
 
 def _can_write(user, selector, notebook=None):
@@ -12448,6 +12497,7 @@ def api_claude_ask():
         cmd += ['--model', model]
     if resume:
         cmd += ['--resume', resume]
+    scope_patterns = _resolve_claude_goal_scope(selector) if selector else []
     mcp_config_path = None
     token = None
     has_mcp = _NBWEB_CLAUDE_MCP_SERVER.exists()
@@ -12542,7 +12592,8 @@ def api_claude_ask():
 
     stderr_fd, stderr_path = tempfile.mkstemp(prefix='nbweb-claude-stderr-', suffix='.log')
     stderr_file = os.fdopen(stderr_fd, 'w')
-    stop_reason           = None   # None | 'timeout' | 'max_turns' | 'max_tokens'
+    stop_reason           = None   # None | 'timeout' | 'max_turns' | 'max_tokens' | 'scope'
+    scope_breach          = ''
     proc                  = None
     timer                 = None
     init_session_id       = ''
@@ -12584,6 +12635,12 @@ def api_claude_ask():
                 for block in msg.get('content', []):
                     if block.get('type') == 'text' and block.get('text'):
                         last_assistant_text = block['text']
+                    elif (scope_patterns and block.get('type') == 'tool_use'
+                          and block.get('name') in _SCOPE_CHECKED_TOOLS):
+                        touched = (block.get('input') or {}).get('file_path', '')
+                        if touched and not _path_in_scope(touched, cwd, scope_patterns):
+                            stop_reason  = 'scope'
+                            scope_breach = touched
                 usage = msg.get('usage') or {}
                 if usage:
                     last_usage  = usage
@@ -12591,6 +12648,9 @@ def api_claude_ask():
                                    + usage.get('cache_creation_input_tokens', 0)
                                    + usage.get('output_tokens', 0))
                 turn_count += 1
+                if stop_reason == 'scope':
+                    proc.kill()
+                    break
                 if turn_count >= _MAX_TURNS:
                     stop_reason = 'max_turns'
                     proc.kill()
@@ -12634,6 +12694,7 @@ def api_claude_ask():
             'timeout':    'the CLI call timed out (300s)',
             'max_turns':  f'turn limit reached ({_MAX_TURNS} turns)',
             'max_tokens': f'token limit reached ({_MAX_NEW_TOKENS:,} new tokens)',
+            'scope':      f'tried to write outside the declared scope ({scope_breach})',
         }[stop_reason]
         payload    = {'usage': last_usage}
         session_id = init_session_id
