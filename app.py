@@ -4475,10 +4475,16 @@ def ws_pty(ws):
         selector = payload.get('selector', '').strip()   # "this note" cwd resolution
         cmd_str  = payload.get('cmd',  '').strip()   # direct spawn — no shell wrapper
         init_str = payload.get('init', '').strip()   # shell mode — typed into shell
+        # Explicit flag, not inferred from init_str being empty -- init_str
+        # is non-empty for a bare terminal open too whenever the user has a
+        # configured default startup command, so "is init_str empty" can't
+        # tell a generic terminal apart from a specific one-off launch.
+        persist  = bool(payload.get('persist', False))
         cols     = int(payload.get('cols', 80))
         rows     = int(payload.get('rows', 24))
     except Exception:
         cwd_str = selector = cmd_str = init_str = ''
+        persist = False
         cols, rows = 80, 24
 
     # "This note" resolution -- same cwd double-duty trick as /api/claude/ask:
@@ -4551,11 +4557,35 @@ def ws_pty(ws):
             ws.send(f'\r\n[pty] Failed to start {args[0]!r}: {e}\r\n')
             return
     else:
-        # Shell mode: spawn a shell and optionally type an init command into it
+        # Shell mode: spawn a shell and optionally type an init command into it.
+        #
+        # A generic open (persist:true from the frontend -- the Menu
+        # "Terminal" item / 'T' shortcut / a bare NbTerminal.open() call,
+        # no specific command requested) is wrapped in a stable, well-known
+        # tmux session so it persists across disconnects: confirmed real
+        # 2026-07-12, a mobile connection over Tailscale drops the
+        # websocket far more readily than a stable desktop one, and
+        # without this a dropped shell-mode session was just gone -- no
+        # tmux wrapping existed for this path at all, unlike the
+        # claude_code:/cmd_str branch above. Same 'new-session -A'
+        # attach-or-create tmux already uses there.
+        #
+        # A launch with a specific command (a codeblock's `term:` open,
+        # NbTerminal.run(cmd) -- persist:false) deliberately stays a plain
+        # one-off shell, unwrapped -- it's a purpose-built launch for one
+        # task, not "the" persistent terminal, and sharing one tmux name
+        # across both would let one collide with the other's input
+        # mid-command. Deliberately keyed off the explicit persist flag,
+        # not "is init_str empty" -- init_str is also non-empty for a
+        # bare open whenever the user has a configured default startup
+        # command, so that alone can't tell the two cases apart.
         shell_bin = os.environ.get('SHELL') or shutil.which('bash') or 'sh'
+        args = [shell_bin]
+        if persist and shutil.which('tmux'):
+            args = ['tmux', 'new-session', '-A', '-s', 'nb-web-shell', shell_bin]
         try:
             proc = subprocess.Popen(
-                [shell_bin],
+                args,
                 stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
                 close_fds=True, cwd=cwd,
                 env={**os.environ, 'TERM': 'xterm-256color'},

@@ -154,7 +154,20 @@ const NbTerminal = (() => {
             const cols = term.cols, rows = term.rows;
             // Codeblock launches bypass the init script — just run the app directly.
             const init = extraCmd || cfg.pty_init || '';
-            ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init, cols, rows }));
+            // persist is its own explicit flag, not inferred from whether
+            // init ends up empty -- a blank Menu/keyboard-shortcut open
+            // still carries a non-empty init whenever cfg.pty_init (the
+            // user's own configured default startup command) is set, so
+            // "init is empty" can't tell a generic terminal apart from a
+            // specific one-off launch. extraCmd itself is the real signal:
+            // set only for a codeblock's run(cmd)/term: launch, never for
+            // a bare NbTerminal.open(). Server-side, only a persist:true
+            // open gets tmux-wrapped, so a dropped connection (mobile,
+            // Tailscale) reattaches to the same shell instead of losing it
+            // -- a specific command launch deliberately stays a one-off,
+            // unwrapped, so it can't collide with that persistent session.
+            const persist = !extraCmd;
+            ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init, cols, rows, persist }));
         };
         ws.onmessage = e => term.write(e.data);
         ws.onclose   = ()  => { term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); setTimeout(close, 1500); };
