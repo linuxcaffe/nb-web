@@ -12154,7 +12154,7 @@ def _ensure_note_ai_stats_baseline(selector):
         pass  # never break the ask path
 
 
-def _update_note_ai_stats(selector, context_pct, session_id=''):
+def _update_note_ai_stats(selector, context_pct, session_id='', status=None):
     """claude_context: (current window-fill snapshot, overwritten each
     call -- not cumulative, there's nothing to sum: it's "how full is the
     window right now") and, when known, claude_ask: session id -- written
@@ -12167,6 +12167,13 @@ def _update_note_ai_stats(selector, context_pct, session_id=''):
     barblock (nbweb-claude.js) resume the same conversation next time the
     note is opened, instead of only remembering it for as long as the
     browser tab stays on that page.
+
+    status, when given, overrides claude_status -- used only by the
+    circuit-breaker/timeout path (status='waiting', the same "stopped,
+    needs feedback" red-bar meaning the list-row visual spec already
+    defines) so a tripped run is visibly distinct from one still quietly
+    sitting at its 'initiated' baseline. A normal completion passes
+    nothing here and leaves claude_status untouched, same as before.
     """
     try:
         fpath = _resolve_to_nb_path(selector)
@@ -12176,6 +12183,8 @@ def _update_note_ai_stats(selector, context_pct, session_id=''):
         fields = {'claude_context': context_pct}
         if session_id:
             fields['claude_ask'] = session_id
+        if status:
+            fields['claude_status'] = status
         patched = _patch_fm_fields(raw, **fields)
         fpath.write_text(patched)
         notebook = fpath.relative_to(NB_DIR).parts[0]
@@ -12506,13 +12515,41 @@ def api_claude_ask():
     # subprocess deadlock the moment either OS pipe buffer fills; a
     # tempfile sidesteps that entirely since stderr's content is only
     # needed once, after the process has already exited.
+    #
+    # Circuit breaker -- confirmed real 2026-07-11/12 (see
+    # claude:nbweb-claude_—_goal_mode_exploration_2026-07-11.md): a stated
+    # "or stop after N turns" bound inside a /goal condition is prose the
+    # model may or may not honor, not a mechanical limit -- a real test ran
+    # 51 turns against a stated 15, and there's no --max-turns flag in this
+    # CLI to lean on instead. This is the external enforcement that has to
+    # exist regardless of what the condition text says. Tracks *token*
+    # count, not a hardcoded dollar figure -- Anthropic's per-token pricing
+    # already lives only in the `claude` CLI's own final response, never
+    # duplicated here, and a hand-maintained price table would silently
+    # drift stale. new_tokens deliberately excludes cache_read_input_tokens:
+    # a resumed session's cache-read cost is cheap and mostly reflects
+    # carrying forward existing history, not new work happening right now
+    # -- counting it would penalize long, legitimate --resume'd
+    # conversations for their own accumulated context. Thresholds are a
+    # blunt safety net, not a calibrated budget system -- picked from the
+    # one real data point so far (a genuine 51-turn/~93k-new-token Menu CSS
+    # fix), generous enough not to interrupt real work like that, tight
+    # enough to stop something an order of magnitude worse. Revisit once
+    # more real usage exists, same posture as this doc's other budget
+    # questions.
+    _MAX_TURNS      = 100
+    _MAX_NEW_TOKENS = 400_000
+
     stderr_fd, stderr_path = tempfile.mkstemp(prefix='nbweb-claude-stderr-', suffix='.log')
     stderr_file = os.fdopen(stderr_fd, 'w')
-    timed_out            = [False]
+    stop_reason           = None   # None | 'timeout' | 'max_turns' | 'max_tokens'
     proc                  = None
     timer                 = None
     init_session_id       = ''
     last_assistant_text   = ''
+    last_usage            = {}
+    turn_count            = 0
+    new_tokens            = 0
     final_payload         = None
     try:
         try:
@@ -12524,7 +12561,8 @@ def api_claude_ask():
             return jsonify({'error': 'claude CLI not found on this host'}), 502
 
         def _on_timeout():
-            timed_out[0] = True
+            nonlocal stop_reason
+            stop_reason = stop_reason or 'timeout'
             proc.kill()
 
         timer = threading.Timer(300, _on_timeout)
@@ -12542,9 +12580,25 @@ def api_claude_ask():
             if etype == 'system' and evt.get('subtype') == 'init':
                 init_session_id = evt.get('session_id') or init_session_id
             elif etype == 'assistant':
-                for block in (evt.get('message') or {}).get('content', []):
+                msg = evt.get('message') or {}
+                for block in msg.get('content', []):
                     if block.get('type') == 'text' and block.get('text'):
                         last_assistant_text = block['text']
+                usage = msg.get('usage') or {}
+                if usage:
+                    last_usage  = usage
+                    new_tokens += (usage.get('input_tokens', 0)
+                                   + usage.get('cache_creation_input_tokens', 0)
+                                   + usage.get('output_tokens', 0))
+                turn_count += 1
+                if turn_count >= _MAX_TURNS:
+                    stop_reason = 'max_turns'
+                    proc.kill()
+                    break
+                if new_tokens >= _MAX_NEW_TOKENS:
+                    stop_reason = 'max_tokens'
+                    proc.kill()
+                    break
             elif etype == 'result':
                 final_payload = evt
         proc.wait()
@@ -12558,13 +12612,6 @@ def api_claude_ask():
             except OSError:
                 pass
 
-    if timed_out[0]:
-        try:
-            os.unlink(stderr_path)
-        except OSError:
-            pass
-        return jsonify({'error': 'claude CLI timed out'}), 504
-
     try:
         stderr_text = Path(stderr_path).read_text(errors='replace').strip()
     except OSError:
@@ -12574,7 +12621,25 @@ def api_claude_ask():
     except OSError:
         pass
 
-    if final_payload is None:
+    # Stopped early (timeout or circuit breaker) -- still real, spent
+    # tokens, so still logged to the ledger and reflected on the note, not
+    # silently dropped the way a plain subprocess.run timeout always used
+    # to be (no partial visibility existed before the streaming switch).
+    # claude_status: waiting reuses the existing "stopped/needs feedback"
+    # red-bar meaning the list-row visual spec already defines -- no new
+    # status vocabulary needed. Session id is still known (from system/init,
+    # captured before the kill), so the note stays --resume-able.
+    if stop_reason:
+        reason_text = {
+            'timeout':    'the CLI call timed out (300s)',
+            'max_turns':  f'turn limit reached ({_MAX_TURNS} turns)',
+            'max_tokens': f'token limit reached ({_MAX_NEW_TOKENS:,} new tokens)',
+        }[stop_reason]
+        payload    = {'usage': last_usage}
+        session_id = init_session_id
+        answer     = ((last_assistant_text + '\n\n') if last_assistant_text else '') + \
+                     f'⚠ Stopped early: {reason_text}. Session is still resumable.'
+    elif final_payload is None:
         if proc.returncode != 0:
             return jsonify({'error': stderr_text or 'claude exited non-zero'}), 502
         payload    = {}
@@ -12591,7 +12656,8 @@ def api_claude_ask():
     _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours,
                         context_pct, account)
     if selector:
-        _update_note_ai_stats(selector, context_pct, session_id)
+        _update_note_ai_stats(selector, context_pct, session_id,
+                               status='waiting' if stop_reason else None)
 
     if session_id and selector:
         _substitute_session_placeholder(selector, session_id)
