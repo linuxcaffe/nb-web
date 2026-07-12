@@ -12303,6 +12303,38 @@ _CLAUDE_WRITE_GUIDANCE = (
     "template_path rather than hand-writing the note's shape yourself."
 )
 
+_CLAUDE_GOAL_GUIDANCE = (
+    "This note may carry a /goal-mode setup, written via the set_goal_fields "
+    "tool: claude_goal: (a completion condition), claude_goal_bound: (a turn "
+    "count), and claude_goal_scope: (comma-separated file patterns the work "
+    "must stay within). Only call set_goal_fields when the user explicitly "
+    "asks you to draft, propose, or revise a goal for this note -- never "
+    "propose one unprompted, and never invoke /goal yourself; a human "
+    "reviews and launches it separately (the Run Goal button), which is "
+    "the whole point of writing the proposal to FM instead of just saying "
+    "it in chat. "
+    "A good condition names one measurable end state and how to prove it "
+    "-- 'grep confirms zero hardcoded colors remain in styles.css', not "
+    "'make the CSS better'. Whatever must actually happen has to be *in* "
+    "the condition text itself: the evaluator that checks a running goal "
+    "only judges the stated condition against what you've surfaced in the "
+    "conversation, never anything from a todo's surrounding prose or your "
+    "own chat reply -- confirmed real, a goal that completed correctly "
+    "still skipped an unstated 'also bump sw.js' instruction because it was "
+    "only ever in the note's body text, not the condition. Do not fold a "
+    "turn or time limit into the condition text (no 'or stop after N "
+    "turns' inside claude_goal: itself) -- that belongs in claude_goal_bound: "
+    "as a plain integer, appended automatically only when the goal is "
+    "actually launched. Propose claude_goal_scope: whenever the task's "
+    "file footprint is inferable (a single file, a directory, or a glob) "
+    "-- it's a real safety guardrail the server enforces externally, not "
+    "just documentation of intent. After calling set_goal_fields, call "
+    "reload_note so the proposal is visible immediately, and still explain "
+    "what you proposed and why in your own reply -- the FM write is the "
+    "durable, editable record; the chat explanation is what the human "
+    "actually reads to decide whether to launch it."
+)
+
 _HAIKU_RULES_PATH = Path.home() / '.nb' / '.rules' / 'haiku.md'
 
 
@@ -12398,6 +12430,62 @@ def api_claude_set_permissions():
             subprocess.run(['git', 'commit', '-m', f'[nb-web] Claude permissions: {fpath.name}'],
                            capture_output=True, cwd=str(nb_path), env=env)
         return jsonify({'success': True, 'permissions': valid})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/claude/set-goal', methods=['POST'])
+def api_claude_set_goal():
+    """Write claude_goal:/claude_goal_bound:/claude_goal_scope: onto a note
+    -- the backing endpoint for the set_goal_fields MCP tool, the mechanism
+    that turns "draft me a goal" into a durable, editable, reviewable fact
+    on the note instead of just chat prose the human would have to
+    transcribe into FM by hand before the Run Goal button has anything to
+    read. Only a field actually present in the request body is touched --
+    the tool only sends the ones it means to set/revise, so calling this
+    to fix just the bound doesn't clobber an already-good condition or
+    scope back to empty.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+    data     = request.get_json(silent=True) or {}
+    selector = (data.get('selector') or '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+
+    fields = {}
+    if 'goal' in data:
+        fields['claude_goal'] = str(data.get('goal') or '')
+    if 'scope' in data:
+        fields['claude_goal_scope'] = str(data.get('scope') or '')
+    if 'bound' in data:
+        bound = data.get('bound')
+        if bound in (None, ''):
+            fields['claude_goal_bound'] = ''
+        else:
+            try:
+                fields['claude_goal_bound'] = str(int(bound))
+            except (TypeError, ValueError):
+                return jsonify({'error': 'bound must be an integer'}), 400
+    if not fields:
+        return jsonify({'error': 'nothing to set'}), 400
+
+    try:
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            return jsonify({'error': 'not found'}), 404
+        raw = fpath.read_text(errors='replace')
+        patched = _patch_fm_fields(raw, **fields)
+        fpath.write_text(patched)
+        notebook = fpath.relative_to(NB_DIR).parts[0]
+        nb_path  = NB_DIR / notebook
+        if (nb_path / '.git').exists():
+            env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+            subprocess.run(['git', 'add', str(fpath)], capture_output=True, cwd=str(nb_path), env=env)
+            subprocess.run(['git', 'commit', '-m', f'[nb-web] Claude goal proposed: {fpath.name}'],
+                           capture_output=True, cwd=str(nb_path), env=env)
+        return jsonify({'success': True, **fields})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -12533,6 +12621,7 @@ def _stream_claude_ask(user, selector, question, context, resume):
             prompt_parts.append(haiku_guidance)
     elif has_mcp:
         prompt_parts.append(_CLAUDE_WRITE_GUIDANCE)
+        prompt_parts.append(_CLAUDE_GOAL_GUIDANCE)
     if prompt_parts:
         cmd += ['--append-system-prompt', '\n\n'.join(prompt_parts)]
     if has_mcp:
