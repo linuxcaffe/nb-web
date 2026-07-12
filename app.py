@@ -12127,7 +12127,19 @@ def _ensure_note_ai_stats_baseline(selector):
         if not fpath or not fpath.is_file():
             return
         raw = fpath.read_text(errors='replace')
-        patched = _patch_fm_fields(raw, claude_status='initiated')
+        fields = {'claude_status': 'initiated'}
+        # Stamp type: todo the first time a session touches a plain todo --
+        # never overrides an existing type (a type:project note asked a
+        # question stays type:project), and only for notes that actually
+        # look like a todo (# [ ] / # [x] body) so an ordinary note never
+        # gets mislabeled. classify() already infers 'todo' from filename
+        # regardless of this -- the point of stamping it into FM is making
+        # it a real, visible fact on the note once a real session exists,
+        # not just an internal classification.
+        meta, body = parse_frontmatter(raw)
+        if 'type' not in meta and body.lstrip().startswith(('# [ ]', '# [x]')):
+            fields['type'] = 'todo'
+        patched = _patch_fm_fields(raw, **fields)
         if patched == raw:
             return  # nothing to change -- skip a no-op commit
         fpath.write_text(patched)
@@ -12319,6 +12331,83 @@ def api_claude_set_permissions():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/claude/end-session', methods=['POST'])
+def api_claude_end_session():
+    """Explicit session-end action -- kills the tmux session backing any
+    claude_code terminal for this note (best-effort, fine if none is
+    running) and marks claude_status: done, so an ended session actually
+    stops looking like something still in flight (the list-row bar goes
+    green) instead of persisting in whatever state it was last left in.
+    This is the piece that was missing before tmux persistence shipped --
+    sessions could run forever with nothing to explicitly close them.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+    data     = request.get_json(silent=True) or {}
+    selector = (data.get('selector') or '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    try:
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            return jsonify({'error': 'not found'}), 404
+        raw = fpath.read_text(errors='replace')
+        meta, _ = parse_frontmatter(raw)
+        session_id = str(meta.get('claude_ask', '') or '')
+        if session_id and shutil.which('tmux'):
+            tmux_name = 'claude-' + re.sub(r'[^a-zA-Z0-9_-]', '', session_id)
+            subprocess.run(['tmux', 'kill-session', '-t', tmux_name], capture_output=True)
+        patched = _patch_fm_fields(raw, claude_status='done')
+        fpath.write_text(patched)
+        notebook = fpath.relative_to(NB_DIR).parts[0]
+        nb_path  = NB_DIR / notebook
+        if (nb_path / '.git').exists():
+            env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+            subprocess.run(['git', 'add', str(fpath)], capture_output=True, cwd=str(nb_path), env=env)
+            subprocess.run(['git', 'commit', '-m', f'[nb-web] Claude session ended: {fpath.name}'],
+                           capture_output=True, cwd=str(nb_path), env=env)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _ledger_cost_for_selector(selector):
+    """Sum tokens/cost from claude:accounting/agent_sessions.md for a given
+    selector -- the ledger is the single source of truth (_log_agent_session),
+    this queries it fresh rather than trusting any cached total. Read-only,
+    tolerant of any parse issue (returns zeros rather than erroring the page).
+    """
+    total_tokens, total_cost, entries = 0, 0.0, 0
+    try:
+        text = _AGENT_SESSIONS_PATH.read_text(errors='replace')
+    except OSError:
+        return {'tokens': 0, 'cost': 0.0, 'entries': 0}
+    needle = f'selector: {selector} ·'
+    for line in text.splitlines():
+        if needle not in line:
+            continue
+        m_tok  = re.search(r'tokens:\s*(\d+)', line)
+        m_cost = re.search(r'cost:\s*\$([\d.]+)', line)
+        if m_tok:
+            total_tokens += int(m_tok.group(1))
+        if m_cost:
+            total_cost += float(m_cost.group(1))
+        entries += 1
+    return {'tokens': total_tokens, 'cost': round(total_cost, 4), 'entries': entries}
+
+
+@app.route('/api/claude/session-cost')
+def api_claude_session_cost():
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+    selector = (request.args.get('selector') or '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    return jsonify(_ledger_cost_for_selector(selector))
+
+
 @app.route('/api/claude/ask', methods=['POST'])
 def api_claude_ask():
     user = session.get('user', {})
@@ -12436,8 +12525,25 @@ def api_claude_ask():
     if session_id and selector:
         _substitute_session_placeholder(selector, session_id)
 
+    # Read back the note's current FM state so the client can refresh its
+    # claude_ask header (status dot, context%, account) straight from this
+    # response -- a plain conversational turn doesn't set reload_flag (that
+    # only fires when Claude wrote to the note body), so without this the
+    # header would otherwise show stale data until the next full note load.
+    header_fields = {'claude_status': '', 'claude_context': '', 'claude_account': ''}
+    if selector:
+        try:
+            fpath = _resolve_to_nb_path(selector)
+            if fpath and fpath.is_file():
+                meta, _ = parse_frontmatter(fpath.read_text(errors='replace'))
+                header_fields['claude_status']  = meta.get('claude_status', '')
+                header_fields['claude_context'] = meta.get('claude_context', '')
+                header_fields['claude_account'] = _resolve_claude_account(selector)
+        except Exception:
+            pass
+
     reload_flag = bool(token and _MCP_TOKENS.get(token, {}).get('reload'))
-    return jsonify({'answer': answer, 'reload': reload_flag, 'session_id': session_id})
+    return jsonify({'answer': answer, 'reload': reload_flag, 'session_id': session_id, **header_fields})
 
 
 if __name__ == '__main__':
