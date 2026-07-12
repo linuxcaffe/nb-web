@@ -12433,7 +12433,7 @@ def api_claude_ask():
     if selector:
         _ensure_note_ai_stats_baseline(selector)
 
-    cmd = ['claude', '-p', question, '--output-format', 'json']
+    cmd = ['claude', '-p', question, '--output-format', 'stream-json', '--verbose']
     model = _resolve_claude_model_flag(selector)
     if model:
         cmd += ['--model', model]
@@ -12486,41 +12486,112 @@ def api_claude_ask():
     # because a deep task legitimately needs many sequential reasoning
     # turns and each one takes real generation time. 120s was an arbitrary
     # wall a sufficiently complex task would always eventually hit; this
-    # just moves the wall further out. Doesn't fix the underlying
-    # "synchronous request bounded by a hard timeout" shape -- an async/
-    # streaming flow would, but that's a bigger, separate change.
+    # just moves the wall further out.
+    #
+    # Streaming Popen, not a single blocking subprocess.run() -- confirmed
+    # live 2026-07-11/12 (see claude:nbweb-claude_—_goal_mode_exploration_
+    # 2026-07-11.md): --output-format stream-json emits one JSON event per
+    # line as the CLI works (system/init, assistant messages including
+    # tool_use, tool_result, rate_limit_event, and a final type:result
+    # event carrying exactly the same fields plain `json` mode used to
+    # hand back in one shot -- so parsing that last event reproduces the
+    # old behavior exactly). This is the foundation goal-mode's turn/cost
+    # circuit-breaker, scope guardrail, and live UX all need -- none of
+    # those are wired up here yet, none are buildable on a single blocking
+    # call either. --verbose is not optional: the CLI refuses stream-json
+    # under --print without it (confirmed by trying).
+    #
+    # stderr goes to a real tempfile, not PIPE -- reading two live pipes
+    # concurrently without a dedicated drain thread risks the classic
+    # subprocess deadlock the moment either OS pipe buffer fills; a
+    # tempfile sidesteps that entirely since stderr's content is only
+    # needed once, after the process has already exited.
+    stderr_fd, stderr_path = tempfile.mkstemp(prefix='nbweb-claude-stderr-', suffix='.log')
+    stderr_file = os.fdopen(stderr_fd, 'w')
+    timed_out            = [False]
+    proc                  = None
+    timer                 = None
+    init_session_id       = ''
+    last_assistant_text   = ''
+    final_payload         = None
     try:
-        result = subprocess.run(
-            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=300,
-        )
-    except subprocess.TimeoutExpired:
-        return jsonify({'error': 'claude CLI timed out'}), 504
-    except FileNotFoundError:
-        return jsonify({'error': 'claude CLI not found on this host'}), 502
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=stderr_file,
+                text=True, bufsize=1,
+            )
+        except FileNotFoundError:
+            return jsonify({'error': 'claude CLI not found on this host'}), 502
+
+        def _on_timeout():
+            timed_out[0] = True
+            proc.kill()
+
+        timer = threading.Timer(300, _on_timeout)
+        timer.start()
+
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            etype = evt.get('type')
+            if etype == 'system' and evt.get('subtype') == 'init':
+                init_session_id = evt.get('session_id') or init_session_id
+            elif etype == 'assistant':
+                for block in (evt.get('message') or {}).get('content', []):
+                    if block.get('type') == 'text' and block.get('text'):
+                        last_assistant_text = block['text']
+            elif etype == 'result':
+                final_payload = evt
+        proc.wait()
     finally:
+        if timer:
+            timer.cancel()
+        stderr_file.close()
         if mcp_config_path:
             try:
                 os.unlink(mcp_config_path)
             except OSError:
                 pass
 
-    if result.returncode != 0:
-        return jsonify({'error': result.stderr.strip() or 'claude exited non-zero'}), 502
+    if timed_out[0]:
+        try:
+            os.unlink(stderr_path)
+        except OSError:
+            pass
+        return jsonify({'error': 'claude CLI timed out'}), 504
 
     try:
-        payload    = json.loads(result.stdout)
-        answer     = payload.get('result') or result.stdout
-        session_id = payload.get('session_id') or ''
-        notebook   = selector.split(':')[0] if ':' in selector else ''
-        account    = _resolve_claude_account(selector) if selector else ''
-        tokens, cost, hours, context_pct = _extract_usage(payload, model)
-        _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours,
-                            context_pct, account)
-        if selector:
-            _update_note_ai_stats(selector, context_pct, session_id)
-    except (json.JSONDecodeError, AttributeError):
-        answer = result.stdout
-        session_id = ''
+        stderr_text = Path(stderr_path).read_text(errors='replace').strip()
+    except OSError:
+        stderr_text = ''
+    try:
+        os.unlink(stderr_path)
+    except OSError:
+        pass
+
+    if final_payload is None:
+        if proc.returncode != 0:
+            return jsonify({'error': stderr_text or 'claude exited non-zero'}), 502
+        payload    = {}
+        answer     = last_assistant_text
+        session_id = init_session_id
+    else:
+        payload    = final_payload
+        answer     = payload.get('result') or last_assistant_text or ''
+        session_id = payload.get('session_id') or init_session_id
+
+    notebook = selector.split(':')[0] if ':' in selector else ''
+    account  = _resolve_claude_account(selector) if selector else ''
+    tokens, cost, hours, context_pct = _extract_usage(payload, model)
+    _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours,
+                        context_pct, account)
+    if selector:
+        _update_note_ai_stats(selector, context_pct, session_id)
 
     if session_id and selector:
         _substitute_session_placeholder(selector, session_id)
