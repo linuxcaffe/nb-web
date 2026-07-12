@@ -809,6 +809,19 @@ def _path_in_scope(file_path, cwd, patterns):
     return any(fnmatch.fnmatch(rel, pattern) for pattern in patterns)
 
 
+def _summarize_tool_input(name, tool_input):
+    """Short, human-readable one-liner for a live tool_use event -- not a
+    full audit record (the raw stream still has tool_result/structuredPatch
+    if that's ever needed), just enough for a human watching the ask panel
+    to see *what's* happening without reading raw JSON off the wire.
+    """
+    tool_input = tool_input or {}
+    if name == 'Bash':
+        cmd = tool_input.get('command', '')
+        return cmd if len(cmd) <= 80 else cmd[:77] + '...'
+    return tool_input.get('file_path', '') or tool_input.get('notebook_path', '')
+
+
 def _can_write(user, selector, notebook=None):
     """Return True if user may write (edit/delete/rename/move) a note.
 
@@ -12466,20 +12479,23 @@ def api_claude_session_cost():
     return jsonify(_ledger_cost_for_selector(selector))
 
 
-@app.route('/api/claude/ask', methods=['POST'])
-def api_claude_ask():
-    user = session.get('user', {})
-    if not _level_gte(user.get('level', ''), 'tech'):
-        return jsonify({'error': 'forbidden'}), 403
-
-    data     = request.get_json(silent=True) or {}
-    selector = (data.get('selector') or '').strip()
-    question = (data.get('question') or '').strip()
-    context  = data.get('context') or {}
-    resume   = (data.get('resume') or '').strip()
-    if not question:
-        return jsonify({'error': 'question required'}), 400
-
+def _stream_claude_ask(user, selector, question, context, resume):
+    """Core claude -p / --resume runner -- shared by the synchronous POST
+    endpoint (api_claude_ask) and the live websocket one (ws_claude_ask),
+    so the circuit breaker, scope guardrail, rate-limit tracking, ledger
+    logging, and FM updates all happen in exactly one place regardless of
+    which transport a caller uses, rather than risking two copies drifting
+    apart. A generator: yields live progress events as the stream arrives
+    (kind: 'text' | 'tool_use' | 'rate_limit'), then exactly one final
+    event (kind: 'done' with the full response dict shaped exactly like
+    the old single-shot /api/claude/ask response, or kind: 'error' with a
+    message + http status) once everything is finished -- normal
+    completion, a circuit-breaker/scope trip, or a timeout, all the same
+    as before this was split out. The POST endpoint drains this and
+    returns only the final event, reproducing prior behavior unchanged;
+    the websocket endpoint pushes every intermediate event live as it's
+    yielded, then the same final one.
+    """
     # cwd double-duty (design doc §4): run inside the note's notebook dir so
     # CLAUDE.md/.rules auto-load for free, same trick the real dev sessions use.
     cwd = NB_DIR
@@ -12610,7 +12626,8 @@ def api_claude_ask():
                 text=True, bufsize=1,
             )
         except FileNotFoundError:
-            return jsonify({'error': 'claude CLI not found on this host'}), 502
+            yield {'kind': 'error', 'message': 'claude CLI not found on this host', 'status': 502}
+            return
 
         def _on_timeout():
             nonlocal stop_reason
@@ -12635,17 +12652,23 @@ def api_claude_ask():
                 info = evt.get('rate_limit_info') or {}
                 rl_type = info.get('rateLimitType', 'unknown')
                 rate_limits[rl_type] = info
+                yield {'kind': 'rate_limit', 'rate_limits': list(rate_limits.values())}
             elif etype == 'assistant':
                 msg = evt.get('message') or {}
                 for block in msg.get('content', []):
                     if block.get('type') == 'text' and block.get('text'):
                         last_assistant_text = block['text']
-                    elif (scope_patterns and block.get('type') == 'tool_use'
-                          and block.get('name') in _SCOPE_CHECKED_TOOLS):
-                        touched = (block.get('input') or {}).get('file_path', '')
-                        if touched and not _path_in_scope(touched, cwd, scope_patterns):
-                            stop_reason  = 'scope'
-                            scope_breach = touched
+                        yield {'kind': 'text', 'text': block['text']}
+                    elif block.get('type') == 'tool_use':
+                        tool_name  = block.get('name', '')
+                        tool_input = block.get('input') or {}
+                        yield {'kind': 'tool_use', 'name': tool_name,
+                               'summary': _summarize_tool_input(tool_name, tool_input)}
+                        if scope_patterns and tool_name in _SCOPE_CHECKED_TOOLS:
+                            touched = tool_input.get('file_path', '')
+                            if touched and not _path_in_scope(touched, cwd, scope_patterns):
+                                stop_reason  = 'scope'
+                                scope_breach = touched
                 usage = msg.get('usage') or {}
                 if usage:
                     last_usage  = usage
@@ -12707,7 +12730,8 @@ def api_claude_ask():
                      f'⚠ Stopped early: {reason_text}. Session is still resumable.'
     elif final_payload is None:
         if proc.returncode != 0:
-            return jsonify({'error': stderr_text or 'claude exited non-zero'}), 502
+            yield {'kind': 'error', 'message': stderr_text or 'claude exited non-zero', 'status': 502}
+            return
         payload    = {}
         answer     = last_assistant_text
         session_id = init_session_id
@@ -12746,11 +12770,95 @@ def api_claude_ask():
             pass
 
     reload_flag = bool(token and _MCP_TOKENS.get(token, {}).get('reload'))
-    return jsonify({
+    yield {'kind': 'done', 'response': {
         'answer': answer, 'reload': reload_flag, 'session_id': session_id,
         'rate_limits': list(rate_limits.values()),
         **header_fields,
-    })
+    }}
+
+
+@app.route('/api/claude/ask', methods=['POST'])
+def api_claude_ask():
+    """Synchronous wrapper around _stream_claude_ask -- drains the
+    generator, discarding intermediate progress events (nothing here
+    needs them), and returns exactly its final 'done'/'error' event.
+    Same request/response shape as before this was split out. Prefer
+    ws_claude_ask (below) for anything that wants live progress.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+
+    data     = request.get_json(silent=True) or {}
+    selector = (data.get('selector') or '').strip()
+    question = (data.get('question') or '').strip()
+    context  = data.get('context') or {}
+    resume   = (data.get('resume') or '').strip()
+    if not question:
+        return jsonify({'error': 'question required'}), 400
+
+    for evt in _stream_claude_ask(user, selector, question, context, resume):
+        if evt['kind'] == 'error':
+            return jsonify({'error': evt['message']}), evt['status']
+        if evt['kind'] == 'done':
+            return jsonify(evt['response'])
+    return jsonify({'error': 'no response from claude'}), 502  # defensive; shouldn't happen
+
+
+@sock.route('/ws/claude-ask')
+def ws_claude_ask(ws):
+    """Live-streaming counterpart to /api/claude/ask -- same tech-level
+    gate, same core runner (_stream_claude_ask), but pushes every
+    intermediate event (assistant text, tool calls, rate-limit updates)
+    to the browser the moment it's yielded instead of blocking until the
+    whole call finishes. The synchronous POST endpoint is untouched and
+    still exists for anything that doesn't need live progress.
+
+    If the client goes away mid-stream, sends just stop being attempted
+    (client_gone) -- the generator is still drained to exhaustion
+    regardless, because its own tail (ledger logging, FM update) has to
+    run either way, same as a plain HTTP request whose browser tab closed
+    mid-request doesn't stop the server-side handler from finishing.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        try:
+            ws.send(json.dumps({'kind': 'error', 'message': 'forbidden', 'status': 403}))
+        except Exception:
+            pass
+        return
+
+    first = ws.receive(timeout=10)
+    if not first:
+        return
+    try:
+        data = json.loads(first)
+    except json.JSONDecodeError:
+        try:
+            ws.send(json.dumps({'kind': 'error', 'message': 'invalid request', 'status': 400}))
+        except Exception:
+            pass
+        return
+
+    selector = (data.get('selector') or '').strip()
+    question = (data.get('question') or '').strip()
+    context  = data.get('context') or {}
+    resume   = (data.get('resume') or '').strip()
+    if not question:
+        try:
+            ws.send(json.dumps({'kind': 'error', 'message': 'question required', 'status': 400}))
+        except Exception:
+            pass
+        return
+
+    client_gone = False
+    for evt in _stream_claude_ask(user, selector, question, context, resume):
+        if client_gone:
+            continue
+        try:
+            ws.send(json.dumps(evt))
+        except Exception:
+            client_gone = True
 
 
 if __name__ == '__main__':
