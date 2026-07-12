@@ -1929,7 +1929,7 @@ mark.nb-highlight {
 #nb-side-menu {
   position: fixed; top: 0; left: 0; bottom: 0;
   width: 248px;
-  background: var(--bg);
+  background: #111;
   box-shadow: 4px 0 28px rgba(0,0,0,0.65);
   z-index: 50;
   display: flex;
@@ -1945,13 +1945,13 @@ mark.nb-highlight {
   align-items: center;
   gap: 5px;
   padding: 28px 16px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg2);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: #1a1a1a;
   flex-shrink: 0;
   cursor: pointer;
   transition: background 0.15s;
 }
-#nb-menu-header:hover { background: var(--bg3); }
+#nb-menu-header:hover { background: #222; }
 
 .nb-menu-logo-img {
   height: 44px;
@@ -1961,10 +1961,10 @@ mark.nb-highlight {
 }
 .nb-menu-sync-btn {
   margin-top: 6px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 5px;
-  color: var(--text-muted);
+  color: rgba(255,255,255,0.7);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1973,20 +1973,20 @@ mark.nb-highlight {
   transition: background 0.15s, color 0.15s;
   width: 100%;
 }
-.nb-menu-sync-btn:hover { background: var(--accent-dim); color: var(--text); }
+.nb-menu-sync-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
 .nb-menu-sync-btn.nb-sync-pending {
-  color: var(--yellow);
-  border-color: color-mix(in srgb, var(--yellow) 40%, transparent);
+  color: var(--yellow, #f0b429);
+  border-color: rgba(240,180,41,0.4);
 }
 .nb-menu-subtitle {
   font-size: 10px;
-  color: var(--text-dim);
+  color: rgba(255,255,255,0.28);
   letter-spacing: 0.08em;
   text-transform: lowercase;
 }
 .nb-menu-build {
   font-size: 9px;
-  color: var(--text-dim);
+  color: rgba(255,255,255,0.16);
   font-family: var(--font-mono);
   letter-spacing: 0.04em;
   margin-top: 2px;
@@ -1999,24 +1999,24 @@ mark.nb-highlight {
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255,255,255,0.08);
   gap: 8px;
 }
 #nb-menu-user {
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: rgba(255,255,255,0.45);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .nb-menu-logout {
   font-size: 0.75rem;
-  color: var(--text-dim);
+  color: rgba(255,255,255,0.35);
   text-decoration: none;
   white-space: nowrap;
   flex-shrink: 0;
 }
-.nb-menu-logout:hover { color: var(--red); }
+.nb-menu-logout:hover { color: #ff8080; }
 
 /* Foldable group */
 .nb-menu-section {
@@ -2028,7 +2028,7 @@ mark.nb-highlight {
   background: none;
   border: none;
   border-left: 3px solid transparent;
-  color: var(--text-muted);
+  color: rgba(255,255,255,0.75);
   font-size: 13px;
   font-weight: 600;
   font-family: var(--font-ui);
@@ -2036,10 +2036,10 @@ mark.nb-highlight {
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }
-.nb-menu-section:hover { background: var(--accent-dim); color: var(--text); }
+.nb-menu-section:hover { background: rgba(255,255,255,0.05); color: #fff; }
 .nb-menu-arrow {
   font-size: 10px;
-  color: var(--text-dim);
+  color: rgba(255,255,255,0.3);
   transition: transform 0.15s;
 }
 .nb-menu-group.open > .nb-menu-section .nb-menu-arrow { transform: rotate(90deg); }
@@ -2059,7 +2059,7 @@ mark.nb-highlight {
   background: none;
   border: none;
   border-left: 3px solid transparent;
-  color: var(--text-muted);
+  color: rgba(255,255,255,0.5);
   font-size: 13px;
   font-family: var(--font-ui);
   cursor: pointer;
@@ -2067,12 +2067,12 @@ mark.nb-highlight {
 }
 .nb-menu-item:focus { outline: none; }
 .nb-menu-item:hover, .nb-menu-item:focus-visible {
-  background: var(--bg3);
-  color: var(--text);
+  background: rgba(255,255,255,0.07);
+  color: #fff;
   border-left-color: var(--accent);
   outline: none;
 }
-.nb-menu-toplevel { padding: 9px 18px 9px 20px; color: var(--text-muted); }
+.nb-menu-toplevel { padding: 9px 18px 9px 20px; color: rgba(255,255,255,0.65); }
 .nb-menu-subitem  { padding: 7px 18px 7px 36px; font-size: 12px; }
 
 /* ── Keyboard focus pane indicator ───────────────────────────── */
@@ -2282,12 +2282,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
   .nb-scope-select { min-width: 0; max-width: 76px; }
 }
 
-/* ── Light mode (page area + side menu — other chrome stays dark) ─ */
-/* Scoped to #nb-layout and #nb-side-menu so cmd-bar, opts-bar, bottom-bar,
-   and position:fixed dropdowns still inherit :root dark vars unchanged;
-   the side menu (#nb-side-menu, .nb-menu-*) follows the active theme. */
-[data-theme="light"] #nb-layout,
-[data-theme="light"] #nb-side-menu {
+/* ── Light mode (page area only — nav/menus/dropdowns stay dark) ─ */
+/* Scoped to #nb-layout so cmd-bar, opts-bar, side-menu, bottom-bar,
+   and position:fixed dropdowns all inherit :root dark vars unchanged. */
+[data-theme="light"] #nb-layout {
   --bg:         #f5f5f5;
   --bg2:        #ffffff;
   --bg3:        #ebebeb;
@@ -2903,7 +2901,7 @@ span.nb-cb-icon.nb-cb-icon--emoji {
   opacity: 0.7;
 }
 .nb-sync-copy-btn:hover { opacity: 1; color: var(--text); }
-.nb-menu-toplevel.nb-sync-pending { color: var(--yellow) !important; font-weight: 600; }
+.nb-menu-toplevel.nb-sync-pending { color: #f0b429 !important; font-weight: 600; }
 .nb-sync-danger { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
 .nb-sync-danger-toggle { cursor: pointer; font-size: 0.8em; color: var(--red, #c44); opacity: 0.7;
     list-style: none; user-select: none; }
