@@ -2615,6 +2615,13 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-claude-ask-context, .nb-claude-ask-account, .nb-claude-ask-cost {
   font-size: 11px; color: var(--text-dim); white-space: nowrap;
 }
+.nb-claude-ask-ratelimit {
+  font-size: 11px; color: var(--yellow, #c69026); white-space: nowrap; cursor: default;
+}
+.nb-claude-ask-ratelimit-detail {
+  width: 100%; font-size: 11px; color: var(--text-dim);
+  border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px;
+}
 .nb-claude-ask-perm-btn, .nb-claude-ask-end-btn {
   background: none; border: none; color: var(--text-muted); cursor: pointer;
   font-size: 13px; padding: 2px 4px; line-height: 1; border-radius: 3px;

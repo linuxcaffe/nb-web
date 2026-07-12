@@ -12601,6 +12601,7 @@ def api_claude_ask():
     last_usage            = {}
     turn_count            = 0
     new_tokens            = 0
+    rate_limits           = {}   # rateLimitType -> latest rate_limit_info seen
     final_payload         = None
     try:
         try:
@@ -12630,6 +12631,10 @@ def api_claude_ask():
             etype = evt.get('type')
             if etype == 'system' and evt.get('subtype') == 'init':
                 init_session_id = evt.get('session_id') or init_session_id
+            elif etype == 'rate_limit_event':
+                info = evt.get('rate_limit_info') or {}
+                rl_type = info.get('rateLimitType', 'unknown')
+                rate_limits[rl_type] = info
             elif etype == 'assistant':
                 msg = evt.get('message') or {}
                 for block in msg.get('content', []):
@@ -12741,7 +12746,11 @@ def api_claude_ask():
             pass
 
     reload_flag = bool(token and _MCP_TOKENS.get(token, {}).get('reload'))
-    return jsonify({'answer': answer, 'reload': reload_flag, 'session_id': session_id, **header_fields})
+    return jsonify({
+        'answer': answer, 'reload': reload_flag, 'session_id': session_id,
+        'rate_limits': list(rate_limits.values()),
+        **header_fields,
+    })
 
 
 if __name__ == '__main__':
