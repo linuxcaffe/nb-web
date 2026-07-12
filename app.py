@@ -901,18 +901,43 @@ def _resolve_claude_goal_scope(selector):
 
 def _path_in_scope(file_path, cwd, patterns):
     """True if file_path (absolute or relative, as the tool reported it)
-    matches at least one fnmatch pattern, checked against the path made
-    relative to cwd when possible -- so claude_goal_scope: styles.css
-    matches the file regardless of the absolute prefix a given host happens
-    to have. Falls back to matching the raw path if it isn't under cwd at
-    all (e.g. a tool touching something outside the repo entirely, which
-    should almost always fail every pattern and correctly trip the guard).
+    matches at least one fnmatch pattern. Deliberately does not depend on
+    cwd resolution succeeding -- confirmed real 2026-07-12 (claude:69): a
+    correctly-scoped, correctly-executing goal got killed because
+    claude_account: wasn't set (so cwd fell back to the notes-notebook
+    guess, unrelated to the real repo) and fnmatch('/home/djp/dev/nb-web/
+    dialog.js', 'dialog.js') is False -- a bare pattern only ever matched
+    a cwd-relative path, never a full absolute one, even though the
+    pattern itself was perfectly reasonable. Retroactively fixing cwd via
+    claude_account: was considered and rejected -- changing it on a note
+    that already has an in-flight session breaks that session's --resume
+    from the new cwd (the exact failure confirmed earlier the same day on
+    claude:87), so scope-matching has to work independent of whether cwd
+    ever resolves correctly, not lean on it.
+
+    For each pattern, checked against: the raw path as given, the bare
+    basename, the cwd-relative path when resolvable, and -- for a
+    multi-component pattern like plugins/nbweb-codeblocks.js -- a
+    same-depth suffix of the real path's own components, so a path
+    pattern matches regardless of what cwd the tool call actually ran
+    under.
     """
+    fpath = Path(file_path)
+    parts = fpath.parts
     try:
-        rel = str(Path(file_path).resolve().relative_to(Path(cwd).resolve()))
+        rel = str(fpath.resolve().relative_to(Path(cwd).resolve()))
     except (ValueError, OSError):
-        rel = file_path
-    return any(fnmatch.fnmatch(rel, pattern) for pattern in patterns)
+        rel = None
+    for pattern in patterns:
+        candidates = {file_path, fpath.name}
+        if rel:
+            candidates.add(rel)
+        depth = len(Path(pattern).parts)
+        if 1 < depth <= len(parts):
+            candidates.add(str(Path(*parts[-depth:])))
+        if any(fnmatch.fnmatch(cand, pattern) for cand in candidates):
+            return True
+    return False
 
 
 def _summarize_tool_input(name, tool_input):
@@ -12438,7 +12463,20 @@ _CLAUDE_GOAL_GUIDANCE = (
     "reload_note so the proposal is visible immediately, and still explain "
     "what you proposed and why in your own reply -- the FM write is the "
     "durable, editable record; the chat explanation is what the human "
-    "actually reads to decide whether to launch it."
+    "actually reads to decide whether to launch it. "
+    "Before drafting a goal, check this note's current FM for "
+    "claude_account: -- if it's missing, say so in your reply (don't "
+    "silently proceed). Without it, this session's working directory "
+    "falls back to the notes notebook instead of the actual code repo, "
+    "so CLAUDE.md and other project context never get a chance to "
+    "auto-load. Suggest a value if the todo's own content makes the "
+    "project obvious (e.g. mentions of app.py/main.js -> nb-web), but "
+    "never set it yourself -- there's no tool for that, and it's a "
+    "deliberate human decision: setting claude_account: on a note that "
+    "already has an active claude_ask: session breaks that session's "
+    "ability to --resume from a different working directory than it "
+    "originally started in (confirmed real 2026-07-12) -- safe to add "
+    "before a session exists, never to 'fix' one already in progress."
 )
 
 _HAIKU_RULES_PATH = Path.home() / '.nb' / '.rules' / 'haiku.md'
