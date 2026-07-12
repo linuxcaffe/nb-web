@@ -1,0 +1,8 @@
+# Vendored third-party libraries -- minified, not authored here, and their
+# single/double-letter minified identifiers otherwise dominate the graph's
+# "hub"/"god node" rankings with noise instead of nb-web's own structure.
+*.min.js
+*.min.css
+xterm.js
+xterm.css
+graphify-out/
