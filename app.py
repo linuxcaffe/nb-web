@@ -761,6 +761,112 @@ def _resolve_claude_model_flag(selector):
     return _effective_claude(note_meta, nb_meta)
 
 
+_MANIFEST_PATH = NB_DIR / '.manifest.md'
+
+
+def _manifest_repo_paths():
+    """Parse .manifest.md's Repos table (a fenced ```csv block under
+    "## Repos") into {name: local_path}. Read fresh every call -- this
+    file changes rarely and an ask/goal call is nowhere near a hot enough
+    path to justify a cache-invalidation story. Distinguishes the Repos
+    block from the earlier "## Notebooks" one (a different ```csv block,
+    different columns) by its header row rather than assuming block order,
+    since both are fenced the same way.
+    """
+    try:
+        text = _MANIFEST_PATH.read_text(errors='replace')
+    except OSError:
+        return {}
+    paths = {}
+    for block in re.findall(r'```csv\n(.*?)\n```', text, re.DOTALL):
+        lines = block.strip().splitlines()
+        if not lines or not lines[0].startswith('name,type,local'):
+            continue
+        for row in csv.DictReader(lines):
+            name  = (row.get('name') or '').strip()
+            local = (row.get('local') or '').strip()
+            if name and local and local != '-':
+                paths[name] = local
+    return paths
+
+
+def _resolve_repo_cwd(selector):
+    """Resolve the actual code repository a todo concerns, via
+    claude_account:'s project-name portion (the part before any :aspect
+    suffix) looked up against .manifest.md's own Repos registry -- so
+    CLAUDE.md/.rules auto-load for the real codebase a task is about,
+    not just the notes notebook the todo happens to live in. Confirmed
+    real gap 2026-07-12: an ask/goal session on a `claude:`-notebook todo
+    about nb-web internals had no way to find nb-web at all, cwd'd into
+    ~/.nb/claude/ with nothing but markdown notes in it.
+
+    Returns '' (caller keeps its existing notebook-based guess) when
+    claude_account: isn't set, names something not in the registry, or
+    the registered path doesn't actually exist on this host -- never
+    raises, never guesses past what's actually configured.
+    """
+    account = _resolve_claude_account(selector)
+    if not account:
+        return ''
+    project = account.split(':')[0].strip()
+    if not project:
+        return ''
+    local = _manifest_repo_paths().get(project)
+    if not local:
+        return ''
+    path = Path(local).expanduser()
+    return str(path) if path.is_dir() else ''
+
+
+_AGENT_RULES_PATH = NB_DIR / '.rules' / 'agent.md'
+
+
+def _load_agent_orientation():
+    """Curated excerpt of .rules/agent.md for injection into ask/goal
+    system prompts: the orientation table (where things live) and the
+    todo tag vocabulary (#agent/#discuss/#bug/... and what a
+    resource-suggestion tag means) -- not the checkout/dispatch-sequence
+    mechanics (about a not-yet-built automated dispatcher, irrelevant to
+    a live human-clicked ask) or the hard invariants (CLAUDE.md-adjacent,
+    already covered once _resolve_repo_cwd lands a session in the real
+    repo). Read from the live file rather than duplicated by hand, so
+    this can't silently drift out of sync with the real conventions;
+    falls back to '' (guidance just omitted, not an error) if the
+    expected headings ever change shape.
+    """
+    try:
+        text = _AGENT_RULES_PATH.read_text(errors='replace')
+    except OSError:
+        return ''
+    parts = []
+    m = re.search(r'## Orientation: key locations\n(.*?)\n---', text, re.DOTALL)
+    if m:
+        parts.append('Orientation (.rules/agent.md):\n' + m.group(1).strip())
+    m = re.search(r'## Todo queue protocol\n(.*?)\n\*\*Checkout mechanism', text, re.DOTALL)
+    if m:
+        parts.append('Todo tag vocabulary (.rules/agent.md):\n' + m.group(1).strip())
+    return '\n\n'.join(parts)
+
+
+def _agent_protocol_enabled(selector, notebook):
+    """Whether the #agent/#discuss/etc. todo-tag protocol applies here --
+    an opt-in `claude_agent: true` in a notebook's own `.{notebook}.md` (or
+    a folder config nested under it), same cascade/override semantics
+    _folder_config already gives every other per-notebook setting
+    (nearest-wins, walk-up from the note to the notebook root). Declaring
+    it in the root `.nb.md` instead makes it the system-wide default,
+    inherited by every notebook that doesn't say otherwise -- not
+    hardcoded to the `claude` notebook specifically, since a todo tagged
+    `#agent #discuss` in any notebook (`work:`, `preciousfinds.ca:`, ...)
+    means exactly the same thing wherever it lives.
+    """
+    if not notebook:
+        return False
+    fpath = _resolve_to_nb_path(selector)
+    cfg = _folder_config(notebook, fpath) if fpath else _notebook_config(notebook)
+    return bool(cfg.get('claude_agent'))
+
+
 # Tool names whose `input` carries a file_path worth scope-checking --
 # mutating file tools only, both using the same input.file_path shape
 # (NotebookEdit's own field name was never confirmed live, left out rather
@@ -12494,11 +12600,16 @@ def api_claude_set_goal():
 def api_claude_end_session():
     """Explicit session-end action -- kills the tmux session backing any
     claude_code terminal for this note (best-effort, fine if none is
-    running) and marks claude_status: done, so an ended session actually
-    stops looking like something still in flight (the list-row bar goes
-    green) instead of persisting in whatever state it was last left in.
-    This is the piece that was missing before tmux persistence shipped --
-    sessions could run forever with nothing to explicitly close them.
+    running) and marks claude_status: stopped, so an ended session
+    actually stops looking like something still in flight instead of
+    persisting in whatever state it was last left in. Deliberately not
+    claude_status: done -- "done" reads as the task finished
+    successfully, which a human-initiated stop never claims; falls
+    through to the default grey the same as any other unrecognized
+    status (working/waiting/done are the only colored ones), correctly
+    distinct from a genuine successful completion. This is the piece that
+    was missing before tmux persistence shipped -- sessions could run
+    forever with nothing to explicitly close them.
     """
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'tech'):
@@ -12517,7 +12628,7 @@ def api_claude_end_session():
         if session_id and shutil.which('tmux'):
             tmux_name = 'claude-' + re.sub(r'[^a-zA-Z0-9_-]', '', session_id)
             subprocess.run(['tmux', 'kill-session', '-t', tmux_name], capture_output=True)
-        patched = _patch_fm_fields(raw, claude_status='done')
+        patched = _patch_fm_fields(raw, claude_status='stopped')
         fpath.write_text(patched)
         notebook = fpath.relative_to(NB_DIR).parts[0]
         nb_path  = NB_DIR / notebook
@@ -12586,11 +12697,21 @@ def _stream_claude_ask(user, selector, question, context, resume):
     """
     # cwd double-duty (design doc §4): run inside the note's notebook dir so
     # CLAUDE.md/.rules auto-load for free, same trick the real dev sessions use.
+    # This is the fallback, not the first choice -- a todo living in the
+    # `claude` notes notebook is very often actually *about* a different
+    # codebase entirely (nb-web, tw-web, ...), and the notes notebook
+    # itself never has that codebase's own CLAUDE.md in it. Confirmed real
+    # 2026-07-12 (claude:87): an ask session cwd'd into ~/.nb/claude/ had
+    # no way to discover nb-web existed at all.
+    notebook = selector.split(':')[0] if ':' in selector else ''
     cwd = NB_DIR
-    if ':' in selector:
-        candidate = NB_DIR / selector.split(':')[0]
+    if notebook:
+        candidate = NB_DIR / notebook
         if candidate.is_dir():
             cwd = candidate
+    repo_cwd = _resolve_repo_cwd(selector) if selector else ''
+    if repo_cwd:
+        cwd = Path(repo_cwd)
 
     if selector:
         _ensure_note_ai_stats_baseline(selector)
@@ -12622,6 +12743,15 @@ def _stream_claude_ask(user, selector, question, context, resume):
     elif has_mcp:
         prompt_parts.append(_CLAUDE_WRITE_GUIDANCE)
         prompt_parts.append(_CLAUDE_GOAL_GUIDANCE)
+        if _agent_protocol_enabled(selector, notebook):
+            # Opt-in per notebook (or system-wide from root .nb.md) via
+            # claude_agent: true -- not hardcoded to the `claude` notebook,
+            # since a todo tagged #agent #discuss means the same thing
+            # anywhere. An ask on a notebook that never opted in has no
+            # use for this vocabulary, no reason to tax the call with it.
+            agent_orientation = _load_agent_orientation()
+            if agent_orientation:
+                prompt_parts.append(agent_orientation)
     if prompt_parts:
         cmd += ['--append-system-prompt', '\n\n'.join(prompt_parts)]
     if has_mcp:
@@ -12829,7 +12959,6 @@ def _stream_claude_ask(user, selector, question, context, resume):
         answer     = payload.get('result') or last_assistant_text or ''
         session_id = payload.get('session_id') or init_session_id
 
-    notebook = selector.split(':')[0] if ':' in selector else ''
     account  = _resolve_claude_account(selector) if selector else ''
     tokens, cost, hours, context_pct = _extract_usage(payload, model)
     _log_agent_session(model, notebook, selector, session_id, tokens, cost, hours,
