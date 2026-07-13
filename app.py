@@ -4418,6 +4418,14 @@ _CLAUDE_PERMISSION_SCOPES = {
     'push':   ['Bash(git push:*)'],
 }
 
+# Circuit-breaker ceilings for _stream_claude_ask -- module-level so the
+# pre-flight config modal's spend/limits display (api_claude_session_cost)
+# can surface the same numbers rather than a second hardcoded copy that
+# could drift. A blunt safety net, not a calibrated budget system -- see
+# _stream_claude_ask's own comment for how these were picked.
+_CLAUDE_MAX_TURNS      = 100
+_CLAUDE_MAX_NEW_TOKENS = 400_000
+
 
 def _claude_permission_flags(selector):
     """Extra argv for a claude --resume launch, structurally enforcing the
@@ -12667,6 +12675,73 @@ def api_claude_set_permissions():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/claude/set-account', methods=['POST'])
+def api_claude_set_account():
+    """Set claude_account: on a note -- the pre-flight config modal's
+    Account field. Same shape as /api/claude/set-permissions exactly
+    (_patch_fm_fields + scoped commit). No validation against
+    .manifest.md's own repo list here -- the field's <datalist> already
+    steers toward real names, but a value naming an aspect
+    (nb-web:help) or a not-yet-registered project is still a legitimate
+    thing to type, same tolerance _resolve_repo_cwd itself already has.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+    data     = request.get_json(silent=True) or {}
+    selector = (data.get('selector') or '').strip()
+    account  = str(data.get('account') or '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    try:
+        fpath = _resolve_to_nb_path(selector)
+        if not fpath or not fpath.is_file():
+            return jsonify({'error': 'not found'}), 404
+        raw = fpath.read_text(errors='replace')
+        patched = _patch_fm_fields(raw, claude_account=account)
+        fpath.write_text(patched)
+        notebook = fpath.relative_to(NB_DIR).parts[0]
+        nb_path  = NB_DIR / notebook
+        if (nb_path / '.git').exists():
+            env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+            subprocess.run(['git', 'add', str(fpath)], capture_output=True, cwd=str(nb_path), env=env)
+            subprocess.run(['git', 'commit', '-m', f'[nb-web] Claude account: {fpath.name}'],
+                           capture_output=True, cwd=str(nb_path), env=env)
+        return jsonify({'success': True, 'account': account})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/claude/repo-files')
+def api_claude_repo_files():
+    """Real filenames for the pre-flight config modal's File scope
+    <datalist> -- git ls-files against the repo a selector (or an
+    explicit, possibly-unsaved account override) resolves to, so scope
+    patterns can be picked from what's actually there instead of typed
+    blind. Capped well short of anything that would make the datalist
+    unwieldy; not meant to replace a real file browser.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+    selector = (request.args.get('selector') or '').strip()
+    account  = (request.args.get('account') or '').strip()
+    if account:
+        project = account.split(':')[0].strip()
+        local = _manifest_repo_paths().get(project)
+        path = Path(local).expanduser() if local else None
+        cwd = str(path) if path and path.is_dir() else ''
+    else:
+        cwd = _resolve_repo_cwd(selector) if selector else ''
+    if not cwd:
+        return jsonify({'files': []})
+    result = _repo_git(Path(cwd), 'ls-files')
+    if result.returncode != 0:
+        return jsonify({'files': []})
+    files = [f for f in result.stdout.splitlines() if f.strip()][:300]
+    return jsonify({'files': files})
+
+
 @app.route('/api/claude/set-goal', methods=['POST'])
 def api_claude_set_goal():
     """Write claude_goal:/claude_goal_bound:/claude_goal_scope: onto a note
@@ -12802,7 +12877,13 @@ def api_claude_session_cost():
     selector = (request.args.get('selector') or '').strip()
     if not selector:
         return jsonify({'error': 'selector required'}), 400
-    return jsonify(_ledger_cost_for_selector(selector))
+    result = _ledger_cost_for_selector(selector)
+    # The pre-flight config modal's spend/limits display reads these --
+    # same module constants _stream_claude_ask's circuit breaker actually
+    # enforces, not a second hardcoded copy that could drift.
+    result['max_turns']      = _CLAUDE_MAX_TURNS
+    result['max_new_tokens'] = _CLAUDE_MAX_NEW_TOKENS
+    return jsonify(result)
 
 
 def _stream_claude_ask(user, selector, question, context, resume):
@@ -12962,9 +13043,6 @@ def _stream_claude_ask(user, selector, question, context, resume):
     # enough to stop something an order of magnitude worse. Revisit once
     # more real usage exists, same posture as this doc's other budget
     # questions.
-    _MAX_TURNS      = 100
-    _MAX_NEW_TOKENS = 400_000
-
     stderr_fd, stderr_path = tempfile.mkstemp(prefix='nbweb-claude-stderr-', suffix='.log')
     stderr_file = os.fdopen(stderr_fd, 'w')
     stop_reason           = None   # None | 'timeout' | 'max_turns' | 'max_tokens' | 'scope'
@@ -13038,11 +13116,11 @@ def _stream_claude_ask(user, selector, question, context, resume):
                 if stop_reason == 'scope':
                     proc.kill()
                     break
-                if turn_count >= _MAX_TURNS:
+                if turn_count >= _CLAUDE_MAX_TURNS:
                     stop_reason = 'max_turns'
                     proc.kill()
                     break
-                if new_tokens >= _MAX_NEW_TOKENS:
+                if new_tokens >= _CLAUDE_MAX_NEW_TOKENS:
                     stop_reason = 'max_tokens'
                     proc.kill()
                     break
@@ -13079,8 +13157,8 @@ def _stream_claude_ask(user, selector, question, context, resume):
     if stop_reason:
         reason_text = {
             'timeout':    'the CLI call timed out (300s)',
-            'max_turns':  f'turn limit reached ({_MAX_TURNS} turns)',
-            'max_tokens': f'token limit reached ({_MAX_NEW_TOKENS:,} new tokens)',
+            'max_turns':  f'turn limit reached ({_CLAUDE_MAX_TURNS} turns)',
+            'max_tokens': f'token limit reached ({_CLAUDE_MAX_NEW_TOKENS:,} new tokens)',
             'scope':      f'tried to write outside the declared scope ({scope_breach})',
         }[stop_reason]
         payload    = {'usage': last_usage}

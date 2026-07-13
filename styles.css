@@ -2627,13 +2627,72 @@ body.nb-fullscreen #nb-cmd-bar::after {
   font-size: 13px; padding: 2px 4px; line-height: 1; border-radius: 3px;
 }
 .nb-claude-ask-perm-btn:hover, .nb-claude-ask-end-btn:hover { color: var(--text); background: var(--bg); }
-.nb-claude-ask-perm-popup {
-  padding: 8px 10px; background: var(--bg2); border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  font-size: 11px; color: var(--text-dim);
+
+/* Pre-flight config modal (nbweb-claude plugin) -- the gear button's
+   destination. Shape copied from #nb-mkd-modal (main.js/styles.css:1867-
+   1895), nb-web's own centered-overlay precedent: fixed backdrop, flex-
+   centered box, Escape + click-outside to close. A new class rather than
+   reusing that id since this one is plugin-created (inserted fresh on
+   first gear-click, not a static singleton in index.html). Field shape
+   (bordered chip: small caption + borderless input) and footer
+   (primary button + Cancel, each with a <kbd> keybind hint) modeled on
+   djp's favorite: taskwarrior-web's compact Add-task dialog. */
+.nb-claude-config-modal {
+  position: fixed; inset: 0; z-index: 1500;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
 }
-.nb-claude-ask-perm-popup-label { color: var(--text-muted); }
-.nb-claude-ask-perm-popup label { display: flex; align-items: center; gap: 3px; cursor: pointer; }
+.nb-claude-config-modal[hidden] { display: none; }
+.nb-claude-config-box {
+  position: relative;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 1.2em 1.5em 1em;
+  width: 100%; max-width: 420px; max-height: 85vh; overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.nb-claude-config-box h3 {
+  margin: 0 0 0.9em; font-size: 0.95em; color: var(--text-muted);
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.nb-claude-config-close {
+  position: absolute; top: 0.5em; right: 0.6em;
+  font-size: 1.1em; line-height: 1; padding: 0.15em 0.4em;
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+}
+.nb-claude-config-close:hover { color: var(--text); }
+.nb-claude-config-field {
+  display: block; overflow: hidden; border-radius: 6px; border: 1px solid var(--border);
+  padding: 6px 10px; margin-bottom: 10px;
+}
+.nb-claude-config-field:focus-within { border-color: var(--accent); }
+.nb-claude-config-field-label {
+  display: block; font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px;
+}
+.nb-claude-config-field input[type=text] {
+  width: 100%; border: none; background: transparent; color: var(--text);
+  font-size: 13px; font-family: inherit; padding: 2px 0; box-sizing: border-box;
+}
+.nb-claude-config-field input[type=text]:focus { outline: none; }
+.nb-claude-config-hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+.nb-claude-config-hint.nb-claude-config-warn { color: var(--yellow, #c69026); }
+.nb-claude-config-perms {
+  display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text);
+}
+.nb-claude-config-perms label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.nb-claude-config-spend {
+  font-size: 12px; color: var(--text-dim); line-height: 1.6;
+  border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px;
+}
+.nb-claude-config-spend strong { color: var(--text); }
+.nb-claude-config-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  margin-top: 14px;
+}
+.nb-claude-config-footer kbd {
+  font-size: 10px; padding: 1px 4px; border: 1px solid var(--border);
+  border-radius: 3px; color: var(--text-dim); margin-left: 5px;
+}
 .nb-claude-ask-goal-banner {
   padding: 8px 10px; background: var(--accent-dim); border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px; justify-content: space-between;
