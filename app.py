@@ -12896,6 +12896,19 @@ def _stream_claude_ask(user, selector, question, context, resume):
                 },
             },
         }
+        # Live queryable graph access alongside the static CLAUDE.md nudge --
+        # confirmed 2026-07-12 that two independently-named servers under one
+        # --strict-mcp-config both load and are both independently callable
+        # (see claude:nbweb-claude_—_graphify_integration_2026-07-12.md #4).
+        # Only added when the resolved cwd actually has a graph to serve --
+        # graphify-mcp errors out immediately on a missing/empty graph.json,
+        # so this must never be added speculatively.
+        graphify_graph = Path(cwd) / 'graphify-out' / 'graph.json'
+        if shutil.which('graphify-mcp') and graphify_graph.is_file():
+            mcp_config['mcpServers']['graphify'] = {
+                'command': 'graphify-mcp',
+                'args':    [str(graphify_graph)],
+            }
         fd, mcp_config_path = tempfile.mkstemp(prefix='nbweb-mcp-', suffix='.json')
         with os.fdopen(fd, 'w') as f:
             json.dump(mcp_config, f)
