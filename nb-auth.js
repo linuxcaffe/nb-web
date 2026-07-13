@@ -43,7 +43,22 @@
     //   .nb-action-write  — requires user+   (Edit, Delete, Add, Save, Rename…)
     //   .nb-action-office — requires office+
     //   .nb-action-admin  — requires admin+  (Configure, Settings, dotfile edit…)
-    document.body.dataset.userLevel = window.NbAuth.level();
-
-    document.dispatchEvent(new Event('nb-auth-ready'));
+    function _stampAndDispatch() {
+        document.body.dataset.userLevel = window.NbAuth.level();
+        document.dispatchEvent(new Event('nb-auth-ready'));
+    }
+    // On a sessionStorage cache hit, everything above runs with no `await`,
+    // so this executes synchronously during initial script evaluation --
+    // before the parser has reached <body> (this script tag sits in <head>).
+    // document.body is null at that point on every page load but the very
+    // first one in a session, throwing here and silently killing
+    // nb-auth-ready for the rest of the page's life (confirmed real: every
+    // data-min-level section simply never un-hides). The uncached/fetch
+    // path already has plenty of time for <body> to exist by the time it
+    // resolves, so this only ever takes the deferred branch on a cache hit.
+    if (document.body) {
+        _stampAndDispatch();
+    } else {
+        document.addEventListener('DOMContentLoaded', _stampAndDispatch);
+    }
 })();

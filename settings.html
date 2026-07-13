@@ -232,6 +232,11 @@
       border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px;
     }
     a.repo-plugins-link:hover { color: var(--accent); border-color: var(--accent); }
+    a.repo-graphify-link {
+      font-size: 0.78em; color: var(--text-dim); text-decoration: none; flex-shrink: 0;
+      border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px;
+    }
+    a.repo-graphify-link:hover { color: var(--accent); border-color: var(--accent); }
 
     #nbz-drop {
       display: flex; align-items: center; justify-content: center;
@@ -1294,6 +1299,12 @@
       const pluginsName = _REPO_PLUGINS_LINK[r.name];
       const pluginsLink = pluginsName
         ? `<a class="repo-plugins-link" href="#sec-plugins" title="See ${pluginsName} in Plugins">→ Plugins</a>` : '';
+      const _GRAPHIFY_LABELS = { graph: 'Graph', tree: 'Tree', callflow: 'Call Flow' };
+      const graphifyLinks = r.graphify
+        ? Object.entries(r.graphify).filter(([, present]) => present).map(([report]) =>
+            `<a class="repo-graphify-link" target="_blank" title="Open ${_GRAPHIFY_LABELS[report]} report"
+                href="/api/system/repos/graphify-view?name=${encodeURIComponent(r.name)}&report=${report}">🕸 ${_GRAPHIFY_LABELS[report]}</a>`
+          ).join('') : '';
       return `
       <div class="repo-row" data-name="${r.name}">
         <span class="repo-name">${r.name}</span>
@@ -1301,6 +1312,7 @@
         <span class="repo-status ${statusCls}">${statusText}</span>
         ${remoteLink}
         ${pluginsLink}
+        ${graphifyLinks}
         <button class="tool-btn repo-sync-btn" data-name="${r.name}">Sync</button>
         <span class="status repo-sync-status" data-name="${r.name}"></span>
       </div>`;

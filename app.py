@@ -8268,6 +8268,41 @@ def _manifest_repos():
         return []
     return [row for row in csv.DictReader(lines) if row.get('type') != 'config']
 
+# Files graphify may emit into a repo's graphify-out/ dir, keyed by the
+# query-string `report=` value the frontend requests. Each generated HTML
+# hardcodes a CDN <script src> for its one JS dependency (graphify's own
+# templates, not ours to edit at the source) -- _GRAPHIFY_CDN_REWRITES maps
+# each report to the exact substring to replace with a local vendored path,
+# applied at serve time so it survives every `graphify update`/`label`
+# regeneration without needing to re-patch the file itself.
+_GRAPHIFY_REPORTS = {
+    'graph': 'graph.html',
+    'tree': 'GRAPH_TREE.html',
+    'callflow': None,  # filename varies by repo (graphify uses the repo's own name) — resolved via glob
+}
+_GRAPHIFY_CDN_REWRITES = {
+    'graph':    [('https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js', '/vis-network.min.js')],
+    'tree':     [('https://d3js.org/d3.v7.min.js', '/d3.v7.min.js')],
+    'callflow': [('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js', '/mermaid.min.js')],
+}
+
+def _graphify_out_dir(repo_path):
+    d = repo_path / 'graphify-out'
+    return d if d.is_dir() else None
+
+def _graphify_report_path(repo_path, report):
+    d = _graphify_out_dir(repo_path)
+    if not d:
+        return None
+    if report == 'callflow':
+        matches = sorted(d.glob('*-callflow.html'))
+        return matches[0] if matches else None
+    fname = _GRAPHIFY_REPORTS.get(report)
+    if not fname:
+        return None
+    f = d / fname
+    return f if f.is_file() else None
+
 @app.route('/api/system/repos')
 def api_system_repos():
     err = _repo_level_check()
@@ -8279,6 +8314,10 @@ def api_system_repos():
                   'primary': row['primary'], 'mirror': row['mirror'],
                   'upstream': row['upstream'], 'notes': row['notes'],
                   'exists': (path / '.git').is_dir()}
+        gdir = _graphify_out_dir(path)
+        if gdir:
+            entry['graphify'] = {report: _graphify_report_path(path, report) is not None
+                                  for report in _GRAPHIFY_REPORTS}
         if entry['exists']:
             status_r = _repo_git(path, 'status', '--porcelain')
             entry['files'] = [{'status': l[:2].strip(), 'path': l[3:]}
@@ -8294,6 +8333,26 @@ def api_system_repos():
                     entry['behind'], entry['ahead'] = int(parts[0]), int(parts[1])
         repos.append(entry)
     return jsonify({'repos': repos})
+
+@app.route('/api/system/repos/graphify-view')
+def api_system_repos_graphify_view():
+    err = _repo_level_check()
+    if err: return err
+    name = (request.args.get('name') or '').strip()
+    report = (request.args.get('report') or '').strip()
+    if report not in _GRAPHIFY_REPORTS:
+        return jsonify({'error': 'Unknown report'}), 400
+    match = next((r for r in _manifest_repos() if r['name'] == name), None)
+    if not match:
+        return jsonify({'error': 'Unknown repo'}), 404
+    repo_path = Path(os.path.expanduser(match['local']))
+    report_path = _graphify_report_path(repo_path, report)
+    if not report_path:
+        return jsonify({'error': 'Report not generated for this repo'}), 404
+    html = report_path.read_text()
+    for needle, replacement in _GRAPHIFY_CDN_REWRITES.get(report, []):
+        html = html.replace(needle, replacement)
+    return Response(html, mimetype='text/html')
 
 @app.route('/api/system/repos/sync', methods=['POST'])
 def api_system_repos_sync():
