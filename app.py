@@ -4465,12 +4465,21 @@ def ws_pty(ws):
     """WebSocket PTY: open a shell in the browser terminal panel."""
     import pty, select, fcntl, termios, struct
 
-    # Reject connections from non-localhost origins (CSRF guard)
+    # Reject cross-origin connections (CSRF guard). Same-origin check
+    # against the actual Host this request arrived on -- not a hardcoded
+    # localhost allowlist, which broke real, legitimate access over
+    # Tailscale (confirmed real: a phone reaching nb-web via its Tailscale
+    # hostname/IP got an immediate "connection rejected" close on this
+    # endpoint specifically, while /ws/claude-ask -- which has no such
+    # guard -- already worked fine from the same phone). A genuine
+    # cross-origin attempt (some other page's script opening this socket)
+    # sends that page's own origin, which will never match request.host
+    # regardless of what host nb-web itself is reached through.
     origin = request.environ.get('HTTP_ORIGIN', '')
     if origin:
         from urllib.parse import urlparse
         parsed = urlparse(origin)
-        if parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
+        if parsed.netloc != request.host:
             ws.send('\r\n[pty] Connection rejected: cross-origin request\r\n')
             return
 

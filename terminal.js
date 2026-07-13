@@ -169,9 +169,26 @@ const NbTerminal = (() => {
             const persist = !extraCmd;
             ws.send(JSON.stringify({ cwd: cfg.pty_cwd || '', init, cols, rows, persist }));
         };
+        // A WebSocket can fire both onerror and onclose for the same
+        // termination (confirmed real elsewhere this session, same fix
+        // applied to nbweb-claude.js's ask block: a server-side close --
+        // including the CSRF origin-guard's own rejection -- can trip the
+        // browser's onerror right alongside a normal onclose). Without
+        // this flag both generic messages stack and flash together,
+        // reading as noisier/more confusing than whatever actually
+        // happened. Local to this open() call so a later reopen starts
+        // fresh rather than inheriting a stale "already ended" state.
+        let _sessionEnded = false;
         ws.onmessage = e => term.write(e.data);
-        ws.onclose   = ()  => { term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); setTimeout(close, 1500); };
-        ws.onerror   = ()  => term.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
+        ws.onclose   = () => {
+            if (!_sessionEnded) { _sessionEnded = true; term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); }
+            setTimeout(close, 1500);
+        };
+        ws.onerror   = () => {
+            if (_sessionEnded) return;
+            _sessionEnded = true;
+            term.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
+        };
 
         term.onData(data => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
         term.onResize(({ cols, rows }) => {
