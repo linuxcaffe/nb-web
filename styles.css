@@ -2603,7 +2603,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-claude-ask-body     { padding: 8px 10px; }
 .nb-claude-ask-messages {
   display: flex; flex-direction: column; gap: 8px;
-  max-height: 360px; min-height: 60px; overflow-y: auto; resize: vertical;
+  min-height: 60px;
   padding: 2px 2px 2px 0;
 }
 .nb-claude-ask-title, .nb-claude-ask-toggle { cursor: pointer; }
@@ -2641,7 +2641,21 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-claude-ask-goal-preview { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nb-claude-ask-goal-run { flex: 0 0 auto; }
-.nb-claude-ask-inputrow { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.nb-claude-ask-inputrow {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 8px;
+  /* Pinned to the bottom of the scrolling viewport (#nb-preview-content,
+     the nearest scrolling ancestor -- .nb-claude-ask-body/-block have no
+     overflow of their own) so the question box + Ask button are always
+     reachable regardless of how long the conversation grows, instead of
+     requiring a scroll past a tall message thread to find them (the
+     original mobile complaint: a long answer could push this row off
+     screen with no way back to it). Stops being "stuck" once the block
+     itself scrolls out of view, same as any sticky-footer-in-a-card. */
+  position: sticky; bottom: 0;
+  background: var(--bg);
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--border);
+}
 .nb-claude-ask-question {
   width: 100%; resize: vertical; font-family: inherit; font-size: 13px; padding: 6px;
   box-sizing: border-box; background: var(--bg); color: var(--text);
