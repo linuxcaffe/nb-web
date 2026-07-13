@@ -2279,6 +2279,18 @@ body.nb-fullscreen #nb-cmd-bar::after {
   pointer-events: none;
 }
 
+/* Mobile landscape auto-immersive: the header's click-to-exit hint above
+   makes sense on desktop (no other way out of a manually-toggled
+   fullscreen), but on a touch device in landscape the exit is rotating
+   back to portrait -- so the header goes away too here, matching "no
+   chrome at all" rather than "a thin bar with an exit hint." Portrait
+   manual-toggle usage (menu item, any device) is untouched -- this only
+   applies while actually in landscape. */
+@media (orientation: landscape) and (pointer: coarse) {
+  body.nb-fullscreen #nb-cmd-bar { display: none !important; }
+  body.nb-fullscreen #nb-layout { top: 0; }
+}
+
 /* ── Responsive: narrow (tablet/mobile) ───────────────────────── */
 @media (max-width: 700px) {
   :root { --list-w: 100%; }

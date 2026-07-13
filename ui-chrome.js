@@ -230,6 +230,39 @@ const NbUiChrome = (() => {
         document.body.classList.toggle('nb-fullscreen', _isFullscreen);
     }
 
+    // Auto-immersive on mobile landscape -- YouTube-style "rotate for
+    // distraction-free" behavior (djp, 2026-07-12). pointer:coarse (not a
+    // width breakpoint) is the mobile signal -- a touch device, not "any
+    // narrow landscape window" (a resized desktop browser shouldn't
+    // trigger this). Deliberately simple, matching djp's own framing:
+    // entry and exit are both driven purely by the orientation change
+    // itself, no separate tap-to-reveal overlay yet (flagged as a
+    // possible future addition, not built here). Only enters if a note
+    // is actually open -- nothing useful to show chrome-free otherwise
+    // (matches the existing menu item's own !hasNote gating). Checked
+    // only at the moment orientation actually changes, not continuously
+    // -- opening a note after already being in landscape won't
+    // retroactively trigger it until the next rotation; simple on
+    // purpose, not a gap to fix without being asked.
+    function _handleMobileLandscapeChange(e) {
+        if (e.matches) {
+            if (NbMain.activeSelector() && !_isFullscreen) _toggleFullscreen();
+            // Best-effort real browser Fullscreen API too (hides the
+            // address bar itself, not just nb-web's own chrome) --
+            // separate from the manifest's own display:fullscreen, which
+            // only applies when launched from an installed home-screen
+            // icon, not a regular browser tab. Orientation changes aren't
+            // guaranteed to count as the "user gesture" this API
+            // requires in every browser, so this may silently no-op --
+            // that's fine, nb-web's own chrome-hiding above is the part
+            // that's guaranteed to work regardless.
+            document.documentElement.requestFullscreen?.().catch(() => {});
+        } else {
+            if (_isFullscreen) _toggleFullscreen();
+            if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+        }
+    }
+
     function _bindPreviewMenu() {
         const btn = document.getElementById('nb-preview-menu-btn');
         if (!btn) return;
@@ -893,6 +926,10 @@ const NbUiChrome = (() => {
         _bindExtrasToggle();
         _bindFmEmptyToggle();
         _bindKeyboard();
+
+        const mobileLandscape = window.matchMedia('(orientation: landscape) and (pointer: coarse)');
+        mobileLandscape.addEventListener('change', _handleMobileLandscapeChange);
+        _handleMobileLandscapeChange(mobileLandscape); // apply immediately if already landscape on load
     }
 
     return {
