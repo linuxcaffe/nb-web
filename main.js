@@ -22,6 +22,8 @@ const NbMain = (() => {
     let _listSeq        = 0;        // incremented on every new list request; stale responses are dropped
     const _history      = [];       // back-stack
     const _future       = [];       // forward-stack (cleared on any new navigation)
+    const _HISTORY_STORE_KEY = 'nb-nav-history';
+    const _HISTORY_MAX  = 200;      // cap per stack so a long session doesn't grow this unbounded
     const _wikilinkCache = new Map(); // selector → resolved title
     const _noteCache     = new Map(); // selector → cached note API response (cache: true frontmatter)
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
@@ -157,6 +159,8 @@ const NbMain = (() => {
     // ── Boot ───────────────────────────────────────────────────────
 
     async function init() {
+        _loadNavHistory();
+        _updateNavBtns();
         await NbNav.init();
         NbSearch.init();
         NbNoteActions.init();
@@ -628,11 +632,13 @@ const NbMain = (() => {
         if (pushHistory) {
             const _CMD_PAGES = new Set(['account','plugins','nb-notebooks','templates','contacts']);
             if (_activeSelector && _activeSelector !== selector) {
-                _history.push({ sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 });
+                _pushCapped(_history, { sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 });
                 _future.length = 0;
+                _persistNavHistory();
             } else if (!_activeSelector && _CMD_PAGES.has(NbNav.activeCmd)) {
-                _history.push({ cmd: NbNav.activeCmd });
+                _pushCapped(_history, { cmd: NbNav.activeCmd });
                 _future.length = 0;
+                _persistNavHistory();
             }
         }
         _activeSelector = selector;
@@ -3500,6 +3506,30 @@ const NbMain = (() => {
         if (fwd)  fwd.hidden  = _future.length === 0;
     }
 
+    // Nav history persists to sessionStorage (survives reload, cleared when the
+    // tab closes) so the History page and back/forward stack aren't wiped by an
+    // accidental refresh -- matches how browser session history itself behaves.
+    function _persistNavHistory() {
+        try {
+            sessionStorage.setItem(_HISTORY_STORE_KEY, JSON.stringify({ history: _history, future: _future }));
+        } catch (e) { /* storage unavailable/full -- history just stays in-memory */ }
+    }
+
+    function _loadNavHistory() {
+        try {
+            const raw = sessionStorage.getItem(_HISTORY_STORE_KEY);
+            if (!raw) return;
+            const d = JSON.parse(raw);
+            if (Array.isArray(d.history)) _history.push(...d.history);
+            if (Array.isArray(d.future))  _future.push(...d.future);
+        } catch (e) { /* corrupt/old-format entry -- ignore and start fresh */ }
+    }
+
+    function _pushCapped(stack, entry) {
+        stack.push(entry);
+        if (stack.length > _HISTORY_MAX) stack.shift();
+    }
+
     function _currentHistoryEntry() {
         if (_activeSelector) return { sel: _activeSelector, scrollTop: document.getElementById('nb-preview-content')?.scrollTop || 0 };
         if (NbNav.activeCmd) return { cmd: NbNav.activeCmd };
@@ -3517,15 +3547,17 @@ const NbMain = (() => {
     function _goBack() {
         if (!_history.length) return;
         const cur = _currentHistoryEntry();
-        if (cur) _future.push(cur);
+        if (cur) _pushCapped(_future, cur);
         _restoreEntry(_history.pop());
+        _persistNavHistory();
     }
 
     function _goForward() {
         if (!_future.length) return;
         const cur = _currentHistoryEntry();
-        if (cur) _history.push(cur);
+        if (cur) _pushCapped(_history, cur);
         _restoreEntry(_future.pop());
+        _persistNavHistory();
     }
 
     function _bindPreviewActions() {
@@ -4482,6 +4514,74 @@ const NbMain = (() => {
         }
     }
 
+    const _HISTORY_CMD_LABELS = { account: 'Account', plugins: 'Plugins', 'nb-notebooks': 'Notebooks', templates: 'Templates', contacts: 'Contacts' };
+
+    async function _historyEntryLabel(entry) {
+        if (entry.cmd) return _HISTORY_CMD_LABELS[entry.cmd] || entry.cmd;
+        const sel = entry.sel;
+        if (_wikilinkCache.has(sel)) return _wikilinkCache.get(sel);
+        try {
+            const r = await fetch('/api/note?selector=' + encodeURIComponent(sel));
+            if (r.ok) {
+                const d = await r.json();
+                const title = d.meta?.alias || d.title || d.filename || sel;
+                _wikilinkCache.set(sel, title);
+                return title;
+            }
+        } catch (e) { /* fall through */ }
+        return sel;
+    }
+
+    // Renders the full back/current/forward stack as a clickable timeline, most-recent first.
+    // Clicking jumps via normal navigation (openNote/activateCmd) rather than surgically
+    // rebuilding the stacks -- the jumped-to entry becomes the new "current" and the old
+    // current gets pushed onto history, same as clicking any other note or menu link.
+    async function runHistory() {
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        document.getElementById('nb-list-empty').hidden = true;
+        document.getElementById('nb-count').textContent = '';
+        const content = document.getElementById('nb-preview-content');
+        content.innerHTML = '<div id="nb-welcome"><h2>History</h2><p>Loading…</p></div>';
+
+        const cur = _currentHistoryEntry();
+        const timeline = [
+            ..._future.slice().reverse().map(entry => ({ entry, kind: 'forward' })),
+            ...(cur ? [{ entry: cur, kind: 'current' }] : []),
+            ..._history.slice().reverse().map(entry => ({ entry, kind: 'back' })),
+        ];
+
+        if (!timeline.length) {
+            content.innerHTML = '<div id="nb-welcome"><h2>History</h2><p>No navigation history yet.</p></div>';
+            return;
+        }
+
+        const labels = await Promise.all(timeline.map(t => _historyEntryLabel(t.entry)));
+        document.getElementById('nb-count').textContent = `${timeline.length} entr${timeline.length !== 1 ? 'ies' : 'y'}`;
+
+        const rows = timeline.map((t, i) => {
+            const icon = t.kind === 'forward' ? '↷' : t.kind === 'back' ? '↶' : '●';
+            const curStyle = t.kind === 'current' ? ';font-weight:600' : '';
+            return t.kind === 'current'
+                ? `<li style="padding:4px 0${curStyle}"><span style="color:var(--text-dim);display:inline-block;width:1.4em">${icon}</span>${_esc(labels[i])} <span style="color:var(--text-dim);font-size:11px">(current)</span></li>`
+                : `<li style="padding:4px 0"><span style="color:var(--text-dim);display:inline-block;width:1.4em">${icon}</span><a href="#" class="nb-history-link" data-idx="${i}">${_esc(labels[i])}</a></li>`;
+        }).join('');
+
+        content.innerHTML = `
+<div class="nb-history-page" style="padding:28px 32px;max-width:560px">
+  <h2 style="margin:0 0 20px;font-size:18px">History</h2>
+  <ul style="list-style:none;padding:0;margin:0;font-size:13px">${rows}</ul>
+</div>`;
+
+        content.querySelectorAll('.nb-history-link').forEach(a => {
+            a.addEventListener('click', e => {
+                e.preventDefault();
+                const entry = timeline[Number(a.dataset.idx)].entry;
+                if (entry.cmd) NbNav.activateCmd(entry.cmd);
+                else openNote(entry.sel, true, entry.scrollTop ? { restoreScrollTop: entry.scrollTop } : {});
+            });
+        });
+    }
+
     function setFoldersFirst(val) {
         _foldersFirst = val;
         localStorage.setItem('nb-folders-first', val);
@@ -4552,7 +4652,7 @@ const NbMain = (() => {
              runNbNotebooks: NbNotebooksPage.runNbNotebooks,
              runTemplates: NbTemplates.runTemplates,
              loadTemplatesForAdd: NbTemplates.loadTemplatesForAdd,
-             runCal, runGrep, runAccount,
+             runCal, runGrep, runAccount, runHistory,
              showNbGitLog: NbSync.showNbGitLog, showNbGitWire: NbSync.showNbGitWire,
              doLinkFile, showAbout, openEditor: _openEditor, closeEditor: _closeEditor, saveNote: _saveNote,
              isEditing: () => _editing,

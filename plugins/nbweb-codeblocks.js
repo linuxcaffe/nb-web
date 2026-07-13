@@ -2974,16 +2974,17 @@
             rect.setAttribute('class', 'nb-config-org-rect');
             g.appendChild(rect);
 
-            // Access tint — only on nodes that explicitly set access:
-            // (inherited access is readable in the tooltip, not painted on every node)
-            const tintColor = node._accessExplicit ? ACCESS_TINTS[node._access] : null;
+            // Access tint — cascades down the branch: every node paints its
+            // effective (own or inherited) access, full opacity where explicitly
+            // set, lighter where just inherited, so the source node still stands out.
+            const tintColor = ACCESS_TINTS[node._access] || null;
             if (tintColor) {
                 const tint = document.createElementNS(NS, 'rect');
                 tint.setAttribute('width',  NW);
                 tint.setAttribute('height', NH);
                 tint.setAttribute('rx', 5);
                 tint.setAttribute('fill', tintColor);
-                tint.setAttribute('fill-opacity', '0.30');
+                tint.setAttribute('fill-opacity', node._accessExplicit ? '0.30' : '0.14');
                 tint.setAttribute('pointer-events', 'none');
                 g.appendChild(tint);
             }

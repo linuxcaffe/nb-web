@@ -1151,6 +1151,7 @@ const NbNav = (() => {
             case 'nb-notebooks': NbMain.runNbNotebooks();                              break;
             case 'plugins':      NbMain.runPlugins();                                  break;
             case 'account':      NbMain.runAccount();                                  break;
+            case 'history':      NbMain.runHistory();                                  break;
             case 'info':      NbMain.runCmd('info');                                   break;
             case 'weather':   NbMain.runCmd('weather');                                break;
         }
@@ -1158,19 +1159,27 @@ const NbNav = (() => {
 
     // ── Side menu ─────────────────────────────────────────────────
 
+    // Bound immediately at script-evaluation time (nav.js runs synchronously,
+    // after the static menu markup in index.html but well before NbMain.init()
+    // -- which only fires once DOMContentLoaded's async chain of
+    // loadLocale/_loadPlugins/_init has resolved). Without this, a click on the
+    // hamburger during that window landed on a button with no listener at all
+    // and was silently swallowed -- confirmed real via Playwright: clicking
+    // #nb-logo-btn right after login left #nb-side-menu's class empty and the
+    // overlay still hidden, with no error of any kind.
+    const _menu    = document.getElementById('nb-side-menu');
+    const _overlay = document.getElementById('nb-menu-overlay');
+    function _openMenu() { _menu.classList.add('open'); _overlay.removeAttribute('hidden'); _pollNbSyncStatus(); }
+    function _shutMenu() { _menu.classList.remove('open'); _overlay.setAttribute('hidden', ''); }
+    document.getElementById('nb-logo-btn').addEventListener('click', _openMenu);
+    _overlay.addEventListener('click', _shutMenu);
+    document.getElementById('nb-menu-header').addEventListener('click', _shutMenu);
+
     function _initMenu() {
-        const logo    = document.getElementById('nb-logo-btn');
-        const overlay = document.getElementById('nb-menu-overlay');
-        const menu    = document.getElementById('nb-side-menu');
-        const header  = document.getElementById('nb-menu-header');
+        const menu    = _menu;
+        const open    = _openMenu;
+        const shut    = _shutMenu;
         const nav     = document.getElementById('nb-menu-nav');
-
-        function open() { menu.classList.add('open'); overlay.removeAttribute('hidden'); _pollNbSyncStatus(); }
-        function shut() { menu.classList.remove('open'); overlay.setAttribute('hidden', ''); }
-
-        logo.addEventListener('click', open);
-        overlay.addEventListener('click', shut);
-        header.addEventListener('click', shut);
 
         const menuSyncBtn = document.getElementById('nb-menu-sync-btn');
         if (menuSyncBtn) {
@@ -1185,7 +1194,7 @@ const NbNav = (() => {
             if (e.key === 'Escape' && menu.classList.contains('open')) shut();
         });
 
-        const _UI_CMDS = new Set(['list','add','todo','cal','templates','nb-notebooks','plugins','g','daily','weather','info','contacts','account']);
+        const _UI_CMDS = new Set(['list','add','todo','cal','templates','nb-notebooks','plugins','g','daily','weather','info','contacts','account','history']);
 
         function _menuAction(cmd) {
             shut();
