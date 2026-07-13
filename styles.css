@@ -1639,10 +1639,15 @@ body {
 .nb-contact-fields    { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .nb-fm-fallback       { padding: 16px 32px; border-bottom: 1px solid var(--border); margin-bottom: 0; }
 
-/* Extras-hidden mode — toggled by ◉/○ button */
-#nb-preview-content.nb-extras-hidden .nb-fm-fallback { display: none; }
-/* Hide annotation foot in extras-hidden mode; Add annotation button is exempt (nb-ann-empty) */
-#nb-preview-content.nb-extras-hidden .nb-annotation-foot:not(:has(.nb-ann-empty)) { display: none; }
+/* Extras-hidden mode -- toggled by the ◉/○ button (session override) or
+   set as a note/folder's own declarative default via ui_hide: fm,annotation
+   (2026-07-12, see _effective_ui_hide in app.py). Two independent classes
+   rather than one combined toggle, since config can hide just one of the
+   two (the manual button still flips both together, matching its
+   existing single-toggle UX -- see ui-chrome.js's _applyExtrasHidden). */
+#nb-preview-content.nb-hide-fm .nb-fm-fallback { display: none; }
+/* Hide annotation foot; Add annotation button is exempt (nb-ann-empty) */
+#nb-preview-content.nb-hide-annotation .nb-annotation-foot:not(:has(.nb-ann-empty)) { display: none; }
 /* Dot badge on extras button when annotation exists but is hidden */
 #nb-extras-btn[data-has-annotation] { position: relative; }
 #nb-extras-btn[data-has-annotation].nb-active::after {

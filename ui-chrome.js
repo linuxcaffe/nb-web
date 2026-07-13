@@ -150,33 +150,85 @@ const NbUiChrome = (() => {
     }
 
     // ── Extras toggle (👁) ─────────────────────────────────────────────
-    // #nb-extras-btn is flagged by djp as to-be-rewritten later -- moved
-    // verbatim, not this tier's concern to polish.
+    // v1 (2026-07-12): frontmatter/annotation visibility can now be set
+    // declaratively per note/folder via ui_hide: fm,annotation (cascading
+    // exactly like claude_account/check_skip -- see _effective_ui_hide,
+    // app.py). _refreshExtrasState is called fresh on every note render
+    // (main.js's _finishRendered), since each note can resolve to a
+    // different value -- unlike the old purely-manual/localStorage-only
+    // toggle, which only ever applied once at page load. A note/folder
+    // with nothing configured anywhere in the cascade falls back to the
+    // old global localStorage toggle, unchanged -- zero regression for
+    // anyone not using this. The manual button/`.` keybind stays a
+    // single blunt "show everything / hide everything" override for the
+    // current note view (matching its pre-existing UX exactly) -- it
+    // does not persist past the next note-open on a note with its own
+    // config, since a declarative per-note preference shouldn't get
+    // silently clobbered by a stale session flag left over from a
+    // different, unconfigured note.
     const _EXTRAS_KEY = 'nb-extras-hidden';
+    let _extrasConfigured = false; // true when the current note resolved a real ui_hide: value
+
+    function _applyExtrasHidden(hidden) {
+        const content = document.getElementById('nb-preview-content');
+        const pane    = document.getElementById('nb-preview-pane');
+        const btn     = document.getElementById('nb-extras-btn');
+        if (!content || !btn) return;
+        content.classList.toggle('nb-hide-fm', hidden);
+        content.classList.toggle('nb-hide-annotation', hidden);
+        pane?.classList.toggle('nb-hide-fm', hidden);
+        pane?.classList.toggle('nb-hide-annotation', hidden);
+        btn.classList.toggle('nb-active', hidden);
+        btn.textContent = hidden ? '○' : '◉';
+        if (hidden) {
+            const panel = document.getElementById('nb-changes-panel');
+            if (panel) panel.hidden = true;
+        }
+    }
 
     function _bindExtrasToggle() {
         const btn     = document.getElementById('nb-extras-btn');
         const content = document.getElementById('nb-preview-content');
-        const pane    = document.getElementById('nb-preview-pane');
         if (!btn || !content) return;
 
-        const _apply = hidden => {
-            content.classList.toggle('nb-extras-hidden', hidden);
-            pane?.classList.toggle('nb-extras-hidden', hidden);
-            btn.classList.toggle('nb-active', hidden);
-            btn.textContent = hidden ? '○' : '◉';
-            if (hidden) {
-                const panel = document.getElementById('nb-changes-panel');
-                if (panel) panel.hidden = true;
-            }
-        };
-        _apply(localStorage.getItem(_EXTRAS_KEY) === '1');
+        _applyExtrasHidden(localStorage.getItem(_EXTRAS_KEY) === '1');
 
         btn.addEventListener('click', () => {
-            const hidden = !content.classList.contains('nb-extras-hidden');
-            localStorage.setItem(_EXTRAS_KEY, hidden ? '1' : '0');
-            _apply(hidden);
+            const hidden = !(content.classList.contains('nb-hide-fm') || content.classList.contains('nb-hide-annotation'));
+            _applyExtrasHidden(hidden);
+            if (!_extrasConfigured) localStorage.setItem(_EXTRAS_KEY, hidden ? '1' : '0');
         });
+    }
+
+    // Called once per note render (main.js's _finishRendered) -- resolves
+    // this specific note's effective_ui_hide (already computed
+    // server-side via the same cascade as claude_account/check_skip).
+    // Independent per-token application (fm-only, annotation-only, or
+    // both) is possible here even though the manual button above only
+    // ever flips both together -- config can be more granular than the
+    // one-button UX needs to be.
+    function _refreshExtrasState(note) {
+        const content = document.getElementById('nb-preview-content');
+        const pane    = document.getElementById('nb-preview-pane');
+        const btn     = document.getElementById('nb-extras-btn');
+        if (!content || !btn) return;
+
+        const tokens = (note?.effective_ui_hide || '').split(',').map(s => s.trim()).filter(Boolean);
+        if (tokens.length) {
+            _extrasConfigured = true;
+            const hideFm  = tokens.includes('fm');
+            const hideAnn = tokens.includes('annotation');
+            content.classList.toggle('nb-hide-fm', hideFm);
+            content.classList.toggle('nb-hide-annotation', hideAnn);
+            pane?.classList.toggle('nb-hide-fm', hideFm);
+            pane?.classList.toggle('nb-hide-annotation', hideAnn);
+            const anyHidden = hideFm || hideAnn;
+            btn.classList.toggle('nb-active', anyHidden);
+            btn.textContent = anyHidden ? '○' : '◉';
+        } else {
+            _extrasConfigured = false;
+            _applyExtrasHidden(localStorage.getItem(_EXTRAS_KEY) === '1');
+        }
     }
 
     const _FM_EMPTY_KEY = 'nb-fm-show-empty'; // must match kernel's _FM_EMPTY_KEY
@@ -943,5 +995,6 @@ const NbUiChrome = (() => {
         setSelectionAnchor: idx => { _lastClickedIdx = idx; },
         deselect: sel => { _selectedSelectors.delete(sel); _updateSelectionUI(); },
         selectedSelectors: () => _selectedSelectors,
+        refreshExtrasState: _refreshExtrasState,
     };
 })();

@@ -1601,6 +1601,7 @@ const NbMain = (() => {
         if (note?.effective_xref ?? note?.meta?.xref) _enrichXref(container, note);
         _injectAccessBadge(note);
         _injectClaudeBadge(note);
+        NbUiChrome.refreshExtrasState(note);
     }
 
     async function _buildTabs(note) {

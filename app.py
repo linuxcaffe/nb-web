@@ -719,6 +719,33 @@ def _effective_claude_account(note_meta, nb_meta):
     return str(nb_meta.get('claude_account') or '')
 
 
+# Tokens ui_hide: is allowed to name, v1. Unknown tokens are silently
+# dropped rather than erroring -- lets nav/opts (a separate, larger
+# follow-up -- global chrome, not part of a note's own rendered content,
+# unlike these two) be written into frontmatter ahead of time without
+# breaking anything once that lands.
+_UI_HIDE_TOKENS_V1 = {'fm', 'annotation'}
+
+def _effective_ui_hide(note_meta, nb_meta):
+    """Return the effective ui_hide: token list (comma-joined string) for
+    a note -- note's own value wins if present, else cascades from
+    folder/notebook/global config, same nearest-wins resolution as
+    _effective_claude_account. Declarative default for the extras-toggle
+    button (nb-extras-btn): a note/folder can decide its frontmatter
+    and/or annotation foot start hidden without a manual per-session
+    toggle. Not a security boundary -- purely a rendering default, same
+    framing as the ui-hide-* access-level mechanism this reuses the
+    cascade pattern from (see claude:nb-web_tier_4b_—_ui-access_hide_profiles_(design).md)
+    -- that one gates action buttons by user level; this one is a
+    content-authoring preference, independent of who's viewing.
+    """
+    raw = note_meta['ui_hide'] if 'ui_hide' in note_meta else nb_meta.get('ui_hide')
+    if not raw:
+        return ''
+    tokens = [t.strip() for t in str(raw).split(',') if t.strip()]
+    return ','.join(t for t in tokens if t in _UI_HIDE_TOKENS_V1)
+
+
 def _resolve_claude_account(selector):
     """Resolve the claude_account: FM cascade for a selector, or '' if
     unconfigured anywhere. Mirrors _resolve_claude_model_flag exactly.
@@ -6055,6 +6082,7 @@ def api_note():
         'effective_check_skip': _collect_check_skip(note_notebook, fpath) if note_notebook else '',
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
+        'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
     })
