@@ -9750,6 +9750,112 @@ def api_import():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+@app.route('/api/item/new', methods=['POST'])
+def api_item_new():
+    """Create one or more shop items from uploaded images -- the nb-web-native
+    equivalent of the nb-new-item desktop script (Caja right-click -> Add New
+    Item), triggered instead from the item specialty header's "+ New" button.
+
+    Unlike /api/import (one file per call, browser-upload branch), this takes
+    several images in a single multipart request -- request.files.getlist --
+    so a multi-select file picker maps to one batched action/commit, not N
+    separate ones. images/ and items/ are fixed targets (matching nb-new-item;
+    there's no folder picker there either), so this only needs `notebook`,
+    not a folder param.
+    """
+    notebook = request.form.get('notebook', '').strip()
+    if not _safe_notebook(notebook):
+        return jsonify({'success': False, 'error': 'invalid notebook'}), 400
+
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'success': False, 'error': 'no files provided'}), 400
+
+    nb_path    = NB_DIR / notebook
+    images_dir = nb_path / 'images'
+    items_dir  = nb_path / 'items'
+    images_dir.mkdir(parents=True, exist_ok=True)
+    items_dir.mkdir(parents=True, exist_ok=True)
+
+    template_path = items_dir / '.templates' / 'item.md'
+    template_text = template_path.read_text(errors='replace') if template_path.exists() else None
+
+    cfg       = _load_settings()
+    max_bytes = cfg['import_max_mb'] * 1024 * 1024
+    today     = datetime.now().strftime('%Y-%m-%d')
+
+    existing_items  = {p.stem for p in items_dir.glob('*.md') if not p.name.startswith('.')}
+    existing_images = {p.name for p in images_dir.iterdir() if p.is_file()} if images_dir.is_dir() else set()
+    batch_stems     = set()   # collisions within this same batch, not just against disk
+
+    results       = []
+    created_paths = []
+
+    for f in files:
+        if not f or not f.filename:
+            continue
+        safe_name = Path(f.filename).name.replace('/', '_').replace('..', '_')
+        chunk = f.read(max_bytes + 1)
+        if len(chunk) > max_bytes:
+            results.append({'file': safe_name, 'ok': False,
+                            'error': f'exceeds {cfg["import_max_mb"]} MB limit'})
+            continue
+
+        stem = Path(safe_name).stem
+        ext  = Path(safe_name).suffix
+
+        # Auto-suffix on collision -- against existing items/images on disk AND
+        # anything already placed earlier in this same batch (two uploads both
+        # named "photo.jpg" must not silently overwrite one another).
+        base = stem
+        n = 2
+        while base in existing_items or base in batch_stems or f'{base}{ext}' in existing_images:
+            base = f'{stem}_{n}'
+            n += 1
+        batch_stems.add(base)
+
+        img_name  = f'{base}{ext}'
+        item_name = f'{base}.md'
+
+        try:
+            (images_dir / img_name).write_bytes(chunk)
+        except OSError as e:
+            results.append({'file': safe_name, 'ok': False, 'error': str(e)})
+            continue
+        existing_images.add(img_name)
+
+        if template_text:
+            item_text = (template_text
+                         .replace('{{title}}', base)
+                         .replace('{{date}}', today))
+            item_text = re.sub(r'^image:.*$', f'image: {img_name}', item_text, count=1, flags=re.MULTILINE)
+        else:
+            item_text = (
+                f'---\ntitle: {base}\ntype: item\ndate: {today}\nstatus: available\n'
+                f'category:\ncaption:\ndescription:\nprice:\nqtty:\nimage: {img_name}\n'
+                f'condition:\nplatform:\nlisting:\ntags: []\n---\n'
+            )
+        (items_dir / item_name).write_text(item_text)
+        existing_items.add(base)
+
+        created_paths += [f'images/{img_name}', f'items/{item_name}']
+        results.append({'file': safe_name, 'ok': True, 'item': base,
+                        'selector': f'{notebook}:items/{item_name}'})
+
+    _nb_index_reconcile(images_dir)
+    _nb_index_reconcile(items_dir)
+
+    if created_paths:
+        env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+        subprocess.run(['git', 'add'] + created_paths + ['images/.index', 'items/.index'],
+                       cwd=str(nb_path), capture_output=True, env=env)
+        names = ', '.join(r['item'] for r in results if r['ok'])
+        subprocess.run(['git', 'commit', '-m', f'[nb] New item(s): {names}'],
+                       cwd=str(nb_path), capture_output=True, env=env)
+
+    return jsonify({'success': any(r['ok'] for r in results), 'results': results})
+
+
 @app.route('/api/contacts/vcf')
 def api_contacts_vcf():
     """Return parsed contacts from the configured VCF source file."""
