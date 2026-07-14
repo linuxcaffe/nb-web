@@ -36,6 +36,8 @@ External plugins live in `~/dev/nbweb-*/` and are wired via `nb-settings.json`.
 - **Dev docs:** `~/.nb/docs/dev/` — 11 files; index at `docs:DEVELOPERS.md`
 - **AI meta-index:** `~/.claude/projects/-home-djp/memory/reference_nb_web_index.md` — "where is X?" for any topic
 
+**Research order for "is X built / current / true" questions:** this file is a fast entry point and a place for hard-won invariants (see below) — it is not the source of truth for status claims. For those, check `docs:dev/` and cross-reference related `claude:` notes before trusting any single one, including this file. Confirmed live 2026-07-13: two `claude:` design notes disagreed about whether a feature already existed, and the wrong one was trusted first — the fix isn't reading this file less, it's never treating one document's claim as settled without checking its neighbors.
+
 ## Testing
 
 The test suite lives in a **separate sibling repo**, not inside this one: `~/dev/nb-web-tests/`, path-pinned to this repo via `sys.path.insert` in its `conftest.py`. Don't go looking for `tests/` in here — it doesn't exist in `nb-web` itself.
@@ -47,6 +49,8 @@ The test suite lives in a **separate sibling repo**, not inside this one: `~/dev
 | Pre-flight lint (cross-module reference/order check) | `.tools/check-module-refs.py` (in this repo) | `python3 .tools/check-module-refs.py` |
 
 Run all three before considering any `main.js`-adjacent change (new satellite extraction, kernel accessor change, `index.html` script-order edit) done. Full strategy doc: `docs:dev/dev-test-suite.md`. Status/history: `reference_nb_web_index.md` in memory, or grep `claude:` notebook for `nb-web-tests`.
+
+**Found a bug? Write the failing test first — before the fix, not afterwards.** A one-off `python3 -c` snippet importing `app.py` to confirm a bug is real and confirm the fix worked is not the same thing and doesn't replace it — it verifies the moment, then evaporates; the codebase's actual regression coverage doesn't grow and the same bug class can recur silently. Add the case to `~/dev/nb-web-tests/`, watch it fail (red), then patch, then watch it pass (green). This applies even under time pressure mid-task — a pattern already established and confirmed working: design-check before fixing, red test before patch, always in that order.
 
 ## Wikilink convention
 

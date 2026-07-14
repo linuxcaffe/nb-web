@@ -4708,7 +4708,7 @@
     // Returns [{label: 'MILESTONE: internal-rc', line: N}, ...]
     function _cbqlMarkerLines(body) {
         return body.split('\n').reduce((acc, line, i) => {
-            const m = line.match(/^> ([A-Z]{2,}:.*)$/);
+            const m = line.match(/^> ([A-Z][A-Z0-9_]+:.*)$/);
             if (m) acc.push({ label: m[1].trim(), line: i });
             return acc;
         }, []);
@@ -4727,6 +4727,11 @@
             const start = lastBill ? lastBill.line + 1 : 0;
             const end   = todayM   ? todayM.line       : lines.length;
             return lines.slice(start, end).join('\n');
+        }
+        if (timeframe === 'future') {
+            const todayM = markers.find(m => /^TODAY:/i.test(m.label));
+            if (!todayM) return '';
+            return lines.slice(todayM.line + 1).join('\n');
         }
         // Specific marker label — the phase ending AT that marker
         const idx = markers.findIndex(m => m.label === timeframe);
@@ -4767,6 +4772,7 @@
             });
             const srcLabel = sourceSel.split(':').pop().replace(/\.md$/i, '');
             const tfLabel  = timeframe === 'current' ? 'current phase'
+                           : timeframe === 'future'  ? 'future/planning'
                            : timeframe === 'all'     ? 'all time'
                            : timeframe;
             metaEl.textContent = totalHrs > 0
@@ -4819,8 +4825,15 @@
         if (!timeframe || timeframe === 'all') return { from: null, to: null };
 
         if (timeframe === 'current') {
+            // TODAY's own text is never the date source — it's written bare and only
+            // its position matters. Real wall-clock `today` is the only authority.
             const last = billing[billing.length - 1];
-            return { from: nextDay(last ? dateFromLabel(last.label) : null), to: todayM ? dateFromLabel(todayM.label) : today };
+            return { from: nextDay(last ? dateFromLabel(last.label) : null), to: today };
+        }
+
+        if (timeframe === 'future') {
+            if (!todayM) return { from: null, to: null }; // no TODAY marker = no defined future
+            return { from: nextDay(today), to: null };
         }
 
         // Specific marker label (e.g. "INVOICED: INV-2026-004  2026-06-27 ...")
@@ -4872,6 +4885,7 @@
             });
             const srcLabel = sourceSel.split(':').pop().replace(/\.md$/i, '');
             const tfLabel  = timeframe === 'current' ? 'current phase'
+                           : timeframe === 'future'  ? 'future/planning'
                            : timeframe === 'all'     ? 'all time' : timeframe;
             metaEl.textContent = `${srcLabel} · ${tfLabel}`;
             el.appendChild(hdr);
@@ -4913,6 +4927,10 @@
         if (timeframe === 'current') {
             if (!hasTodayMarker) return all;
             return new Set(items.reduce((s, m, i) => (m.future ? s : [...s, i]), []));
+        }
+        if (timeframe === 'future') {
+            if (!hasTodayMarker) return new Set();
+            return new Set(items.reduce((s, m, i) => (m.future ? [...s, i] : s), []));
         }
         // Specific marker label — scope = items from after the previous marker up to & including this one
         const endIdx = items.findIndex(m => `${m.type.toUpperCase()}: ${m.ref}` === timeframe);
@@ -4964,10 +4982,10 @@
         typeSel.innerHTML = typeOpts.map(o =>
             `<option value="${_esc(o.val)}">${_esc(o.label)}</option>`).join('');
 
-        // Timeframe — TODAY first, all markers in doc order, All time last
+        // Timeframe — TODAY first, FUTURE next, all markers in doc order, All time last
         const tfSel = document.createElement('select');
         tfSel.className = 'nb-timeline-tf-sel';
-        let tfHtml = `<option value="current">TODAY</option>`;
+        let tfHtml = `<option value="current">TODAY</option><option value="future">FUTURE</option>`;
         if (items.length) {
             tfHtml += `<option disabled>──────</option>`;
             for (const m of items)

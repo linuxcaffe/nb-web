@@ -4060,23 +4060,39 @@ def _last_invoice_cutoff(journal_key: str) -> str:
     return ''
 
 
-def _parse_labour_entries(journal_key: str):
+def _scope_predicate(scope: str, cutoff: str, today: str):
+    """Return fn(entry_date_str) -> bool for the given scope.
+    'since_invoice' (default, billing): after the last INVOICED marker — the
+    real invoicing behaviour, unchanged.
+    'future' (quotes — 'what's left'): strictly after real wall-clock today.
+    Never trust marker text for this, only real dates — see project-today-boundary.
+    'all' (quotes — 'whole job'): everything, no filter."""
+    if scope == 'future':
+        return lambda d: d > today
+    if scope == 'all':
+        return lambda d: True
+    return lambda d: (not cutoff) or d > cutoff
+
+
+def _parse_labour_entries(journal_key: str, scope: str = 'since_invoice'):
     """Parse labour journal into per-entry dicts. Returns (entries, total_cad).
     Each entry: {date, hours, description, amount}
-    Only returns entries after the last INVOICED marker in the project diary."""
+    scope: 'since_invoice' (default, invoicing) | 'future' | 'all' (quotes)."""
     if not journal_key:
         return [], 0.0
     jpath = Path(os.path.expanduser(journal_key))
     labour_j = jpath.with_name(jpath.stem + '-gen.labour.journal')
     if not labour_j.exists():
         return [], 0.0
-    cutoff = _last_invoice_cutoff(journal_key)
+    from datetime import date as _date
+    cutoff  = _last_invoice_cutoff(journal_key) if scope == 'since_invoice' else ''
+    include = _scope_predicate(scope, cutoff, str(_date.today()))
     entries, total, cur = [], 0.0, None
     for line in labour_j.read_text(errors='replace').splitlines():
         m = re.match(r'^(\d{4}-\d{2}-\d{2})\s+\S.*?—\s*([\d.]+)h\s*@\s*\$[\d.]+(?:\s*;\s*(.+))?', line)
         if m:
             entry_date = m.group(1)
-            if cutoff and entry_date < cutoff:
+            if not include(entry_date):
                 cur = None
                 continue
             cur = {'date': entry_date, 'hours': float(m.group(2)),
@@ -4090,20 +4106,37 @@ def _parse_labour_entries(journal_key: str):
     return entries, round(total, 2)
 
 
-def _invoice_journal_totals(journal_key: str):
+def _invoice_journal_totals(journal_key: str, scope: str = 'since_invoice'):
     """Read labour + all csv-token expense journals.
     Returns (labour_total, expense_dict) where expense_dict = {token: (subtotal, gross)}.
-    Discovers tokens by globbing {stem}.*.journal, skipping labour."""
-    _, labour_total = _parse_labour_entries(journal_key)
+    Discovers tokens by globbing {stem}.*.journal, skipping labour.
+    scope: 'since_invoice' (default, invoicing) | 'future' | 'all' (quotes).
+
+    NOTE — behaviour change 2026-07-13: expense (materials) entries previously had
+    NO date filtering at all here, unlike labour — every invoice summed the entire
+    historical materials total, unconditionally. That was latent double-counting
+    (the same material purchase could appear on multiple invoices). Now scoped
+    the same way labour already was, using each transaction's own date line."""
+    _, labour_total = _parse_labour_entries(journal_key, scope)
     expense_dict = {}
     if journal_key:
+        from datetime import date as _date
+        cutoff  = _last_invoice_cutoff(journal_key) if scope == 'since_invoice' else ''
+        include = _scope_predicate(scope, cutoff, str(_date.today()))
         jpath = Path(os.path.expanduser(journal_key))
         for p in sorted(jpath.parent.glob(f'{jpath.stem}-gen.*.journal')):
             token = p.name[len(jpath.stem) + 5:].removesuffix('.journal')  # skip '-gen.'
             if token == 'labour':
                 continue
             sub = gross = 0.0
+            txn_ok = True
             for line in p.read_text(errors='replace').splitlines():
+                m0 = re.match(r'^(\d{4}-\d{2}-\d{2})\s+\S', line)
+                if m0:
+                    txn_ok = include(m0.group(1))
+                    continue
+                if not txn_ok:
+                    continue
                 m = re.match(r'\s+Expenses:\S+\s+([\d.]+)\s+CAD', line)
                 if m: sub += float(m.group(1))
                 m2 = re.match(r'\s+Assets:Bank:\S+\s+-([\d.]+)\s+CAD', line)
@@ -4204,9 +4237,14 @@ def api_t_invoice_preflight():
             journal_key = str(_folder_config(_notebook, str(note_path)).get('journal', '')).strip()
 
     labour_total, expense_dict = _invoice_journal_totals(journal_key)
+    entries, _ = _parse_labour_entries(journal_key)
     mat_sub   = sum(v[0] for v in expense_dict.values())
     mat_gross = sum(v[1] for v in expense_dict.values())
-    labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
+    # Real hours summed from entries, never back-computed from labour_total/rate —
+    # those can disagree whenever the note's current rate differs from whatever
+    # rate was actually baked into historical entries (see rate-drift finding,
+    # claude:nbweb-hledger_plugin_design.md).
+    labour_hours = round(sum(e['hours'] for e in entries), 2)
 
     today = _dt.date.today()
     year  = today.year
@@ -4263,9 +4301,10 @@ def api_t_invoice_generate():
         timedot_key = journal_key.replace('.journal', '-gen.timedot')
 
     labour_total, expense_dict = _invoice_journal_totals(journal_key)
+    entries, _ = _parse_labour_entries(journal_key)
     mat_sub   = sum(v[0] for v in expense_dict.values())
     mat_gross = sum(v[1] for v in expense_dict.values())
-    labour_hours = round(labour_total / rate, 2) if rate > 0 else 0.0
+    labour_hours = round(sum(e['hours'] for e in entries), 2)
 
     # Derive notebook + relative folder
     nb_root     = NB_DIR / notebook
@@ -4330,8 +4369,7 @@ def api_t_invoice_generate():
 ;     {payment_acct:<{W-4}} {ar_total:.2f} CAD
 ;     {ar_acct:<{W-4}}-{ar_total:.2f} CAD'''
 
-    # Per-day labour rows
-    entries, _ = _parse_labour_entries(journal_key)
+    # Per-day labour rows (entries already computed above)
     def _labour_row(e):
         desc = (e['description'] or '—')[:60]
         return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${rate:.2f} | ${e['amount']:.2f} |"
@@ -4447,6 +4485,242 @@ invoice_num: {invoice_num}
     return jsonify({'success': True,
                     'selector': f'{notebook}:{inv_rel}',
                     'path': str(inv_path)})
+
+
+def _find_quote_template(notebook: str, btype: str) -> 'Path | None':
+    """Same lookup shape as _find_invoice_template, for quote-{btype}.md / quote.md."""
+    slug = btype.replace('&', '').replace(' ', '-').strip('-')
+    for name in (f'quote-{slug}.md', f'quote-{btype}.md', 'quote.md'):
+        for base in (NB_DIR / notebook / '.templates', NB_DIR / '.templates'):
+            p = base / name
+            if p.exists():
+                return p
+    return None
+
+
+@app.route('/api/t/quote/preflight')
+def api_t_quote_preflight():
+    """A quote is a report, not a billing event: no ledger block, no diary
+    marker, no accounting implications — just a projection over guesstimated
+    future/all-time diary content, calculated with the same tools as invoicing."""
+    import datetime as _dt
+    selector = request.args.get('selector', '').strip()
+    scope    = request.args.get('scope', 'future').strip()
+    if scope not in ('future', 'all'):
+        return jsonify({'error': "scope must be 'future' or 'all'"}), 400
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    note_path = _resolve_to_nb_path(selector)
+    if not note_path or not note_path.exists():
+        return jsonify({'error': 'note not found'}), 404
+
+    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
+    notebook   = selector.split(':')[0] if ':' in selector else 'home'
+    _fcfg      = _folder_config(notebook, str(note_path))
+    project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
+    rate       = float(meta.get('rate') or _fcfg.get('rate') or 0)
+    btype      = str(meta.get('billing_type') or _fcfg.get('billing_type') or 't&m').strip()
+    client_raw = str(meta.get('client') or _fcfg.get('client') or '').strip()
+    client     = client_raw.replace('contacts:', '').replace('.md', '')
+    journal_key = str(meta.get('journal') or _fcfg.get('journal') or '').strip()
+
+    labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
+    entries, _ = _parse_labour_entries(journal_key, scope)
+    mat_sub   = sum(v[0] for v in expense_dict.values())
+    mat_gross = sum(v[1] for v in expense_dict.values())
+    labour_hours = round(sum(e['hours'] for e in entries), 2)
+
+    today = _dt.date.today()
+    year  = today.year
+    existing = sorted(f.stem for f in (note_path.parent.parent / 'quotes').glob(f'QUO-{year}-*.md'))
+    next_num = (int(existing[-1].split('-')[-1]) + 1) if existing else 1
+
+    return jsonify({
+        'suggested_num':     f'QUO-{year}-{next_num:03d}',
+        'date':              str(today),
+        'scope':             scope,
+        'billing_type':      btype,
+        'project':           project,
+        'client':            client,
+        'client_raw':        client_raw,
+        'rate':              rate,
+        'labour_hours':      labour_hours,
+        'labour_total':      labour_total,
+        'expense_totals':    {t: {'subtotal': s, 'gross': g} for t, (s, g) in expense_dict.items()},
+        'materials_subtotal': mat_sub,
+        'materials_gross':   mat_gross,
+        'empty':             labour_hours == 0 and mat_sub == 0,
+    })
+
+
+@app.route('/api/t/quote/generate', methods=['POST'])
+def api_t_quote_generate():
+    """Writes a type: quote note — a projection, not a transaction. No ledger
+    block, no diary marker appended, no AR/Income posted. Guesstimated hours
+    and materials come from the same timedot/csv blocks as real entries,
+    just dated in the future/all-time scope rather than already-invoiced."""
+    from datetime import date as _date
+    HST = 0.13
+
+    data       = request.get_json(silent=True) or {}
+    selector   = data.get('selector', '').strip()
+    quote_num  = data.get('quote_num', '').strip()
+    scope      = data.get('scope', 'future').strip()
+    q_date     = data.get('date', str(_date.today()))
+    valid_until = data.get('valid_until', '').strip()
+    notes      = data.get('notes', '').strip()
+
+    if scope not in ('future', 'all'):
+        return jsonify({'error': "scope must be 'future' or 'all'"}), 400
+    if not selector or not quote_num:
+        return jsonify({'error': 'selector and quote_num required'}), 400
+
+    note_path = _resolve_to_nb_path(selector)
+    if not note_path or not note_path.exists():
+        return jsonify({'error': 'note not found'}), 404
+
+    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
+    notebook   = selector.split(':')[0] if ':' in selector else 'home'
+    _fcfg      = _folder_config(notebook, str(note_path))
+    project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
+    rate       = float(meta.get('rate') or _fcfg.get('rate') or 0)
+    btype      = str(meta.get('billing_type') or _fcfg.get('billing_type') or 't&m').strip()
+    client_raw = str(meta.get('client') or _fcfg.get('client') or '').strip()
+    client     = client_raw.replace('contacts:', '').replace('.md', '')
+    journal_key = str(meta.get('journal') or _fcfg.get('journal') or '').strip()
+    timedot_key = str(meta.get('timedot_file') or _fcfg.get('timedot_file') or '').strip()
+    if not timedot_key and journal_key:
+        timedot_key = journal_key.replace('.journal', '-gen.timedot')
+
+    labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
+    entries, _ = _parse_labour_entries(journal_key, scope)
+    mat_sub   = sum(v[0] for v in expense_dict.values())
+    mat_gross = sum(v[1] for v in expense_dict.values())
+    labour_hours = round(sum(e['hours'] for e in entries), 2)
+
+    nb_root     = NB_DIR / notebook
+    project_dir = note_path.parent
+    rel_folder  = str(project_dir.relative_to(nb_root))
+    reports_sel = f'{notebook}:{rel_folder}/{note_path.name}'
+
+    to_lines = _lookup_contact(client_raw, project)
+    to_block = '**To:** ' + '  \n'.join(to_lines.splitlines()) if to_lines else f'**To:** {client}'
+
+    proj_stem  = project.split(':')[-1] if ':' in project else project
+    categories = _timedot_categories(timedot_key, project)
+    re_line    = f'project: {proj_stem} ({", ".join(categories)})' if categories else f'project: {proj_stem}'
+
+    if btype == 'cash':
+        est_total     = round(labour_total + mat_gross, 2)
+        total_display = f'**Estimated Total: ${est_total:.2f}** *(cash — no HST)*'
+    else:
+        subtotal      = round(labour_total + mat_sub, 2)
+        total_hst     = round(subtotal * HST, 2)
+        est_total     = round(subtotal + total_hst, 2)
+        total_display = f'**Estimated Subtotal: ${subtotal:.2f} + HST ${total_hst:.2f} = Estimated Total: ${est_total:.2f}**'
+
+    def _labour_row(e):
+        desc = (e['description'] or '—')[:60]
+        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${rate:.2f} | ${e['amount']:.2f} |"
+    labour_lines = '\n'.join(_labour_row(e) for e in entries) if entries else \
+        f"| — | Labour | {labour_hours:.1f} | ${rate:.2f} | ${labour_total:.2f} |"
+    expense_lines = '\n'.join(
+        f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
+        for token, (_, gross) in expense_dict.items()
+    )
+    scope_label = 'remaining work (from tomorrow on)' if scope == 'future' else 'the whole job, start to finish'
+    valid_line  = f' · **Valid until:** {valid_until}' if valid_until else ''
+    notes_md    = f'\n**Notes:** {notes}\n' if notes else ''
+
+    tmpl_path = _find_quote_template(notebook, btype)
+    if tmpl_path:
+        content = tmpl_path.read_text(errors='replace')
+        for k, v in {
+            '{{quote_num}}':        quote_num,
+            '{{client}}':           client,
+            '{{client_raw}}':       client_raw,
+            '{{project}}':          project,
+            '{{reports_selector}}': reports_sel,
+            '{{rate}}':             str(rate),
+            '{{issued}}':           q_date,
+            '{{valid_until}}':      valid_until,
+            '{{scope}}':            scope,
+            '{{scope_label}}':      scope_label,
+            '{{labour_lines}}':     labour_lines,
+            '{{expense_lines}}':    expense_lines,
+            '{{total_line}}':       total_display,
+            '{{notes_section}}':    notes_md,
+            '{{to_block}}':         to_block,
+            '{{re_line}}':          re_line,
+        }.items():
+            content = content.replace(k, v)
+    else:
+        mat_row = f'| Materials (est.) | cost + HST | ${mat_gross:.2f} |\n' if mat_gross > 0 else ''
+        content = f'''---
+title: "{quote_num} — {client}"
+type: quote
+project: {project}
+client: "{client_raw}"
+reports: "{reports_sel}"
+billing_type: {btype}
+rate: {rate}
+scope: {scope}
+issued: "{q_date}"
+valid_until: "{valid_until}"
+status: draft
+quote_num: {quote_num}
+---
+# {quote_num}
+
+**Estimate** — a projection over {scope_label}, calculated with the same tools as
+invoicing but not a billing event: no ledger entries, no accounts affected.
+Actual amounts are determined when the work is done and invoiced separately.
+
+**Issued:** {q_date}{valid_line}
+
+{to_block}
+
+**Re:** {re_line}
+
+---
+
+## Estimated services
+
+| Date | Description | Hours | Rate | Amount |
+|---|---|---|---|---|
+{labour_lines}
+{expense_lines}
+
+{total_display}{notes_md}
+'''
+
+    quo_filename = f'{quote_num}.md'
+    quo_dir      = project_dir.parent / 'quotes'
+    quo_dir.mkdir(exist_ok=True)
+    quo_path     = quo_dir / quo_filename
+    if quo_path.exists():
+        return jsonify({'error': f'{quo_filename} already exists'}), 409
+
+    quo_path.write_text(content)
+
+    index_path = quo_dir / '.index'
+    existing   = index_path.read_text().splitlines() if index_path.exists() else []
+    if quo_filename not in existing:
+        with open(index_path, 'a') as f:
+            f.write(quo_filename + '\n')
+
+    rel_in_nb  = quo_path.relative_to(nb_root)
+    index_rel  = index_path.relative_to(nb_root)
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)],
+                   cwd=str(nb_root), capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m', f'[nb] Added: {quo_filename}'],
+                   cwd=str(nb_root), capture_output=True, env=env)
+
+    quo_rel = quo_path.relative_to(nb_root)
+    return jsonify({'success': True,
+                    'selector': f'{notebook}:{quo_rel}',
+                    'path': str(quo_path)})
 
 
 # Named permission groups for a claude_code terminal launch -- checkbox
