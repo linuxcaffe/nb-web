@@ -6683,14 +6683,10 @@ def api_decrypt_note():
         return jsonify({'error': 'not found'}), 404
     if not fpath.name.endswith('.enc'):
         return jsonify({'error': 'not an encrypted file'}), 400
-    for md in ('sha256', 'md5'):
-        r = subprocess.run(
-            ['openssl', 'enc', '-d', '-aes-256-cbc', '-md', md,
-             '-pass', f'pass:{password}', '-in', str(fpath)],
-            capture_output=True, timeout=10)
-        if r.returncode == 0:
-            return jsonify({'content': r.stdout.decode('utf-8', errors='replace')})
-    return jsonify({'error': 'wrong password'}), 401
+    decrypted, err = _decrypt_note_payload(fpath.read_bytes(), password)
+    if err:
+        return jsonify({'error': 'wrong password'}), 401
+    return jsonify({'content': decrypted.decode('utf-8', errors='replace')})
 
 
 @app.route('/api/note/encrypted', methods=['PUT'])
@@ -6708,14 +6704,10 @@ def api_save_encrypted_note():
         return jsonify({'error': 'not an encrypted file'}), 400
     tmp = Path(tempfile.mktemp(suffix='.enc.tmp', dir=str(fpath.parent)))
     try:
-        r = subprocess.run(
-            ['openssl', 'enc', '-aes-256-cbc', '-md', 'sha256',
-             '-pass', f'pass:{password}', '-out', str(tmp)],
-            input=content.encode('utf-8'),
-            capture_output=True, timeout=10)
-        if r.returncode != 0:
-            return jsonify({'error': 'encryption failed',
-                            'detail': r.stderr.decode(errors='replace')}), 500
+        encrypted, enc_err = _encrypt_payload(content.encode('utf-8'), password)
+        if enc_err:
+            return jsonify({'error': 'encryption failed', 'detail': enc_err}), 500
+        tmp.write_bytes(encrypted)
         tmp.replace(fpath)
         rel      = fpath.relative_to(NB_DIR)
         nb_dir   = NB_DIR / rel.parts[0]
@@ -6760,19 +6752,19 @@ def api_create_encrypted_note():
         parts.append(content)
     note_text = '\n'.join(parts)
 
-    slug = re.sub(r'[^\w]+', '_', title).strip('_').lower()
-    dated_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{slug}.md.enc"
+    # Filename must not reveal the title — the whole point of encrypting the
+    # note is that its subject isn't disclosed. Use an opaque timestamp +
+    # random suffix rather than a slug of the title (which used to leak into
+    # git history, .index, and every file listing even though the body was
+    # encrypted).
+    dated_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(3)}.md.enc"
     fpath = note_dir / dated_filename
     tmp   = Path(tempfile.mktemp(suffix='.enc.tmp', dir=str(note_dir)))
     try:
-        r = subprocess.run(
-            ['openssl', 'enc', '-aes-256-cbc', '-md', 'sha256',
-             '-pass', f'pass:{password}', '-out', str(tmp)],
-            input=note_text.encode('utf-8'),
-            capture_output=True, timeout=10)
-        if r.returncode != 0:
-            return jsonify({'error': 'encryption failed',
-                            'detail': r.stderr.decode(errors='replace')}), 500
+        encrypted, enc_err = _encrypt_payload(note_text.encode('utf-8'), password)
+        if enc_err:
+            return jsonify({'error': 'encryption failed', 'detail': enc_err}), 500
+        tmp.write_bytes(encrypted)
         tmp.replace(fpath)
 
         # Append to nb's .index so the file gets a numeric ID
@@ -7519,6 +7511,25 @@ def _decrypt_payload(data: bytes, password: str) -> tuple:
     if proc.returncode != 0:
         return None, 'Wrong password or corrupted archive.'
     return proc.stdout, None
+
+
+def _decrypt_note_payload(data: bytes, password: str) -> tuple:
+    """Decrypt a per-note .md.enc payload. Tries the current -pbkdf2 scheme
+    first (same as archive encryption, see _encrypt_payload), then falls
+    back to the legacy -md sha256 / -md md5 schemes used by notes encrypted
+    before the KDF unification (2026-07-14) so old notes stay readable.
+    Returns (decrypted_bytes, None) or (None, error)."""
+    decrypted, err = _decrypt_payload(data, password)
+    if not err:
+        return decrypted, None
+    for md in ('sha256', 'md5'):
+        proc = subprocess.run(
+            ['openssl', 'enc', '-d', '-aes-256-cbc', '-md', md, '-pass', f'pass:{password}'],
+            input=data, capture_output=True, timeout=10,
+        )
+        if proc.returncode == 0:
+            return proc.stdout, None
+    return None, 'Wrong password or corrupted note.'
 
 
 def _open_nbz_inner(outer_zf: zipfile.ZipFile, password: str = '') -> tuple:
