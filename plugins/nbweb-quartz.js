@@ -115,11 +115,12 @@
         const footnote = m.footnote
             ? `<div class="nb-wp-footnote">${renderMd(String(m.footnote))}</div>` : '';
 
-        // Items are also a registered specialty type (see NbSpecialty.register('item', ...)
-        // in this same file's module registration below) -- embed its header (status/platform
-        // pills, Sold/Summary actions) directly into the card rather than leaving it as a
-        // separate competing previewRenderer someone would have to toggle to. Only path-based
-        // (isItem) notes get it; plain quartz content pages aren't a specialty type.
+        // Items are also a registered specialty type (see _ensureItemRegistered below) --
+        // embed its header (status/platform pills, Sold/Summary actions) directly into the
+        // card rather than leaving it as a separate competing previewRenderer someone would
+        // have to toggle to. Only path-based (isItem) notes get it; plain quartz content
+        // pages aren't a specialty type.
+        if (isItem) _ensureItemRegistered();
         const specialtyHeader = isItem ? (window.NbSpecialty?.renderHeader?.(note) ?? '') : '';
 
         return specialtyHeader + `<div class="${isItem ? 'nb-item-card' : 'nb-wp-card'}">
@@ -296,8 +297,19 @@ Fields left empty ("") are not shown on the site.
 // renderer, which detects by path and is unrelated to this registration —
 // see nbweb.js's getPreviewRenderers(), which lets both coexist as toggleable
 // alternate views of the same note.
-if (window.NbSpecialty) {
+//
+// NOT done at script-top-level: both this file and nbweb-specialty.js are
+// @type core, and plugin scripts load in file-listing order (roughly
+// alphabetical) -- "quartz" sorts before "specialty", so window.NbSpecialty
+// wouldn't exist yet at the moment this script's top level ran, and the
+// registration would silently no-op. Register lazily instead, the first time
+// an item actually renders -- by then every plugin script has necessarily
+// already loaded, regardless of file order.
+let _itemRegistered = false;
+function _ensureItemRegistered() {
+    if (_itemRegistered || !window.NbSpecialty) return;
     window.NbSpecialty.register('item', { icon: '🏷️', label: 'Item' });
+    _itemRegistered = true;
 }
 
 })();
