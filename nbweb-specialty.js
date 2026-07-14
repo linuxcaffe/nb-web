@@ -353,7 +353,12 @@
         });
     }
 
-    function _renderSpecialtyNote(note) {
+    // Builds just the header bar (icon, label, pills, pair-chip, actions, help)
+    // for a specialty-registered note type. Split out from _renderSpecialtyNote
+    // so other plugins can embed it into their own body rendering (e.g.
+    // nbweb-quartz's item card) instead of only being available as a
+    // full competing previewRenderer — see window.NbSpecialty.renderHeader.
+    function _renderSpecialtyHeader(note) {
         const { icon, label } = _cfg[note.type] || { icon: '📋', label: note.type };
         let pills = [], pillsHtml = '';
         if (note.type === 'invoice') {
@@ -404,6 +409,14 @@
         const helpBtn      = helpTopic
             ? `<button class="nb-specialty-action nb-specialty-help-btn" data-help-topic="${_esc(helpTopic)}" title="Help">?</button>`
             : '';
+        return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
+            ${_navBtn(note.notebook || '', icon)}
+            <span class="nb-specialty-label">${_esc(label)}</span>
+            ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
+        </div>`;
+    }
+
+    function _renderSpecialtyNote(note) {
         let body = note.type === 'project' ? _injectDateContext(note.body || '') : (note.body || '');
         body = body.replace(/^> ([A-Z]{2,}:.*)$/gm, (_, content) => {
             const markerType = (content.match(/^([A-Z]+):/) || [])[1]?.toLowerCase() || 'marker';
@@ -416,11 +429,7 @@
             }
             return `<div class="nb-project-marker" data-marker="${markerType}">${content}</div>\n`;
         });
-        return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
-            ${_navBtn(note.notebook || '', icon)}
-            <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
-        </div>` + NbMain.renderMarkdown(body, note.selector);
+        return _renderSpecialtyHeader(note) + NbMain.renderMarkdown(body, note.selector);
     }
 
     async function _renderDotfileNote(note) {
@@ -717,14 +726,19 @@
     NbWeb.registerModule('specialty', {
         label:                'NbWeb Specialty',
         description:          'Typed note headers for project, invoice, quote, budget and related FM types.',
-        previewRendererDetect: note => !!_cfg[note.type],
+        // 'item' is excluded here even though it's a real _cfg entry — its header is embedded
+        // directly into nbweb-quartz's own item-card renderer (via NbSpecialty.renderHeader)
+        // rather than competing as a second full previewRenderer for the same note. Registering
+        // it in _cfg is still required, for the pills/getActions/nav-popup logic that header
+        // rendering depends on.
+        previewRendererDetect: note => !!_cfg[note.type] && note.type !== 'item',
         previewRenderer: note => {
             if (note.type === 'dashboard') return _renderDashboardNote(note);
             if (note.type === 'dotfile')   return _renderDotfileNote(note);
             if (note.type === 'reports')   return _renderReportsNote(note);
             return _cfg[note.type] ? _renderSpecialtyNote(note) : null;
         },
-        previewTypes: Object.keys(_cfg),
+        previewTypes: Object.keys(_cfg).filter(t => t !== 'item'),
     });
 
     document.addEventListener('click', e => {
@@ -1193,6 +1207,7 @@
         cfg: _cfg,
         register(type, config) { _cfg[type] = config; },
         getActions: () => '',   // overridable: fn(note) => HTML string
+        renderHeader: _renderSpecialtyHeader,   // fn(note) => header HTML string, for embedding in another plugin's own body renderer
     };
 
 })();
