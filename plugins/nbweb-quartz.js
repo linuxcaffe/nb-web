@@ -115,7 +115,14 @@
         const footnote = m.footnote
             ? `<div class="nb-wp-footnote">${renderMd(String(m.footnote))}</div>` : '';
 
-        return `<div class="${isItem ? 'nb-item-card' : 'nb-wp-card'}">
+        // Items are also a registered specialty type (see NbSpecialty.register('item', ...)
+        // in this same file's module registration below) -- embed its header (status/platform
+        // pills, Sold/Summary actions) directly into the card rather than leaving it as a
+        // separate competing previewRenderer someone would have to toggle to. Only path-based
+        // (isItem) notes get it; plain quartz content pages aren't a specialty type.
+        const specialtyHeader = isItem ? (window.NbSpecialty?.renderHeader?.(note) ?? '') : '';
+
+        return specialtyHeader + `<div class="${isItem ? 'nb-item-card' : 'nb-wp-card'}">
   <div class="nb-item-body">
     <div class="nb-item-header">
       <div class="nb-item-name">${_esc(title)}</div>
