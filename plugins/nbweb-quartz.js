@@ -273,7 +273,7 @@ Fields left empty ("") are not shown on the site.
                 scope:       'folder:items',
                 content: () => {
                     const date = new Date().toISOString().slice(0, 10);
-                    return `---\ntitle: \nprice: \nstatus: available\ncategory: \nimage: \ncaption: \ntags: []\ndate: ${date}\n---\n\n`;
+                    return `---\ntitle: \ntype: item\nprice: \nstatus: available\ncategory: \nimage: \ncaption: \ntags: []\ndate: ${date}\n---\n\n`;
                 },
             },
         ],
@@ -281,5 +281,16 @@ Fields left empty ("") are not shown on the site.
         // TODO: addFormExtras — category, status, price, image fields
 
     });
+
+// Register the item type with the specialty-header system (icon/label only —
+// Sold/Summary actions live in nbweb-hledger.js's getActions, same split as
+// invoice/quote there: this plugin owns the shop/item domain, hledger owns
+// the money-tracking actions). Doesn't affect nbweb-quartz's own item-card
+// renderer, which detects by path and is unrelated to this registration —
+// see nbweb.js's getPreviewRenderers(), which lets both coexist as toggleable
+// alternate views of the same note.
+if (window.NbSpecialty) {
+    window.NbSpecialty.register('item', { icon: '🏷️', label: 'Item' });
+}
 
 })();
