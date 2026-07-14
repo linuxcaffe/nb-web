@@ -366,6 +366,7 @@
             if (note.meta?.status)       pills.push(note.meta.status);
             if (note.meta?.billing_type) pills.push(note.meta.billing_type);
             if (note.meta?.client)       pills.push(String(note.meta.client).replace(/^contacts:/, '').replace(/\.md$/, ''));
+            if (note.meta?.platform)     pills.push(note.meta.platform);
             pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
         }
         // Project ↔ Reports pair chip — smart: pre-flights existence, offers create/link on miss
