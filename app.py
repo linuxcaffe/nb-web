@@ -3085,10 +3085,26 @@ def api_hledger_coa_generate():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+    # Resolve each `include` directive to an absolute path and compare against
+    # out_path directly — a substring check on the literal text "accounts.journal"
+    # false-positives whenever the main journal mentions a *different*
+    # accounts.journal (e.g. a hand-written one at another location predating
+    # a wizard regen), silently leaving the newly-generated file uncredited.
     include_needed = True
     if journal_path.exists():
-        if 'accounts.journal' in journal_path.read_text(errors='replace'):
-            include_needed = False
+        for line in journal_path.read_text(errors='replace').splitlines():
+            m = re.match(r'\s*include\s+(\S+)', line)
+            if not m:
+                continue
+            inc = Path(m.group(1).split(';')[0].strip()).expanduser()
+            if not inc.is_absolute():
+                inc = journal_path.parent / inc
+            try:
+                if inc.resolve() == out_path.resolve():
+                    include_needed = False
+                    break
+            except OSError:
+                continue
 
     return jsonify({
         'ok':             True,
