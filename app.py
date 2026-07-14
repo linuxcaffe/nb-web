@@ -6575,6 +6575,54 @@ def api_note_constraints():
     return jsonify(_load_constraints(fpath))
 
 
+@app.route('/api/note/constraints-full')
+def api_note_constraints_full():
+    """Constraints from a note's own folder's .{foldername}.md, normalized to
+    the same widget-type string /api/note/constraints already produces (reuses
+    _normalize_constraint -- same select/area/bool/date/text handling, so this
+    can't drift from what the Frontmatter Changes panel renders), but paired
+    with required: alongside each one instead of dropping it. Consumers that
+    need more than widget typing -- e.g. a fill-in-all-fields modal that has
+    to know which fields are required to show even when blank -- use this;
+    /api/note/constraints (unchanged) still serves the existing FM panel.
+
+    Deliberately reads only the immediate folder's own dotfile, not the full
+    cascade _folder_config/_load_constraints merge -- constraints: is
+    dict-valued and merges key-by-key across levels, which pulled in
+    unrelated inherited fields (a service-pack client:/billing_type: schema)
+    when tried against _folder_config. A folder-specific schema like
+    items/.items.md should show exactly what it declares, nothing inherited.
+    """
+    selector = request.args.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    if selector.startswith('/'):
+        # Absolute path selector — any readable file on the local system,
+        # same bypass api_note() itself uses. Skips run_nb (and therefore
+        # nb's own index) entirely.
+        fpath = Path(selector)
+        if not fpath.exists():
+            return jsonify({'error': 'not found'}), 404
+    else:
+        path_r = run_nb('show', selector, '--path')
+        if not nb_ok(path_r):
+            return jsonify({'error': 'not found'}), 404
+        fpath = Path(path_r['stdout'].strip())
+    folder_cfg_path = fpath.parent / f'.{fpath.parent.name}.md'
+    if not folder_cfg_path.exists():
+        return jsonify({})
+    try:
+        meta, _ = parse_frontmatter(folder_cfg_path.read_text(errors='replace'))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    raw = meta.get('constraints') or {}
+    result = {}
+    for k, v in raw.items():
+        required = bool(v.get('required')) if isinstance(v, dict) else False
+        result[k] = {'widget': _normalize_constraint(v), 'required': required}
+    return jsonify(result)
+
+
 @app.route('/api/note/annotate', methods=['POST', 'DELETE'])
 def api_note_annotate():
     selector = request.args.get('selector', '').strip()

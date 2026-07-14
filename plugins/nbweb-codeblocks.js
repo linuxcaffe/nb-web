@@ -1967,7 +1967,15 @@
         const tail = raw.slice(boundary);
         for (const [key, val] of Object.entries(updates)) {
             const re = new RegExp(`^([ \\t]*${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}):[ \\t]*.*$`, 'm');
-            head = head.replace(re, `$1: ${val}`);
+            if (re.test(head)) {
+                head = head.replace(re, `$1: ${val}`);
+            } else {
+                // Key doesn't exist in this note's FM yet — append it rather than
+                // silently no-op. Needed for any consumer filling in a field a
+                // constraints: schema declares but this particular note never had
+                // (e.g. a required field left blank at creation).
+                head += `\n${key}: ${val}`;
+            }
         }
         return head + tail;
     }
