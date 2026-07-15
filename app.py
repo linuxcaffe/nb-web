@@ -9862,7 +9862,9 @@ def api_item_new():
         return jsonify({'success': False, 'error': 'no images could be saved', 'failures': failures}), 400
 
     item_name = f'{base}.md'
-    image_fm  = image_names[0] if len(image_names) == 1 else '[' + ', '.join(image_names) + ']'
+    # Comma-separated, not a YAML list -- matches nbweb-quartz.js's existing
+    # (m.image || '').split(',') convention for multi-image items.
+    image_fm  = ', '.join(image_names)
 
     if template_text:
         item_text = (template_text
