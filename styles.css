@@ -1040,6 +1040,8 @@ body {
 }
 .nb-inv-primary { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
 .nb-inv-primary:hover { opacity: 0.88; }
+.nb-item-new-filelist { font-size: 0.8em; color: var(--text-muted); margin-bottom: 14px; max-height: 120px; overflow-y: auto; }
+.nb-item-new-file { padding: 2px 0; }
 
 .nb-specialty-pill  {
     padding: 1px 7px;

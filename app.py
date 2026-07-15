@@ -9752,24 +9752,37 @@ def api_import():
 
 @app.route('/api/item/new', methods=['POST'])
 def api_item_new():
-    """Create one or more shop items from uploaded images -- the nb-web-native
-    equivalent of the nb-new-item desktop script (Caja right-click -> Add New
-    Item), triggered instead from the item specialty header's "+ New" button.
+    """Create one shop item, with one or more images, from an upload -- the
+    nb-web-native equivalent of the nb-new-item desktop script (Caja
+    right-click -> Add New Item), triggered instead from the item specialty
+    header's "+ New" button.
 
-    Unlike /api/import (one file per call, browser-upload branch), this takes
-    several images in a single multipart request -- request.files.getlist --
-    so a multi-select file picker maps to one batched action/commit, not N
-    separate ones. images/ and items/ are fixed targets (matching nb-new-item;
-    there's no folder picker there either), so this only needs `notebook`,
-    not a folder param.
+    One item per call, not one item per file: `code` (filename/accounting
+    reference, e.g. ABC123 -- convention, not enforced) and `title`
+    (descriptive text) are distinct and both required. The first uploaded
+    file becomes the primary image (`{code}.ext`); any further files are
+    supplemental images of the *same* item, auto-suffixed `{code}-1.ext`,
+    `{code}-2.ext`, ... so multi-select maps to "one item, several photos",
+    not several items. images/ and items/ are fixed targets (matching
+    nb-new-item; there's no folder picker there either), so this only needs
+    `notebook`, not a folder param.
     """
     notebook = request.form.get('notebook', '').strip()
     if not _safe_notebook(notebook):
         return jsonify({'success': False, 'error': 'invalid notebook'}), 400
 
+    code  = request.form.get('code', '').strip()
+    title = request.form.get('title', '').strip()
+    if not code:
+        return jsonify({'success': False, 'error': 'item code required'}), 400
+    if not title:
+        return jsonify({'success': False, 'error': 'title required'}), 400
+
     files = request.files.getlist('files')
     if not files:
         return jsonify({'success': False, 'error': 'no files provided'}), 400
+
+    safe_code = re.sub(r'[^A-Za-z0-9_-]', '_', code)
 
     nb_path    = NB_DIR / notebook
     images_dir = nb_path / 'images'
@@ -9786,10 +9799,17 @@ def api_item_new():
 
     existing_items  = {p.stem for p in items_dir.glob('*.md') if not p.name.startswith('.')}
     existing_images = {p.name for p in images_dir.iterdir() if p.is_file()} if images_dir.is_dir() else set()
-    batch_stems     = set()   # collisions within this same batch, not just against disk
 
-    results       = []
-    created_paths = []
+    # Auto-suffix the item code itself on collision -- against existing item
+    # notes on disk and against any existing image already using that stem.
+    base = safe_code
+    n = 2
+    while base in existing_items or any(Path(name).stem == base for name in existing_images):
+        base = f'{safe_code}_{n}'
+        n += 1
+
+    image_names   = []
+    failures      = []
 
     for f in files:
         if not f or not f.filename:
@@ -9797,63 +9817,54 @@ def api_item_new():
         safe_name = Path(f.filename).name.replace('/', '_').replace('..', '_')
         chunk = f.read(max_bytes + 1)
         if len(chunk) > max_bytes:
-            results.append({'file': safe_name, 'ok': False,
-                            'error': f'exceeds {cfg["import_max_mb"]} MB limit'})
+            failures.append({'file': safe_name, 'error': f'exceeds {cfg["import_max_mb"]} MB limit'})
             continue
 
-        stem = Path(safe_name).stem
-        ext  = Path(safe_name).suffix
-
-        # Auto-suffix on collision -- against existing items/images on disk AND
-        # anything already placed earlier in this same batch (two uploads both
-        # named "photo.jpg" must not silently overwrite one another).
-        base = stem
-        n = 2
-        while base in existing_items or base in batch_stems or f'{base}{ext}' in existing_images:
-            base = f'{stem}_{n}'
-            n += 1
-        batch_stems.add(base)
-
-        img_name  = f'{base}{ext}'
-        item_name = f'{base}.md'
-
+        ext      = Path(safe_name).suffix
+        img_name = f'{base}{ext}' if not image_names else f'{base}-{len(image_names)}{ext}'
         try:
             (images_dir / img_name).write_bytes(chunk)
         except OSError as e:
-            results.append({'file': safe_name, 'ok': False, 'error': str(e)})
+            failures.append({'file': safe_name, 'error': str(e)})
             continue
-        existing_images.add(img_name)
+        image_names.append(img_name)
 
-        if template_text:
-            item_text = (template_text
-                         .replace('{{title}}', base)
-                         .replace('{{date}}', today))
-            item_text = re.sub(r'^image:.*$', f'image: {img_name}', item_text, count=1, flags=re.MULTILINE)
-        else:
-            item_text = (
-                f'---\ntitle: {base}\ntype: item\ndate: {today}\nstatus: available\n'
-                f'category:\ncaption:\ndescription:\nprice:\nqtty:\nimage: {img_name}\n'
-                f'condition:\nplatform:\nlisting:\ntags: []\n---\n'
-            )
-        (items_dir / item_name).write_text(item_text)
-        existing_items.add(base)
+    if not image_names:
+        return jsonify({'success': False, 'error': 'no images could be saved', 'failures': failures}), 400
 
-        created_paths += [f'images/{img_name}', f'items/{item_name}']
-        results.append({'file': safe_name, 'ok': True, 'item': base,
-                        'selector': f'{notebook}:items/{item_name}'})
+    item_name = f'{base}.md'
+    image_fm  = image_names[0] if len(image_names) == 1 else '[' + ', '.join(image_names) + ']'
+
+    if template_text:
+        item_text = (template_text
+                     .replace('{{title}}', title)
+                     .replace('{{date}}', today))
+        item_text = re.sub(r'^image:.*$', f'image: {image_fm}', item_text, count=1, flags=re.MULTILINE)
+    else:
+        item_text = (
+            f'---\ntitle: {title}\ntype: item\ndate: {today}\nstatus: available\n'
+            f'category:\ncaption:\ndescription:\nprice:\nqtty:\nimage: {image_fm}\n'
+            f'condition:\nplatform:\nlisting:\ntags: []\n---\n'
+        )
+    (items_dir / item_name).write_text(item_text)
 
     _nb_index_reconcile(images_dir)
     _nb_index_reconcile(items_dir)
 
-    if created_paths:
-        env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
-        subprocess.run(['git', 'add'] + created_paths + ['images/.index', 'items/.index'],
-                       cwd=str(nb_path), capture_output=True, env=env)
-        names = ', '.join(r['item'] for r in results if r['ok'])
-        subprocess.run(['git', 'commit', '-m', f'[nb] New item(s): {names}'],
-                       cwd=str(nb_path), capture_output=True, env=env)
+    created_paths = [f'images/{n}' for n in image_names] + [f'items/{item_name}']
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add'] + created_paths + ['images/.index', 'items/.index'],
+                   cwd=str(nb_path), capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m', f'[nb] New item: {base} ({len(image_names)} image(s))'],
+                   cwd=str(nb_path), capture_output=True, env=env)
 
-    return jsonify({'success': any(r['ok'] for r in results), 'results': results})
+    return jsonify({
+        'success':  True,
+        'item':     base,
+        'selector': f'{notebook}:items/{item_name}',
+        'images':   image_names,
+        'failures': failures,
+    })
 
 
 @app.route('/api/contacts/vcf')
