@@ -401,6 +401,26 @@ def _get_secret_key():
 
 app.secret_key = _get_secret_key()
 
+# Persistent local API token -- for standalone desktop scripts (nb-new-item,
+# etc.) that call nb-web's HTTP API directly, outside any browser session.
+# Same pattern as _get_secret_key(): generated once, stored 0600 next to
+# app.py. Not a per-user credential -- scripts run as whoever is at the
+# keyboard on this single-user machine, so the token maps to a fixed
+# account (NB_WEB_API_USER, default 'djp') rather than being minted per login
+# like the short-lived MCP token.
+_API_TOKEN_FILE = Path(__file__).parent / '.api_token'
+API_TOKEN_USER  = os.environ.get('NB_WEB_API_USER', 'djp')
+
+def _get_api_token():
+    if _API_TOKEN_FILE.exists():
+        return _API_TOKEN_FILE.read_text().strip()
+    key = secrets.token_hex(32)
+    _API_TOKEN_FILE.write_text(key + '\n')
+    _API_TOKEN_FILE.chmod(0o600)
+    return key
+
+API_TOKEN = _get_api_token()
+
 _RE_USERNAME = re.compile(r'^[a-zA-Z0-9_.-]+$')
 
 def _load_user(username):
@@ -1055,6 +1075,15 @@ def _check_auth():
         if mcp_user is None:
             return jsonify(error='invalid or expired MCP token'), 401
         session['user'] = mcp_user
+        return
+    api_token = request.headers.get('X-Nbweb-Api-Token')
+    if api_token:
+        if not secrets.compare_digest(api_token, API_TOKEN):
+            return jsonify(error='invalid API token'), 401
+        api_user = _load_user(API_TOKEN_USER)
+        if api_user is None:
+            return jsonify(error='API token user not found'), 401
+        session['user'] = api_user
         return
     if not session.get('user'):
         if request.path.startswith('/api/') or request.path.startswith('/ws'):

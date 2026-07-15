@@ -10,3 +10,5 @@ nb-settings.json
 node_modules/
 .agent-locks.json
 graphify-out/
+.flask_secret
+.api_token
