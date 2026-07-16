@@ -4436,11 +4436,11 @@ const NbMain = (() => {
   <section class="nb-acct-section" style="margin-bottom:24px">
     <h3 style="font-size:13px;font-weight:600;margin:0 0 10px">Change password</h3>
     <div style="display:grid;gap:6px">
-      <input id="nb-acct-pw-cur"  type="password" placeholder="Current password"
+      <input id="nb-acct-pw-cur"  type="password" placeholder="Current password" autocomplete="current-password"
              style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
-      <input id="nb-acct-pw-new"  type="password" placeholder="New password"
+      <input id="nb-acct-pw-new"  type="password" placeholder="New password" autocomplete="new-password"
              style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
-      <input id="nb-acct-pw-new2" type="password" placeholder="Confirm new password"
+      <input id="nb-acct-pw-new2" type="password" placeholder="Confirm new password" autocomplete="new-password"
              style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
       <button id="nb-acct-pw-save" class="nb-btn" style="font-size:12px;width:max-content">Change password</button>
     </div>
