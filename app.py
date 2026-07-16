@@ -5596,6 +5596,15 @@ def api_config_create():
 
     if not notebook or not _safe_notebook(notebook):
         return jsonify({'error': 'invalid notebook'}), 400
+    if notebook in DOTFOLDERS:
+        # DOTFOLDERS (.checks, .templates, .rules, .users, etc.) are listed
+        # alongside real notebooks in /api/notebooks for admin+ users, with
+        # no visual distinction -- an easy, unintentional pick. They're
+        # system config areas, never designed to carry a dashboard/dotfile
+        # of their own the way a real notebook does. Found 2026-07-16: a
+        # dashboard/dotfile accidentally created against .checks this way.
+        return jsonify({'error': f'{notebook} is a system config folder, not a notebook -- '
+                                  f'dashboards/dotfiles can\'t be created inside it'}), 400
 
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'user'):
