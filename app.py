@@ -1065,6 +1065,59 @@ def _resolve_mcp_token(token):
     return entry['user']
 
 
+def _notebook_in_scope(user, name):
+    """True if `name` is visible to `user` given their notebooks: scope
+    (empty/absent notebooks: means unrestricted). tech always sees
+    everything, matching _notebook_scope_check's own bypass. Shared by the
+    /api/notebooks and /api/nb/notebooks listing filters so a scoped
+    user's notebook switcher only ever shows what they can actually open --
+    without this, they'd see (and 403 on) notebooks outside their scope."""
+    if user.get('level') == 'tech':
+        return True
+    restrict = user.get('notebooks') or []
+    return not restrict or name in restrict
+
+
+def _notebook_scope_check():
+    """If the current user's account restricts them to specific notebooks
+    (notebooks: non-empty), reject any request naming a notebook outside
+    that list. tech level always bypasses -- the same recovery/owner
+    escape hatch _can_access already grants for username-locked notes.
+
+    Deliberately centralized here (2026-07-16) rather than patched into
+    _can_access + its ~17 call sites: every notebook-scoped request across
+    the whole codebase names the notebook via exactly one of two keys --
+    `notebook` or `selector` (notebook:path form) -- as a query param, form
+    field, or JSON body key (confirmed: 116 call sites, only those two key
+    names, no URL-path-embedded notebook names exist). One chokepoint here
+    covers all of them, present and future, instead of scattered patches
+    that are easy to miss one of.
+
+    Fails open for requests that don't name a specific notebook at all
+    (global/meta endpoints like /api/notebooks itself, which already
+    filters its returned list via _can_access separately) -- this is a
+    hard boundary for the common request shapes, not a full capability
+    system.
+    """
+    user = session.get('user') or {}
+    if user.get('level') == 'tech':
+        return None
+    restrict = user.get('notebooks') or []
+    if not restrict:
+        return None
+    json_body = request.get_json(silent=True) or {}
+    for src in (request.values, json_body):
+        nb = str(src.get('notebook') or '').strip()
+        if nb and nb != '_all' and nb not in restrict:
+            return jsonify(error='forbidden: notebook not in your account scope'), 403
+        sel = str(src.get('selector') or '').strip()
+        if sel and ':' in sel:
+            sel_nb = sel.split(':', 1)[0].strip()
+            if sel_nb and sel_nb != '_all' and sel_nb not in restrict:
+                return jsonify(error='forbidden: notebook not in your account scope'), 403
+    return None
+
+
 @app.before_request
 def _check_auth():
     if request.path in ('/login', '/logout', '/setup'):
@@ -1075,7 +1128,7 @@ def _check_auth():
         if mcp_user is None:
             return jsonify(error='invalid or expired MCP token'), 401
         session['user'] = mcp_user
-        return
+        return _notebook_scope_check()
     api_token = request.headers.get('X-Nbweb-Api-Token')
     if api_token:
         if not secrets.compare_digest(api_token, API_TOKEN):
@@ -1084,11 +1137,12 @@ def _check_auth():
         if api_user is None:
             return jsonify(error='API token user not found'), 401
         session['user'] = api_user
-        return
+        return _notebook_scope_check()
     if not session.get('user'):
         if request.path.startswith('/api/') or request.path.startswith('/ws'):
             return jsonify(error='Authentication required'), 401
         return redirect('/login')
+    return _notebook_scope_check()
 
 _LOGIN_HTML = '''<!DOCTYPE html>
 <html>
@@ -5026,9 +5080,9 @@ def api_notebooks():
     user = session.get('user', {})
     user_level = user.get('level', '')
     names = [n for n in names
-             if _can_access(user, {}, _notebook_config(n))]
+             if _can_access(user, {}, _notebook_config(n)) and _notebook_in_scope(user, n)]
     if _level_gte(user_level, 'admin'):
-        names += [d for d in DOTFOLDERS if (NB_DIR / d).is_dir()]
+        names += [d for d in DOTFOLDERS if (NB_DIR / d).is_dir() and _notebook_in_scope(user, d)]
     return jsonify({'notebooks': names, 'current_notebook': current_nb,
                     'notebook_prefs': notebook_prefs})
 
@@ -8893,11 +8947,12 @@ def api_nb_notebooks():
     user = session.get('user', {})
     user_level = user.get('level', '')
     notebooks = [n for n in notebooks
-                 if _can_access(user, {}, _notebook_config(n['name']))]
+                 if _can_access(user, {}, _notebook_config(n['name']))
+                 and _notebook_in_scope(user, n['name'])]
     if _level_gte(user_level, 'admin'):
         for df in DOTFOLDERS:
             df_path = NB_DIR / df
-            if not df_path.is_dir():
+            if not df_path.is_dir() or not _notebook_in_scope(user, df):
                 continue
             count = sum(1 for f in df_path.iterdir()
                         if f.is_file() and not f.name.startswith('.'))
@@ -10788,6 +10843,10 @@ def api_create_user():
     caller = session.get('user', {})
     if LEVELS.index(level) > LEVELS.index(caller.get('level', 'guest')):
         return jsonify(error='Cannot create user with higher level than your own'), 403
+    # notebooks: is a hard access-scope boundary (enforced in _notebook_scope_check) --
+    # only tech may set it, at creation or later, same as editing an existing user.
+    if notebooks and caller.get('level') != 'tech':
+        return jsonify(error='Only tech can set notebooks scope'), 403
 
     path = USERS_DIR / f'{username}.md'
     if path.exists():
@@ -10830,6 +10889,13 @@ def api_update_user(username):
             return jsonify(error='Cannot elevate user above your own level'), 403
         meta['level'] = new_level
     if 'notebooks' in data:
+        # notebooks: is a hard access-scope boundary (enforced in
+        # _notebook_scope_check), not an ordinary profile field -- only
+        # tech may change it, in either direction (setting OR clearing a
+        # restriction), so an admin-level caller can't quietly widen their
+        # own or another account's scope back open.
+        if caller.get('level') != 'tech':
+            return jsonify(error='Only tech can edit notebooks scope'), 403
         meta['notebooks'] = list(data['notebooks'])
     if 'password' in data and data['password']:
         meta['password_hash'] = generate_password_hash(str(data['password']))
