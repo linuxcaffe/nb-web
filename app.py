@@ -10586,17 +10586,21 @@ def api_check_glob():
 def api_check_batch():
     """Run multiple check scripts in parallel with a single round trip.
 
-    Request:  { "scripts": ["hl-ok", "nb-dirty", ...], "selector": "accts:review.md" }
+    Request:  { "scripts": ["hl-ok", "nb-dirty", ...], "selector": "accts:review.md", "force": false }
     Response: { "hl-ok": { "stdout": "", "exit_code": 0 }, ... }
 
     Scripts are deduplicated before running.  Cache is checked per-script
-    using the same key/TTL as /api/check/run so results are shared.
+    using the same key/TTL as /api/check/run so results are shared -- and,
+    same as /api/check/run, "force": true bypasses it for a guaranteed-fresh
+    run (a sweep/cron caller checking current state shouldn't silently get a
+    stale pass from an unrelated UI view within the last 30s).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     data     = request.get_json(force=True) or {}
     scripts  = [s for s in (data.get('scripts') or []) if isinstance(s, str)]
     selector = (data.get('selector') or '').strip()
+    force    = bool(data.get('force', False))
 
     if not scripts:
         return jsonify({})
@@ -10619,9 +10623,10 @@ def api_check_batch():
             return script_name, {'error': 'invalid script name', 'exit_code': 1, 'stdout': ''}
         cache_key = (script_name, selector)
         now = time.time()
-        entry = _check_cache.get(cache_key)
-        if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
-            return script_name, entry['result']
+        if not force:
+            entry = _check_cache.get(cache_key)
+            if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
+                return script_name, entry['result']
         script_path = CHECK_DIR / script_name
         if not script_path.exists() and not script_name.endswith('.sh'):
             script_path = CHECK_DIR / (script_name + '.sh')
