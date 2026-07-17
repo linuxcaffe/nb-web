@@ -4078,7 +4078,41 @@
     // ── sysadmin ──────────────────────────────────────────────────────────────
 
     function _dispatchSysadminBlock(el) {
-        return el.dataset.mode === 'users' ? _loadSysadminUsersBlock(el) : _loadSysadminBlock(el);
+        if (el.dataset.mode === 'users')    return _loadSysadminUsersBlock(el);
+        if (el.dataset.mode === 'crontab')  return _loadSysadminCrontabBlock(el);
+        return _loadSysadminBlock(el);
+    }
+
+    async function _loadSysadminCrontabBlock(el) {
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch('/api/sysadmin/crontab');
+            if (r.status === 403) { el.innerHTML = '<span class="nb-sa-muted">Crontab view requires tech level.</span>'; return; }
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            const entries = d.entries || [];
+
+            const rows = entries.map(e => `<tr>
+                <td class="nb-sa-muted"><code>${_esc(e.schedule)}</code></td>
+                <td><code>${_esc(e.command)}</code></td>
+                <td class="nb-sa-muted">${_esc(e.description || '')}</td>
+            </tr>`).join('');
+
+            el.innerHTML = `
+                <div class="nb-sa-section">
+                    <div class="nb-sa-heading">Crontab
+                        <span class="nb-sa-muted">${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}</span>
+                    </div>
+                    ${entries.length
+                        ? `<table class="nb-sa-table">
+                            <thead><tr><th>Schedule</th><th>Command</th><th>Description</th></tr></thead>
+                            <tbody>${rows}</tbody>
+                          </table>`
+                        : '<span class="nb-sa-muted">No crontab entries.</span>'}
+                </div>`;
+        } catch(e) {
+            el.innerHTML = `<span style="color:var(--red)">⚠ ${_esc(String(e))}</span>`;
+        }
     }
 
     const _SA_LEVELS = ['guest', 'user', 'office', 'admin', 'tech'];

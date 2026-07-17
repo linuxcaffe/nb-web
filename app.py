@@ -10807,6 +10807,47 @@ def api_sysadmin():
     })
 
 
+@app.route('/api/sysadmin/crontab')
+def api_sysadmin_crontab():
+    """Return the current user's crontab, parsed into schedule/command/description.
+
+    A `#`-comment line (or contiguous run of them) immediately above an entry
+    is taken as that entry's description -- the convention already used for
+    the publish-sweep entry (see nb-sweep-log/check-sweep.py). No crontab at
+    all (crontab -l exits 1) is a normal, valid state, not an error.
+    """
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify(error='forbidden'), 403
+
+    try:
+        r = subprocess.run(['crontab', '-l'], capture_output=True, text=True, timeout=5)
+    except Exception as e:
+        return jsonify({'entries': [], 'error': str(e)})
+
+    entries = []
+    pending_desc = []
+    if r.returncode == 0:
+        for line in r.stdout.splitlines():
+            line = line.rstrip()
+            if not line.strip():
+                pending_desc = []
+                continue
+            if line.lstrip().startswith('#'):
+                pending_desc.append(line.lstrip('#').strip())
+                continue
+            m = re.match(r'^(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.*)$', line)
+            if m:
+                entries.append({
+                    'schedule':    m.group(1),
+                    'command':     m.group(2),
+                    'description': ' '.join(pending_desc),
+                })
+            pending_desc = []
+
+    return jsonify({'entries': entries})
+
+
 # ---------------------------------------------------------------------------
 # API: User management (admin+)
 # ---------------------------------------------------------------------------
