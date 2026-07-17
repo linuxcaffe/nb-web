@@ -9859,6 +9859,10 @@ def api_item_new():
     not several items. images/ and items/ are fixed targets (matching
     nb-new-item; there's no folder picker there either), so this only needs
     `notebook`, not a folder param.
+
+    `tags` is optional, a comma-separated string (e.g. from Pix's embedded
+    IPTC/XMP Keywords) -- pre-fills the item's `tags:` list instead of
+    leaving it empty for the user to fill in later.
     """
     notebook = request.form.get('notebook', '').strip()
     if not _safe_notebook(notebook):
@@ -9870,6 +9874,12 @@ def api_item_new():
         return jsonify({'success': False, 'error': 'item code required'}), 400
     if not title:
         return jsonify({'success': False, 'error': 'title required'}), 400
+
+    # Optional, comma-separated -- e.g. tags read off the source images'
+    # embedded IPTC/XMP Keywords by the calling script (Pix carries tags
+    # this way when "store metadata in files" is on).
+    raw_tags = request.form.get('tags', '')
+    tags     = [t.strip() for t in raw_tags.split(',') if t.strip()]
 
     files = request.files.getlist('files')
     if not files:
@@ -9928,18 +9938,21 @@ def api_item_new():
     item_name = f'{base}.md'
     # Comma-separated, not a YAML list -- matches nbweb-quartz.js's existing
     # (m.image || '').split(',') convention for multi-image items.
-    image_fm  = ', '.join(image_names)
+    image_fm = ', '.join(image_names)
+    tags_fm  = '[' + ', '.join(tags) + ']'
 
     if template_text:
         item_text = (template_text
                      .replace('{{title}}', title)
                      .replace('{{date}}', today))
         item_text = re.sub(r'^image:.*$', f'image: {image_fm}', item_text, count=1, flags=re.MULTILINE)
+        if tags:
+            item_text = re.sub(r'^tags:.*$', f'tags: {tags_fm}', item_text, count=1, flags=re.MULTILINE)
     else:
         item_text = (
             f'---\ntitle: {title}\ntype: item\ndate: {today}\nstatus: available\n'
             f'category:\ncaption:\ndescription:\nprice:\nqtty:\nimage: {image_fm}\n'
-            f'condition:\nplatform:\nlisting:\ntags: []\n---\n'
+            f'condition:\nplatform:\nlisting:\ntags: {tags_fm}\n---\n'
         )
     (items_dir / item_name).write_text(item_text)
 
