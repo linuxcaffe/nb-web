@@ -101,6 +101,22 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Build-time smoke test, not a runtime one: fail the BUILD if a dependency
+# app.py silently degrades without (rather than crashing on) isn't actually
+# installed. This is the exact gap that caused the 2026-07-18 "everything is
+# broken" incident -- app.py wraps `import yaml` in try/except ImportError
+# with no crash and no log line, so a missing PyYAML silently turned every
+# structured frontmatter value (dicts, arrays) into an unparsed raw string
+# across unrelated features (checks, hledger, taskwarrior, git, nb command
+# dispatch...) instead of loudly failing anywhere. Deliberately does NOT
+# `import app` here -- that would trigger app.py's own module-load side
+# effects (_get_secret_key()/_get_api_token() writing .flask_secret/
+# .api_token next to themselves), baking a throwaway secret into this image
+# layer, which is exactly what the bind-mounted-secrets design avoids.
+# See claude:nb-web_phase2_docker_and_permissions_2026-07-18.md.
+RUN python3 -c "import yaml, markdown" || \
+    (echo "FATAL: a dependency app.py silently degrades without (not crashes without) failed to import -- see the comment above this RUN step" && exit 1)
+
 COPY . .
 RUN chown -R nbweb:nbweb /app
 
