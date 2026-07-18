@@ -107,5 +107,6 @@ USER nbweb
 # ERROR on every boot, though non-fatal). Not needed here -- systemd/Podman
 # already own process control -- so disabled outright rather than carving
 # out another writable exception for a feature nothing uses.
-CMD ["gunicorn", "--worker-class", "gthread", "--workers", "1", "--threads", "8", \
-     "--graceful-timeout", "8", "--no-control-socket", "--bind", "0.0.0.0:5001", "app:app"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "--worker-class", "gthread", "--workers", "1", \
+     "--threads", "8", "--graceful-timeout", "8", "--no-control-socket", \
+     "--bind", "0.0.0.0:5001", "app:app"]
