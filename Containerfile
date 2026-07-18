@@ -60,6 +60,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # and box-owner uid are no longer the same thing by definition.
 RUN groupadd --gid 1000 nbweb && useradd --uid 1000 --gid nbweb --create-home nbweb
 
+# `nb` refuses to do anything useful without a configured git identity --
+# a fresh container user with no ~/.gitconfig gets `nb`'s own first-run
+# setup wizard text instead of real output, which app.py's run_nb() then
+# silently parses as data (same failure shape as the $EDITOR issue below).
+# Matches the identity every existing commit in ~/.nb was already made
+# under -- not a placeholder, since Phase 2 is single-tenant and djp is
+# the only author these commits will ever have.
+RUN su nbweb -c "git config --global user.name 'linuxcaffe' && git config --global user.email 'davamundo@gmail.com'"
+
 WORKDIR /app
 
 COPY requirements.txt .
@@ -74,6 +83,14 @@ RUN chown -R nbweb:nbweb /app
 # convention.
 ENV NB_DIR=/data
 ENV NB_WEB_HOST=0.0.0.0
+# The bare-metal server has always had $EDITOR set via the desktop session
+# environment it inherits -- the container has no such session, so `nb`
+# printed its own "$EDITOR not set" help text on every call instead of real
+# output, and app.py's run_nb() (which just captures stdout as-is) silently
+# parsed that help text as data. Confirmed nb-web never needs an editor to
+# actually launch -- every `nb edit` call in app.py passes --content
+# explicitly -- so `true` is a safe no-op, not a masked real dependency.
+ENV EDITOR=true
 VOLUME /data
 
 EXPOSE 5001
