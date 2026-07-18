@@ -1,7 +1,10 @@
 # nb-web — Phase 2 single-tenant image (see claude:nb_web.md roadmap).
 #
-# Build:
-#   podman build -t nb-web -f Containerfile .
+# Build (GIT_COMMIT bakes in which commit this image actually is -- see the
+# LABEL below; without it nbweb-tui's Process tab can't tell a stale image
+# apart from one that matches the current checkout):
+#   podman build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
+#     -t nb-web -f Containerfile .
 #
 # Run (djp as tenant 0, real ~/.nb mounted read-write):
 #   podman run -d --name nb-web \
@@ -9,7 +12,12 @@
 #     -v ~/.nb:/data:Z \
 #     -v ~/.nb-web-secrets/.flask_secret:/app/.flask_secret:Z \
 #     -v ~/.nb-web-secrets/.api_token:/app/.api_token:Z \
+#     -v ~/.nb-web-secrets/nb-settings.json:/app/nb-settings.json:Z \
 #     nb-web
+#
+# In practice: `systemctl --user restart container-nb-web.service` after a
+# rebuild (see ~/.config/systemd/user/container-nb-web.service) -- this raw
+# `podman run` form is for a first-time/manual run.
 #
 # The two secret files are bind-mounted individually rather than baked into
 # the image or left inside /app: app.py auto-generates them next to itself
@@ -27,20 +35,39 @@
 
 FROM python:3.10-slim-bookworm
 
+# Which commit this image actually is -- read by nbweb-tui's Process tab
+# (process.nb_web_commit()) so a stale, un-rebuilt image reports its real,
+# stale commit instead of silently reading the checkout's current HEAD and
+# claiming to be up to date. Defaults to "unknown" if built without the
+# --build-arg, rather than a misleading guess.
+ARG GIT_COMMIT=unknown
+LABEL nb_web_commit=$GIT_COMMIT
+
 # git: nb CLI + every notebook's own git repo. hledger/taskwarrior: the two
 # plugin codeblock backends that already degrade gracefully (503) if
 # missing, but Phase 2's own scope is a real single-tenant deploy, not a
-# crippled one. nodejs/npm: nb CLI's install/distribution mechanism (it's a
-# shell script; npm just bundles and can update it).
+# crippled one.
+#
+# `nb` itself is fetched directly (git clone --depth 1, public HTTPS, no
+# auth needed) rather than via `apt install nodejs npm && npm install -g
+# nb.sh` -- nb is a plain bash script (confirmed: `head -1` on the real
+# installed binary is `#!/usr/bin/env bash`), npm was only ever being used
+# as an installer convenience. Real cost discovered the hard way: Debian's
+# nodejs/npm packages drag in a huge, mostly-irrelevant dependency tree
+# (webpack, eslint, jest, babel -- none of which `nb` needs), which under
+# rootless Podman's --userns=keep-id turned "create a fresh container" into
+# a 3+ minute operation (per-file chown of the whole ID-mapped layer copy,
+# confirmed via `time podman run`) -- unworkable for a tool restarted on
+# every code change. Cloning just the script avoids the entire dependency
+# tree.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
-        nodejs \
-        npm \
         hledger \
         taskwarrior \
-    && npm install -g nb.sh \
-    && rm -rf /var/lib/apt/lists/*
+    && git clone --depth 1 https://github.com/linuxcaffe/nb.git /tmp/nb-src \
+    && install -m 0755 /tmp/nb-src/nb /usr/local/bin/nb \
+    && rm -rf /tmp/nb-src /var/lib/apt/lists/*
 
 # Dedicated, non-root service user/group — the "process ceiling" answer the
 # security-architecture tree left open (see
