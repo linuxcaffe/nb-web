@@ -12,8 +12,7 @@
 #     -v ~/.nb:/home/nbweb/.nb:Z \
 #     -v ~/.taskrc:/home/nbweb/.taskrc:Z,ro \
 #     -v ~/.task:/home/nbweb/.task:Z \
-#     -v ~/dev/nbweb-cine:/home/nbweb/dev/nbweb-cine:Z,ro \
-#     -v ~/dev/nbweb-claude:/home/nbweb/dev/nbweb-claude:Z,ro \
+#     -v ~/dev:/home/nbweb/dev:Z,ro \
 #     -v ~/.nb-web-secrets/.flask_secret:/app/.flask_secret:Z \
 #     -v ~/.nb-web-secrets/.api_token:/app/.api_token:Z \
 #     -v ~/.nb-web-secrets/nb-settings.json:/app/nb-settings.json:Z \
@@ -39,16 +38,22 @@
 # testing (task count failed -- "no rc file" -- because .taskrc wasn't
 # mounted, then failed again after mounting it because the absolute path
 # didn't resolve); fixed at the source (`data.location=~/.task`, taskwarrior
-# expands `~` itself) rather than patched per-environment. ~/dev/nbweb-cine
-# and ~/dev/nbweb-claude are nb-web's own plugin repos, referenced from
-# inside ~/.nb via *relative* symlinks under .web/external/ (see app.py's
-# _COURIER_PRIME_DIR / _NBWEB_CLAUDE_MCP_SERVER) -- relative, not absolute,
-# so they resolve correctly regardless of which username owns the home
-# directory on either side (an absolute-target version of these same
-# symlinks was also found broken live: it hardcoded djp's host username into
-# the symlink target, which doesn't exist inside the container's nbweb
-# home). Mounted read-only at the same host-relative sibling path (.nb and
-# dev/* as siblings, on both sides) so the relative symlinks resolve.
+# expands `~` itself) rather than patched per-environment. ~/dev is mounted
+# wholesale (read-only), not per-repo: nb-web's own plugin repos
+# (nbweb-cine, nbweb-claude) are referenced from inside ~/.nb via *relative*
+# symlinks under .web/external/ (see app.py's _COURIER_PRIME_DIR /
+# _NBWEB_CLAUDE_MCP_SERVER) -- relative, not absolute, so they resolve
+# correctly regardless of which username owns the home directory on either
+# side (an absolute-target version of these same symlinks was also found
+# broken live: it hardcoded djp's host username into the symlink target,
+# which doesn't exist inside the container's nbweb home). Separately, the
+# sysadmin dashboard's git-status codeblock reads an arbitrary, config-driven
+# `git_repos` map from nb-settings.json (currently nb-web, tw-web -- found
+# broken live: "Repo path not found" for nb-web itself, which was never
+# mounted at all) -- rather than mounting each entry in that config
+# individually and re-discovering gaps one repo at a time as new ones get
+# added, mount ~/dev as a whole. Read-only: the container only ever reads
+# from these repos (font/script assets, `git status`), never writes.
 #
 # The three secret/settings files are bind-mounted individually rather than
 # baked into the image or left inside /app: app.py auto-generates them next
@@ -93,14 +98,31 @@ LABEL nb_web_commit=$GIT_COMMIT
 # confirmed via `time podman run`) -- unworkable for a tool restarted on
 # every code change. Cloning just the script avoids the entire dependency
 # tree.
+#
+# hledger is NOT the apt package -- found live, 2026-07-19: Debian
+# bookworm's `hledger` apt package is 1.25 (stale; that release line is
+# years old), while djp's host installs hledger via Homebrew, currently
+# 1.51.2, and real journal-note codeblocks use flags/behavior that only
+# exist on the newer release (`register -n 15` hard-errored as an unknown
+# flag on 1.25). Fetching the same upstream static-binary release djp's
+# Homebrew install effectively tracks keeps both environments on equivalent
+# footing instead of silently diverging on Debian's packaging cadence --
+# same "fetch the real artifact, don't trust the distro's stale channel"
+# principle as the `nb` fetch above. Pinned explicitly (not "latest") for
+# reproducibility, matching the taskwarrior version-pin precedent below.
+ARG HLEDGER_VERSION=1.51.2
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
-        hledger \
         taskwarrior \
     && git clone --depth 1 https://github.com/linuxcaffe/nb.git /tmp/nb-src \
     && install -m 0755 /tmp/nb-src/nb /usr/local/bin/nb \
-    && rm -rf /tmp/nb-src /var/lib/apt/lists/*
+    && rm -rf /tmp/nb-src \
+    && curl -sL "https://github.com/simonmichael/hledger/releases/download/${HLEDGER_VERSION}/hledger-linux-x64.tar.gz" \
+        -o /tmp/hledger.tar.gz \
+    && tar -xzf /tmp/hledger.tar.gz -C /usr/local/bin hledger \
+    && chmod 0755 /usr/local/bin/hledger \
+    && rm -rf /tmp/hledger.tar.gz /var/lib/apt/lists/*
 
 # Dedicated, non-root service user/group — the "process ceiling" answer the
 # security-architecture tree left open (see
@@ -152,6 +174,28 @@ RUN python3 -c "import yaml, markdown" || \
 
 COPY . .
 RUN chown -R nbweb:nbweb /app
+
+# plugins/{nbweb-cine,nbweb-claude,nbweb-hledger,nbweb-specialty}.js are
+# committed as symlinks to sibling ~/dev/nbweb-* checkouts -- real dev repos
+# that nb-web itself doesn't vendor, matching nb-config's manifest (they're
+# separately cloned/managed plugin repos, symlinked in for serving). Fixed
+# host-side to be relative (../../nbweb-X/...), which resolves correctly on
+# ANY host since nb-web and nbweb-X really are siblings under ~/dev there --
+# but COPY bakes in that symlink's literal (relative) target too, and inside
+# the image /app is not a sibling of the ~/dev bind mount (an image layer
+# and a runtime volume, not related paths) -- ../../nbweb-cine from
+# /app/plugins/ lands on /nbweb-cine, nowhere. Found live, 2026-07-19:
+# specialty toolbars and the cine `shots` codeblock silently failed to load
+# (dangling symlinks), the actual root cause of both -- not fixed by any of
+# the ~/.nb-relative work above, a completely separate mechanism (this repo's
+# own plugin-loading symlinks, not app.py's Path.home() references).
+# Re-point them at this image's own known, controlled mount contract (the
+# ~/dev bind mount above) instead of trusting whatever the host committed --
+# same "reconfigure the image for its own environment, don't guess" approach
+# as the UID/keep-id fix.
+RUN for p in nbweb-cine nbweb-claude nbweb-hledger nbweb-specialty; do \
+        ln -sf "/home/nbweb/dev/$p/$p.js" "/app/plugins/$p.js"; \
+    done
 
 # No NB_DIR override: app.py's own default (Path.home()/'.nb') applies
 # naturally once HOME is right, which it is -- nbweb's real home
