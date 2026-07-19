@@ -1,1 +1,1 @@
-/home/djp/dev/nbweb-cine/nbweb-cine.js
+../../nbweb-cine/nbweb-cine.js

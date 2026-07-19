@@ -1,1 +1,1 @@
-/home/djp/dev/nbweb-specialty/nbweb-specialty.js
+../../nbweb-specialty/nbweb-specialty.js
