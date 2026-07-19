@@ -7391,23 +7391,46 @@ def api_nb_sync_status():
                     'unpushed': unpushed, 'files': files, 'pending_commits': pending_commits})
 
 
-@app.route('/api/sync', methods=['POST'])
-def api_sync():
-    """Sync one notebook: commit optional message, pull, push — all via explicit git."""
-    data     = request.get_json() or {}
-    notebook = data.get('notebook', '').strip()
-    message  = data.get('message', '').strip()
+def _git_run_killable(args, cwd, timeout, env):
+    """subprocess.run-alike for git pull/push specifically: on timeout, kills
+    the whole process group, not just the immediate `git` PID.
 
-    if not notebook or notebook == '_all':
-        return jsonify({'success': False, 'output': 'Specify a single notebook to sync.'})
+    subprocess.run(..., timeout=N) only ever kills the direct child -- but
+    `git push`/`pull` over SSH spawns `ssh` as ITS OWN child to handle the
+    network transport, and a hung/slow connection means the timeout fires on
+    `git` while `ssh` is orphaned and keeps running, invisible to the caller.
+    Found live, 2026-07-19: a single Codeberg SSH hiccup (rare but real --
+    the same class of transient network blip that also briefly failed one
+    manual `git push` earlier tonight) turned a normal notebook sync into a
+    30s hang, and the gunicorn *worker itself* crashed (SIGPIPE) shortly
+    after -- most plausibly the orphaned `ssh` eventually writing to a pipe
+    Python had already closed. `start_new_session=True` makes the child (and
+    anything it spawns) its own process group, so `os.killpg` on timeout
+    actually reaches `ssh` too, not just `git`.
+    """
+    proc = subprocess.Popen(args, cwd=cwd, env=env, start_new_session=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        _check_notebook(notebook)
-    except ValueError as e:
-        return jsonify({'success': False, 'output': str(e)}), 400
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()  # reap, avoid a zombie
+        raise
 
+
+def _sync_one_notebook(notebook, message=''):
+    """Core sync logic for one notebook: commit optional message, pull, push,
+    verify. Returns (success, no_remote, output_str). Factored out of
+    api_sync so /api/sync's notebook='_all' path (and anything else that
+    wants to sync a notebook programmatically) can reuse it directly rather
+    than looping HTTP calls back into the same process."""
     nb_path = NB_DIR / notebook
     if not nb_path.is_dir() or not (nb_path / '.git').exists():
-        return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found.'})
+        return False, False, f'Notebook "{notebook}" not found.'
 
     git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
                'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
@@ -7415,15 +7438,12 @@ def api_sync():
     remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
                               cwd=str(nb_path), timeout=5, env=git_env)
     if not remote_r.stdout.strip():
-        return jsonify({
-            'success': False, 'no_remote': True,
-            'output': (
-                f'No remote configured for notebook "{notebook}".\n\n'
-                f'Notes are committed locally — nothing is lost.\n\n'
-                f'To push to a remote, go to Settings → Git and run git-wire,\n'
-                f'or run:  nb {notebook}:remote set <git-url>'
-            )
-        })
+        return False, True, (
+            f'No remote configured for notebook "{notebook}".\n\n'
+            f'Notes are committed locally — nothing is lost.\n\n'
+            f'To push to a remote, go to Settings → Git and run git-wire,\n'
+            f'or run:  nb {notebook}:remote set <git-url>'
+        )
 
     lines = []
     git_push_ok = False
@@ -7441,13 +7461,13 @@ def api_sync():
 
     # Pull remote notebook branch first
     try:
-        pull_r = subprocess.run(
+        pull_r = _git_run_killable(
             ['git', 'pull', '--no-rebase', '--no-edit', 'origin', notebook],
-            capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
+            cwd=str(nb_path), timeout=30, env=git_env,
         )
     except subprocess.TimeoutExpired:
         lines.append('Pull timed out after 30s')
-        return jsonify({'success': False, 'output': '\n'.join(lines)})
+        return False, False, '\n'.join(lines)
 
     if pull_r.returncode != 0:
         pull_combined = pull_r.stderr + pull_r.stdout
@@ -7458,9 +7478,9 @@ def api_sync():
                 f'force-pushing local commits (local is authoritative).'
             )
             try:
-                fp_r = subprocess.run(
+                fp_r = _git_run_killable(
                     ['git', 'push', '--force', 'origin', f'HEAD:{notebook}'],
-                    capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
+                    cwd=str(nb_path), timeout=30, env=git_env,
                 )
                 git_push_ok = fp_r.returncode == 0
                 msg = fp_r.stderr.strip() or fp_r.stdout.strip() or f'Force-pushed to origin/{notebook}'
@@ -7469,7 +7489,7 @@ def api_sync():
                 lines.append('Force-push timed out after 30s')
         else:
             lines.append(f'Pull failed: {pull_r.stderr.strip() or pull_r.stdout.strip()}')
-        return jsonify({'success': git_push_ok, 'output': '\n'.join(lines)})
+        return git_push_ok, False, '\n'.join(lines)
 
     pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
     if pull_msg and pull_msg != 'Already up to date.':
@@ -7477,20 +7497,20 @@ def api_sync():
 
     # Push
     try:
-        push_r = subprocess.run(
+        push_r = _git_run_killable(
             ['git', 'push', 'origin', f'HEAD:{notebook}'],
-            capture_output=True, text=True, cwd=str(nb_path), timeout=30, env=git_env,
+            cwd=str(nb_path), timeout=30, env=git_env,
         )
     except subprocess.TimeoutExpired:
         lines.append('Push timed out after 30s')
-        return jsonify({'success': False, 'output': '\n'.join(lines)})
+        return False, False, '\n'.join(lines)
 
     if push_r.returncode == 0:
         git_push_ok = True
         lines.append(push_r.stderr.strip() or push_r.stdout.strip() or f'Pushed to origin/{notebook}')
     else:
         lines.append(f'Push failed: {push_r.stderr.strip()}')
-        return jsonify({'success': False, 'output': '\n'.join(lines)})
+        return False, False, '\n'.join(lines)
 
     # Post-sync integrity check (C): verify no commits left unpushed
     try:
@@ -7509,7 +7529,44 @@ def api_sync():
     except Exception:
         pass
 
-    return jsonify({'success': git_push_ok, 'output': '\n'.join(lines)})
+    return git_push_ok, False, '\n'.join(lines)
+
+
+@app.route('/api/sync', methods=['POST'])
+def api_sync():
+    """Sync one notebook, or every notebook (notebook='_all') — commit
+    optional message, pull, push, verify per notebook via explicit git."""
+    data     = request.get_json() or {}
+    notebook = data.get('notebook', '').strip()
+    message  = data.get('message', '').strip()
+
+    if not notebook:
+        return jsonify({'success': False, 'output': 'Specify a notebook to sync.'})
+
+    if notebook == '_all':
+        results = []
+        for entry in sorted(NB_DIR.iterdir()):
+            if not entry.is_dir() or entry.name.startswith('.') or not (entry / '.git').exists():
+                continue
+            nb_name = entry.name
+            try:
+                _check_notebook(nb_name)
+            except ValueError:
+                continue  # not a real notebook (scope-restricted or otherwise invalid) — skip silently
+            ok, no_remote, output = _sync_one_notebook(nb_name, message='')
+            if no_remote:
+                continue  # no remote configured — not a failure, just nothing to sync
+            results.append({'notebook': nb_name, 'success': ok, 'output': output})
+        all_ok = all(r['success'] for r in results) if results else True
+        return jsonify({'success': all_ok, 'results': results})
+
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'success': False, 'output': str(e)}), 400
+
+    ok, no_remote, output = _sync_one_notebook(notebook, message)
+    return jsonify({'success': ok, 'no_remote': no_remote, 'output': output})
 
 
 @app.route('/api/nb/sync/preview')
