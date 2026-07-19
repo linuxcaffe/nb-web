@@ -2289,7 +2289,7 @@ def api_task_info():
         return jsonify({'output': '', 'success': False}), 400
     try:
         result = subprocess.run(
-            ['task', f'uuid.startswith:{uuid}', 'information'],
+            ['task', 'rc.hooks=off', f'uuid.startswith:{uuid}', 'information'],
             capture_output=True, text=True,
             env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
         )
@@ -2346,7 +2346,7 @@ def api_task_action():
         return jsonify({'error': 'action must be done, start, or stop'}), 400
     try:
         result = subprocess.run(
-            ['task', 'rc.confirmation=no', f'uuid:{uuid}', action],
+            ['task', 'rc.hooks=off', 'rc.confirmation=no', f'uuid:{uuid}', action],
             capture_output=True, text=True,
             env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
             timeout=10,
@@ -2365,7 +2365,7 @@ def api_task_add():
     desc = data.get('description', '').strip()
     if not desc:
         return jsonify({'error': 'description required'}), 400
-    cmd = ['task', 'rc.confirmation=no', 'add', desc]
+    cmd = ['task', 'rc.hooks=off', 'rc.confirmation=no', 'add', desc]
     if data.get('project'):
         cmd.append(f'project:{data["project"].strip()}')
     date_field = data.get('date_field', 'due').strip()
@@ -11503,7 +11503,7 @@ def serve_web_plugin(filename):
     return send_from_directory(str(WEB_PLUGINS_DIR), filename)
 
 
-_COURIER_PRIME_DIR = Path.home() / 'dev' / 'nbweb-cine' / 'fonts' / 'courier-prime'
+_COURIER_PRIME_DIR = WEB_DIR / 'external' / 'nbweb-cine-fonts'
 _COURIER_PRIME_ALLOWED = {
     'Courier Prime.otf', 'Courier Prime Bold.otf',
     'Courier Prime Italic.otf', 'Courier Prime Bold Italic.otf',
@@ -12932,7 +12932,7 @@ def _assert_nb_auto_sync_off():
 # That closes the "zero tool access" gap in the shell-out, but not the
 # whose-Anthropic-account-pays gap above -- still one CLI, one host.
 
-_NBWEB_CLAUDE_MCP_SERVER = Path.home() / 'dev' / 'nbweb-claude' / 'mcp_server.py'
+_NBWEB_CLAUDE_MCP_SERVER = WEB_DIR / 'external' / 'nbweb-claude' / 'mcp_server.py'
 
 
 def _build_context_prompt(selector, context):
