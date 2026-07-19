@@ -13,6 +13,7 @@
 #     -v ~/.taskrc:/home/nbweb/.taskrc:Z,ro \
 #     -v ~/.task:/home/nbweb/.task:Z \
 #     -v ~/dev:/home/nbweb/dev:Z,ro \
+#     -v ~/.config/gh:/home/nbweb/.config/gh:Z,ro \
 #     -v ~/.nb-web-secrets/.flask_secret:/app/.flask_secret:Z \
 #     -v ~/.nb-web-secrets/.api_token:/app/.api_token:Z \
 #     -v ~/.nb-web-secrets/nb-settings.json:/app/nb-settings.json:Z \
@@ -32,7 +33,18 @@
 # makes every current AND future `~/...` reference resolve for free, rather
 # than chasing each one individually as it's discovered. ~/.task is a
 # genuinely separate system (own binary, own DB, used outside nb-web too) --
-# mounted explicitly rather than folded into ~/.nb. ~/.taskrc itself needed
+# mounted explicitly rather than folded into ~/.nb. ~/.hledger.journal isn't
+# in this mount list at all -- it's created as an in-container symlink
+# instead (see the `ln -s .nb/accts/personal.journal` RUN step below),
+# needed because _hledger_journal_path() falls back to
+# Path.home()/'.hledger.journal' for any notebook whose .nb-hledger.json
+# doesn't set an explicit journal (preciousfinds.ca does exactly this --
+# `.nb-hledger.json` is `{}`, a stub, never filled in -- found live,
+# 2026-07-19, as check-sweep's "Journal not found" errors across the whole
+# notebook). A bind mount was tried first and rejected: it dereferences the
+# host symlink into a flat file, which breaks personal.journal's own
+# relative `include accounts.journal` -- see the RUN step's own comment.
+# ~/.taskrc itself needed
 # the same treatment as the hledger journals: it had a hardcoded absolute
 # `data.location=/home/<user>/.task`, found live in scratch-container
 # testing (task count failed -- "no rc file" -- because .taskrc wasn't
@@ -65,10 +77,24 @@
 # ~/.nb-web-secrets/.api_token`) before first run so Podman bind-mounts
 # files, not directories.
 #
-# Deferred, not in this pass: gh CLI auth (nb-website/quartz publish), Node
-# for Quartz builds (not needed until that feature is actually exercised
-# in-container -- app.py's nvm-PATH lookup already no-ops safely if absent),
-# afterwriting/node PDF export, SSH keys for `nb sync` git push/pull from
+# gh CLI (installed below) is no longer deferred -- found live, 2026-07-19,
+# trying to publish preciousfinds.ca: /api/website/publish shells out to
+# `gh workflow run`/`gh run list` to trigger and poll the Quartz deploy
+# workflow, which crashed with an unhandled FileNotFoundError (gh wasn't
+# installed at all, and api_website_publish's gh subprocess.run call isn't
+# wrapped in its own try/except the way sibling endpoints are). `gh` itself
+# reads its auth token from $HOME/.config/gh/hosts.yml by default -- same
+# HOME-mirroring mount contract as everything else, mounted read-only since
+# the container only ever needs to read djp's existing host auth, never
+# manage it. Real credential material (unlike ~/.task or ~/dev, which are
+# djp's own data/code): accepted under the same single-tenant, djp-is-
+# tenant-0 trust model already covering the rest of this mount list, not a
+# new category of exposure.
+#
+# Still deferred, not in this pass: Node for Quartz builds (not needed until
+# that specific feature is exercised in-container -- app.py's nvm-PATH
+# lookup already no-ops safely if absent), afterwriting/node PDF export,
+# SSH keys for `nb sync` git push/pull from
 # inside the container. See claude:nb_web.md Phase 2 checklist.
 
 FROM python:3.10-slim-bookworm
@@ -114,6 +140,7 @@ ARG HLEDGER_VERSION=1.51.2
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
+        gh \
         taskwarrior \
     && git clone --depth 1 https://github.com/linuxcaffe/nb.git /tmp/nb-src \
     && install -m 0755 /tmp/nb-src/nb /usr/local/bin/nb \
@@ -150,6 +177,19 @@ RUN groupadd --gid 1000 nbweb && useradd --uid 1000 --gid nbweb --create-home nb
 # under -- not a placeholder, since Phase 2 is single-tenant and djp is
 # the only author these commits will ever have.
 RUN su nbweb -c "git config --global user.name 'linuxcaffe' && git config --global user.email 'davamundo@gmail.com'"
+
+# ~/.hledger.journal as an in-container symlink, not a bind mount of the
+# host's symlink -- found live, 2026-07-19: bind-mounting a symlink *source*
+# path dereferences it at mount time (Podman mounts the resolved target's
+# content as a plain file at the destination, not a symlink), which breaks
+# personal.journal's own relative `include accounts.journal` -- hledger
+# resolves that against the *including file's own location*, and a flat
+# /home/nbweb/.hledger.journal has no accounts.journal next to it. hledger
+# resolves relative includes through symlinks fine (confirmed: the host's
+# own ~/.hledger.journal symlink works), so recreating the symlink here
+# achieves the same thing correctly, and needs no separate mount at all
+# since ~/.nb is already mounted at this exact relative location.
+RUN su nbweb -c "ln -s .nb/accts/personal.journal /home/nbweb/.hledger.journal"
 
 WORKDIR /app
 
