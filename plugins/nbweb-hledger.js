@@ -1,1 +1,1 @@
-/home/djp/dev/nbweb-hledger/nbweb-hledger.js
+../../nbweb-hledger/nbweb-hledger.js

@@ -1,1 +1,1 @@
-/home/djp/dev/nbweb-claude/nbweb-claude.js
+../../nbweb-claude/nbweb-claude.js

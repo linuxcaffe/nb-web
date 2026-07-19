@@ -12629,6 +12629,15 @@ cursor:pointer;font-size:1em}button:hover{background:#e55}</style></head>
 
 @app.route('/api/restart', methods=['POST'])
 def api_restart():
+    # Under gunicorn, os.execv-ing *this worker* would re-exec the Python
+    # interpreter with gunicorn's own argv (not app.py's) -- nonsensical,
+    # and a real incident: it crashed the worker (exit 127) every time,
+    # 2026-07-19. Detected via SERVER_SOFTWARE (WSGI environ, set by
+    # gunicorn) while still inside request context -- request is a
+    # context-local proxy, unusable from the background thread below, so
+    # capture the bool now rather than reading it in _do_restart.
+    is_gunicorn = 'gunicorn' in request.environ.get('SERVER_SOFTWARE', '').lower()
+
     def _kill_zombies():
         my_pid = os.getpid()
         try:
@@ -12646,6 +12655,12 @@ def api_restart():
 
     def _do_restart():
         time.sleep(0.3)
+        if is_gunicorn:
+            # SIGHUP to the arbiter (our parent process) is gunicorn's own
+            # graceful reload: re-imports app.py, replaces workers one at a
+            # time, never drops the listening socket.
+            os.kill(os.getppid(), signal.SIGHUP)
+            return
         _kill_zombies()
         time.sleep(0.5)  # let zombies die before we take the port
         for fd in range(3, 256):
