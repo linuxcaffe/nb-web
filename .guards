@@ -112,6 +112,25 @@ ui-access.js:can
 # deselect, selectedSelectors).
 ui-chrome.js:const NbUiChrome
 
+# ── Specialty typed-note headers (plugins/nbweb-specialty.js) ──────────────────
+# Folded in from the formerly-separate nbweb-specialty repo, 2026-07-19 (subtree
+# merge, full history preserved) -- global plugin, no detect(), active for every
+# notebook, treated as foundational infrastructure by other plugins (nbweb-quartz
+# builds its item-card header on top of this). Carried over from that repo's own
+# .guards verbatim.
+# ── Note renderers ──
+plugins/nbweb-specialty.js:_renderSpecialtyNote
+plugins/nbweb-specialty.js:_renderDotfileNote
+plugins/nbweb-specialty.js:_renderDashboardNote
+plugins/nbweb-specialty.js:_renderReportsNote
+# ── Project / pairing ──
+plugins/nbweb-specialty.js:_offerCreateReports
+plugins/nbweb-specialty.js:_offerCreateOrLink
+plugins/nbweb-specialty.js:_showProjectPicker
+# ── Theme editor ──
+plugins/nbweb-specialty.js:_openThemeEditor
+plugins/nbweb-specialty.js:_openThemePicker
+
 # ── Flask backend (app.py) ────────────────────────────────────────────────────
 app.py:def run_nb
 app.py:def api_note
