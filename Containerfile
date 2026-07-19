@@ -12,8 +12,11 @@
 #     -v ~/.nb:/home/nbweb/.nb:Z \
 #     -v ~/.taskrc:/home/nbweb/.taskrc:Z,ro \
 #     -v ~/.task:/home/nbweb/.task:Z \
-#     -v ~/dev:/home/nbweb/dev:Z,ro \
+#     -v ~/dev:/home/nbweb/dev:Z \
 #     -v ~/.config/gh:/home/nbweb/.config/gh:Z,ro \
+#     -v ${SSH_AUTH_SOCK}:/run/ssh-agent.sock:Z \
+#     -e SSH_AUTH_SOCK=/run/ssh-agent.sock \
+#     -v ~/.ssh/known_hosts:/home/nbweb/.ssh/known_hosts:Z,ro \
 #     -v ~/.nb-web-secrets/.flask_secret:/app/.flask_secret:Z \
 #     -v ~/.nb-web-secrets/.api_token:/app/.api_token:Z \
 #     -v ~/.nb-web-secrets/nb-settings.json:/app/nb-settings.json:Z \
@@ -64,8 +67,21 @@
 # broken live: "Repo path not found" for nb-web itself, which was never
 # mounted at all) -- rather than mounting each entry in that config
 # individually and re-discovering gaps one repo at a time as new ones get
-# added, mount ~/dev as a whole. Read-only: the container only ever reads
-# from these repos (font/script assets, `git status`), never writes.
+# added, mount ~/dev as a whole.
+#
+# Read-write, not read-only -- changed 2026-07-19: /api/website/publish
+# needs to `git push` *from* a notebook's configured quartz_path (e.g.
+# ~/dev/quartz-preciousfinds.ca), and even a pure outbound push updates the
+# local repo's own remote-tracking refs, which needs a writable .git/. Found
+# live: "cannot lock ref 'refs/remotes/origin/main': ... Read-only file
+# system" -- the notebook's own content push succeeded (via ~/.nb, already
+# read-write) but the Quartz config push silently failed, so the triggered
+# build could run against stale components/CSS. Accepted as consistent with
+# the trust model already in effect here, not a new category of exposure:
+# this same container can already push to real GitHub repos with djp's real
+# identity via the forwarded ssh-agent + gh token below -- local write
+# access to those same repos' checkouts is a strict subset of that
+# capability, not an addition to it.
 #
 # The three secret/settings files are bind-mounted individually rather than
 # baked into the image or left inside /app: app.py auto-generates them next
@@ -91,11 +107,29 @@
 # tenant-0 trust model already covering the rest of this mount list, not a
 # new category of exposure.
 #
+# SSH (openssh-client, installed below) is no longer deferred either --
+# found live, 2026-07-19, in the same preciousfinds.ca publish attempt as
+# the gh gap above: djp's git remotes use the ssh:// protocol
+# (git@github.com:...), and the `ssh` binary wasn't in the image at all
+# ("cannot run ssh: No such file or directory"). Fixed the same way as gh:
+# read djp's existing host auth rather than provision new credentials for
+# the container. Specifically **forwards the host's ssh-agent socket**
+# (`$SSH_AUTH_SOCK`, GNOME Keyring's agent in djp's case) rather than
+# mounting raw private key files -- the container gets a signing channel,
+# never the key bytes themselves, a real difference for a socket that's
+# reachable from every request handler in the process. `--userns=keep-id`
+# makes this work without extra permission wrangling: the container's
+# `nbweb` process runs as the real host UID underneath, and the socket is
+# already owned by that same UID. `~/.ssh/known_hosts` mounted read-only so
+# the first real connection to github.com doesn't hang on an interactive
+# host-key prompt with no TTY to answer it (`GIT_TERMINAL_PROMPT=0` already
+# suppresses the credential-prompt half of this class of problem, not the
+# host-key half).
+#
 # Still deferred, not in this pass: Node for Quartz builds (not needed until
 # that specific feature is exercised in-container -- app.py's nvm-PATH
-# lookup already no-ops safely if absent), afterwriting/node PDF export,
-# SSH keys for `nb sync` git push/pull from
-# inside the container. See claude:nb_web.md Phase 2 checklist.
+# lookup already no-ops safely if absent), afterwriting/node PDF export.
+# See claude:nb_web.md Phase 2 checklist.
 
 FROM python:3.10-slim-bookworm
 
@@ -141,6 +175,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
         gh \
+        openssh-client \
         taskwarrior \
     && git clone --depth 1 https://github.com/linuxcaffe/nb.git /tmp/nb-src \
     && install -m 0755 /tmp/nb-src/nb /usr/local/bin/nb \
