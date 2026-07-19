@@ -1242,6 +1242,7 @@ const NbNav = (() => {
             const nowBtn     = document.getElementById('nb-sync-now');
             const previewBtn = document.getElementById('nb-sync-preview');
             const logBtn     = document.getElementById('nb-sync-log');
+            const allBtn     = document.getElementById('nb-sync-all');
             const outputWrap = dialog.querySelector('.nb-sync-output-wrap');
             const output     = document.getElementById('nb-sync-output');
             const copyBtn    = dialog.querySelector('.nb-sync-copy-btn');
@@ -1394,6 +1395,43 @@ const NbNav = (() => {
                 });
             };
 
+            allBtn.onclick = () => {
+                allBtn.disabled = true;
+                nowBtn.disabled = true;
+                hideOutput();
+
+                let elapsed = 0;
+                const tick = () => { allBtn.textContent = `Syncing all… ${++elapsed}s`; };
+                allBtn.textContent = 'Syncing all… 0s';
+                const timer = setInterval(tick, 1000);
+
+                fetch('/api/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notebook: '_all' }),
+                }).then(r => r.json()).then(data => {
+                    clearInterval(timer);
+                    const results = data.results || [];
+                    const lines = results.length
+                        ? results.map(r => `${r.success ? '✓' : '✗'} ${r.notebook}\n${r.output.split('\n').map(l => '    ' + l).join('\n')}`)
+                        : ['No notebooks with a remote configured.'];
+                    showOutput(lines.join('\n\n'));
+                    allBtn.disabled    = false;
+                    nowBtn.disabled    = false;
+                    allBtn.textContent = 'Sync All Notebooks';
+                    if (data.success) {
+                        _pollNbSyncStatus();
+                        NbNav.reexecute();
+                    }
+                }).catch(err => {
+                    clearInterval(timer);
+                    showOutput('Error: ' + err);
+                    allBtn.disabled    = false;
+                    nowBtn.disabled    = false;
+                    allBtn.textContent = 'Sync All Notebooks';
+                });
+            };
+
             logBtn.onclick = () => {
                 logBtn.disabled = true;
                 fetch(`/api/nb/git-log?notebook=${encodeURIComponent(nb)}&n=30`)
@@ -1504,6 +1542,7 @@ const NbNav = (() => {
                         `<button id="nb-sync-now" class="nb-sync-now-btn">Sync Now</button>` +
                         `<button id="nb-sync-preview" class="nb-sync-secondary-btn">Preview</button>` +
                         `<button id="nb-sync-log" class="nb-sync-secondary-btn">Show Log</button>` +
+                        `<button id="nb-sync-all" class="nb-sync-secondary-btn" title="Pull + push every notebook that has a remote configured">Sync All Notebooks</button>` +
                     `</div>` +
                     `<div class="nb-sync-output-wrap" hidden>` +
                         `<button class="nb-sync-copy-btn" title="Copy to clipboard">copy</button>` +
