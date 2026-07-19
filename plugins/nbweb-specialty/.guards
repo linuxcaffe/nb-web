@@ -1,0 +1,16 @@
+# nbweb-specialty plugin — load-bearing identifiers
+
+# ── Note renderers ────────────────────────────────────────────────────────────
+nbweb-specialty.js:_renderSpecialtyNote
+nbweb-specialty.js:_renderDotfileNote
+nbweb-specialty.js:_renderDashboardNote
+nbweb-specialty.js:_renderReportsNote
+
+# ── Project / pairing ─────────────────────────────────────────────────────────
+nbweb-specialty.js:_offerCreateReports
+nbweb-specialty.js:_offerCreateOrLink
+nbweb-specialty.js:_showProjectPicker
+
+# ── Theme editor ──────────────────────────────────────────────────────────────
+nbweb-specialty.js:_openThemeEditor
+nbweb-specialty.js:_openThemePicker
