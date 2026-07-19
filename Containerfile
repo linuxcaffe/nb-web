@@ -213,6 +213,32 @@ RUN groupadd --gid 1000 nbweb && useradd --uid 1000 --gid nbweb --create-home nb
 # the only author these commits will ever have.
 RUN su nbweb -c "git config --global user.name 'linuxcaffe' && git config --global user.email 'davamundo@gmail.com'"
 
+# SSH connection multiplexing (ControlMaster/ControlPersist) -- found live,
+# 2026-07-19, stress-testing the new "sync all notebooks" feature: 17
+# notebooks synced in a tight sequential loop, each opening its own fresh
+# SSH connection for pull and another for push (up to ~34 handshakes in a
+# short burst) -- 8 of the 17 failed, either "Connection closed" mid-
+# handshake or a 30s timeout. A single git push earlier tonight (nb-web's
+# own repo) hit the exact same "Connection closed" shape once too, in
+# isolation -- this many fresh handshakes in a burst just multiplies the
+# exposure to that same transient failure mode, not a new one. Reusing one
+# already-authenticated connection per host (instead of re-handshaking on
+# every single git operation) both removes most of the surface for it and
+# is substantially faster. ControlPath uses %C (a hash of the connection
+# tuple) rather than the more common %r@%h:%p form -- Unix domain socket
+# paths have a real length ceiling (~104 bytes on Linux) that %r@%h:%p can
+# exceed for a long username/hostname combination; %C is OpenSSH's own
+# recommended safe form. Baked into the image (nbweb's own ~/.ssh/config),
+# not the host's real ~/.ssh/config -- this is container-specific
+# infrastructure, not something that should change djp's own SSH behavior
+# outside the container. Permissions matter: sshd -- and here, the ssh
+# *client* config loader -- silently ignores a config file that's group- or
+# world-writable, so 700/600 are load-bearing, not just convention.
+RUN su nbweb -c "mkdir -p -m 700 /home/nbweb/.ssh && \
+    printf 'Host *\n  ControlMaster auto\n  ControlPath /tmp/ssh-mux-%%C\n  ControlPersist 600\n' \
+        > /home/nbweb/.ssh/config && \
+    chmod 600 /home/nbweb/.ssh/config"
+
 # ~/.hledger.journal as an in-container symlink, not a bind mount of the
 # host's symlink -- found live, 2026-07-19: bind-mounting a symlink *source*
 # path dereferences it at mount time (Podman mounts the resolved target's
