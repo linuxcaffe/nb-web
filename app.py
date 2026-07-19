@@ -9225,28 +9225,39 @@ def api_website_publish():
     else:
         parts.append('quartz config push:\n(quartz_path not set or not found — skipped)')
 
-    # Trigger immediate workflow dispatch
-    gh = subprocess.run(
-        ['gh', 'workflow', 'run', 'deploy.yml', '--repo', github_repo],
-        capture_output=True, text=True, timeout=30,
-    )
-    gh_out = (gh.stdout + gh.stderr).strip()
-    parts.append(f'workflow dispatch ({github_repo}):\n' + (gh_out or 'triggered'))
+    # Trigger immediate workflow dispatch. Wrapped, matching sibling
+    # endpoints (api_website_deploy): an unhandled FileNotFoundError here
+    # (gh missing or misconfigured) previously 500'd the whole request
+    # instead of degrading to a normal {'ok': False, 'output': ...} JSON
+    # response -- found live, 2026-07-19, before gh was installed at all.
+    try:
+        gh = subprocess.run(
+            ['gh', 'workflow', 'run', 'deploy.yml', '--repo', github_repo],
+            capture_output=True, text=True, timeout=30,
+        )
+        gh_out = (gh.stdout + gh.stderr).strip()
+        parts.append(f'workflow dispatch ({github_repo}):\n' + (gh_out or 'triggered'))
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        parts.append(f'workflow dispatch ({github_repo}):\nFAILED — {e}')
+        return jsonify({'ok': False, 'output': '\n\n'.join(parts)})
 
     # Grab the run ID so the frontend can poll build status
     run_id = None
     if gh.returncode == 0:
         import time as _time
         _time.sleep(3)
-        list_r = subprocess.run(
-            ['gh', 'run', 'list', '--workflow', 'deploy.yml', '--repo', github_repo,
-             '--limit', '3', '--json', 'databaseId,status'],
-            capture_output=True, text=True, timeout=15,
-        )
-        if list_r.returncode == 0:
-            runs = json.loads(list_r.stdout or '[]')
-            if runs:
-                run_id = str(runs[0]['databaseId'])
+        try:
+            list_r = subprocess.run(
+                ['gh', 'run', 'list', '--workflow', 'deploy.yml', '--repo', github_repo,
+                 '--limit', '3', '--json', 'databaseId,status'],
+                capture_output=True, text=True, timeout=15,
+            )
+            if list_r.returncode == 0:
+                runs = json.loads(list_r.stdout or '[]')
+                if runs:
+                    run_id = str(runs[0]['databaseId'])
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass  # run_id stays None; frontend just won't get build-status polling
 
     ok = push.returncode == 0 and gh.returncode == 0
     return jsonify({'ok': ok, 'output': '\n\n'.join(parts),
