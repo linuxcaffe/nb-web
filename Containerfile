@@ -276,25 +276,39 @@ RUN python3 -c "import yaml, markdown" || \
 COPY . .
 RUN chown -R nbweb:nbweb /app
 
-# plugins/{nbweb-cine,nbweb-claude,nbweb-hledger,nbweb-specialty}.js are
-# committed as symlinks to sibling ~/dev/nbweb-* checkouts -- real dev repos
-# that nb-web itself doesn't vendor, matching nb-config's manifest (they're
-# separately cloned/managed plugin repos, symlinked in for serving). Fixed
-# host-side to be relative (../../nbweb-X/...), which resolves correctly on
-# ANY host since nb-web and nbweb-X really are siblings under ~/dev there --
-# but COPY bakes in that symlink's literal (relative) target too, and inside
-# the image /app is not a sibling of the ~/dev bind mount (an image layer
-# and a runtime volume, not related paths) -- ../../nbweb-cine from
-# /app/plugins/ lands on /nbweb-cine, nowhere. Found live, 2026-07-19:
-# specialty toolbars and the cine `shots` codeblock silently failed to load
-# (dangling symlinks), the actual root cause of both -- not fixed by any of
-# the ~/.nb-relative work above, a completely separate mechanism (this repo's
+# plugins/{nbweb-cine,nbweb-claude,nbweb-hledger}.js are committed as
+# symlinks to sibling ~/dev/nbweb-* checkouts -- real dev repos that nb-web
+# itself doesn't vendor, matching nb-config's manifest (separately cloned/
+# managed plugin repos, symlinked in for serving). Fixed host-side to be
+# relative (../../nbweb-X/...), which resolves correctly on ANY host since
+# nb-web and nbweb-X really are siblings under ~/dev there -- but COPY bakes
+# in that symlink's literal (relative) target too, and inside the image
+# /app is not a sibling of the ~/dev bind mount (an image layer and a
+# runtime volume, not related paths) -- ../../nbweb-cine from /app/plugins/
+# lands on /nbweb-cine, nowhere. Found live, 2026-07-19: specialty toolbars
+# and the cine `shots` codeblock silently failed to load (dangling
+# symlinks), the actual root cause of both -- not fixed by any of the
+# ~/.nb-relative work above, a completely separate mechanism (this repo's
 # own plugin-loading symlinks, not app.py's Path.home() references).
 # Re-point them at this image's own known, controlled mount contract (the
 # ~/dev bind mount above) instead of trusting whatever the host committed --
 # same "reconfigure the image for its own environment, don't guess" approach
 # as the UID/keep-id fix.
-RUN for p in nbweb-cine nbweb-claude nbweb-hledger nbweb-specialty; do \
+#
+# nbweb-specialty is NOT in this list -- folded into nb-web core, 2026-07-19
+# (subtree merge, full history preserved): it self-labelled `@type core`,
+# is a global plugin with no detect() (active for every notebook, unlike
+# cine/claude/hledger's genuinely optional vertical scoping), and other
+# plugins (nbweb-quartz) already treated its header system as foundational
+# infrastructure rather than a peer. Was split into its own repo out of
+# habit, not a deliberate choice -- see claude:nb_web.md's Phase 2 plugin-
+# sourcing item. Now a real vendored file at plugins/nbweb-specialty.js,
+# same category as nbweb-archive.js/nbweb-codeblocks.js/nbweb-contacts.js;
+# needs no runtime re-link, no ~/dev access, and (being previously the one
+# *private* plugin repo) removes the one case in this list that would have
+# needed build-time SSH-agent forwarding once the other three move to a
+# build-time public clone instead of a runtime ~/dev mount.
+RUN for p in nbweb-cine nbweb-claude nbweb-hledger; do \
         ln -sf "/home/nbweb/dev/$p/$p.js" "/app/plugins/$p.js"; \
     done
 
