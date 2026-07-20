@@ -9,11 +9,18 @@
 # First-time setup:
 #   Open http://localhost:5001/ in Epiphany, then ⋮ → Install as Web App.
 #   After that, this script auto-detects the generated profile.
+#
+# nb-web runs containerized (rootless Podman) as a systemd --user unit --
+# see claude:nb-web_phase2_docker_and_permissions_2026-07-18.md. This
+# script now drives that unit instead of spawning `python3 app.py` and
+# tracking a pid file; the Epiphany cache-clearing logic below is
+# unrelated to that change (pure browser-side state) and is untouched.
+# A fresh rebuild's first start can take up to ~1min (rootless Podman's
+# --userns=keep-id pays a one-time ID-mapped-layer-copy cost per image
+# build); restarts of an already-built image are near-instant.
 
-FLASK_DIR="$HOME/dev/nb-web"
-FLASK_LOG="/tmp/nb-web.log"
-FLASK_PID_FILE="/tmp/nb-web.pid"
 FLASK_URL="http://localhost:5001/"
+NBWEB_UNIT="container-nb-web.service"
 
 # Auto-detect Epiphany profile (created when you install the PWA)
 EPIPHANY_PROFILE=$(ls -d ~/.local/share/org.gnome.Epiphany.WebApp-nb-web-* 2>/dev/null | head -1)
@@ -22,14 +29,12 @@ CACHE_BASE=$(ls -d ~/.cache/org.gnome.Epiphany.WebApp-nb-web-* 2>/dev/null | hea
 WEBKIT_CACHE="${CACHE_BASE}/WebKitCache"
 SW_CACHE_STORAGE="${CACHE_BASE}/CacheStorage"
 
-# ── --stop: kill server ───────────────────────────────────────────────────────
+# ── --stop: stop the container ────────────────────────────────────────────────
 if [ "$1" = "--stop" ]; then
-    if [ -f "$FLASK_PID_FILE" ]; then
-        PID=$(cat "$FLASK_PID_FILE")
-        kill "$PID" 2>/dev/null && echo "nb-web-launch: stopped Flask (pid $PID)"
-        rm -f "$FLASK_PID_FILE"
+    if systemctl --user is-active --quiet "$NBWEB_UNIT"; then
+        systemctl --user stop "$NBWEB_UNIT" && echo "nb-web-launch: stopped ($NBWEB_UNIT)"
     else
-        pkill -f "python3 app.py" 2>/dev/null && echo "nb-web-launch: stopped Flask" || echo "nb-web-launch: server not running"
+        echo "nb-web-launch: server not running"
     fi
     exit 0
 fi
@@ -67,15 +72,10 @@ if [ "$1" = "--clean" ]; then
         rm -rf ~/.cache/epiphany/WebKitCache 2>/dev/null
         rm -rf ~/.cache/epiphany/CacheStorage 2>/dev/null
     fi
-    if [ -f "$FLASK_PID_FILE" ]; then
-        PID=$(cat "$FLASK_PID_FILE")
-        kill "$PID" 2>/dev/null && echo "nb-web-launch: restarting Flask (pid $PID)..."
-        rm -f "$FLASK_PID_FILE"
+    if systemctl --user is-active --quiet "$NBWEB_UNIT"; then
+        echo "nb-web-launch: restarting ($NBWEB_UNIT)..."
+        systemctl --user stop "$NBWEB_UNIT"
         sleep 0.5
-    else
-        pkill -f "python3 app.py" 2>/dev/null \
-            && echo "nb-web-launch: restarting Flask..." \
-            && sleep 0.5
     fi
 fi
 
@@ -99,28 +99,27 @@ while IFS= read -r _pid; do
     fi
 done < <(pgrep -f "nb [a-z_-]*:?sync" 2>/dev/null)
 
-# ── Start Flask if not already running ───────────────────────────────────────
+# ── Start the container if not already running ───────────────────────────────
 if curl -s "$FLASK_URL" > /dev/null 2>&1; then
     echo "nb-web-launch: server already running"
 else
-    echo "nb-web-launch: starting Flask server..."
-    cd "$FLASK_DIR" || { echo "ERROR: $FLASK_DIR not found"; exit 1; }
-    NB_WEB_HOST=0.0.0.0 python3 app.py > "$FLASK_LOG" 2>&1 &
-    FLASK_PID=$!
-    echo "$FLASK_PID" > "$FLASK_PID_FILE"
+    echo "nb-web-launch: starting $NBWEB_UNIT..."
+    systemctl --user start "$NBWEB_UNIT"
 
-    for i in $(seq 1 20); do
+    # Up to ~2min: a freshly rebuilt image pays a one-time ID-mapped-layer
+    # copy cost (rootless Podman's --userns=keep-id) on first container
+    # creation, observed up to ~1min on this system. Restarts of an
+    # already-built image are near-instant, so this rarely runs long.
+    for i in $(seq 1 40); do
         curl -s "$FLASK_URL" > /dev/null 2>&1 && break
-        sleep 0.5
+        sleep 3
     done
 
     if ! curl -s "$FLASK_URL" > /dev/null 2>&1; then
-        echo "ERROR: Flask server failed to start. Check $FLASK_LOG"
-        kill "$FLASK_PID" 2>/dev/null
-        rm -f "$FLASK_PID_FILE"
+        echo "ERROR: server failed to start. Check: journalctl --user -u $NBWEB_UNIT"
         exit 1
     fi
-    echo "nb-web-launch: server ready (pid $FLASK_PID)"
+    echo "nb-web-launch: server ready"
 fi
 
 # ── Launch Epiphany PWA (detaches; server keeps running) ─────────────────────

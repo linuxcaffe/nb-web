@@ -1,0 +1,13 @@
+.git
+__pycache__
+*.pyc
+*.pyo
+.flask_secret
+.api_token
+nb-settings.json
+.env
+node_modules
+graphify-out
+errors.txt
+.pytest_cache
+.agent-locks.json
