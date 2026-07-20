@@ -4869,8 +4869,10 @@
         if (timeframe === 'current') {
             // TODAY's own text is never the date source — it's written bare and only
             // its position matters. Real wall-clock `today` is the only authority.
+            // `to` must be exclusive-bound past today (like `future` below), or
+            // hledger's date:X..Y (Y exclusive) silently drops today's entries.
             const last = billing[billing.length - 1];
-            return { from: nextDay(last ? dateFromLabel(last.label) : null), to: today };
+            return { from: nextDay(last ? dateFromLabel(last.label) : null), to: nextDay(today) };
         }
 
         if (timeframe === 'future') {
@@ -5182,6 +5184,21 @@
         return out.join('\n').trimEnd() + '\n';
     }
 
+    // Effective-rate schedule from RATE: markers — extends _cbqlMarkerLines (the same
+    // generic marker scan INVOICED/CLOSED/TODAY use), so RATE is just another label
+    // consumers filter for, not a bespoke parser. Frontmatter rate is the default;
+    // each marker overrides forward from its line, including one that precedes the
+    // first dated entry (a plain override of the default, not a special case).
+    function _timedotRateAtLine(body) {
+        const byLine = new Map();
+        for (const m of _cbqlMarkerLines(body)) {
+            if (!/^RATE:\s*/i.test(m.label)) continue;
+            const val = parseFloat(m.label.replace(/^RATE:\s*/i, ''));
+            if (!isNaN(val)) byLine.set(m.line, val);
+        }
+        return byLine;
+    }
+
     // Generate hledger labour journal entries (CAD) from all body timedot blocks.
     // Mirrors _timedotExtractFile but produces double-entry income/AR transactions.
     function _timedotExtractLabourJournal(raw, project, rate) {
@@ -5194,6 +5211,8 @@
             const end = raw.indexOf('\n---', 3);
             if (end >= 0) body = raw.slice(end + 4).replace(/^\n+/, '');
         }
+        const rateAtLine = _timedotRateAtLine(body);
+        let curRate = rate;
         const out = [
             `; ${project} labour journal — DO NOT HAND EDIT`,
             `; Auto-generated from note timedot blocks. Edit source blocks in nb-web.`,
@@ -5204,7 +5223,9 @@
         ];
         const lines = body.split('\n');
         let curDate = null, inBlock = false, blockLines = [];
-        for (const line of lines) {
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (rateAtLine.has(i)) curRate = rateAtLine.get(i);
             if (!inBlock) {
                 const dm = line.match(/^#{1,6}\s+(\d{4}[-/]\d{2}[-/]\d{2})/);
                 if (dm) { curDate = dm[1]; continue; }
@@ -5224,10 +5245,10 @@
                         if (!entry) continue;
                         const hrs = _timedotParseTime(entry.time);
                         if (!hrs || !blockDate) continue;
-                        const amount = Math.round(hrs * rate * 100) / 100;
+                        const amount = Math.round(hrs * curRate * 100) / 100;
                         const descLine = entry.comment
-                            ? `${blockDate} ${project} — ${hrs}h @ $${rate}  ; ${entry.comment}`
-                            : `${blockDate} ${project} — ${hrs}h @ $${rate}`;
+                            ? `${blockDate} ${project} — ${hrs}h @ $${curRate}  ; ${entry.comment}`
+                            : `${blockDate} ${project} — ${hrs}h @ $${curRate}`;
                         out.push(descLine);
                         out.push(`    ${ar.padEnd(PAD)} ${amount.toFixed(2)} CAD`);
                         out.push(`    ${inc}`);

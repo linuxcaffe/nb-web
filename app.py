@@ -4328,6 +4328,9 @@ def api_t_invoice_preflight():
     # rate was actually baked into historical entries (see rate-drift finding,
     # claude:nbweb-hledger_plugin_design.md).
     labour_hours = round(sum(e['hours'] for e in entries), 2)
+    # Blended, not the note's flat rate scalar — so hours × rate always equals
+    # the total shown here, even when a > RATE: marker changed the rate mid-period.
+    display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
 
     today = _dt.date.today()
     year  = today.year
@@ -4342,7 +4345,7 @@ def api_t_invoice_preflight():
         'project':           project,
         'client':            client,
         'client_raw':        client_raw,
-        'rate':              rate,
+        'rate':              display_rate,
         'labour_hours':      labour_hours,
         'labour_total':      labour_total,
         'expense_totals':    {t: {'subtotal': s, 'gross': g} for t, (s, g) in expense_dict.items()},
@@ -4452,11 +4455,32 @@ def api_t_invoice_generate():
 ;     {payment_acct:<{W-4}} {ar_total:.2f} CAD
 ;     {ar_acct:<{W-4}}-{ar_total:.2f} CAD'''
 
-    # Per-day labour rows (entries already computed above)
+    # Per-day labour rows (entries already computed above). Each row's rate is
+    # derived from that entry's own already-correct amount/hours — never the note's
+    # single current-rate scalar, which disagrees with older entries whenever a
+    # > RATE: marker changed the rate mid-project (see rate-drift finding,
+    # claude:nbweb-hledger_plugin_design.md). A "rate change to $X" row is inserted
+    # wherever consecutive entries' derived rates differ — the same thing INV-2026-009
+    # did by hand; this makes it automatic.
+    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
+        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
+
+    def _entry_rate(e):
+        return round(e['amount'] / e['hours'], 2) if e['hours'] else rate
+
     def _labour_row(e):
         desc = (e['description'] or '—')[:60]
-        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${rate:.2f} | ${e['amount']:.2f} |"
-    labour_lines = '\n'.join(_labour_row(e) for e in entries) if entries else \
+        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${_entry_rate(e):.2f} | ${e['amount']:.2f} |"
+
+    labour_rows, prev_rate = [], None
+    for e in entries:
+        r = _entry_rate(e)
+        if prev_rate is not None and r != prev_rate:
+            labour_rows.append(f"| | rate change to ${r:.2f}/{rate_unit_abbrev} | | | |")
+        labour_rows.append(_labour_row(e))
+        prev_rate = r
+    current_rate = prev_rate if prev_rate is not None else rate
+    labour_lines = '\n'.join(labour_rows) if labour_rows else \
         f"| — | Labour | {labour_hours:.1f} | ${rate:.2f} | ${labour_total:.2f} |"
     expense_lines = '\n'.join(
         f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
@@ -4474,7 +4498,7 @@ def api_t_invoice_generate():
             '{{client_raw}}':       client_raw,
             '{{project}}':          project,
             '{{reports_selector}}': reports_sel,
-            '{{rate}}':             str(rate),
+            '{{rate}}':             str(current_rate),
             '{{issued}}':           inv_date,
             '{{due}}':              due,
             '{{labour_lines}}':     labour_lines,
@@ -4490,9 +4514,12 @@ def api_t_invoice_generate():
         }.items():
             content = content.replace(k, v)
     else:
-        # Fallback inline content (no template found)
+        # Fallback inline content (no template found). No per-row template here,
+        # so this stays a single blended line — but blended (not the flat frontmatter
+        # rate) so hours × rate still equals the total shown, same fix as preflight.
+        display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
         notes_md   = f'\n**Notes:** {notes}\n' if notes else ''
-        labour_row = f'| Labour | {labour_hours:.1f} h × ${rate:.2f} | ${labour_total:.2f} |\n'
+        labour_row = f'| Labour | {labour_hours:.1f} h × ${display_rate:.2f} | ${labour_total:.2f} |\n'
         mat_row    = f'| Materials | cost + HST | ${mat_gross:.2f} |\n' if mat_gross > 0 else ''
         content = f'''---
 title: "{invoice_num} — {client}"
@@ -4501,7 +4528,7 @@ project: {project}
 client: "{client_raw}"
 reports: "{reports_sel}"
 billing_type: {btype}
-rate: {rate}
+rate: {current_rate}
 issued: "{inv_date}"
 due: "{due}"
 status: due
@@ -4612,6 +4639,8 @@ def api_t_quote_preflight():
     mat_sub   = sum(v[0] for v in expense_dict.values())
     mat_gross = sum(v[1] for v in expense_dict.values())
     labour_hours = round(sum(e['hours'] for e in entries), 2)
+    # Blended, not the note's flat rate scalar — see the same fix in invoice preflight.
+    display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
 
     today = _dt.date.today()
     year  = today.year
@@ -4626,7 +4655,7 @@ def api_t_quote_preflight():
         'project':           project,
         'client':            client,
         'client_raw':        client_raw,
-        'rate':              rate,
+        'rate':              display_rate,
         'labour_hours':      labour_hours,
         'labour_total':      labour_total,
         'expense_totals':    {t: {'subtotal': s, 'gross': g} for t, (s, g) in expense_dict.items()},
@@ -4702,10 +4731,26 @@ def api_t_quote_generate():
         est_total     = round(subtotal + total_hst, 2)
         total_display = f'**Estimated Subtotal: ${subtotal:.2f} + HST ${total_hst:.2f} = Estimated Total: ${est_total:.2f}**'
 
+    # Same rate-drift handling as api_t_invoice_generate — see comment there.
+    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
+        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
+
+    def _entry_rate(e):
+        return round(e['amount'] / e['hours'], 2) if e['hours'] else rate
+
     def _labour_row(e):
         desc = (e['description'] or '—')[:60]
-        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${rate:.2f} | ${e['amount']:.2f} |"
-    labour_lines = '\n'.join(_labour_row(e) for e in entries) if entries else \
+        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${_entry_rate(e):.2f} | ${e['amount']:.2f} |"
+
+    labour_rows, prev_rate = [], None
+    for e in entries:
+        r = _entry_rate(e)
+        if prev_rate is not None and r != prev_rate:
+            labour_rows.append(f"| | rate change to ${r:.2f}/{rate_unit_abbrev} | | | |")
+        labour_rows.append(_labour_row(e))
+        prev_rate = r
+    current_rate = prev_rate if prev_rate is not None else rate
+    labour_lines = '\n'.join(labour_rows) if labour_rows else \
         f"| — | Labour | {labour_hours:.1f} | ${rate:.2f} | ${labour_total:.2f} |"
     expense_lines = '\n'.join(
         f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
@@ -4724,7 +4769,7 @@ def api_t_quote_generate():
             '{{client_raw}}':       client_raw,
             '{{project}}':          project,
             '{{reports_selector}}': reports_sel,
-            '{{rate}}':             str(rate),
+            '{{rate}}':             str(current_rate),
             '{{issued}}':           q_date,
             '{{valid_until}}':      valid_until,
             '{{scope}}':            scope,
@@ -4746,7 +4791,7 @@ project: {project}
 client: "{client_raw}"
 reports: "{reports_sel}"
 billing_type: {btype}
-rate: {rate}
+rate: {current_rate}
 scope: {scope}
 issued: "{q_date}"
 valid_until: "{valid_until}"
