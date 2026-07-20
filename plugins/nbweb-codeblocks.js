@@ -4790,7 +4790,6 @@
 
         const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
         const noteSel   = note?.selector || '';
-        const rate      = parseFloat(note?.meta?.rate) || null;
 
         // Resolve source selector — inherit notebook from current note if no prefix
         let sourceSel = _cbqlResolveSel(params.source, noteSel);
@@ -4800,6 +4799,11 @@
             const r = await fetch(`/api/note?selector=${encodeURIComponent(sourceSel)}`);
             if (!r.ok) throw new Error(`source not found: ${sourceSel}`);
             const d = await r.json();
+            // Rate is resolved from the SOURCE note (frontmatter default, overridden
+            // by any > RATE: markers) — never the reports note being viewed. Reports
+            // notes carry no rate of their own; see the rate-drift fix,
+            // claude:nbweb-hledger_plugin_design.md.
+            const rate = _timedotEffectiveRate(d.body || '', parseFloat(d.meta?.rate) || null);
             const slice = _cbqlSliceBody(d.body || '', timeframe);
 
             // _timedotExtractFile expects raw (with or without FM header)
@@ -5197,6 +5201,16 @@
             if (!isNaN(val)) byLine.set(m.line, val);
         }
         return byLine;
+    }
+
+    // Effective rate "as of now" — the same schedule as _timedotRateAtLine, collapsed
+    // to its final value (document order is preserved by Map insertion order, so the
+    // last entry is the most recent override). Used by display code that needs one
+    // rate for a summary total, not a per-entry schedule.
+    function _timedotEffectiveRate(body, defaultRate) {
+        const schedule = _timedotRateAtLine(body);
+        if (!schedule.size) return defaultRate;
+        return [...schedule.values()].pop();
     }
 
     // Generate hledger labour journal entries (CAD) from all body timedot blocks.
