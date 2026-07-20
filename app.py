@@ -8824,9 +8824,9 @@ _GRAPHIFY_REPORTS = {
     'callflow': None,  # filename varies by repo (graphify uses the repo's own name) — resolved via glob
 }
 _GRAPHIFY_CDN_REWRITES = {
-    'graph':    [('https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js', '/vis-network.min.js')],
-    'tree':     [('https://d3js.org/d3.v7.min.js', '/d3.v7.min.js')],
-    'callflow': [('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js', '/mermaid.min.js')],
+    'graph':    [('https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js', '/vendor/vis-network.min.js')],
+    'tree':     [('https://d3js.org/d3.v7.min.js', '/vendor/d3.v7.min.js')],
+    'callflow': [('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js', '/vendor/mermaid.min.js')],
 }
 
 def _graphify_out_dir(repo_path):

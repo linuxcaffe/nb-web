@@ -52,11 +52,11 @@ const NbTerminal = (() => {
         // ES modules, matching how the rest of nb-web loads vendored libs.
         const loads = [];
         if (!window.Terminal) {
-            loads.push(new Promise(r => { const s = document.createElement('script'); s.src = '/xterm.js'; s.onload = r; document.head.appendChild(s); }));
-            loads.push(new Promise(r => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/xterm.css'; l.onload = r; document.head.appendChild(l); }));
+            loads.push(new Promise(r => { const s = document.createElement('script'); s.src = '/vendor/xterm.js'; s.onload = r; document.head.appendChild(s); }));
+            loads.push(new Promise(r => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/vendor/xterm.css'; l.onload = r; document.head.appendChild(l); }));
         }
         if (!window.FitAddon) {
-            loads.push(new Promise(r => { const s = document.createElement('script'); s.src = '/xterm-addon-fit.js'; s.onload = r; document.head.appendChild(s); }));
+            loads.push(new Promise(r => { const s = document.createElement('script'); s.src = '/vendor/xterm-addon-fit.js'; s.onload = r; document.head.appendChild(s); }));
         }
         if (loads.length) await Promise.all(loads);
 

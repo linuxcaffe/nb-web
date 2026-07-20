@@ -39,7 +39,7 @@ const NbTheme = (() => {
         localStorage.setItem('nb-theme-mode', mode);
         // Prism stylesheet
         const prism = document.getElementById('nb-prism-theme');
-        if (prism) prism.href = mode === 'light' ? 'prism-light.min.css' : 'prism-tomorrow.min.css';
+        if (prism) prism.href = mode === 'light' ? 'vendor/prism-light.min.css' : 'vendor/prism-tomorrow.min.css';
         // Mode toggle button label
         const btn = document.getElementById('nb-mode-toggle');
         if (btn) btn.textContent = mode === 'dark' ? '☀' : '☾';

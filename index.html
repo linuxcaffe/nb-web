@@ -13,12 +13,12 @@
     } catch(e){}
     var m=localStorage.getItem('nb-theme-mode')||'dark';
     var l=document.getElementById('nb-prism-theme');
-    if(l) l.href=m==='light'?'prism-light.min.css':'prism-tomorrow.min.css';
+    if(l) l.href=m==='light'?'vendor/prism-light.min.css':'vendor/prism-tomorrow.min.css';
   })();</script>
-  <link rel="stylesheet" href="jsuites.min.css">
-  <link rel="stylesheet" href="jspreadsheet.min.css">
+  <link rel="stylesheet" href="vendor/jsuites.min.css">
+  <link rel="stylesheet" href="vendor/jspreadsheet.min.css">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" id="nb-prism-theme" href="prism-tomorrow.min.css">
+  <link rel="stylesheet" id="nb-prism-theme" href="vendor/prism-tomorrow.min.css">
   <link rel="manifest" href="manifest.json">
   <script src="/nb-auth.js"></script>
 </head>
@@ -198,27 +198,27 @@
 <div id="nb-drop-overlay" aria-hidden="true"></div>
 
 
-<script src="jsuites.min.js"></script>
-<script src="jspreadsheet-formula.min.js"></script>
-<script src="jspreadsheet.min.js"></script>
-<script src="prism.min.js"></script>
-<script src="prism-clike.min.js"></script>
-<script src="prism-markup.min.js"></script>
-<script src="prism-bash.min.js"></script>
-<script src="prism-python.min.js"></script>
-<script src="prism-javascript.min.js"></script>
-<script src="prism-css.min.js"></script>
-<script src="prism-json.min.js"></script>
-<script src="prism-sql.min.js"></script>
-<script src="prism-yaml.min.js"></script>
-<script src="prism-c.min.js"></script>
-<script src="prism-cpp.min.js"></script>
-<script src="prism-rust.min.js"></script>
-<script src="prism-toml.min.js"></script>
-<script src="prism-haskell.min.js"></script>
-<script src="prism-ledger.js"></script>
-<script src="marked.min.js"></script>
-<script src="Sortable.min.js"></script>
+<script src="vendor/jsuites.min.js"></script>
+<script src="vendor/jspreadsheet-formula.min.js"></script>
+<script src="vendor/jspreadsheet.min.js"></script>
+<script src="vendor/prism.min.js"></script>
+<script src="vendor/prism-clike.min.js"></script>
+<script src="vendor/prism-markup.min.js"></script>
+<script src="vendor/prism-bash.min.js"></script>
+<script src="vendor/prism-python.min.js"></script>
+<script src="vendor/prism-javascript.min.js"></script>
+<script src="vendor/prism-css.min.js"></script>
+<script src="vendor/prism-json.min.js"></script>
+<script src="vendor/prism-sql.min.js"></script>
+<script src="vendor/prism-yaml.min.js"></script>
+<script src="vendor/prism-c.min.js"></script>
+<script src="vendor/prism-cpp.min.js"></script>
+<script src="vendor/prism-rust.min.js"></script>
+<script src="vendor/prism-toml.min.js"></script>
+<script src="vendor/prism-haskell.min.js"></script>
+<script src="vendor/prism-ledger.js"></script>
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/Sortable.min.js"></script>
 <script src="nbweb.js"></script>
 <script src="theme.js"></script>
 <script src="nav.js"></script>
