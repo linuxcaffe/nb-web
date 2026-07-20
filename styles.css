@@ -3731,6 +3731,19 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-spin { animation: spin 1s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Note-open loading skeleton (main.js _noteLoadingSkeleton) -- shown while a note's
+   real content is still in flight. Neutral pulse, not the amber --alert palette:
+   that's reserved for warnings/slow-render notices, a different meaning than "a
+   normal load is in progress". */
+.nb-loading-skeleton { padding: 40px; }
+.nb-skel-real-title { font-size: 1.2em; margin-bottom: 20px; color: var(--text); }
+.nb-skel-line {
+  height: 0.9em; margin-bottom: 12px; border-radius: 4px;
+  background: var(--bg2);
+  animation: nb-skel-pulse 1.4s ease-in-out infinite;
+}
+@keyframes nb-skel-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+
 /* ── Website panel (Notebooks block) ─────────────────────────── */
 .nb-website-panel {
   margin: 6px 0 2px 0;

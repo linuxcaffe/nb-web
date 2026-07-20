@@ -631,6 +631,26 @@ const NbMain = (() => {
 
     // ── Open / preview note ────────────────────────────────────────
 
+    // Loading-state placeholder shown while a note's real content is still in flight
+    // (fetch miss, or render-cache miss -- see _maybeCaptureRenderCache). _lastNotes
+    // (the currently-loaded list) already carries title/excerpt for every note in view,
+    // a synchronous zero-cost lookup -- show the real title immediately as actual text
+    // rather than throwing that away for generic "Loading…" text, with a few skeleton
+    // bars below hinting body content is coming. Falls back to a titleless skeleton for
+    // a selector outside the current list view (deep-link on fresh load, wikilink to an
+    // unlisted note) -- still better than plain text, just without the free title.
+    function _noteLoadingSkeleton(selector) {
+        const known = _lastNotes.find(n => n.selector === selector);
+        const titleHtml = known?.title
+            ? `<div class="nb-skel-real-title">${_esc(known.title)}</div>`
+            : '';
+        return `<div class="nb-loading-skeleton">${titleHtml}` +
+            `<div class="nb-skel-line" style="width:92%"></div>` +
+            `<div class="nb-skel-line" style="width:78%"></div>` +
+            `<div class="nb-skel-line" style="width:85%"></div>` +
+            `<div class="nb-skel-line" style="width:60%"></div></div>`;
+    }
+
     async function openNote(selector, pushHistory = true, opts = {}) {
         if (_editing && selector !== _activeSelector) {
             if (opts.autoSelect) return;   // renderList auto-select: never disrupt editing
@@ -675,7 +695,7 @@ const NbMain = (() => {
         // Show spinner while loading (skipped for cached notes)
         const content = document.getElementById('nb-preview-content');
         const _cached = _noteCache.get(selector);
-        if (!_cached) content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+        if (!_cached) content.innerHTML = _noteLoadingSkeleton(selector);
 
         try {
             let d = _cached;
