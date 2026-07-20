@@ -100,6 +100,7 @@ const NbMain = (() => {
     const _StatusPill = (() => {
         let _pending = 0, _el = null, _doneTimer = null;
         const _forceCallbacks = [];
+        const _idleWaiters = [];
 
         function _getEl() {
             if (_el) return _el;
@@ -126,6 +127,7 @@ const NbMain = (() => {
                 _doneTimer = setTimeout(() => {
                     if (_el) { _el.hidden = true; _el.className = ''; }
                 }, 1400);
+                if (_idleWaiters.length) _idleWaiters.splice(0).forEach(fn => fn());
             }
         }
 
@@ -137,14 +139,26 @@ const NbMain = (() => {
 
         function forceAll() { _forceCallbacks.splice(0).forEach(fn => fn()); }
 
+        // Resolves the next time _pending returns to 0 (immediately if already 0).
+        // Render-cache capture uses this as a "probably settled, go check" trigger --
+        // not the authoritative completion signal itself, since _pending can pass
+        // through a transient zero between async phases (e.g. inlines done, codeblocks
+        // not yet added). Callers must still verify with a structural DOM check before
+        // trusting "settled".
+        function whenIdle() {
+            if (_pending <= 0) return Promise.resolve();
+            return new Promise(resolve => _idleWaiters.push(resolve));
+        }
+
         function reset() {
             clearTimeout(_doneTimer);
             _pending = 0;
             _forceCallbacks.length = 0;
+            _idleWaiters.length = 0;
             if (_el) { _el.hidden = true; _el.className = ''; }
         }
 
-        return { add, tick, registerForce, forceAll, reset };
+        return { add, tick, registerForce, forceAll, whenIdle, reset };
     })();
 
     // Expose so codeblock renderers (loaded after this module) can call add/tick
@@ -1041,6 +1055,16 @@ const NbMain = (() => {
                 content.querySelector('#nb-enc-unlock-btn').addEventListener('click', doUnlock);
             }
             return;
+        } else if (note.__cachedRenderHtml) {
+            // Render cache hit (cache: true frontmatter, settled on a prior visit --
+            // see _maybeCaptureRenderCache): skip both the large-note server round trip
+            // and the client-side markdown parse below entirely. For a type: book-sized
+            // note, computing `html` is exactly the expensive work a revisit shouldn't
+            // have to redo -- restore the settled snapshot and re-wire it without
+            // touching the network (_finishRenderedFromCache, not _finishRendered).
+            content.innerHTML = `<div class="nb-rendered">${note.__cachedRenderHtml}</div>`;
+            _finishRenderedFromCache(content, note);
+            return;
         } else {
             // Large or plain notes: render server-side to avoid freezing on marked.parse + innerHTML.
             // Triggered by frontmatter `large: true` or body > 100 KB.
@@ -1468,6 +1492,37 @@ const NbMain = (() => {
         _wireContainer(container, note);
         _fetchContainer(container, note);
         _applyFoldableHeadings(container, note);
+        if (note?.meta?.cache && !note.__cachedRenderHtml) {
+            _StatusPill.whenIdle().then(() => _maybeCaptureRenderCache(container, note));
+        }
+    }
+
+    // Snapshot the settled .nb-rendered HTML for cache:true notes, so a revisit can skip
+    // the whole pipeline (see _finishRenderedFromCache). Only writes the cache if
+    // nothing is still mid-flight anywhere in the subtree, including chapters --
+    // .nb-inline-query marks any unresolved inline/lazy span, .nb-spin is the spinner
+    // class every codeblock renderer clears on completion. _StatusPill.whenIdle() is
+    // only the trigger to check, not proof of completion -- it can pass through a
+    // transient zero between async phases (inlines just settled, codeblocks not yet
+    // registered) or before a lazy chapter's IntersectionObserver has even fired. If
+    // anything's still pending, skip silently -- caching an incomplete render would
+    // freeze "⋯"/spinner placeholders forever, since restore never re-fetches. Missing
+    // an optimization once is safe; caching wrong isn't (see the 2026-06-13 revert this
+    // is specifically designed to avoid repeating -- claude:nb-web render pipeline docs).
+    function _maybeCaptureRenderCache(container, note) {
+        if (note.__cachedRenderHtml) return;   // already captured (e.g. two idle events raced)
+        const rendered = container.querySelector('.nb-rendered');
+        if (!rendered) return;
+        if (rendered.querySelector('.nb-inline-query, .nb-spin')) return;   // still mid-flight somewhere
+
+        const clone = rendered.cloneNode(true);
+        // Strip wiring-injected artifacts: their guard classes would make a fresh
+        // _wireContainer/_applyFoldableHeadings pass on restore skip re-attaching the
+        // listeners these elements need (innerHTML never serializes JS listeners).
+        clone.querySelectorAll('.nb-copy-btn').forEach(el => el.remove());
+        clone.querySelectorAll('.nb-copy-added').forEach(el => el.classList.remove('nb-copy-added'));
+        clone.querySelectorAll('.nb-fold-toggle').forEach(el => el.remove());
+        note.__cachedRenderHtml = clone.innerHTML;
     }
 
     function _applyFoldableHeadings(container, note) {
@@ -1584,6 +1639,26 @@ const NbMain = (() => {
 
     function _finishRendered(container, note) {
         _enrichRendered(container, note);
+        _finishRenderedTail(container, note);
+    }
+
+    // Render-cache restore path: wires an already-settled snapshot (see
+    // _maybeCaptureRenderCache) without re-fetching anything. Runs only the
+    // synchronous half (_wireContainer + _applyFoldableHeadings) -- never
+    // _fetchContainer, so no inline includes, codeblocks, or wikilink lookups fire.
+    // Still runs the same tail as a normal render (TOC, tabs, FM blocks, annotation,
+    // xref, badges) since those reflect current state, not the cached note body.
+    function _finishRenderedFromCache(container, note) {
+        _wireContainer(container, note);
+        _applyFoldableHeadings(container, note);
+        _finishRenderedTail(container, note);
+    }
+
+    // Everything _finishRendered does after enrichment -- shared with the render-cache
+    // restore path (_finishRenderedFromCache), which wires a container without calling
+    // _fetchContainer (no network calls) but still needs this same tail: TOC, tabs, FM
+    // blocks, annotation, xref, badges. Kept as one function so the two paths can't drift.
+    function _finishRenderedTail(container, note) {
         const tocBar = document.getElementById('nb-toc-bar');
         if (tocBar) tocBar.hidden = true;
         if (note?.meta?.toc) {
