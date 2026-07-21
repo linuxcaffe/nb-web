@@ -13030,14 +13030,29 @@ def _assert_nb_auto_sync_off():
     nb's auto-sync pulls from origin on every add/edit/delete. With per-notebook
     branches this causes silent cross-contamination. nb-web's sync dialog is the
     only intended sync mechanism.
+
+    Persisting via `nb set auto_sync 0` writes ~/.nbrc, which is not writable
+    under this image's --read-only root filesystem -- confirmed live
+    2026-07-20 the write silently failed there for months (masked by this
+    function's own success-check, which only looked for "set to 0" in output
+    and printed the same reassuring message on failure as on success) while
+    nb's auto_sync quietly ran at its own built-in default on every `nb`
+    invocation inside the container. The real fix is the Containerfile's own
+    `ENV NB_AUTO_SYNC=0` (wins over .nbrc's file default per nb's own
+    `${NB_AUTO_SYNC:-0}` convention, no write required) -- this function now
+    just verifies that actually took effect, rather than trying to re-persist
+    it, and fails loudly instead of masking the gap a second way.
     """
     try:
-        r = subprocess.run([NB_BIN, 'set', 'auto_sync', '0'],
+        r = subprocess.run([NB_BIN, 'settings', 'get', 'auto_sync'],
                            capture_output=True, text=True, timeout=5)
-        if 'set to 0' in r.stdout + r.stderr:
-            print('[nb-web] NB_AUTO_SYNC → 0 (was 1; prevented cross-notebook contamination)', flush=True)
-        else:
+        value = r.stdout.strip()
+        if value == '0':
             print('[nb-web] NB_AUTO_SYNC: OK (0)', flush=True)
+        else:
+            print(f'[nb-web] NB_AUTO_SYNC IS NOT 0 (got {value!r}) -- cross-notebook '
+                  f'contamination risk is live. Check ENV NB_AUTO_SYNC=0 in the '
+                  f'Containerfile and that it actually reached this process.', flush=True)
     except Exception as e:
         print(f'[nb-web] NB_AUTO_SYNC check failed: {e}', flush=True)
 

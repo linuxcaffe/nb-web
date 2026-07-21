@@ -329,6 +329,30 @@ ENV NB_WEB_HOST=0.0.0.0
 # actually launch -- every `nb edit` call in app.py passes --content
 # explicitly -- so `true` is a safe no-op, not a masked real dependency.
 ENV EDITOR=true
+# _assert_nb_auto_sync_off() (app.py, run from gunicorn.conf.py's on_starting
+# hook) tries to persist this by writing ~/.nbrc via `nb set auto_sync 0` --
+# but this image runs --read-only, and ~/.nbrc isn't a writable bind-mount,
+# so that write has been silently failing since Phase 2 shipped (confirmed
+# live 2026-07-20: `touch /home/nbweb/.nbrc` -> "Read-only file system").
+# The function's own success-check only looks for "set to 0" in the
+# subprocess output, so a silent failure still prints the same reassuring
+# "NB_AUTO_SYNC: OK (0)" -- nothing ever surfaced the gap. Real effect: nb's
+# auto_sync fell back to its own built-in default (not 0) for every `nb`
+# invocation inside the container, including the ordinary `nb show <selector>
+# --path` calls app.py shells out to while serving normal note requests --
+# and auto-sync pulling on every add/edit/delete is exactly the documented,
+# previously-known cross-notebook-contamination risk under this repo's
+# branch-per-notebook design (see _assert_nb_auto_sync_off's own docstring).
+# Caught live: a routine check-sweep.py note fetch triggered a ~500-commit
+# rebase against the wrong remote branch in the `docs` notebook.
+#
+# Setting the env var directly here sidesteps the read-only filesystem
+# entirely -- .nbrc's own convention (`export
+# NB_AUTO_SYNC="${NB_AUTO_SYNC:-0}"`) already defers to an existing
+# environment value over the file default, so this wins for every process
+# in the container, gunicorn and every `nb`/`git` subprocess it spawns,
+# without needing any file write to succeed at all.
+ENV NB_AUTO_SYNC=0
 VOLUME /home/nbweb/.nb
 VOLUME /home/nbweb/.task
 
