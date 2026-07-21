@@ -652,10 +652,11 @@ const NbMain = (() => {
     }
 
     async function openNote(selector, pushHistory = true, opts = {}) {
-        if (_editing && selector !== _activeSelector) {
+        if ((_editing || _sheetDirty) && selector !== _activeSelector) {
             if (opts.autoSelect) return;   // renderList auto-select: never disrupt editing
             if (!confirm('Discard unsaved changes?')) return;
-            _closeEditor();
+            if (_editing) _closeEditor();
+            _sheetDirty = false;
         }
 
         // Always update list visual selection — shows where cursor is even when pinned
@@ -794,6 +795,7 @@ const NbMain = (() => {
             _sheetInstance   = null;
             _sheetHeaderMode = false;
             _sheetHeaderRow  = null;
+            _sheetDirty      = false;
             const editorWrap = document.getElementById('nb-editor-wrap');
             editorWrap.hidden = true;
             editorWrap.classList.remove('nb-toolbar-only');
@@ -3092,6 +3094,12 @@ const NbMain = (() => {
     // off on every note open, not remembered across notes, for the same reason.
     let _sheetHeaderMode = false;
     let _sheetHeaderRow  = null;   // cell values of the header row while _sheetHeaderMode is true
+    // Set by real edits inside the grid (cell change, row insert/delete, undo/redo) --
+    // NOT by _sheetInitGrid itself, so re-rendering for the header toggle (which
+    // preserves live data through a destroy+recreate) never falsely marks dirty on
+    // its own. openNote()'s navigation guard checks this the same way it checks
+    // _editing for the markdown editor -- see its own comment for why this exists.
+    let _sheetDirty = false;
 
     function _sheetInitGrid(host, allRows, headerMode) {
         if (_sheetInstance) { try { jspreadsheet.destroy(host); } catch(_) {} _sheetInstance = null; }
@@ -3100,16 +3108,30 @@ const NbMain = (() => {
         const columns = headerMode
             ? _csvAutoColumns(headerRow, dataRows)
             : (dataRows.length ? _csvColumnWidths(dataRows).map(width => ({ width, wordWrap: true })) : undefined);
+        const markDirty = () => { _sheetDirty = true; };
         // minDimensions only for a genuinely empty new file -- gives a blank grid room to
         // type into. Applying it to real data padded every save with trailing empty
         // cells for any file narrower than 6 columns or shorter than 8 rows (the real
         // motivating file, a 5-column bank export, hit this on every single save).
+        //
+        // The on*() callbacks are deliberately top-level (siblings of `worksheets`),
+        // not nested inside the worksheet config -- jspreadsheet-ce only dispatches
+        // them from there. Confirmed empirically 2026-07-21: identical callbacks
+        // placed inside worksheets[0] are silently never called (no error, they're
+        // just never wired up), even though they show up fine on ws.options if you
+        // go looking -- worth remembering before assuming a jspreadsheet option that
+        // "looks set" is actually live.
         _sheetInstance = jspreadsheet(host, {
             worksheets: [{
                 data: dataRows.length ? dataRows : [['']],
                 minDimensions: dataRows.length ? undefined : [6, 8],
                 columns,
             }],
+            onchange:    markDirty,
+            oninsertrow: markDirty,
+            ondeleterow: markDirty,
+            onundo:      markDirty,
+            onredo:      markDirty,
         });
         _sheetHeaderRow = headerMode ? headerRow : null;
     }
@@ -3124,6 +3146,7 @@ const NbMain = (() => {
         );
 
         _sheetHeaderMode = false;   // always start unchecked for a freshly opened note
+        _sheetDirty = false;        // fresh load -- nothing unsaved yet
         try {
             _sheetInitGrid(host, rows, false);
         } catch(e) {
@@ -3183,6 +3206,7 @@ const NbMain = (() => {
             const d = await r.json();
             if (d.success) {
                 _noteCache.delete(_activeSelector);
+                _sheetDirty = false;
                 btn.textContent = _t('status_saved');
                 setTimeout(() => { btn.textContent = _t('btn_save'); }, 1200);
             } else {
