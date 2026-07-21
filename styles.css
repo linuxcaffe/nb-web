@@ -1839,6 +1839,27 @@ mark.nb-highlight {
   flex-direction: column;
   min-height: 0;
 }
+/* Sheet editor reuses #nb-editor-wrap only for its Save/Cancel toolbar strip,
+   with #nb-preview-content (the actual grid) left visible alongside it -- unlike
+   the real markdown editor, which hides #nb-preview-content outright. Without this,
+   two flex:1 siblings both visible split the pane's height 50/50, capping the
+   grid at half the available space regardless of row count. */
+#nb-editor-wrap.nb-toolbar-only {
+  flex: 0 0 auto;
+}
+#nb-editor-wrap.nb-toolbar-only #nb-editor-area {
+  display: none;
+}
+.nb-sheet-header-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  margin-left: 8px;
+}
 #nb-editor-toolbar {
   display: flex;
   align-items: center;

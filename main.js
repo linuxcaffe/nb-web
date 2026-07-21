@@ -791,11 +791,17 @@ const NbMain = (() => {
 
         // Clean up sheet UI when navigating away from a sheet
         if (note.type !== 'sheet' && _sheetInstance) {
-            _sheetInstance = null;
-            document.getElementById('nb-editor-wrap').hidden = true;
+            _sheetInstance   = null;
+            _sheetHeaderMode = false;
+            _sheetHeaderRow  = null;
+            const editorWrap = document.getElementById('nb-editor-wrap');
+            editorWrap.hidden = true;
+            editorWrap.classList.remove('nb-toolbar-only');
             document.getElementById('nb-editor').hidden = false;
             const sb = document.getElementById('nb-save-btn');
             if (sb) sb.onclick = null;
+            const headerLabel = document.getElementById('nb-sheet-header-label');
+            if (headerLabel) headerLabel.hidden = true;
         }
 
         const ref = document.getElementById('nb-preview-ref');
@@ -2721,6 +2727,30 @@ const NbMain = (() => {
         return { wrap, body, meta };
     }
 
+    // Width-by-content instead of a flat guess -- a 'notes' column and a 'yes/no'
+    // column have nothing in common, so one fixed width always over- or under-shoots.
+    const _CSV_CHAR_PX = 7, _CSV_PAD_PX = 24, _CSV_MIN_PX = 60, _CSV_MAX_PX = 400;
+
+    // headerRow may be [] (the standalone .csv file editor has no header-row concept --
+    // every row is data) -- column count then comes from the widest data row instead.
+    function _csvColumnWidths(rows, headerRow = []) {
+        const count = Math.max(headerRow.length, ...rows.map(r => r.length), 1);
+        const widths = [];
+        for (let i = 0; i < count; i++) {
+            let maxLen = String(headerRow[i] ?? '').length;
+            for (const row of rows) {
+                const cell = row[i];
+                if (cell != null) maxLen = Math.max(maxLen, String(cell).length);
+            }
+            widths.push(Math.min(_CSV_MAX_PX, Math.max(_CSV_MIN_PX, maxLen * _CSV_CHAR_PX + _CSV_PAD_PX)));
+        }
+        return widths;
+    }
+
+    function _csvAutoColumns(headerRow, dataRows) {
+        return _csvColumnWidths(dataRows, headerRow).map((width, i) => ({ title: headerRow[i], width, wordWrap: true }));
+    }
+
     function _renderCsvBlocks(container) {
         const blocks     = [...container.querySelectorAll('pre > code.language-csv')];
         const tmplBlocks = [...container.querySelectorAll('.nb-csv-tmpl-pending')];
@@ -2736,7 +2766,7 @@ const NbMain = (() => {
                 .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
 
             const [headerRow = [], ...dataRows] = allRows;
-            const columns = headerRow.map(h => ({ title: h, width: 120 }));
+            const columns = _csvAutoColumns(headerRow, dataRows);
 
             const { wrap, body } = _buildCsvBarblock('csv', dataRows.length, blockIdx++, undefined);
 
@@ -2820,7 +2850,7 @@ const NbMain = (() => {
         const jss = jspreadsheet(host, {
             worksheets: [{
                 data: sheetData,
-                columns: headerRow.length ? headerRow.map(h => ({ title: h, width: 120 })) : undefined,
+                columns: headerRow.length ? _csvAutoColumns(headerRow, sheetData) : undefined,
             }],
         });
         // Normalise worksheet access across jspreadsheet v9 (array) and v10 (object)
@@ -3053,36 +3083,79 @@ const NbMain = (() => {
         }
     }
 
-    let _sheetInstance = null;
+    let _sheetInstance  = null;
+    // "First row is header" is a manual, per-open toggle (see .nb-sheet-header-label in
+    // index.html) -- never auto-detected. A real file this feature was built for
+    // (djp:accounting/csv/accountactivity.csv, a raw bank export) has no header row at
+    // all; auto-treating row 1 as a header would silently pull a real transaction out
+    // of the data grid, and _saveSheet would then write it back that way too. Defaults
+    // off on every note open, not remembered across notes, for the same reason.
+    let _sheetHeaderMode = false;
+    let _sheetHeaderRow  = null;   // cell values of the header row while _sheetHeaderMode is true
+
+    function _sheetInitGrid(host, allRows, headerMode) {
+        if (_sheetInstance) { try { jspreadsheet.destroy(host); } catch(_) {} _sheetInstance = null; }
+        const headerRow = headerMode ? (allRows[0] || []) : [];
+        const dataRows  = headerMode ? allRows.slice(1) : allRows;
+        const columns = headerMode
+            ? _csvAutoColumns(headerRow, dataRows)
+            : (dataRows.length ? _csvColumnWidths(dataRows).map(width => ({ width, wordWrap: true })) : undefined);
+        // minDimensions only for a genuinely empty new file -- gives a blank grid room to
+        // type into. Applying it to real data padded every save with trailing empty
+        // cells for any file narrower than 6 columns or shorter than 8 rows (the real
+        // motivating file, a 5-column bank export, hit this on every single save).
+        _sheetInstance = jspreadsheet(host, {
+            worksheets: [{
+                data: dataRows.length ? dataRows : [['']],
+                minDimensions: dataRows.length ? undefined : [6, 8],
+                columns,
+            }],
+        });
+        _sheetHeaderRow = headerMode ? headerRow : null;
+    }
 
     function _renderSheet(note) {
         const host = document.getElementById('nb-sheet-host');
         if (!host) { console.error('nb-sheet-host not found'); return; }
-        if (_sheetInstance) { try { jspreadsheet.destroy(host); } catch(_) {} _sheetInstance = null; }
 
         const raw = note.raw || note.body || '';
         const rows = raw.split('\n').filter(r => r.trim() !== '').map(r =>
             r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"'))
         );
 
+        _sheetHeaderMode = false;   // always start unchecked for a freshly opened note
         try {
-            _sheetInstance = jspreadsheet(host, {
-                worksheets: [{
-                    data: rows.length ? rows : [['']],
-                    minDimensions: [6, 8],
-                }],
-            });
+            _sheetInitGrid(host, rows, false);
         } catch(e) {
             host.innerHTML = `<div style="padding:40px;color:var(--red)">Sheet init error: ${_esc(String(e))}</div>`;
             return;
         }
 
-        // Show Save/Cancel synchronously — don't rely on async onload
-        document.getElementById('nb-editor-wrap').hidden = false;
+        // Show Save/Cancel synchronously — don't rely on async onload.
+        // .nb-toolbar-only: unlike the real markdown editor, the sheet grid lives in
+        // #nb-preview-content, which stays visible here -- so #nb-editor-wrap must
+        // shrink to its toolbar strip instead of claiming an equal flex:1 share.
+        const editorWrap = document.getElementById('nb-editor-wrap');
+        editorWrap.hidden = false;
+        editorWrap.classList.add('nb-toolbar-only');
         document.getElementById('nb-editor').hidden = true;
         document.getElementById('nb-save-btn').onclick = () => _saveSheet();
         document.getElementById('nb-cancel-btn').onclick = () => openNote(_activeSelector);
 
+        const headerToggle = document.getElementById('nb-sheet-header-toggle');
+        const headerLabel  = document.getElementById('nb-sheet-header-label');
+        headerLabel.hidden = false;
+        headerToggle.checked = false;
+        headerToggle.onchange = () => {
+            const host2 = document.getElementById('nb-sheet-host');
+            const ws = host2?.spreadsheet?.worksheets?.[0];
+            if (!ws) return;
+            // Reconstruct the full row set from the *live* grid (not the original note
+            // content) so in-progress edits survive the toggle.
+            const allRows = _sheetHeaderMode ? [_sheetHeaderRow, ...ws.getData()] : ws.getData();
+            _sheetHeaderMode = headerToggle.checked;
+            _sheetInitGrid(host2, allRows, _sheetHeaderMode);
+        };
     }
 
     async function _saveSheet() {
@@ -3094,7 +3167,7 @@ const NbMain = (() => {
         const btn = document.getElementById('nb-save-btn');
         btn.textContent = _t('status_saving');
         try {
-            const data = ws.getData();
+            const data = _sheetHeaderMode ? [_sheetHeaderRow, ...ws.getData()] : ws.getData();
             const csv = data.map(row =>
                 row.map(cell => {
                     const s = String(cell ?? '');
