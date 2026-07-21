@@ -70,3 +70,34 @@ e2e fixture above runs bare `python3 app.py` instead, so gunicorn-specific behav
 `/api/restart` SIGHUP path, `on_starting`'s auto_sync/tracking/pre-push-hook setup) isn't
 exercised by the e2e suite at all. If the change touches that layer, verify against the real
 container directly, not the fixture.
+
+## Gotcha: the container's root filesystem is `--read-only`
+
+Any code that tries to *persist* a setting by writing a file under `~/` (not one of the
+explicit bind-mounted paths) will silently fail inside the real container — confirmed live
+2026-07-21: `podman exec nb-web touch /home/nbweb/.nbrc` → `Read-only file system`. This bit
+`_assert_nb_auto_sync_off()` for months (it tried to persist `auto_sync=0` via `nb set
+auto_sync 0`, which writes `~/.nbrc`) with no error ever surfacing, because its own
+success-check didn't distinguish "already correct" from "write failed." **Don't trust a
+"succeeded" log line from a container startup check that persists via file write — verify the
+actual runtime state directly.** The real fix for settings like this is an `ENV` in the
+`Containerfile`, not a runtime file write.
+
+**Recipe: verify a setting/env var is genuinely live inside the container**, not just
+"the startup log said so":
+
+```bash
+podman exec nb-web env | grep NB_AUTO_SYNC          # the container's own env
+podman exec nb-web nb settings get auto_sync         # what nb itself resolves to
+
+# For total certainty, check the actual running worker process's real environment
+# (catches the case where a setting was exported somewhere but didn't reach the
+# process that matters):
+PID=$(pgrep -f "gunicorn.*app:app" | head -1)
+tr '\0' '\n' < /proc/$PID/environ | grep NB_AUTO_SYNC
+```
+
+`nb`'s own built-in default (no `.nbrc`, no env var) was confirmed empirically to be `1`
+(auto-sync ON), not `0` — checked via `env -i HOME=<fresh empty dir> nb settings get
+auto_sync`. Never assume a "should default to off" setting actually does; check the real
+default in isolation if it matters.
