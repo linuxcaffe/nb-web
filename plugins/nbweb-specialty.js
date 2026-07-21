@@ -247,7 +247,17 @@
     }
 
     async function _fetchTemplateContent(name) {
-        const r = await fetch(`/api/template?path=${encodeURIComponent(`/home/djp/.nb/.templates/${name}.md`)}`);
+        // Resolve the global template's real, server-side path via /api/templates
+        // rather than assuming a fixed filesystem location -- the same pattern
+        // nbweb-hledger.js/nbweb-cine.js already use. A hardcoded absolute home
+        // directory here broke for any user other than the original dev (found
+        // live 2026-07-20, sys-repo-hardcoded-home.sh).
+        const listR = await fetch('/api/templates');
+        if (!listR.ok) return null;
+        const list = (await listR.json()).templates || [];
+        const tpl = list.find(t => t.scope === 'global' && t.name === name);
+        if (!tpl) return null;
+        const r = await fetch(`/api/template?path=${encodeURIComponent(tpl.path)}`);
         if (!r.ok) return null;
         return (await r.json()).content || null;
     }
