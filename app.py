@@ -10903,12 +10903,17 @@ def api_sysadmin():
             pass
 
     # ── Key config files ──────────────────────────────────────────────────────
+    # Note: 'Global dotfile' keeps the special-cased '.nb:.nb.md' selector (see
+    # api_note()'s admin-gated special case above) rather than an absolute path --
+    # the other four never had a real selector form (no notebook is ever named
+    # '.nb', and '/api/note' rejects any dotfolder filename containing '/'), so
+    # they resolve as plain absolute paths instead.
     config_files = [
-        {'label': 'Global dotfile',  'selector': '.nb:.nb.md',          'exists': (NB_DIR / '.nb.md').exists()},
-        {'label': 'Manifest',        'selector': '.nb:.manifest.md',     'exists': (NB_DIR / '.manifest.md').exists()},
-        {'label': 'Checks index',    'selector': '.nb:.checks/check-index.md', 'exists': (NB_DIR / '.checks' / 'check-index.md').exists()},
-        {'label': 'Guards rule',     'selector': '.nb:.rules/guards.md', 'exists': (NB_DIR / '.rules' / 'guards.md').exists()},
-        {'label': 'Tools index',     'selector': '.nb:.tools/tools.md',  'exists': (NB_DIR / '.tools' / 'tools.md').exists()},
+        {'label': 'Global dotfile',  'selector': '.nb:.nb.md',           'exists': (NB_DIR / '.nb.md').exists()},
+        {'label': 'Manifest',        'selector': str(NB_DIR / '.manifest.md'),               'exists': (NB_DIR / '.manifest.md').exists()},
+        {'label': 'Checks index',    'selector': str(NB_DIR / '.checks' / 'check-index.md'), 'exists': (NB_DIR / '.checks' / 'check-index.md').exists()},
+        {'label': 'Guards rule',     'selector': str(NB_DIR / '.rules' / 'guards.md'),       'exists': (NB_DIR / '.rules' / 'guards.md').exists()},
+        {'label': 'Tools index',     'selector': str(NB_DIR / '.tools' / 'tools.md'),        'exists': (NB_DIR / '.tools' / 'tools.md').exists()},
         {'label': 'nb-settings',     'path': str(settings_path),         'exists': settings_path.exists()},
     ]
 
@@ -11588,7 +11593,13 @@ def api_nb_settings():
                 return jsonify({'error': f'Invalid value for {key}: {e}'}), 400
         _save_settings(validated)
         _settings = _load_settings()
-    return jsonify(_settings)
+    # codeblock_access isn't a settings.json key (see _SETTINGS_SCHEMA) -- it
+    # lives in ~/.nb/.nb.md's frontmatter, resolved via _effective_setting().
+    # Merged in read-only here so the frontend's _cbAccess gate (nbweb-codeblocks.js)
+    # has something real to read; a PATCH naming it still 400s as an unknown setting.
+    resp = dict(_settings)
+    resp['codeblock_access'] = _effective_setting('codeblock_access') or {}
+    return jsonify(resp)
 
 
 @app.route('/api/locale')
