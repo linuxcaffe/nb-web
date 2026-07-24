@@ -4032,8 +4032,10 @@ def api_t_journal_from_csv():
 
     text          = note_path.read_text(errors='replace')
     meta, body    = parse_frontmatter(text)
+    notebook      = selector.split(':')[0] if ':' in selector else 'home'
+    _fcfg         = _folder_config(notebook, str(note_path))
     project       = meta.get('project', note_path.stem)
-    journal_key   = meta.get('journal', '')
+    journal_key   = str(meta.get('journal') or _fcfg.get('journal') or '').strip()
     if not journal_key:
         return jsonify({'success': False, 'error': 'journal: FM key not set'}), 400
 
