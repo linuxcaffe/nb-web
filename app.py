@@ -4053,59 +4053,38 @@ def api_t_journal_from_csv():
     bank_acct     = 'Assets:Bank:Business:Chequing'
     itc_acct      = 'Assets:HST:InputTaxCredits'
 
-    # Find ALL csv blocks for this token and combine their data rows.
-    # Raw note text has no header row (headers come from .lib/ template); col[0]=name, col[4]=total.
+    from datetime import date as _date
     import re as _re
-    all_block_texts = _re.findall(r'```csv ' + _re.escape(token) + r'\n([\s\S]*?)```', body)
-    if not all_block_texts:
-        return jsonify({'success': False, 'error': f'no csv {token} block found'}), 404
 
-    raw_lines = []
-    for block_text in all_block_texts:
-        for line in block_text.splitlines():
+    # Each block's transaction date is the nearest preceding '## YYYY-MM-DD'
+    # diary heading -- mirrors timedot's own date inheritance (_injectDateContext /
+    # _timedotExtractFile). Falls back to started:/today only for a block with no
+    # heading above it. Without this, every block's entries were dated from the
+    # project's started: frontmatter regardless of which diary day they were
+    # actually logged under -- so on any project invoiced more than once, a
+    # materials block added after the first invoice landed *before* every
+    # subsequent invoice's since-last-invoice cutoff and silently never billed.
+    heading_re = _re.compile(r'^#{1,6}\s+(\d{4}-\d{2}-\d{2})', _re.MULTILINE)
+    headings   = [(m.start(), m.group(1)) for m in heading_re.finditer(body)]
+    default_date = meta.get('started') or str(_date.today())
+
+    # Raw note text has no header row (headers come from .lib/ template); col[0]=name, col[4]=total.
+    block_re = _re.compile(r'```csv ' + _re.escape(token) + r'\n([\s\S]*?)```')
+    rows_by_date = {}
+    for m in block_re.finditer(body):
+        block_date = default_date
+        for pos, d in headings:
+            if pos <= m.start():
+                block_date = d
+            else:
+                break
+        for line in m.group(1).splitlines():
             s = line.strip()
             if s and s.lower() != 'contents':
-                raw_lines.append(line)
+                rows_by_date.setdefault(block_date, []).append(line)
 
-    reader = _csv.reader(_io.StringIO('\n'.join(raw_lines)))
-    parsed = [r for r in reader if any(c.strip() for c in r)]
-    if not parsed:
-        return jsonify({'success': False, 'error': f'csv {token} block has no data rows'}), 400
-
-    total      = 0.0
-    desc_lines = []
-    for row in parsed:
-        lt = 0.0
-        # Try col[4] (total column) first
-        if len(row) > 4:
-            try: lt = float(row[4].replace(',', ''))
-            except ValueError: pass
-        # Fallback: formula cell — multiply all numeric values in the row (qty × rate)
-        if not lt:
-            nums = []
-            for c in row:
-                c = c.strip()
-                if c and not c.startswith('='):
-                    try: nums.append(float(c.replace(',', '')))
-                    except ValueError: pass
-            if len(nums) >= 2:
-                lt = nums[0]
-                for n in nums[1:]: lt *= n
-            elif len(nums) == 1:
-                lt = nums[0]
-        lt = round(lt, 2)
-        if lt:
-            total += lt
-            item = row[0].strip() if row else '?'
-            desc_lines.append(f'  ; {item}: ${lt:.2f}')
-
-    total = round(total, 2)
-    hst   = round(total * HST, 2)
-    gross = round(total + hst, 2)
-
-    # Use note started: or today as transaction date
-    from datetime import date as _date
-    txn_date = meta.get('started') or str(_date.today())
+    if not rows_by_date:
+        return jsonify({'success': False, 'error': f'no csv {token} block found'}), 404
 
     jlines = [
         f'; {project} {token} journal — DO NOT HAND EDIT',
@@ -4113,13 +4092,54 @@ def api_t_journal_from_csv():
         f'',
         f'account {mat_acct}',
         f'',
-        f'{txn_date} {project} — {token}',
-    ] + desc_lines + [
-        f'    {mat_acct:<{PAD}} {total:.2f} CAD',
-        f'    {itc_acct:<{PAD}} {hst:.2f} CAD',
-        f'    {bank_acct:<{PAD}} {-gross:.2f} CAD',
-        f'',
     ]
+    any_rows = False
+    for txn_date in sorted(rows_by_date):
+        reader = _csv.reader(_io.StringIO('\n'.join(rows_by_date[txn_date])))
+        parsed = [r for r in reader if any(c.strip() for c in r)]
+
+        total      = 0.0
+        desc_lines = []
+        for row in parsed:
+            lt = 0.0
+            # Try col[4] (total column) first
+            if len(row) > 4:
+                try: lt = float(row[4].replace(',', ''))
+                except ValueError: pass
+            # Fallback: formula cell — multiply all numeric values in the row (qty × rate)
+            if not lt:
+                nums = []
+                for c in row:
+                    c = c.strip()
+                    if c and not c.startswith('='):
+                        try: nums.append(float(c.replace(',', '')))
+                        except ValueError: pass
+                if len(nums) >= 2:
+                    lt = nums[0]
+                    for n in nums[1:]: lt *= n
+                elif len(nums) == 1:
+                    lt = nums[0]
+            lt = round(lt, 2)
+            if lt:
+                total += lt
+                item = row[0].strip() if row else '?'
+                desc_lines.append(f'  ; {item}: ${lt:.2f}')
+
+        if not desc_lines:
+            continue
+        any_rows = True
+        total = round(total, 2)
+        hst   = round(total * HST, 2)
+        gross = round(total + hst, 2)
+        jlines += [f'{txn_date} {project} — {token}'] + desc_lines + [
+            f'    {mat_acct:<{PAD}} {total:.2f} CAD',
+            f'    {itc_acct:<{PAD}} {hst:.2f} CAD',
+            f'    {bank_acct:<{PAD}} {-gross:.2f} CAD',
+            f'',
+        ]
+
+    if not any_rows:
+        return jsonify({'success': False, 'error': f'csv {token} block has no data rows'}), 400
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text('\n'.join(jlines))
