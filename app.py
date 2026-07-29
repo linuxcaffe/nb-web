@@ -21,7 +21,6 @@ except ImportError:
     _YAML_OK = False
 
 import csv
-import hashlib
 import io
 import secrets
 import shlex
@@ -1165,9 +1164,6 @@ _LOGIN_HTML = '''<!DOCTYPE html>
               border-radius: 4px; color: #fff; font-size: 1rem; cursor: pointer; }}
     button:hover {{ background: #2d63b8; }}
     .err {{ color: #ff8080; margin-bottom: 1rem; font-size: .9rem; }}
-    .guest-btn {{ margin-top: .75rem; background: transparent; border: 1px solid #2a4a8a;
-                  color: #8aaacc; font-size: .85rem; }}
-    .guest-btn:hover {{ background: #1a2e50; color: #a0c4ff; border-color: #5588cc; }}
   </style>
 </head>
 <body>
@@ -1179,10 +1175,6 @@ _LOGIN_HTML = '''<!DOCTYPE html>
     <label>Password</label>
     <input name="password" type="password" autocomplete="current-password">
     <button type="submit">Sign in</button>
-    <button type="button" class="guest-btn" onclick="
-      document.querySelector(\'[name=username]\').value=\'guest\';
-      document.querySelector(\'[name=password]\').value=\'guest\';
-      document.getElementById(\'lf\').submit();">Log in as Guest</button>
   </form>
 </body>
 </html>'''
@@ -1196,6 +1188,11 @@ def login():
     username = request.form.get('username', '').strip().lower()
     password = request.form.get('password', '')
     user = _load_user(username) or _load_user_by_name(username)
+    if user and user.get('level') == 'guest':
+        # Guest login disabled pending a more controlled environment (2026-07-29) —
+        # fall through to the generic "invalid" response rather than a distinct error,
+        # so the account's existence isn't disclosed.
+        user = None
     if user and user['password_hash'] and check_password_hash(user['password_hash'], password):
         session['user'] = {k: user[k] for k in ('username', 'name', 'level', 'notebooks')}
         return redirect('/')
@@ -7989,62 +7986,6 @@ _SKIP_NAMES = frozenset({'.DS_Store', 'Thumbs.db', 'desktop.ini'})
 _SKIP_DIRS  = frozenset({'__pycache__', '.mypy_cache', '.ruff_cache'})
 
 
-def _parse_version(v: str) -> tuple:
-    """Parse 'x.y.z' → (x, y, z) for comparison; missing parts default to 0."""
-    try:
-        return tuple(int(x) for x in str(v).strip().split('.'))
-    except Exception:
-        return (0,)
-
-
-def _read_plugin_meta_from_text(text: str) -> dict:
-    """Like _read_plugin_meta but works on a string instead of a file."""
-    meta = {'name': '', 'version': '', 'type': 'plugin', 'homepage': ''}
-    for line in text.splitlines():
-        if not line.startswith('//'):
-            break
-        m = _RE_PLUGIN_TAG.match(line)
-        if m:
-            tag, val = m.group(1), m.group(2)
-            if tag in meta:
-                meta[tag] = val
-    return meta
-
-
-def _installed_plugin_version(filename: str) -> str:
-    """Return version string of an installed plugin JS file, or ''."""
-    for search_dir in [Path(__file__).parent / 'plugins', WEB_PLUGINS_DIR]:
-        path = search_dir / filename
-        if path.exists():
-            return _read_plugin_meta(path.resolve()).get('version', '') or ''
-    return ''
-
-
-def _gather_plugins_for_archive() -> list:
-    """Return list of dicts: {real_path, meta} for all enabled plugins."""
-    entries = []
-    seen = set()
-    for p in _settings.get('plugins', []):
-        if not p.get('enabled', True):
-            continue
-        url = p.get('url', '')
-        if url.startswith('/plugins/'):
-            js_path = Path(__file__).parent / url.lstrip('/')
-        elif url.startswith('/nb-web-plugins/'):
-            js_path = WEB_PLUGINS_DIR / url.split('/')[-1]
-        else:
-            continue
-        try:
-            real_path = js_path.resolve(strict=True)
-        except (OSError, RuntimeError):
-            continue
-        if not real_path.is_file() or real_path in seen:
-            continue
-        seen.add(real_path)
-        entries.append({'real_path': real_path, 'meta': _read_plugin_meta(real_path)})
-    return entries
-
-
 def _encrypt_payload(data: bytes, password: str) -> tuple:
     """Encrypt bytes with AES-256-CBC. Returns (encrypted_bytes, None) or (None, error)."""
     proc = subprocess.run(
@@ -8108,37 +8049,19 @@ def _open_nbz_inner(outer_zf: zipfile.ZipFile, password: str = '') -> tuple:
         return None, 'Wrong password or corrupted archive.'
 
 
-def _sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-def _sha256_file(path: Path) -> str | None:
-    try:
-        return _sha256_bytes(path.read_bytes())
-    except Exception:
-        return None
-
-def _extra_action(archive_data: bytes, installed_path: Path) -> str:
-    """Compare archive copy to installed copy. Returns 'new', 'current', or 'overwrite'."""
-    if not installed_path.exists():
-        return 'new'
-    return 'current' if _sha256_bytes(archive_data) == _sha256_file(installed_path) else 'overwrite'
-
-
 @app.route('/api/nb/archive', methods=['POST'])
 def api_nb_archive():
-    """Create a .nbz notebook archive (format 2) and stream it as a download.
+    """Create a .nbz notebook archive (notebook content only) and stream it as a download.
 
-    Format 2 adds optional sections alongside the notebook directory:
-      plugins/       — JS plugin files for any enabled plugins
-      check_scripts/  — scripts from ~/.nb/.checks/
-      templates/     — global templates from ~/.nb/.templates/
+    Earlier versions could also bundle plugin JS / check scripts / global templates
+    into the archive as an install-time payload. Removed 2026-07-29: those bundles
+    were never scoped to the requester and doubled as an executable-file delivery
+    path via the matching import options (see the isolation-hardening design doc).
+    An archive is notebook content, nothing else.
     """
     data              = request.get_json() or {}
     notebook          = data.get('notebook', '').strip()
     includes_git      = bool(data.get('includes_git', False))
-    include_code      = bool(data.get('include_code', False))
-    include_checks     = bool(data.get('include_checks', False))
-    include_templates = bool(data.get('include_templates', False))
     description       = str(data.get('description', '')).strip()
     password          = str(data.get('password', '')).strip()
 
@@ -8165,18 +8088,6 @@ def api_nb_archive():
         if p.is_file() and '.git' not in p.relative_to(nb_path).parts
     )
 
-    # Gather extra sections before building the zip so they can go in the manifest
-    plugin_entries  = _gather_plugins_for_archive() if include_code else []
-    test_files      = sorted(CHECK_DIR.glob('*.sh')) if include_checks and CHECK_DIR.is_dir() else []
-    template_files  = sorted(GLOBAL_TEMPLATES_DIR.glob('*.md')) if include_templates and GLOBAL_TEMPLATES_DIR.is_dir() else []
-    # Also include notebook-local templates
-    nb_tmpl_dir = nb_path / '.templates'
-    if include_templates and nb_tmpl_dir.is_dir():
-        seen_tmpl = {f.name for f in template_files}
-        for t in sorted(nb_tmpl_dir.glob('*.md')):
-            if t.name not in seen_tmpl:
-                template_files.append(t)
-
     meta = {
         'format':            2,
         'name':              notebook,
@@ -8184,17 +8095,8 @@ def api_nb_archive():
         'nb_version':        nb_version,
         'note_count':        note_count,
         'includes_git':      includes_git,
-        'include_code':      include_code,
-        'include_checks':     include_checks,
-        'include_templates': include_templates,
         'encrypted':         bool(password),
         'description':       description,
-        'plugins': [
-            {'file': f'plugins/{e["real_path"].name}', **e['meta']}
-            for e in plugin_entries
-        ],
-        'check_scripts': [f.name for f in test_files],
-        'templates':    [f.name for f in template_files],
     }
 
     date_str = datetime.now().strftime('%Y%m%d')
@@ -8220,22 +8122,9 @@ def api_nb_archive():
                 except Exception:
                     skipped.append(str(rel))
 
-    def _add_extras(zf, skipped):
-        for entry in plugin_entries:
-            try:   zf.write(str(entry['real_path']), f'plugins/{entry["real_path"].name}')
-            except Exception as exc: skipped.append(f'plugins/{entry["real_path"].name}: {exc}')
-        for sh in test_files:
-            try:   zf.write(str(sh), f'check_scripts/{sh.name}')
-            except Exception as exc: skipped.append(f'check_scripts/{sh.name}: {exc}')
-        for tmpl in template_files:
-            try:   zf.write(str(tmpl), f'templates/{tmpl.name}')
-            except Exception as exc: skipped.append(f'templates/{tmpl.name}: {exc}')
-
     out_buf = io.BytesIO()
     if password:
         # Encrypted format: only the notebook notes are private.
-        # plugins/, check_scripts/, templates/ stay plaintext — the archive
-        # works as a full installer without the password; only note extraction needs it.
         inner_buf = io.BytesIO()
         with zipfile.ZipFile(inner_buf, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as inner_zf:
             _add_notebook_files(inner_zf, skipped)
@@ -8246,12 +8135,10 @@ def api_nb_archive():
         with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as ozf:
             ozf.writestr('.nb_archive', json.dumps(meta, indent=2))
             ozf.writestr('payload.enc', encrypted_payload)
-            _add_extras(ozf, skipped)
     else:
         with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             zf.writestr(f'{notebook}/.nb_archive', json.dumps(meta, indent=2))
             _add_notebook_files(zf, skipped)
-            _add_extras(zf, skipped)
 
     out_buf.seek(0)
     resp = send_file(out_buf, mimetype='application/zip',
@@ -8266,16 +8153,11 @@ def api_nb_archive():
 
 @app.route('/api/nb/import-preview', methods=['POST'])
 def api_nb_import_preview():
-    """Read .nb_archive metadata from a .nbz upload without extracting.
-
-    For format-2 archives, also returns plugin version comparisons,
-    check script list, and template list so the UI can show install options.
-    """
+    """Read .nb_archive metadata from a .nbz upload without extracting."""
     f = request.files.get('archive')
     if not f:
         return jsonify({'ok': False, 'error': 'No file provided.'}), 400
     try:
-        password = (request.form.get('password') or '').strip()
         buf = io.BytesIO(f.read())
         with zipfile.ZipFile(buf, 'r') as outer_zf:
             names = outer_zf.namelist()
@@ -8290,52 +8172,12 @@ def api_nb_import_preview():
             notebook = meta.get('name') or meta_name.split('/')[0]
             conflict = (NB_DIR / notebook).is_dir()
 
-            # For encrypted archives plugins/scripts/templates are plaintext in the outer zip.
-            # The password is only needed at import time to extract the notebook notes.
-            zf = outer_zf
-
-            # Enrich plugin list with installed-version comparison
-            plugins_info = []
-            for p in meta.get('plugins', []):
-                fname     = p.get('file', '').split('/')[-1]
-                inst_ver  = _installed_plugin_version(fname)
-                arch_ver  = p.get('version', '')
-                if not inst_ver:
-                    action = 'install'
-                elif _parse_version(arch_ver) > _parse_version(inst_ver):
-                    action = 'upgrade'
-                else:
-                    action = 'current'
-                plugins_info.append({**p, 'filename': fname,
-                                     'installed_version': inst_ver, 'action': action})
-
-            # Per-file comparison for check scripts and templates
-            check_scripts = []
-            for item in zf.infolist():
-                if item.is_dir() or not item.filename.startswith('check_scripts/'): continue
-                fname = item.filename.split('/')[-1]
-                if not fname: continue
-                data = zf.read(item.filename)
-                check_scripts.append({'filename': fname,
-                                     'action': _extra_action(data, CHECK_DIR / fname)})
-            templates = []
-            for item in zf.infolist():
-                if item.is_dir() or not item.filename.startswith('templates/'): continue
-                fname = item.filename.split('/')[-1]
-                if not fname: continue
-                data = zf.read(item.filename)
-                templates.append({'filename': fname,
-                                  'action': _extra_action(data, GLOBAL_TEMPLATES_DIR / fname)})
-
             return jsonify({
-                'ok':          True,
-                'meta':        meta,
-                'notebook':    notebook,
-                'conflict':    conflict,
-                'suggested':   (notebook + '-import') if conflict else notebook,
-                'plugins':     plugins_info,
-                'check_scripts': check_scripts,
-                'templates':   templates,
+                'ok':        True,
+                'meta':      meta,
+                'notebook':  notebook,
+                'conflict':  conflict,
+                'suggested': (notebook + '-import') if conflict else notebook,
             })
     except zipfile.BadZipFile:
         return jsonify({'ok': False, 'error': 'Not a valid zip file.'}), 400
@@ -8345,32 +8187,13 @@ def api_nb_import_preview():
 
 @app.route('/api/nb/import-dry-run', methods=['POST'])
 def api_nb_import_dry_run():
-    """Simulate an import and return what would happen — no files written.
-
-    Same parameters as /api/nb/import. Returns per-file action reports:
-      notebook_files  — count + conflict check
-      plugins         — install / upgrade / current / skipped
-      check_scripts    — new / overwrite (per file)
-      templates       — new / overwrite (per file)
-    """
+    """Simulate a notebook import and return what would happen — no files written."""
     f = request.files.get('archive')
     if not f:
         return jsonify({'ok': False, 'error': 'No file provided.'}), 400
 
     name_override = request.form.get('name', '').strip()
     password      = (request.form.get('password') or '').strip()
-    try:
-        install_plugins = json.loads(request.form.get('install_plugins', '[]'))
-    except Exception:
-        install_plugins = []
-    try:
-        install_checks     = json.loads(request.form.get('install_checks', '[]'))
-    except Exception:
-        install_checks     = []
-    try:
-        install_templates = json.loads(request.form.get('install_templates', '[]'))
-    except Exception:
-        install_templates = []
 
     try:
         buf = io.BytesIO(f.read())
@@ -8391,7 +8214,6 @@ def api_nb_import_dry_run():
             nb_conflict = nb_dest.exists()
 
             # For encrypted archives, notebook files are in payload.enc.
-            # Extras (plugins/scripts/templates) are plaintext in outer_zf either way.
             if meta.get('encrypted'):
                 if password:
                     inner_zf, err = _open_nbz_inner(outer_zf, password)
@@ -8405,54 +8227,6 @@ def api_nb_import_dry_run():
 
             nb_files = [n for n in nb_names if n.startswith(prefix) and not n.endswith('/')]
 
-            # Plugins
-            plugins_out = []
-            for p in meta.get('plugins', []):
-                fname    = p.get('file', '').split('/')[-1]
-                selected = (not install_plugins) or (fname in install_plugins)
-                inst_ver = _installed_plugin_version(fname)
-                arch_ver = p.get('version', '')
-                if not selected:
-                    action = 'skipped'
-                elif not inst_ver:
-                    action = 'install'
-                elif _parse_version(arch_ver) > _parse_version(inst_ver):
-                    action = 'upgrade'
-                else:
-                    action = 'current'
-                plugins_out.append({
-                    'filename':          fname,
-                    'name':              p.get('name', fname),
-                    'action':            action,
-                    'archive_version':   arch_ver,
-                    'installed_version': inst_ver,
-                    'dest':              str(WEB_PLUGINS_DIR / fname) if action not in ('current', 'skipped') else '',
-                })
-
-            # Test scripts (always plaintext in outer_zf)
-            scripts_out = []
-            for item in outer_zf.infolist():
-                if item.is_dir() or not item.filename.startswith('check_scripts/'): continue
-                fname = item.filename.split('/')[-1]
-                if not fname: continue
-                selected = (not install_checks) or (fname in install_checks)
-                data   = outer_zf.read(item.filename)
-                action = _extra_action(data, CHECK_DIR / fname) if selected else 'skipped'
-                scripts_out.append({'filename': fname, 'action': action,
-                                    'dest': str(CHECK_DIR / fname)})
-
-            # Templates (always plaintext in outer_zf)
-            templates_out = []
-            for item in outer_zf.infolist():
-                if item.is_dir() or not item.filename.startswith('templates/'): continue
-                fname = item.filename.split('/')[-1]
-                if not fname: continue
-                selected = (not install_templates) or (fname in install_templates)
-                data   = outer_zf.read(item.filename)
-                action = _extra_action(data, GLOBAL_TEMPLATES_DIR / fname) if selected else 'skipped'
-                templates_out.append({'filename': fname, 'action': action,
-                                      'dest': str(GLOBAL_TEMPLATES_DIR / fname)})
-
     except zipfile.BadZipFile:
         return jsonify({'ok': False, 'error': 'Not a valid zip file.'}), 400
     except Exception as e:
@@ -8464,45 +8238,28 @@ def api_nb_import_dry_run():
         'notebook_conflict': nb_conflict,
         'notebook_dest':     str(nb_dest),
         'notebook_files':    len(nb_files),
-        'plugins':           plugins_out,
-        'check_scripts':      scripts_out,
-        'templates':         templates_out,
     })
 
 
 @app.route('/api/nb/import', methods=['POST'])
 def api_nb_import():
-    """Extract a .nbz archive into ~/.nb/ as a notebook.
+    """Extract a .nbz archive into ~/.nb/ as a notebook — notebook content only.
 
-    Format-2 extras (all optional, controlled by form fields):
-      install_plugins   — JSON list of filenames, e.g. '["nbweb-hledger.js"]'
-      install_checks     — 'true' to copy check_scripts/ to ~/.nb/.checks/
-      install_templates — 'true' to copy templates/ to ~/.nb/.templates/
+    Earlier versions accepted install_plugins/install_checks/install_templates
+    form fields that copied archive-bundled files into ~/.nb/.checks/,
+    ~/.nb/.templates/, and the plugins directory — including chmod'd-executable
+    check scripts. Removed 2026-07-29: that was an arbitrary-file-write (and,
+    via /api/check/run, arbitrary-command-execution) primitive available to any
+    authenticated account. See the isolation-hardening design doc. Import now
+    only ever writes into the new notebook's own directory.
     """
-    global _settings
     f             = request.files.get('archive')
     name_override = request.form.get('name', '').strip()
     password      = (request.form.get('password') or '').strip()
     if not f:
         return jsonify({'ok': False, 'error': 'No file provided.'}), 400
 
-    try:
-        install_plugins   = json.loads(request.form.get('install_plugins', '[]'))
-    except Exception:
-        install_plugins   = []
-    try:
-        install_checks     = json.loads(request.form.get('install_checks', '[]'))
-    except Exception:
-        install_checks     = []
-    try:
-        install_templates = json.loads(request.form.get('install_templates', '[]'))
-    except Exception:
-        install_templates = []
-
     dest = None
-    installed_plugins  = []
-    copied_tests       = []
-    copied_templates   = []
 
     try:
         buf = io.BytesIO(f.read())
@@ -8540,6 +8297,7 @@ def api_nb_import():
             else:
                 nb_zf = outer_zf
 
+            dest_resolved = dest.resolve()
             dest.mkdir(parents=True)
             for item in nb_zf.infolist():
                 if item.is_dir() or not item.filename.startswith(prefix):
@@ -8550,63 +8308,14 @@ def api_nb_import():
                 if not rel or rel.startswith('/'):
                     continue
                 target = dest / rel
+                try:
+                    target.resolve().relative_to(dest_resolved)
+                except ValueError:
+                    # Archive member path (e.g. containing "..") would land outside
+                    # the notebook's own directory — skip it (Zip Slip containment).
+                    continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(nb_zf.read(item.filename))
-
-            # Install plugins — always plaintext in outer_zf
-            if install_plugins:
-                WEB_PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
-                current_plugins = list(_settings.get('plugins', []))
-                for item in outer_zf.infolist():
-                    if item.is_dir() or not item.filename.startswith('plugins/'):
-                        continue
-                    fname = item.filename.split('/')[-1]
-                    if fname not in install_plugins:
-                        continue
-                    content    = outer_zf.read(item.filename)
-                    pmeta      = _read_plugin_meta_from_text(content.decode('utf-8', errors='replace'))
-                    stored_url = f'/nb-web-plugins/{fname}'
-                    dest_file  = WEB_PLUGINS_DIR / fname
-                    dest_file.write_bytes(content)
-                    existing = next((p for p in current_plugins if p['url'] == stored_url), None)
-                    if existing:
-                        existing.update({'name': pmeta['name'] or fname[:-3], 'version': pmeta['version'],
-                                         'type': pmeta['type'], 'homepage': pmeta['homepage']})
-                    else:
-                        current_plugins.append({
-                            'url':      stored_url,
-                            'name':     pmeta['name'] or fname[:-3],
-                            'enabled':  True,
-                            'type':     pmeta['type'] or 'plugin',
-                            'homepage': pmeta['homepage'],
-                        })
-                    installed_plugins.append(fname)
-                if installed_plugins:
-                    _save_settings({'plugins': current_plugins})
-                    _settings = _load_settings()
-
-            # Copy check scripts — always plaintext in outer_zf
-            if install_checks:
-                CHECK_DIR.mkdir(parents=True, exist_ok=True)
-                for item in outer_zf.infolist():
-                    if item.is_dir() or not item.filename.startswith('check_scripts/'): continue
-                    fname = item.filename.split('/')[-1]
-                    if not fname or fname not in install_checks: continue
-                    target = CHECK_DIR / fname
-                    target.write_bytes(outer_zf.read(item.filename))
-                    target.chmod(0o755)
-                    copied_tests.append(fname)
-
-            # Copy templates — always plaintext in outer_zf
-            if install_templates:
-                GLOBAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-                for item in outer_zf.infolist():
-                    if item.is_dir() or not item.filename.startswith('templates/'): continue
-                    fname = item.filename.split('/')[-1]
-                    if not fname or fname not in install_templates: continue
-                    target = GLOBAL_TEMPLATES_DIR / fname
-                    target.write_bytes(outer_zf.read(item.filename))
-                    copied_templates.append(fname)
 
     except zipfile.BadZipFile:
         if dest and dest.exists():
@@ -8632,12 +8341,9 @@ def api_nb_import():
                        cwd=str(dest), capture_output=True, env=git_env)
 
     return jsonify({
-        'ok':                True,
-        'notebook':          notebook,
-        'note_count':        meta.get('note_count', '?'),
-        'installed_plugins': installed_plugins,
-        'copied_tests':      copied_tests,
-        'copied_templates':  copied_templates,
+        'ok':         True,
+        'notebook':   notebook,
+        'note_count': meta.get('note_count', '?'),
     })
 
 

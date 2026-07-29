@@ -21,12 +21,8 @@
         form.id = 'nbarch-form';
         form.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:8px;font-size:12px';
         form.innerHTML =
-            `<div style="color:var(--text-dim);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase">Include</div>` +
-            `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">` +
-                _chk('nbarch-git',       'Git history',   false) +
-                _chk('nbarch-code',      'Plugin code',   true)  +
-                _chk('nbarch-tests',     'Test scripts',  true)  +
-                _chk('nbarch-templates', 'Templates',     true)  +
+            `<div style="display:flex;align-items:center;gap:8px">` +
+                _chk('nbarch-git', 'Include git history', false) +
             `</div>` +
             `<input id="nbarch-desc" class="nb-opt-input" placeholder="Description (optional)" style="margin-top:2px">` +
             `<div style="display:flex;align-items:center;gap:8px;margin-top:2px">` +
@@ -83,13 +79,10 @@
                     method:  'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body:    JSON.stringify({
-                        notebook:          nb.name,
-                        includes_git:      form.querySelector('#nbarch-git').checked,
-                        include_code:      form.querySelector('#nbarch-code').checked,
-                        include_tests:     form.querySelector('#nbarch-tests').checked,
-                        include_templates: form.querySelector('#nbarch-templates').checked,
-                        description:       form.querySelector('#nbarch-desc').value.trim(),
-                        password:          encCb.checked ? pw1.value : '',
+                        notebook:     nb.name,
+                        includes_git: form.querySelector('#nbarch-git').checked,
+                        description:  form.querySelector('#nbarch-desc').value.trim(),
+                        password:     encCb.checked ? pw1.value : '',
                     }),
                 });
                 if (!r.ok) {
@@ -199,147 +192,6 @@
             `<div style="font-size:12px;color:var(--text-dim);padding-top:8px">` +
             `Import .nbz archives in <strong>Settings → Archive</strong>.</div>`;
     }
-
-    function _DEAD_renderImportContent_REMOVED(container) {
-        // Dead code removed — keeping this tombstone so git blame is clear.
-        function _renderExtras(d) {
-            let html = '';
-
-            // Plugins
-            if (d.plugins && d.plugins.length) {
-                html += `<div style="font-weight:600;margin-bottom:4px">Plugins</div>`;
-                d.plugins.forEach(p => {
-                    const actionable = p.action !== 'current';
-                    const astyle = _ACTION_STYLE[p.action] || '';
-                    const alabel = _ACTION_LABEL[p.action] || p.action;
-                    html +=
-                        `<label style="display:flex;gap:8px;align-items:baseline;padding:2px 0;cursor:${actionable?'pointer':'default'}">` +
-                        `<input type="checkbox" class="nbarch-plugin-cb" data-file="${_esc(p.filename)}" ` +
-                        `${actionable ? 'checked' : 'disabled checked'} style="cursor:${actionable?'pointer':'default'}">` +
-                        `<span style="flex:1">${_esc(p.name || p.filename)}</span>` +
-                        `<span style="font-size:11px;${astyle}">${alabel}</span>` +
-                        (p.version ? `<span style="font-size:10px;color:var(--text-dim)">v${_esc(p.version)}</span>` : '') +
-                        `</label>`;
-                });
-            }
-
-            // Test scripts
-            if (d.test_scripts && d.test_scripts.length) {
-                html += `<div style="font-weight:600;margin-top:8px;margin-bottom:4px">Test scripts</div>`;
-                html +=
-                    `<label style="display:flex;gap:8px;align-items:center;cursor:pointer">` +
-                    `<input type="checkbox" id="nbarch-imp-tests" checked>` +
-                    `<span style="flex:1">${d.test_scripts.length} script${d.test_scripts.length!==1?'s':''}: ` +
-                    `<span style="color:var(--text-dim)">${d.test_scripts.slice(0,4).map(_esc).join(', ')}` +
-                    (d.test_scripts.length > 4 ? ` +${d.test_scripts.length-4} more` : '') +
-                    `</span></span></label>`;
-            }
-
-            // Templates
-            if (d.templates && d.templates.length) {
-                html += `<div style="font-weight:600;margin-top:8px;margin-bottom:4px">Templates</div>`;
-                html +=
-                    `<label style="display:flex;gap:8px;align-items:center;cursor:pointer">` +
-                    `<input type="checkbox" id="nbarch-imp-templates" checked>` +
-                    `<span style="flex:1">${d.templates.length} template${d.templates.length!==1?'s':''}: ` +
-                    `<span style="color:var(--text-dim)">${d.templates.slice(0,4).map(_esc).join(', ')}` +
-                    (d.templates.length > 4 ? ` +${d.templates.length-4} more` : '') +
-                    `</span></span></label>`;
-            }
-
-            extras.innerHTML = html;
-            extras.style.display = html ? 'block' : 'none';
-        }
-
-        async function _onFile(file) {
-            _currentFile = file;
-            _previewData = null;
-            dropLbl.textContent   = file.name;
-            preview.style.display = 'none';
-            extras.style.display  = 'none';
-            nameRow.style.display = 'none';
-            goBtn.disabled        = true;
-            status.style.color    = 'var(--text-dim)';
-            status.textContent    = 'Reading…';
-            const fd = new FormData();
-            fd.append('archive', file);
-            try {
-                const r = await fetch('/api/nb/import-preview', { method: 'POST', body: fd });
-                const d = await r.json();
-                if (!d.ok) { status.style.color = 'var(--text-danger,#e74c3c)'; status.textContent = '✗ ' + d.error; return; }
-                _previewData = d;
-                status.textContent = '';
-                const m = d.meta, date = (m.archived_at || '').slice(0, 10);
-                const tags = [
-                    m.note_count != null && `${m.note_count} notes`,
-                    date && _esc(date),
-                    m.includes_git && 'git history',
-                    (d.plugins?.length) && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
-                    (d.test_scripts?.length) && `${d.test_scripts.length} test script${d.test_scripts.length!==1?'s':''}`,
-                    (d.templates?.length) && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
-                ].filter(Boolean).join(' · ');
-                preview.style.display = 'block';
-                preview.innerHTML =
-                    `<div style="font-weight:600;margin-bottom:2px">${_esc(m.name)}</div>` +
-                    `<div style="color:var(--text-dim)">${tags}</div>` +
-                    (m.description ? `<div style="margin-top:4px;font-style:italic">${_esc(m.description)}</div>` : '');
-                _renderExtras(d);
-                nameRow.style.display  = 'flex';
-                nameIn.value           = d.suggested;
-                conflict.style.display = d.conflict ? 'block' : 'none';
-                goBtn.disabled         = false;
-            } catch(e) {
-                status.style.color = 'var(--text-danger,#e74c3c)';
-                status.textContent = '✗ ' + e.message;
-            }
-        }
-
-        goBtn.onclick = async () => {
-            if (!_currentFile) return;
-            const name = nameIn.value.trim();
-            if (!name) { nameIn.focus(); return; }
-            goBtn.disabled = true; goBtn.textContent = 'Importing…'; status.textContent = '';
-
-            // Collect install choices from extras panel
-            const pluginCbs = [...extras.querySelectorAll('.nbarch-plugin-cb:checked:not(:disabled)')];
-            const pluginsToInstall = pluginCbs.map(cb => cb.dataset.file).filter(Boolean);
-            const installTests     = !!extras.querySelector('#nbarch-imp-tests:checked');
-            const installTemplates = !!extras.querySelector('#nbarch-imp-templates:checked');
-
-            const fd = new FormData();
-            fd.append('archive', _currentFile);
-            fd.append('name', name);
-            if (pluginsToInstall.length) fd.append('install_plugins', JSON.stringify(pluginsToInstall));
-            if (installTests)            fd.append('install_tests', 'true');
-            if (installTemplates)        fd.append('install_templates', 'true');
-
-            try {
-                const r = await fetch('/api/nb/import', { method: 'POST', body: fd });
-                const d = await r.json();
-                if (d.ok) {
-                    const parts = [`✓ Imported "${_esc(d.notebook)}" (${d.note_count} notes)`];
-                    if (d.installed_plugins?.length)  parts.push(`${d.installed_plugins.length} plugin(s) installed`);
-                    if (d.copied_tests?.length)        parts.push(`${d.copied_tests.length} test script(s) copied`);
-                    if (d.copied_templates?.length)    parts.push(`${d.copied_templates.length} template(s) copied`);
-                    status.style.color = 'var(--green,#2ecc71)';
-                    status.textContent = parts.join(' · ');
-                    goBtn.textContent  = 'Import';
-                    setTimeout(() => NbMain.runNbNotebooks(), 1200);
-                } else if (d.conflict) {
-                    conflict.style.display = 'block';
-                    goBtn.disabled = false; goBtn.textContent = 'Import';
-                } else {
-                    status.style.color = 'var(--text-danger,#e74c3c)';
-                    status.textContent = '✗ ' + (d.error || 'Import failed.');
-                    goBtn.disabled = false; goBtn.textContent = 'Import';
-                }
-            } catch(e) {
-                status.style.color = 'var(--text-danger,#e74c3c)';
-                status.textContent = '✗ ' + e.message;
-                goBtn.disabled = false; goBtn.textContent = 'Import';
-            }
-        };
-    }  // end _DEAD_renderImportContent_REMOVED
 
     NbWeb.registerModule('archive', {
 
