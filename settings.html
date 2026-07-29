@@ -258,16 +258,6 @@
       font-size: 0.85em;
       margin-bottom: 10px;
     }
-    .nbz-extras { margin-bottom: 10px; font-size: 0.85em; }
-    .nbz-extras-group { margin-top: 8px; }
-    .nbz-extras-group-label { font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
-    .nbz-plugin-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
-    .nbz-action-install   { color: #57ab5a; }
-    .nbz-action-upgrade   { color: #e58d4b; }
-    .nbz-action-new       { color: #57ab5a; }
-    .nbz-action-overwrite { color: #e58d4b; }
-    .nbz-action-current   { color: var(--text-dim); }
-    .nbz-action-skipped   { color: var(--text-dim); }
   </style>
   <script src="/nb-auth.js"></script>
 </head>
@@ -454,7 +444,6 @@
       <div id="nbz-preview-meta" style="color:var(--text-dim)"></div>
       <div id="nbz-preview-desc" style="margin-top:4px;font-style:italic"></div>
     </div>
-    <div id="nbz-extras" class="nbz-extras" hidden></div>
     <div id="nbz-pw-row" hidden style="margin-bottom:10px">
       <label style="font-size:0.82em;color:var(--text-muted);display:block;margin-bottom:4px">🔒 Encrypted archive — enter password</label>
       <input type="password" id="nbz-pw" autocomplete="off" placeholder="Password">
@@ -756,7 +745,6 @@
     const prevName  = document.getElementById('nbz-preview-name');
     const prevMeta  = document.getElementById('nbz-preview-meta');
     const prevDesc  = document.getElementById('nbz-preview-desc');
-    const extrasEl  = document.getElementById('nbz-extras');
     const nameRow   = document.getElementById('nbz-name-row');
     const nameIn    = document.getElementById('nbz-name');
     const conflict  = document.getElementById('nbz-conflict');
@@ -776,53 +764,10 @@
     fileIn.addEventListener('change', () => { if (fileIn.files[0]) _onFile(fileIn.files[0]); });
     nameIn.addEventListener('input', () => { conflict.style.display = 'none'; });
 
-    function _renderExtras(d) {
-      let html = '';
-      if (d.plugins?.length) {
-        html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Plugins</div>`;
-        d.plugins.forEach(p => {
-          const actionable = p.action !== 'current';
-          const cls = `nbz-action-${p.action}`;
-          const lbl = p.action === 'install' ? '+ install' : p.action === 'upgrade' ? '↑ upgrade' : '✓ current';
-          html += `<div class="nbz-plugin-row">
-            <input type="checkbox" class="nbz-plugin-cb" data-file="${_esc(p.filename)}"
-              ${actionable ? 'checked' : 'disabled checked'}>
-            <span style="flex:1">${_esc(p.name || p.filename)}</span>
-            <span class="${cls}" style="font-size:0.8em">${lbl}</span>
-            ${p.version ? `<span style="font-size:0.75em;color:var(--text-dim)">v${_esc(p.version)}</span>` : ''}
-          </div>`;
-        });
-        html += `</div>`;
-      }
-      const _extraRows = (items, cbClass) => items.map(item => {
-        const isCurrent  = item.action === 'current';
-        const isOverwrite = item.action === 'overwrite';
-        const lbl = isCurrent ? '✓ current' : isOverwrite ? '↺ overwrite' : '+ new';
-        const cls = `nbz-action-${item.action}`;
-        return `<div class="nbz-plugin-row">
-          <input type="checkbox" class="${cbClass}" data-file="${_esc(item.filename)}"
-            ${isCurrent ? 'disabled' : 'checked'}>
-          <span style="flex:1;font-size:0.85em">${_esc(item.filename)}</span>
-          <span class="${cls}" style="font-size:0.8em">${lbl}</span>
-        </div>`;
-      }).join('');
-
-      if (d.check_scripts?.length) {
-        html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Test scripts</div>
-          ${_extraRows(d.check_scripts, 'nbz-script-cb')}</div>`;
-      }
-      if (d.templates?.length) {
-        html += `<div class="nbz-extras-group"><div class="nbz-extras-group-label">Templates</div>
-          ${_extraRows(d.templates, 'nbz-template-cb')}</div>`;
-      }
-      extrasEl.innerHTML = html;
-      extrasEl.hidden = !html;
-    }
-
     async function _onFile(file) {
       _file = file; _previewData = null; _isEncrypted = false;
       dropLbl.textContent = file.name;
-      preview.hidden = true; extrasEl.hidden = true; nameRow.hidden = true;
+      preview.hidden = true; nameRow.hidden = true;
       pwRow.hidden = true; pwIn.value = ''; pwErr.style.display = 'none';
       dryReport.hidden = true; dryBtn.disabled = true; goBtn.disabled = true;
       status.textContent = 'Reading…'; status.className = 'status';
@@ -845,16 +790,12 @@
           date,
           m.includes_git && 'git history',
           d.encrypted && '🔒 encrypted',
-          d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
-          d.check_scripts?.length && `${d.check_scripts.length} check script${d.check_scripts.length!==1?'s':''}`,
-          d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
         ].filter(Boolean).join(' · ');
         prevName.textContent = m.name;
         prevMeta.textContent = tags;
         prevDesc.textContent = m.description || '';
         prevDesc.hidden = !m.description;
         preview.hidden = false;
-        _renderExtras(d);
         nameIn.value = d.suggested;
         conflict.style.display = d.conflict ? 'block' : 'none';
         nameRow.hidden = false;
@@ -874,19 +815,10 @@
 
     function _buildFormData(nameOverride) {
       const name = nameOverride !== undefined ? nameOverride : nameIn.value.trim();
-      const pluginCbs = [...extrasEl.querySelectorAll('.nbz-plugin-cb:checked:not(:disabled)')];
       const fd = new FormData();
       fd.append('archive', _file);
       if (name) fd.append('name', name);
       if (_isEncrypted && pwIn.value) fd.append('password', pwIn.value);
-      const toInstall  = pluginCbs.map(cb => cb.dataset.file).filter(Boolean);
-      const toTests    = [...extrasEl.querySelectorAll('.nbz-script-cb:checked')]
-                           .map(cb => cb.dataset.file).filter(Boolean);
-      const toTemplates = [...extrasEl.querySelectorAll('.nbz-template-cb:checked')]
-                           .map(cb => cb.dataset.file).filter(Boolean);
-      if (toInstall.length)   fd.append('install_plugins',   JSON.stringify(toInstall));
-      if (toTests.length)     fd.append('install_checks',     JSON.stringify(toTests));
-      if (toTemplates.length) fd.append('install_templates', JSON.stringify(toTemplates));
       return fd;
     }
 
@@ -915,16 +847,12 @@
           m.note_count != null && `${m.note_count} notes`,
           date,
           '🔒 encrypted',
-          d.plugins?.length && `${d.plugins.length} plugin${d.plugins.length!==1?'s':''}`,
-          d.check_scripts?.length && `${d.check_scripts.length} check script${d.check_scripts.length!==1?'s':''}`,
-          d.templates?.length && `${d.templates.length} template${d.templates.length!==1?'s':''}`,
         ].filter(Boolean).join(' · ');
         prevName.textContent = m.name;
         prevMeta.textContent = tags;
         prevDesc.textContent = m.description || '';
         prevDesc.hidden = !m.description;
         preview.hidden = false;
-        _renderExtras(d);
         nameIn.value = d.suggested;
         conflict.style.display = d.conflict ? 'block' : 'none';
         nameRow.hidden = false;
@@ -943,26 +871,6 @@
         lines.push(`⚠ Notebook "${d.notebook}" already exists — choose a different name.`);
       } else {
         lines.push(`Notebook: "${nb}" (${(d.notebook_files||[]).length} files)`);
-      }
-      if (d.plugins?.length) {
-        lines.push('');
-        lines.push('Plugins:');
-        d.plugins.forEach(p => {
-          const icon = p.action==='install' ? '+' : p.action==='upgrade' ? '↑' : p.action==='current' ? '✓' : '–';
-          const ver  = p.archive_version ? `v${p.archive_version}` : '';
-          const iVer = p.installed_version ? ` (installed: v${p.installed_version})` : '';
-          lines.push(`  ${icon} ${p.action.padEnd(8)}  ${p.name || p.filename} ${ver}${iVer}`);
-        });
-      }
-      if (d.check_scripts?.length) {
-        lines.push('');
-        lines.push('Test scripts:');
-        d.check_scripts.forEach(s => lines.push(`  ${s.action==='new'?'+':'↺'} ${s.action.padEnd(9)}  ${s.filename} → ${s.dest}`));
-      }
-      if (d.templates?.length) {
-        lines.push('');
-        lines.push('Templates:');
-        d.templates.forEach(t => lines.push(`  ${t.action==='new'?'+':'↺'} ${t.action.padEnd(9)}  ${t.filename} → ${t.dest}`));
       }
       dryReport.textContent = lines.join('\n');
       dryReport.hidden = false;
@@ -999,13 +907,9 @@
         const r = await fetch('/api/nb/import', { method: 'POST', body: _buildFormData() });
         const d = await r.json();
         if (d.ok) {
-          const parts = [`✓ Imported "${_esc(d.notebook)}" (${d.note_count} notes)`];
-          if (d.installed_plugins?.length) parts.push(`${d.installed_plugins.length} plugin(s) installed`);
-          if (d.copied_tests?.length)      parts.push(`${d.copied_tests.length} check script(s) copied`);
-          if (d.copied_templates?.length)  parts.push(`${d.copied_templates.length} template(s) copied`);
-          status.textContent = parts.join(' · '); status.className = 'status ok';
+          status.textContent = `✓ Imported "${_esc(d.notebook)}" (${d.note_count} notes)`;
+          status.className = 'status ok';
           goBtn.textContent = 'Import'; goBtn.disabled = false; dryBtn.disabled = false;
-          if (d.installed_plugins?.length) loadPlugins();
         } else if (d.conflict) {
           conflict.style.display = 'block';
           goBtn.disabled = false; dryBtn.disabled = false; goBtn.textContent = 'Import';
