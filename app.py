@@ -8253,6 +8253,10 @@ def api_nb_import():
     authenticated account. See the isolation-hardening design doc. Import now
     only ever writes into the new notebook's own directory.
     """
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'ok': False, 'error': 'forbidden'}), 403
+
     f             = request.files.get('archive')
     name_override = request.form.get('name', '').strip()
     password      = (request.form.get('password') or '').strip()
@@ -8325,6 +8329,45 @@ def api_nb_import():
         if dest and dest.exists():
             shutil.rmtree(dest, ignore_errors=True)
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+    # Ownership + scope hand-off — only for accounts already scope-restricted
+    # (non-empty notebooks:). An unrestricted account (djp, Lena — empty
+    # notebooks:) already sees every notebook via _notebook_scope_check's
+    # fail-open path; stamping access: on the notebook would lock non-tech
+    # admins out of an import they didn't personally make, and appending to
+    # notebooks: would newly *restrict* an until-now-unrestricted account
+    # rather than grant it anything. For a scope-restricted importer (the
+    # actual self-service beta case) both are required: without the access:
+    # stamp, any other unrestricted account can see the import (bystander
+    # leak); without the notebooks: entry, the importer's own next request
+    # 403s on _notebook_scope_check before ever reaching _can_access.
+    if user.get('notebooks'):
+        nb_cfg_path = dest / f'.{notebook}.md'
+        nb_meta, nb_body = {}, ''
+        if nb_cfg_path.exists():
+            try:
+                nb_meta, nb_body = parse_frontmatter(nb_cfg_path.read_text())
+            except Exception:
+                nb_meta, nb_body = {}, ''
+        nb_meta['access'] = user['username']
+        fm_lines = '\n'.join(f'{k}: {_yaml.dump(v, default_flow_style=True).strip()}' for k, v in nb_meta.items())
+        nb_cfg_path.write_text(f'---\n{fm_lines}\n---\n{nb_body}', encoding='utf-8')
+
+        user_path = USERS_DIR / f"{user['username']}.md"
+        if user_path.exists():
+            try:
+                u_meta, u_body = parse_frontmatter(user_path.read_text(errors='replace'))
+                nbs = list(u_meta.get('notebooks') or [])
+                if notebook not in nbs:
+                    nbs.append(notebook)
+                    u_meta['notebooks'] = nbs
+                    u_fm_lines = '\n'.join(f'{k}: {_yaml.dump(v, default_flow_style=True).strip()}' for k, v in u_meta.items())
+                    user_path.write_text(f'---\n{u_fm_lines}\n---\n{u_body}', encoding='utf-8')
+                    s = dict(session['user'])
+                    s['notebooks'] = nbs
+                    session['user'] = s
+            except Exception:
+                pass
 
     # Write import-stamped metadata
     import_meta = {**meta, 'name': notebook,
