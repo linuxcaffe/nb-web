@@ -1027,6 +1027,52 @@ def _can_write(user, selector, notebook=None):
     return _can_access(user, note_meta, nb_meta)
 
 
+def _resolve_abs_selector(p):
+    """Classify an absolute-path note selector (the `elif selector.startswith('/')`
+    branches in api_note/api_edit_note/api_config_tree/api_note_constraints_full)
+    so it can get the same access control a notebook:file selector for the same
+    file would get, instead of a free pass just because it's a raw filesystem
+    path -- test fixtures use this form deliberately (see test_api_note.py) to
+    reach real notebook notes without shelling out to `nb`, so it must apply
+    the *same* rules as the normal path, not skip them.
+
+    Returns (kind, note_meta, nb_meta):
+      'dotfolder' -- path lives under one of DOTFOLDERS; admin-only, same as
+                     the existing notebook:file dotfolder selector form.
+      'notebook'  -- path lives under a real notebook; normal _can_access rules.
+      'outside'   -- outside NB_DIR entirely, or a loose top-level file; no
+                     selector form reaches this legitimately, tech-only.
+    """
+    try:
+        rel = p.relative_to(NB_DIR)
+    except ValueError:
+        return 'outside', {}, {}
+    if not rel.parts:
+        return 'outside', {}, {}
+    top = rel.parts[0]
+    if top in DOTFOLDERS:
+        return 'dotfolder', {}, {}
+    if _safe_notebook(top):
+        try:
+            note_meta, _ = parse_frontmatter(p.read_text(errors='replace'))
+        except OSError:
+            note_meta = {}
+        return 'notebook', note_meta, _notebook_config(top)
+    return 'outside', {}, {}
+
+
+def _can_access_abs_path(user, p, write=False):
+    """Access check for an absolute-path selector -- see _resolve_abs_selector."""
+    if write and not _level_gte(user.get('level', ''), 'user'):
+        return False
+    kind, note_meta, nb_meta = _resolve_abs_selector(p)
+    if kind == 'dotfolder':
+        return _level_gte(user.get('level', ''), 'admin')
+    if kind == 'notebook':
+        return _can_access(user, note_meta, nb_meta)
+    return _level_gte(user.get('level', ''), 'tech')
+
+
 # ---------------------------------------------------------------------------
 # MCP scoped tokens — minted per /api/claude/ask call, not the raw session
 # cookie. The nbweb-claude MCP server subprocess authenticates its own HTTP
@@ -5425,12 +5471,16 @@ def api_config_tree():
     if selector:
         note_path = None
         if selector.startswith('/'):
+            # Absolute path selector — the `notebook` param's own access floor
+            # checked above doesn't bound this; apply the same per-note rules
+            # api_note's absolute-path branch does. See _can_access_abs_path.
             p = Path(selector)
-            try:
-                p.relative_to(NB_DIR)
-                note_path = p
-            except ValueError:
-                pass
+            if _can_access_abs_path(user, p):
+                try:
+                    p.relative_to(NB_DIR)
+                    note_path = p
+                except ValueError:
+                    pass
         else:
             note_path = _resolve_to_nb_path(selector)
         if note_path and note_path.exists():
@@ -6397,8 +6447,14 @@ def api_note():
                 return jsonify({'error': 'not found'}), 404
             note_notebook = selector.partition(':')[0]
             fpath = str(dot_path)
-        # Absolute path selector — any readable file on the local system
+        # Absolute path selector — same access rules a notebook:file selector
+        # for this file would get (regular note → _can_access; dotfolder →
+        # admin; outside NB_DIR entirely, e.g. sysadmin config_files links
+        # that live at NB_DIR root → tech). See _resolve_abs_selector.
         elif selector.startswith('/'):
+            user = session.get('user', {})
+            if not _can_access_abs_path(user, Path(selector)):
+                return jsonify({'error': 'forbidden'}), 403
             fpath = selector
             if not Path(fpath).exists():
                 return jsonify({'error': 'not found'}), 404
@@ -6753,9 +6809,13 @@ def api_note_constraints_full():
     if not selector:
         return jsonify({'error': 'selector required'}), 400
     if selector.startswith('/'):
-        # Absolute path selector — any readable file on the local system,
-        # same bypass api_note() itself uses. Skips run_nb (and therefore
-        # nb's own index) entirely.
+        # Absolute path selector — same per-note rules api_note's own
+        # absolute-path branch applies (this mirrors it deliberately, so it
+        # needs the same access check, not a blanket floor). See
+        # _can_access_abs_path.
+        user = session.get('user', {})
+        if not _can_access_abs_path(user, Path(selector)):
+            return jsonify({'error': 'forbidden'}), 403
         fpath = Path(selector)
         if not fpath.exists():
             return jsonify({'error': 'not found'}), 404
@@ -7092,7 +7152,16 @@ def api_edit_note():
         if not _level_gte(user.get('level', ''), 'admin'):
             return jsonify({'error': 'forbidden'}), 403
         selector = str(dot_path)
-    elif not selector.startswith('/'):
+    elif selector.startswith('/'):
+        # Absolute path selector — same access rules the GET side (api_note)
+        # now applies via _can_access_abs_path, at the 'write' floor. Without
+        # this, any authenticated user could overwrite an existing file
+        # anywhere the process can write, e.g. their own .users/<username>.md
+        # (privilege escalation) or a .checks/*.sh script, regardless of
+        # whose notebook it actually belongs to.
+        if not _can_access_abs_path(user, Path(selector), write=True):
+            return jsonify({'error': 'forbidden'}), 403
+    else:
         # Regular note — enforce per-note access
         if not _can_write(user, selector):
             return jsonify({'error': 'forbidden'}), 403
@@ -10376,6 +10445,9 @@ def api_run():
 @app.route('/api/check/run', methods=['POST'])
 def api_check_run():
     """Run a script from ~/.nb/.checks/ with note context env vars."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'error': 'forbidden', 'exit_code': 1}), 403
     data        = request.get_json(force=True) or {}
     script_name = (data.get('script') or '').strip()
     selector    = (data.get('selector') or '').strip()
