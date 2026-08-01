@@ -8038,6 +8038,10 @@ def api_nb_github_create():
 @app.route('/api/nb/delete-notebook', methods=['POST'])
 def api_nb_delete_notebook():
     """Delete a notebook locally or its remote branch. Scope must be explicit."""
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'success': False, 'output': 'Forbidden — admin access required.'}), 403
+
     data     = request.get_json() or {}
     notebook = data.get('notebook', '').strip()
     scope    = data.get('scope', '').strip()  # 'local' or 'remote'
@@ -8048,6 +8052,13 @@ def api_nb_delete_notebook():
         _check_notebook(notebook)
     except ValueError as e:
         return jsonify({'success': False, 'output': str(e)}), 400
+
+    # An admin-but-not-tech account can be 'admin' level yet still be locked
+    # out of this specific notebook by its own access: config (username lock,
+    # or an access: level this account doesn't meet) -- the level gate above
+    # only says "admin enough to delete *some* notebook," not this one.
+    if not _can_access(user, {}, _notebook_config(notebook)):
+        return jsonify({'success': False, 'output': f'Notebook "{notebook}" is access-restricted.'}), 403
 
     nb_path = NB_DIR / notebook
     git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
