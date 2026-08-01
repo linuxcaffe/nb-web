@@ -8174,6 +8174,10 @@ def api_nb_archive():
     path via the matching import options (see the isolation-hardening design doc).
     An archive is notebook content, nothing else.
     """
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'ok': False, 'error': 'forbidden'}), 403
+
     data              = request.get_json() or {}
     notebook          = data.get('notebook', '').strip()
     includes_git      = bool(data.get('includes_git', False))
@@ -8217,8 +8221,19 @@ def api_nb_archive():
     date_str = datetime.now().strftime('%Y%m%d')
     filename  = f'{notebook.replace(" ", "-")}-{date_str}.nbz'
     skipped   = []
+    nb_meta   = _notebook_config(notebook)
 
     def _add_notebook_files(zf, skipped):
+        # Per-file _can_access check -- a whole-notebook archive previously
+        # bypassed individual note access: locks entirely (only OS-housekeeping
+        # names were filtered), so any account cleared to archive the notebook
+        # at all got every note inside it, including ones locked to a single
+        # other username that same account couldn't even open in the UI.
+        # .md files carry their own frontmatter (checked against it directly,
+        # falling back through _effective_access's own chain to the notebook's
+        # access: default); non-.md files (attachments, etc.) have no
+        # frontmatter of their own, so they're checked against the notebook
+        # default only ({} note_meta).
         for dirpath, dirnames, filenames in os.walk(str(nb_path)):
             dp      = Path(dirpath)
             rel_dir = dp.relative_to(nb_path)
@@ -8230,6 +8245,14 @@ def api_nb_archive():
                 if fname in _SKIP_NAMES: continue
                 fpath = dp / fname
                 rel   = rel_dir / fname
+                note_meta = {}
+                if fname.endswith('.md'):
+                    try:
+                        note_meta, _ = parse_frontmatter(fpath.read_text(errors='replace'))
+                    except Exception:
+                        note_meta = {}
+                if not _can_access(user, note_meta, nb_meta):
+                    skipped.append(str(rel)); continue
                 try:
                     if fpath.stat().st_size > max_bytes:
                         skipped.append(str(rel)); continue
