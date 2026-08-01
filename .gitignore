@@ -12,3 +12,5 @@ node_modules/
 graphify-out/
 .flask_secret
 .api_token
+fly.toml
+.fly-*
