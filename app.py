@@ -7854,9 +7854,28 @@ def api_nb_git_wire():
     return jsonify({'results': results})
 
 
+_RE_GIT_REMOTE_URL = re.compile(
+    r'^(https://[\w.\-]+(?::\d+)?/[\w.\-~]+(?:/[\w.\-~]+)*|'   # https://host[:port]/path
+    r'ssh://[\w.\-]+@[\w.\-]+(?::\d+)?/[\w.\-~]+(?:/[\w.\-~]+)*|'  # ssh://user@host[:port]/path
+    r'[\w.\-]+@[\w.\-]+:[\w.\-~/]+)$'                          # scp-like git@host:path
+)
+
+def _valid_git_remote_url(url: str) -> bool:
+    """Reject anything but plain https://, ssh://, or scp-like (user@host:path) forms.
+
+    Blocks git transport-helper schemes (ext::, file://, etc.) that would let a
+    supplied remote_url run an arbitrary command as the transport for `git push`.
+    """
+    return bool(_RE_GIT_REMOTE_URL.match(url))
+
+
 @app.route('/api/nb/wire-notebook', methods=['POST'])
 def api_nb_wire_notebook():
     """Connect a single notebook to a remote: add origin, set tracking, push."""
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'success': False, 'output': 'Forbidden — admin access required.'}), 403
+
     data       = request.get_json() or {}
     notebook   = data.get('notebook', '').strip()
     remote_url = data.get('remote_url', '').strip()
@@ -7872,14 +7891,30 @@ def api_nb_wire_notebook():
     if not nb_path.is_dir() or not (nb_path / '.git').exists():
         return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found.'})
 
+    default_remote = (_effective_setting('default_git_remote') or '').strip()
+
+    # Below 'tech', remote_url is a fixed use-the-configured-default-only
+    # contract, not a free-text field -- a supplied value that doesn't match
+    # is rejected outright rather than silently swapped for the default,
+    # since accepting an arbitrary URL here means `git push` (full history,
+    # ignores nb-web's own access: locks) to wherever the caller names.
+    if (remote_url and remote_url != default_remote
+            and not _level_gte(user.get('level', ''), 'tech')):
+        return jsonify({'success': False,
+                        'output': 'Only the configured default remote is allowed for your account level.'}), 403
+
     if not remote_url:
-        remote_url = (_effective_setting('default_git_remote') or '').strip()
+        remote_url = default_remote
     if not remote_url:
         return jsonify({'success': False,
                         'output': 'No remote URL provided and no default_git_remote set in Settings → Git or .nb.md.'})
 
-    git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
-               'GIT_ASKPASS': '/bin/true', 'NO_COLOR': '1', 'GIT_PAGER': 'cat'}
+    if not _valid_git_remote_url(remote_url):
+        return jsonify({'success': False,
+                        'output': 'Remote URL rejected — only https://, ssh://, or git@host:path forms are allowed.'}), 400
+
+    git_env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '/bin/true',
+               'NO_COLOR': '1', 'GIT_PAGER': 'cat', 'GIT_PROTOCOL_FROM_USER': '0'}
     lines = []
 
     remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
