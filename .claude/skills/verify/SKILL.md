@@ -62,6 +62,23 @@ immediately, no rebuild needed) — but `/app` (the actual running code) is bake
 at build time. A code change is *not* live until rebuild + restart, even though the container
 itself never stopped running. Diff the md5s above before believing a fix is live.
 
+## A real Fly.io dry-run instance exists — `nb-web-dryrun`
+
+2026-08-01: a genuinely fresh nb-web instance is live at `https://nb-web-dryrun.fly.dev/`
+(`flyctl`, `~/.fly-dryrun-token`, `~/dev/nb-web/fly.toml` — the latter two local-only,
+gitignored, same "provisioning scripts stay private" convention as everything else Fly-related).
+Seeded with the `tutorial` notebook + one hand-created `tech`-level account. This is the only
+nb-web instance ever provisioned from a genuinely empty `~/.nb` — djp's own box has been running
+continuously since Phase 0, so any first-run-only behavior (see `CLAUDE.md` invariant 18) only
+shows up here, not on the real instance. Full provisioning narrative, exact commands, `fly.toml`
+content, and every gotcha hit: `claude:nb-web_fly_machine_dry_run_2026-08-01.md`. Useful for:
+reproducing/redeploying (`flyctl deploy --build-arg GIT_COMMIT=... -a nb-web-dryrun --config
+fly.toml`, run from the repo root), or testing anything that specifically needs a from-zero
+`~/.nb` rather than djp's long-lived one. Not a substitute for the pytest/Playwright suites above
+— real infrastructure, not a synthetic fixture, so treat it with the same care as the real
+`container-nb-web` service (it has djp's real login on it, don't leave test data or credentials
+exposed there carelessly).
+
 **A `Containerfile` change doesn't require touching the live service to verify.** For anything
 scoped to the image build itself (an `ARG` default, a `RUN` step, what lands in a layer) — not
 runtime app behavior — build under a throwaway tag instead of `localhost/nb-web:phase2`, `run
