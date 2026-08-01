@@ -7800,6 +7800,10 @@ def api_nb_git_log():
 @app.route('/api/nb/git-wire', methods=['POST'])
 def api_nb_git_wire():
     """Configure default remote for all unremoted nb notebooks, branch = notebook name."""
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'error': 'forbidden'}), 403
+
     default_remote = (_effective_setting('default_git_remote') or '').strip()
     if not default_remote:
         return jsonify({'error': 'No default_git_remote set. Add it in Settings → Git or .nb.md.'})
@@ -7820,6 +7824,16 @@ def api_nb_git_wire():
     results = []
     for nb_path in notebooks:
         name = nb_path.name
+        # This endpoint has no per-notebook target -- it sweeps every
+        # un-remoted notebook on the instance to a single shared
+        # default_git_remote, so unlike the single-notebook siblings there's
+        # no `notebook` request key for _notebook_scope_check to ever see
+        # (it fails open for this whole endpoint). Filter here instead: an
+        # admin-but-not-tech account shouldn't bulk-push a notebook it
+        # couldn't itself open.
+        if not _can_access(user, {}, _notebook_config(name)):
+            results.append({'notebook': name, 'status': 'skip', 'message': 'access-restricted'})
+            continue
         remote_r = subprocess.run(['git', 'remote'], capture_output=True, text=True,
                                   cwd=str(nb_path), timeout=5, env=env)
         if remote_r.stdout.strip():
@@ -7961,6 +7975,10 @@ def api_nb_wire_notebook():
 @app.route('/api/nb/github-create', methods=['POST'])
 def api_nb_github_create():
     """Create a new GitHub repo for a notebook via gh CLI, then add remote and push."""
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'success': False, 'output': 'Forbidden — admin access required.'}), 403
+
     data       = request.get_json() or {}
     notebook   = data.get('notebook', '').strip()
     visibility = data.get('visibility', 'private')
@@ -7971,6 +7989,10 @@ def api_nb_github_create():
         _check_notebook(notebook)
     except ValueError as e:
         return jsonify({'success': False, 'output': str(e)}), 400
+
+    if not _can_access(user, {}, _notebook_config(notebook)):
+        return jsonify({'success': False, 'output': f'Notebook "{notebook}" is access-restricted.'}), 403
+
     nb_path = NB_DIR / notebook
     if not nb_path.is_dir() or not (nb_path / '.git').exists():
         return jsonify({'success': False, 'output': f'Notebook "{notebook}" not found or has no git repo.'})
@@ -9187,8 +9209,27 @@ def api_nb_create_from_template():
 @app.route('/api/website/publish', methods=['POST'])
 def api_website_publish():
     import re as _re
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'admin'):
+        return jsonify({'ok': False, 'output': 'Forbidden — admin access required.'}), 403
+
     data     = request.get_json() or {}
     notebook = data.get('notebook', '')
+    # Unlike every sibling git/publish endpoint, this one never validated
+    # `notebook` at all -- a plain, unchecked Path join with an unvalidated
+    # string can walk out of NB_DIR via '../' (the OS resolves '..' in the
+    # path string itself; Python does nothing to stop it), the same class of
+    # bug as the absolute-path-selector bypass fixed 2026-07-30, just via a
+    # different field. Belt-and-suspenders: _check_notebook rejects that
+    # shape outright.
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'ok': False, 'output': str(e)}), 400
+
+    if not _can_access(user, {}, _notebook_config(notebook)):
+        return jsonify({'ok': False, 'output': f'Notebook "{notebook}" is access-restricted.'}), 403
+
     nb_path  = NB_DIR / notebook
     cfg_path = nb_path / '.nb-website.json'
     if not cfg_path.exists():
