@@ -6,6 +6,10 @@
 #   podman build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
 #     -t nb-web -f Containerfile .
 #
+# GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL default to djp's own identity (below) --
+# only pass these for a *different* tenant's image build (Fly Machine
+# provisioning), never for djp's own Phase 2 rebuild.
+#
 # Run (djp as tenant 0, real ~/.nb mounted read-write):
 #   podman run -d --name nb-web \
 #     -p 5001:5001 \
@@ -208,10 +212,18 @@ RUN groupadd --gid 1000 nbweb && useradd --uid 1000 --gid nbweb --create-home nb
 # a fresh container user with no ~/.gitconfig gets `nb`'s own first-run
 # setup wizard text instead of real output, which app.py's run_nb() then
 # silently parses as data (same failure shape as the $EDITOR issue below).
-# Matches the identity every existing commit in ~/.nb was already made
-# under -- not a placeholder, since Phase 2 is single-tenant and djp is
-# the only author these commits will ever have.
-RUN su nbweb -c "git config --global user.name 'linuxcaffe' && git config --global user.email 'davamundo@gmail.com'"
+# Defaults match the identity every existing commit in ~/.nb was already
+# made under, so djp's own Phase 2 build behaves identically without
+# passing either --build-arg. Made a build ARG (not still hardcoded)
+# 2026-08-01 for Fly Machine tenant provisioning: without this, every
+# commit a beta tenant's notebook makes would be authored as "linuxcaffe
+# <davamundo@gmail.com>" regardless of whose Machine it is -- baked at
+# image-build time, so no runtime mount or env var could have overridden
+# it after the fact. A per-tenant image build passes the tenant's own
+# identity here instead.
+ARG GIT_AUTHOR_NAME=linuxcaffe
+ARG GIT_AUTHOR_EMAIL=davamundo@gmail.com
+RUN su nbweb -c "git config --global user.name '${GIT_AUTHOR_NAME}' && git config --global user.email '${GIT_AUTHOR_EMAIL}'"
 
 # SSH connection multiplexing (ControlMaster/ControlPersist) -- found live,
 # 2026-07-19, stress-testing the new "sync all notebooks" feature: 17
@@ -276,24 +288,27 @@ RUN python3 -c "import yaml, markdown" || \
 COPY . .
 RUN chown -R nbweb:nbweb /app
 
-# plugins/{nbweb-cine,nbweb-claude,nbweb-hledger}.js are committed as
-# symlinks to sibling ~/dev/nbweb-* checkouts -- real dev repos that nb-web
-# itself doesn't vendor, matching nb-config's manifest (separately cloned/
-# managed plugin repos, symlinked in for serving). Fixed host-side to be
-# relative (../../nbweb-X/...), which resolves correctly on ANY host since
-# nb-web and nbweb-X really are siblings under ~/dev there -- but COPY bakes
-# in that symlink's literal (relative) target too, and inside the image
-# /app is not a sibling of the ~/dev bind mount (an image layer and a
-# runtime volume, not related paths) -- ../../nbweb-cine from /app/plugins/
-# lands on /nbweb-cine, nowhere. Found live, 2026-07-19: specialty toolbars
-# and the cine `shots` codeblock silently failed to load (dangling
-# symlinks), the actual root cause of both -- not fixed by any of the
-# ~/.nb-relative work above, a completely separate mechanism (this repo's
-# own plugin-loading symlinks, not app.py's Path.home() references).
-# Re-point them at this image's own known, controlled mount contract (the
-# ~/dev bind mount above) instead of trusting whatever the host committed --
-# same "reconfigure the image for its own environment, don't guess" approach
-# as the UID/keep-id fix.
+# plugins/{nbweb-cine,nbweb-claude,nbweb-hledger}.js used to be a runtime
+# symlink to a sibling ~/dev/nbweb-* checkout, re-pointed at the container's
+# own ~/dev bind mount (see git history, 2026-07-19) after the original
+# host-relative-symlink approach turned out to bake in a path that resolves
+# to nowhere inside the image. That fixed the *symlink*, but the underlying
+# design -- needing the whole ~/dev bind mount just to reach three small,
+# public JS files -- is exactly the credential-hygiene gap flagged for
+# Fly Machine tenant provisioning (claude:nb-web_isolation_hardening_design.md):
+# ~/dev holds every other dev repo on the box too, most with nothing to do
+# with nb-web, and Phase 3 tenants have no business seeing any of it.
+#
+# Switched 2026-08-01 to the same build-time public clone nbweb-specialty
+# was already folded into core over (see the note below, which anticipated
+# exactly this move) and the same "fetch the real artifact at build time"
+# pattern already used for `nb`/`hledger` above: all three are public repos
+# (confirmed via .manifest.md), no auth needed. This removes ~/dev from the
+# runtime mount list entirely -- nothing else in app.py depends on it (the
+# other two things ~/dev used to cover, /api/website/publish's quartz push
+# and the sysadmin git-status dashboard, are tenant-specific/admin-only
+# concerns that need their own scoped provisioning, not a wholesale ~/dev
+# mount, and neither is wired up for a beta tenant yet regardless).
 #
 # nbweb-specialty is NOT in this list -- folded into nb-web core, 2026-07-19
 # (subtree merge, full history preserved): it self-labelled `@type core`,
@@ -303,14 +318,14 @@ RUN chown -R nbweb:nbweb /app
 # infrastructure rather than a peer. Was split into its own repo out of
 # habit, not a deliberate choice -- see claude:nb_web.md's Phase 2 plugin-
 # sourcing item. Now a real vendored file at plugins/nbweb-specialty.js,
-# same category as nbweb-archive.js/nbweb-codeblocks.js/nbweb-contacts.js;
-# needs no runtime re-link, no ~/dev access, and (being previously the one
-# *private* plugin repo) removes the one case in this list that would have
-# needed build-time SSH-agent forwarding once the other three move to a
-# build-time public clone instead of a runtime ~/dev mount.
+# same category as nbweb-archive.js/nbweb-codeblocks.js/nbweb-contacts.js.
 RUN for p in nbweb-cine nbweb-claude nbweb-hledger; do \
-        ln -sf "/home/nbweb/dev/$p/$p.js" "/app/plugins/$p.js"; \
-    done
+        git clone --depth 1 "https://github.com/linuxcaffe/$p.git" "/tmp/$p" \
+        && rm -f "/app/plugins/$p.js" \
+        && cp "/tmp/$p/$p.js" "/app/plugins/$p.js" \
+        && rm -rf "/tmp/$p"; \
+    done \
+    && chown nbweb:nbweb /app/plugins/nbweb-cine.js /app/plugins/nbweb-claude.js /app/plugins/nbweb-hledger.js
 
 # No NB_DIR override: app.py's own default (Path.home()/'.nb') applies
 # naturally once HOME is right, which it is -- nbweb's real home
