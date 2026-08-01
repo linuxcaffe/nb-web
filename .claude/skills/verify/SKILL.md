@@ -62,6 +62,23 @@ immediately, no rebuild needed) — but `/app` (the actual running code) is bake
 at build time. A code change is *not* live until rebuild + restart, even though the container
 itself never stopped running. Diff the md5s above before believing a fix is live.
 
+**A `Containerfile` change doesn't require touching the live service to verify.** For anything
+scoped to the image build itself (an `ARG` default, a `RUN` step, what lands in a layer) — not
+runtime app behavior — build under a throwaway tag instead of `localhost/nb-web:phase2`, `run
+--rm` against it, and delete it after:
+
+```bash
+cd ~/dev/nb-web
+podman build --build-arg GIT_COMMIT=scratch-test -t localhost/nb-web:scratch-X -f Containerfile .
+podman run --rm localhost/nb-web:scratch-X sh -c '<whatever the change should have produced>'
+podman rmi localhost/nb-web:scratch-X
+```
+
+Used 2026-08-01 verifying the git-identity build ARG and the plugin-JS build-time-clone switch
+(`c0a4e3f`) — confirmed both without ever rebuilding/restarting `container-nb-web.service`, so
+djp's live instance was never at risk from a build that might not have worked. Reach for the
+rebuild-and-restart recipe above only once the change needs to actually go live.
+
 ## Gotcha: gunicorn vs bare `python3 app.py`
 
 The real container runs under gunicorn (`gunicorn.conf.py`'s `on_starting` hook does the
