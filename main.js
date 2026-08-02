@@ -4824,6 +4824,7 @@ const NbMain = (() => {
              pendingDeletes: () => _pendingDeletes,
              reRenderList: () => renderList(_getSortedNotes(_lastNotes), true),
              resolveWikilinks: container => _resolveWikilinks(container),
+             resolveWikilinkSelector: sel => _resolveWikilinkSelector(sel),
              deleteNote: _deleteNote,
              // List-generation counter -- genuinely cross-cutting (kernel loadNotes/
              // search, and not-yet-extracted runCal/runGrep, all increment/check it
