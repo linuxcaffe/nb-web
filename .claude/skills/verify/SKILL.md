@@ -36,10 +36,42 @@ built-in `verify` skill's own instructions, so the next session doesn't cold-sta
      this (see its own package.json description: "closes the JS/frontend gap the pytest suite
      deliberately leaves uncovered").
 
-**No known login for the real, live `container-nb-web` service** (port 5001, real `~/.nb`) —
-if verification needs to happen against real data rather than a synthetic fixture, that's CLI
-level (`curl`, `podman exec`, direct hledger/git commands), not browser-driven. Don't assume a
-real-site login exists without checking first.
+**There is a real login for testing against real `~/.nb` data: the `claude` account**
+(`~/.nb/.users/claude.md`, `level: tech`, same privilege as djp's own account — created
+2026-07-08 specifically for this). Password lives in Claude's own memory
+(`reference_nbweb_claude_login`) — check there first before assuming it's unusable; it went
+missing once (2026-07-08→2026-08-02, memory file never actually got written despite the
+original note claiming it would be) and had to be reset from scratch with djp's authorization.
+If that memory entry is ever gone again, reset it the same way rather than concluding there's no
+login at all: `generate_password_hash(new_pw)` (werkzeug), write the hash into
+`.users/claude.md`'s `password_hash:` field, save the new plaintext to memory immediately.
+
+**Real browser automation against real data is possible, not just CLI-level checks** — Python's
+`playwright` package is installed (`pip show playwright`; browser binary via
+`python3 -m playwright install chromium`, works even though this OS isn't officially
+supported, just downloads a fallback build). Log in through the actual `/login` form (matches
+`e2e/tests/helpers.js`'s own `login()` pattern — fill `input[name="username"]`/`password`,
+click `button[type="submit"]`, wait for the post-login redirect), not a hand-rolled session
+cookie — a cookie signed via `app.test_client()` *can* work too (same `.flask_secret` key, so
+it validates against a separately-running process) but the real form is simpler once real
+credentials exist, and exercises the actual login path instead of assuming it.
+
+**The bare dev server (`python3 app.py`, no gunicorn) chokes hard on concurrent requests** —
+confirmed 2026-08-02 building `cine org`: firing even 6 concurrent `fetch()` chains from one
+page (each just 2 sequential requests) reliably stalled it indefinitely, no error, no timeout,
+requests just never complete. Not a bug in the calling code — the fix was serializing the
+calls (one at a time, `for...of` with `await`, not `Promise.all`/`.map(async...)`), and it's
+worth defaulting to that shape for *any* new client-side code that fetches more than one or two
+things per render against this dev server. The real container (gunicorn, `--workers` + threads)
+almost certainly doesn't have this ceiling — not yet confirmed either way, but don't assume the
+bare dev server's concurrency behavior generalizes to production.
+
+**The app's own ambient per-note check system (`/api/check/run`, fired client-side from
+`nbweb-codeblocks.js` on every note render) is a separate, real performance cost, unrelated to
+whatever's being verified** — seen firing 25+ sequential-ish calls in the seconds before an
+otherwise-fast page finished loading, on a totally unrelated note. If a page load looks
+mysteriously slow during verification, check the server log for this burst before assuming the
+thing being tested is what's slow.
 
 ## Build/launch the real container (not the test fixtures)
 
