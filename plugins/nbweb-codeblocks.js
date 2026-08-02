@@ -3478,64 +3478,87 @@
     // Form 1: "script | Label"  → clickable button; runs on click; resets on pass
     // Form 2: "script"          → auto-runs at render; invisible on pass+empty output
 
-    // Collect the names of all scripts that will auto-run (Form 2) across a set
-    // of .nb-test-block elements.  Used to build the batch request.
-    function _collectAutoRunScripts(blocks) {
-        // Glob prefixes (dangling dash) can't be pre-collected without a network
-        // round trip — they're resolved lazily in _loadTestBlock instead.
-        const scripts = new Set();
+    // Classifies every .nb-test-block into Form-1 (labeled/click-run/`list` --
+    // left completely alone, handled by _loadTestBlock exactly as before) vs
+    // Form-2 (auto-run/ambient). For Form-2, captures literal script names AND
+    // dangling-dash glob tokens -- unlike the old _collectAutoRunScripts (which
+    // this replaces), globs are no longer excluded: that function's reason for
+    // dropping them was "can't be pre-collected without a network round trip",
+    // but NbWeb.renderCheckBlocks now does that round trip eagerly, in
+    // parallel, before batching, so there's no longer a reason to exclude them.
+    function _collectCheckSources(blocks) {
+        const form1 = [];
+        const form2 = [];   // { el, literalScripts: string[], globTokens: string[] }
         for (const el of blocks) {
             const raw   = (el.dataset.query || '').trim();
             const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+
             if (lines.length <= 1) {
-                const line   = lines[0] || '';
-                const pipe   = line.indexOf('|');
-                const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
-                const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-                if (script && !label && !script.endsWith('-')) scripts.add(script);
-            } else {
-                // Multi-script: only collect if the group has no label (auto-run mode)
-                let groupLabel = '';
-                const parsed = [];
-                for (const line of lines) {
-                    if (line.startsWith('|')) { groupLabel = groupLabel || line.slice(1).trim(); continue; }
-                    const pipe   = line.indexOf('|');
-                    const script = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
-                    const label  = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
-                    if (script && !script.endsWith('-')) { parsed.push(script); groupLabel = groupLabel || label; }
-                }
-                if (!groupLabel) parsed.forEach(s => scripts.add(s));
+                const line  = lines[0] || '';
+                const pipe  = line.indexOf('|');
+                const token = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+                const label = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+                if (!token) continue;
+                if (token === 'list' || token.startsWith('list ') || label) { form1.push(el); continue; }
+                if (token.endsWith('-')) form2.push({ el, literalScripts: [], globTokens: [token] });
+                else                     form2.push({ el, literalScripts: [token], globTokens: [] });
+                continue;
             }
+
+            // Multi-script group -- Form-1 if it carries a group label, else
+            // Form-2 (its own dangling-dash lines still need resolving).
+            let groupLabel = '';
+            const literalScripts = [];
+            const globTokens = [];
+            for (const line of lines) {
+                if (line.startsWith('|')) { groupLabel = groupLabel || line.slice(1).trim(); continue; }
+                const pipe  = line.indexOf('|');
+                const token = (pipe >= 0 ? line.slice(0, pipe) : line).trim();
+                const label = pipe >= 0 ? line.slice(pipe + 1).trim() : '';
+                if (!token) continue;
+                if (token.endsWith('-')) globTokens.push(token);
+                else { literalScripts.push(token); groupLabel = groupLabel || label; }
+            }
+            if (groupLabel) form1.push(el);
+            else if (literalScripts.length || globTokens.length) form2.push({ el, literalScripts, globTokens });
         }
-        return [...scripts];
+        return { form1, form2 };
     }
 
     // POST /api/check/batch — one round trip for N scripts.  Returns a Map of
     // script → result.  On any error returns an empty Map so callers fall back
-    // to individual /api/check/run fetches transparently.
-    async function _fetchTestBatch(scripts, selector) {
+    // to individual /api/check/run fetches transparently. Optional `signal`
+    // (used by the deferred ambient check pass; Form-1's own click-driven
+    // calls never pass one) aborts cleanly -- re-thrown so callers can
+    // distinguish "aborted" from "genuinely errored, treat as no batch data".
+    async function _fetchTestBatch(scripts, selector, signal) {
         try {
             const r = await fetch('/api/check/batch', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({ scripts, selector }),
+                signal,
             });
             if (!r.ok) return new Map();
             return new Map(Object.entries(await r.json()));
-        } catch {
+        } catch (e) {
+            if (e.name === 'AbortError') throw e;
             return new Map();
         }
     }
 
     // Resolve a dangling-dash prefix (e.g. 'nb-schem-') to a sorted list of
     // matching script names via /api/check/glob.  Returns [] on any error.
-    async function _resolveTestGlob(prefix) {
+    async function _resolveTestGlob(prefix, signal) {
         try {
-            const r = await fetch(`/api/check/glob?prefix=${encodeURIComponent(prefix)}`);
+            const r = await fetch(`/api/check/glob?prefix=${encodeURIComponent(prefix)}`, { signal });
             if (!r.ok) return [];
             const names = await r.json();
             return Array.isArray(names) ? names : [];
-        } catch { return []; }
+        } catch (e) {
+            if (e.name === 'AbortError') throw e;
+            return [];
+        }
     }
 
     async function _buildCheckList(el, prefix) {
@@ -3752,9 +3775,12 @@
         el.appendChild(out);
     }
 
-    async function _runGroupTest(el, scripts, btn, out, batchMap = new Map()) {
+    // Pure compute: runs every script in the group (via batchMap when
+    // available, else /api/check/run), parses results, returns failures --
+    // no DOM touched. Optional `signal` (deferred ambient pass only; Form-1's
+    // own click-driven call never passes one) aborts in-flight fetches.
+    async function _computeGroupResult(scripts, batchMap = new Map(), force = false, signal) {
         const selector = NbMain.activeSelector() || '';
-        const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
         const results  = await Promise.all(scripts.map(async ({ script }) => {
             if (!force && batchMap.has(script)) {
                 return { script, ...batchMap.get(script) };
@@ -3764,18 +3790,27 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ script, selector, force }),
+                    signal,
                 });
                 return { script, ...(await r.json()) };
             } catch (e) {
+                if (e.name === 'AbortError') throw e;
                 return { script, error: String(e), exit_code: 1, stdout: '' };
             }
         }));
-
-        const parsed  = results.map(r => ({ ...r, ..._parseCheckResult(r, r.script) }));
+        const parsed   = results.map(r => ({ ...r, ..._parseCheckResult(r, r.script) }));
         const failures = parsed.filter(r => r.severity !== 'pass' || r.text);
-        if (!failures.length) { if (!btn) el.remove(); return; }
+        return { scripts, failures };
+    }
 
-        const result  = document.createElement('div');
+    // Pure build: returns a DETACHED .nb-test-result--group node for a
+    // non-empty failures list (caller checks failures.length first). Doesn't
+    // append itself anywhere or assume its own position -- onDismiss is
+    // called instead of hardcoding "clear the owning element", so this can be
+    // reused both standalone (Form-1) and nested inside the multi-notification
+    // aggregate (where "dismiss" means "remove just this nested node").
+    function _buildGroupResultDOM(scripts, failures, onDismiss) {
+        const result = document.createElement('div');
         result.className = 'nb-test-result nb-test-result--group';
 
         const worstSeverity = failures.some(r => r.severity === 'error') ? 'error' : 'warn';
@@ -3802,7 +3837,7 @@
         dismiss.className = 'nb-test-dismiss nb-group-dismiss';
         dismiss.title = 'Dismiss until next render';
         dismiss.textContent = '×';
-        dismiss.addEventListener('click', () => { el.innerHTML = ''; });
+        dismiss.addEventListener('click', () => onDismiss?.());
         headRow.appendChild(dismiss);
 
         wrap.appendChild(headRow);
@@ -3855,6 +3890,17 @@
 
         wrap.appendChild(groupBody);
         result.appendChild(wrap);
+        return result;
+    }
+
+    // Thin wrapper preserving _runGroupTest's exact original external
+    // behavior -- Form-1's own click-driven call sites (_buildGroupBtn) see
+    // zero behavior change.
+    async function _runGroupTest(el, scripts, btn, out, batchMap = new Map()) {
+        const force = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
+        const { failures } = await _computeGroupResult(scripts, batchMap, force);
+        if (!failures.length) { if (!btn) el.remove(); return; }
+        const result = _buildGroupResultDOM(scripts, failures, () => { el.innerHTML = ''; });
         if (out) { out.appendChild(result); }
         else      { el.innerHTML = ''; el.appendChild(result); }
     }
@@ -3939,13 +3985,11 @@
         catch {}
     }
 
-    async function _runTest(el, script, btn, out, cachedResult = null) {
+    // Pure compute for a single script -- no DOM. cachedResult mirrors the
+    // original batchMap pass-through; optional `signal` aborts in-flight
+    // fetches (deferred ambient pass only).
+    async function _computeSingleResult(script, cachedResult = null, force = false, signal) {
         const selector = NbMain.activeSelector() || '';
-        const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
-
-        // Snooze: skip auto-runs while snooze is active (force/button click always runs)
-        if (!force && _isSnoozed(selector, script)) { el.remove(); return; }
-
         let d;
         if (cachedResult && !force) {
             d = cachedResult;
@@ -3955,21 +3999,22 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ script, selector, force }),
+                    signal,
                 });
                 d = await r.json();
             } catch (e) {
+                if (e.name === 'AbortError') throw e;
                 d = { error: String(e), exit_code: 1, stdout: '' };
             }
         }
-
         const { text, severity } = _parseCheckResult(d, script);
-        const pass = severity === 'pass' && !text;
+        return { script, text, severity, pass: severity === 'pass' && !text };
+    }
 
-        if (pass) {
-            if (!btn) el.remove();
-            return;
-        }
-
+    // Pure build: DETACHED .nb-test-result node for a non-passing result.
+    // onDismiss(snoozeMin) is called instead of hardcoding "clear the owning
+    // element" -- same reuse rationale as _buildGroupResultDOM.
+    function _buildSingleResultDOM(script, text, severity, onDismiss) {
         const snoozeMin = parseInt(NbMain.activeNote()?.meta?.check_timeout ?? 0, 10);
 
         const result = document.createElement('div');
@@ -3979,10 +4024,7 @@
         dismiss.className = 'nb-test-dismiss';
         dismiss.title    = snoozeMin > 0 ? `Snooze ${snoozeMin} min` : 'Dismiss';
         dismiss.textContent = snoozeMin > 0 ? '⏸' : '×';
-        dismiss.addEventListener('click', () => {
-            if (snoozeMin > 0) _snooze(selector, script, snoozeMin);
-            el.innerHTML = '';
-        });
+        dismiss.addEventListener('click', () => onDismiss?.(snoozeMin));
         result.appendChild(dismiss);
 
         const iconHtml = _checkDomainIcon(script);
@@ -4000,12 +4042,123 @@
         result.appendChild(wrap);
 
         _enrichSubtests(wrap);
-        if (out) {
-            out.appendChild(result);
-        } else {
+        return result;
+    }
+
+    // Thin wrapper preserving _runTest's exact original external behavior --
+    // Form-1's own click-driven call sites (_buildTestBtn) see zero behavior
+    // change.
+    async function _runTest(el, script, btn, out, cachedResult = null) {
+        const selector = NbMain.activeSelector() || '';
+        const force    = btn !== null;   // user-clicked = always fresh; auto-run = cacheable
+
+        // Snooze: skip auto-runs while snooze is active (force/button click always runs)
+        if (!force && _isSnoozed(selector, script)) { el.remove(); return; }
+
+        const { text, severity, pass } = await _computeSingleResult(script, cachedResult, force);
+        if (pass) { if (!btn) el.remove(); return; }
+
+        const result = _buildSingleResultDOM(script, text, severity, snoozeMin => {
+            if (snoozeMin > 0) _snooze(selector, script, snoozeMin);
             el.innerHTML = '';
-            el.appendChild(result);
+        });
+        if (out) { out.appendChild(result); }
+        else      { el.innerHTML = ''; el.appendChild(result); }
+    }
+
+    // Reduces every Form-2 (auto-run) result down to exactly one reserved
+    // row: the FIRST .nb-test-block in document order becomes the permanent
+    // anchor -- regardless of whether ITS OWN check happens to be the one
+    // that fails -- every other Form-2 block is removed outright. Zero
+    // failures -> anchor cleared (existing .nb-test-block:empty CSS collapses
+    // it, same mechanism as before, now applied to one block instead of up to
+    // 8 independently). Exactly one failing source -> its own detail node
+    // goes straight into the anchor. More than one -> a single collapsed
+    // "N notifications" wrapper holds one nested detail node per failing
+    // source.
+    function _renderCheckAggregate(form2Sources, failing) {
+        if (!form2Sources.length) return;
+        const anchor = form2Sources[0].el;
+        form2Sources.slice(1).forEach(src => src.el.remove());
+
+        if (!failing.length) { anchor.innerHTML = ''; return; }
+
+        const selector = NbMain.activeSelector() || '';
+        if (failing.length === 1) {
+            const f = failing[0];
+            const node = f.kind === 'group'
+                ? _buildGroupResultDOM(f.scripts, f.failures, () => { anchor.innerHTML = ''; })
+                : _buildSingleResultDOM(f.script, f.text, f.severity, snoozeMin => {
+                      if (snoozeMin > 0) _snooze(selector, f.script, snoozeMin);
+                      anchor.innerHTML = '';
+                  });
+            anchor.innerHTML = '';
+            anchor.appendChild(node);
+            return;
         }
+
+        anchor.innerHTML = '';
+        anchor.appendChild(_buildNotifyAggregate(failing, selector));
+    }
+
+    // A near-copy of _buildGroupResultDOM's own header/toggle/body pattern,
+    // relabeled "N notifications" instead of "N of M checks failed" -- one
+    // nested detail node per failing source, each still built via
+    // _buildGroupResultDOM/_buildSingleResultDOM, so a failing family still
+    // shows its own "N of M checks failed" sub-header nested one level in,
+    // reusing all existing dismiss/subtest-toggle interaction with only this
+    // outer wrapper being new.
+    function _buildNotifyAggregate(failing, selector) {
+        const result = document.createElement('div');
+        result.className = 'nb-test-result nb-test-result--group';
+
+        const worstSeverity = failing.some(f =>
+            f.kind === 'group' ? f.failures.some(x => x.severity === 'error') : f.severity === 'error'
+        ) ? 'error' : 'warn';
+        const wrap = document.createElement('div');
+        wrap.className = 'nb-rendered nb-group-result' + _severityClass(worstSeverity);
+
+        const headRow = document.createElement('div');
+        headRow.className = 'nb-group-headrow';
+
+        const toggle = document.createElement('button');
+        toggle.className = 'nb-group-toggle';
+        toggle.dataset.open = '0';
+        toggle.textContent = `${failing.length} notification${failing.length !== 1 ? 's' : ''}`;
+        headRow.appendChild(toggle);
+
+        const dismiss = document.createElement('button');
+        dismiss.className = 'nb-test-dismiss nb-group-dismiss';
+        dismiss.title = 'Dismiss until next render';
+        dismiss.textContent = '×';
+        dismiss.addEventListener('click', () => { wrap.remove(); });
+        headRow.appendChild(dismiss);
+
+        wrap.appendChild(headRow);
+
+        const body = document.createElement('div');
+        body.className = 'nb-group-body nb-check-notify-body';
+        body.hidden = true;
+        toggle.addEventListener('click', () => {
+            const open = toggle.dataset.open === '1';
+            toggle.dataset.open = open ? '0' : '1';
+            body.hidden = open;
+        });
+
+        failing.forEach(f => {
+            let node;
+            node = f.kind === 'group'
+                ? _buildGroupResultDOM(f.scripts, f.failures, () => node.remove())
+                : _buildSingleResultDOM(f.script, f.text, f.severity, snoozeMin => {
+                      if (snoozeMin > 0) _snooze(selector, f.script, snoozeMin);
+                      node.remove();
+                  });
+            body.appendChild(node);
+        });
+
+        wrap.appendChild(body);
+        result.appendChild(wrap);
+        return result;
     }
 
     // Converts [label](subtest:scriptname) links inside a test result into
@@ -6224,32 +6377,24 @@
                 },
             },
             {
+                // No render: here deliberately -- check execution is deferred out of
+                // NbWeb.renderCodeblocks' shared serial loop entirely (see
+                // NbWeb.renderCheckBlocks below, invoked from main.js's _deferCheckBlocks
+                // only after everything else has settled). An entry with no .render is
+                // simply skipped by that loop (nbweb.js's own guard: `if (r.render) ...`).
                 lang:   'check',
                 html:   text => {
                     const {readLevel,writeLevel,query} = _cbParseGates(text);
                     const isList = /^list(\s|$)/.test(query.trim());
                     const extraCls = isList ? ' nb-collapsed' : '';
                     const extraAttr = isList ? ' data-init-collapsed' : '';
-                    return `<div class="nb-test-block${extraCls}"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"${extraAttr}></div>`;
-                },
-                render: async container => {
-                    const blocks = [...container.querySelectorAll('.nb-test-block')];
-                    if (!blocks.length) return;
-                    NbWeb.statusPill?.add(blocks.length);
-
-                    // Collect all auto-run scripts across every block, fetch in one
-                    // round trip, then distribute cached results to each block.
-                    const selector   = NbMain.activeSelector() || '';
-                    const autoScripts = _collectAutoRunScripts(blocks);
-                    const batchMap   = autoScripts.length
-                        ? await _fetchTestBatch(autoScripts, selector)
-                        : new Map();
-
-                    await Promise.all(blocks.map(async el => {
-                        try { await _loadTestBlock(el, batchMap); }
-                        finally { NbWeb.statusPill?.tick(); }
-                    }));
-                    container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
+                    // The spin span is load-bearing, not cosmetic: _maybeCaptureRenderCache
+                    // (main.js) treats its absence as "settled" -- without it, a cache:true
+                    // note's first whenIdle() trigger (which fires before check execution
+                    // even starts, now that it's deferred) would see no pending work and no
+                    // spinner, and would permanently freeze an empty notification row into
+                    // the cached HTML.
+                    return `<div class="nb-test-block${extraCls}"${_cbGateAttrs(readLevel,writeLevel)} data-query="${query.replace(/"/g,'&quot;')}"${extraAttr}><span class="nb-spin">⟳</span></div>`;
                 },
             },
             {
@@ -6433,6 +6578,79 @@
             meta.textContent = '…';
             block.appendChild(hdr);
         },
+    };
+
+    // Deferred check execution -- invoked from main.js's _deferCheckBlocks,
+    // strictly after everything else on the note has settled, not from
+    // NbWeb.renderCodeblocks' own shared serial loop (the `check` lang entry
+    // above deliberately has no render: key). Form-1 (labeled/click-run/list)
+    // blocks are relocated here unchanged, just no longer gating every other
+    // plugin's codeblocks behind them. Form-2 (auto-run/ambient) sources are
+    // resolved and batched together -- one combined /api/check/batch call
+    // across every family's scripts, not N individual /api/check/run calls --
+    // then reduced to a single reserved notification row.
+    NbWeb.renderCheckBlocks = async (container, { signal } = {}) => {
+        const blocks = [...container.querySelectorAll('.nb-test-block')];
+        if (!blocks.length) return;
+        NbWeb.statusPill?.add(blocks.length);
+
+        const { form1, form2 } = _collectCheckSources(blocks);
+        const selector = NbMain.activeSelector() || '';
+
+        const form1Done = Promise.all(form1.map(async el => {
+            try { await _loadTestBlock(el, new Map()); } finally { NbWeb.statusPill?.tick(); }
+        }));
+
+        try {
+            // Every glob token resolves independently -- in parallel, not serial.
+            const resolved = await Promise.all(form2.map(async src => {
+                const globScripts = (await Promise.all(
+                    src.globTokens.map(g => _resolveTestGlob(g, signal))
+                )).flat();
+                const scripts = [...src.literalScripts, ...globScripts]
+                    .map(s => ({ script: s, label: s.replace(/\.sh$/, '') }));
+                return {
+                    el: src.el,
+                    scripts,
+                    // Only a bare single literal script (no globs) matches the
+                    // original _runTest path (snooze support included); anything
+                    // else -- a glob, or more than one script -- is a group,
+                    // matching _runGroupTest's own original branching exactly.
+                    isSingle: src.literalScripts.length === 1 && src.globTokens.length === 0,
+                };
+            }));
+            if (signal?.aborted) { await form1Done; return; }
+
+            const allScriptNames = [...new Set(resolved.flatMap(s => s.scripts.map(x => x.script)))];
+            const batchMap = allScriptNames.length
+                ? await _fetchTestBatch(allScriptNames, selector, signal)
+                : new Map();
+            if (signal?.aborted) { await form1Done; return; }
+
+            const failing = (await Promise.all(resolved.map(async src => {
+                if (!src.scripts.length) return null;
+                if (src.isSingle) {
+                    const script = src.scripts[0].script;
+                    if (_isSnoozed(selector, script)) return null;   // matches _runTest's own snooze gate
+                    const r = await _computeSingleResult(script, batchMap.get(script) ?? null, false, signal);
+                    if (r.pass) return null;
+                    return { kind: 'single', script, text: r.text, severity: r.severity };
+                }
+                const r = await _computeGroupResult(src.scripts, batchMap, false, signal);
+                if (!r.failures.length) return null;
+                return { kind: 'group', scripts: src.scripts, failures: r.failures };
+            }))).filter(Boolean);
+            if (signal?.aborted) { await form1Done; return; }
+
+            _renderCheckAggregate(resolved, failing);
+        } catch (e) {
+            if (e?.name !== 'AbortError') throw e;
+        } finally {
+            blocks.forEach(() => NbWeb.statusPill?.tick());
+        }
+
+        await form1Done;
+        container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
     };
 
 })();

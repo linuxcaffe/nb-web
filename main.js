@@ -1510,7 +1510,48 @@ const NbMain = (() => {
             if (signal.aborted) return;
             await NbWeb.renderCodeblocks(container);
             if (signal.aborted) return;
+            // Dispatched here unconditionally now, not from inside check's own render --
+            // check execution is deferred (see _deferCheckBlocks below) and this event is
+            // also the TOC-rebuild fallback trigger for toc:true notes with no inline
+            // includes (_watchInlineTocRebuild); it must not wait on however long checks take,
+            // and today it silently never fired at all for notes with zero check blocks.
+            container.dispatchEvent(new CustomEvent('nb-tests-settled', { bubbles: false }));
             _resolveWikilinks(container);
+            _deferCheckBlocks(container, note, signal);
+        })();
+    }
+
+    // Check execution (Form-2/ambient, glob-driven) runs strictly after everything else
+    // has settled -- it's the slowest, lowest-priority part of a render, and used to
+    // share NbWeb.renderCodeblocks' serial loop with every other plugin's codeblocks,
+    // blocking all of them behind it. Fire-and-forget from _fetchContainer, not awaited.
+    function _deferCheckBlocks(container, note, signal) {
+        (async () => {
+            for (let tries = 0; tries < 5; tries++) {
+                await _StatusPill.whenIdle();
+                if (signal.aborted) return;
+                // whenIdle() is a trigger, not a completion guarantee (see
+                // _maybeCaptureRenderCache's own comment) -- re-verify structurally with a
+                // bounded retry rather than trusting the first zero or looping forever.
+                if (!container.querySelector('.nb-inline-query, .nb-spin')) break;
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
+            if (signal.aborted) return;
+            await NbWeb.renderCheckBlocks?.(container, { signal });
+            if (signal.aborted || !note?.meta?.cache || note.__cachedRenderHtml) return;
+            // Check's own rendered output can itself contain further async work (e.g. a
+            // nested interactive widget embedded in a failing check's result card) that
+            // hasn't settled the instant renderCheckBlocks resolves -- retry the capture
+            // attempt itself, same bounded-retry shape as the pre-check wait above, rather
+            // than giving up permanently on a single miss (found live 2026-08-02: a stray
+            // .nb-spin from an embedded widget inside an hl-entry-day/hl-entry-week check
+            // result silently and permanently disabled render-cache for the note).
+            for (let tries = 0; tries < 5; tries++) {
+                _maybeCaptureRenderCache(container, note);
+                if (note.__cachedRenderHtml) return;
+                if (signal.aborted) return;
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
         })();
     }
 

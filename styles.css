@@ -3333,6 +3333,13 @@ span.nb-cb-icon.nb-cb-icon--emoji {
    bordered/padded group box around it. */
 .nb-group-dismiss { position: static; flex-shrink: 0; }
 
+/* Multi-notification aggregate body — one nested .nb-group-result per failing
+   source when >1 Form-2 check source fails on the same note. Everything else
+   (severity border color, toggle arrow rotation, dismiss button) is inherited
+   from .nb-group-result/.nb-subtest-* unchanged; this is only the nesting
+   indent, mirroring .nb-subtest-body's own 1.2em. */
+.nb-check-notify-body .nb-group-result { margin: 4px 0 4px 1.2em; }
+
 .nb-hl-help-pop {
   position: fixed;
   z-index: 9000;
