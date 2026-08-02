@@ -2940,7 +2940,7 @@
         svg.setAttribute('width',   svgW);
         svg.setAttribute('height',  svgH);
         svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
-        svg.className = 'nb-config-org-svg';
+        svg.setAttribute('class', 'nb-config-org-svg');
 
         function _drawEdges(node) {
             for (const c of (node.children || [])) {
