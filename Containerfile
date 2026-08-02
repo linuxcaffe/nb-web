@@ -319,13 +319,20 @@ RUN chown -R nbweb:nbweb /app
 # habit, not a deliberate choice -- see claude:nb_web.md's Phase 2 plugin-
 # sourcing item. Now a real vendored file at plugins/nbweb-specialty.js,
 # same category as nbweb-archive.js/nbweb-codeblocks.js/nbweb-contacts.js.
+# Each plugin's cloned commit is written to a sidecar file (not a LABEL --
+# LABEL's value has to be known at the LABEL instruction itself, it can't
+# read back a RUN step's output within the same build) so a running
+# container can be asked "which commit is this plugin actually built from"
+# the same way nb_web_commit (LABEL below) answers that for nb-web itself.
 RUN for p in nbweb-cine nbweb-claude nbweb-hledger; do \
         git clone --depth 1 "https://github.com/linuxcaffe/$p.git" "/tmp/$p" \
         && rm -f "/app/plugins/$p.js" \
         && cp "/tmp/$p/$p.js" "/app/plugins/$p.js" \
+        && git -C "/tmp/$p" rev-parse --short HEAD > "/app/plugins/.$p.commit" \
         && rm -rf "/tmp/$p"; \
     done \
-    && chown nbweb:nbweb /app/plugins/nbweb-cine.js /app/plugins/nbweb-claude.js /app/plugins/nbweb-hledger.js
+    && chown nbweb:nbweb /app/plugins/nbweb-cine.js /app/plugins/nbweb-claude.js /app/plugins/nbweb-hledger.js \
+        /app/plugins/.nbweb-cine.commit /app/plugins/.nbweb-claude.commit /app/plugins/.nbweb-hledger.commit
 
 # No NB_DIR override: app.py's own default (Path.home()/'.nb') applies
 # naturally once HOME is right, which it is -- nbweb's real home
