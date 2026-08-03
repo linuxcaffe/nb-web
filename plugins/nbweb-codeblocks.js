@@ -89,6 +89,7 @@
         toc:      { text: 'TOC' },
         test:     { text: 'TST' },
         timedot:  { text: '⏱', emoji: true },
+        cine:     { text: '🗺️', emoji: true },
     };
 
     function _cbIcon(blockType) {
@@ -6655,6 +6656,13 @@
             block.appendChild(hdr);
         },
     };
+
+    // Export the shared barblock header + collapse-toggle so other plugin files
+    // (separate closures, e.g. nbweb-cine.js) can join the same header
+    // convention every core codeblock uses, instead of hand-rolling their own
+    // header markup/CSS. First external consumer: `cine org`.
+    NbWeb.buildBarHeader     = _buildBarHeader;
+    NbWeb.initCollapseToggle = _initCollapseToggle;
 
     // Deferred check execution -- invoked from main.js's _deferCheckBlocks,
     // strictly after everything else on the note has settled, not from
