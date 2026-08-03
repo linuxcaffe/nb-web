@@ -3370,7 +3370,14 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 }
 .nb-test-block.nb-check-notify-anchor > .nb-test-result {
   position: sticky;
-  top: 4px;
+  top: 2px;
+  /* Pull up out of normal flow (where it'd land on the same line as the
+     note's own first heading/card) into #nb-preview-content's own top
+     padding strip -- the actual page margin, not a line of content.
+     -22px roughly matches the collapsed badge's own bare-text height
+     once the pill chrome below is stripped; see .nb-group-headrow
+     override. */
+  margin-top: -22px;
   max-width: 70%;
 }
 .nb-test-block.nb-check-notify-anchor.nb-check-notify-open {
@@ -3380,14 +3387,27 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 }
 .nb-test-block.nb-check-notify-anchor.nb-check-notify-open > .nb-test-result {
   position: static;
+  margin-top: 0;
   max-width: none;
 }
+/* Bare text while collapsed -- no card background/shadow/padding, so the
+   badge is short enough to actually fit in the page's own top margin
+   rather than needing chrome-height on top of it. The open state (a real
+   detail box, not floating in the margin) keeps the normal card look. */
 .nb-check-notify-anchor .nb-group-result {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.nb-check-notify-anchor .nb-group-headrow { margin: 0; }
+.nb-check-notify-anchor.nb-check-notify-open .nb-group-result {
   background: var(--bg2);
   border-radius: 6px;
   padding: 4px 10px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 }
+.nb-check-notify-anchor.nb-check-notify-open .nb-group-headrow { margin: 0 0 6px 0; }
 @media (max-width: 480px) {
   .nb-test-block.nb-check-notify-anchor > .nb-test-result { max-width: 85%; }
 }
