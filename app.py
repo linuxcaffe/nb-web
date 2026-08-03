@@ -2711,40 +2711,131 @@ def _hledger_web_parse_host_port(cmd_str):
     return _parse_web_host_port(cmd_str, default_port=5000)
 
 
-@app.route('/api/hledger/regen', methods=['POST'])
-def api_hledger_regen():
-    """Run a .tools/*.py script in a notebook to regenerate a derived journal."""
-    if not _cb_write_allowed('hledger'):
-        return jsonify({'error': 'hledger write not permitted'}), 403
-    data     = request.get_json() or {}
-    notebook = data.get('notebook', '').strip()
-    script   = data.get('script', '').strip()
+def _run_regen_script(notebook, script, args=None):
+    """Shared core: run a .tools/*.py script in a notebook to regenerate
+    whatever derived artifact it produces. Returns (message, error) -- exactly
+    one is None. Caller owns auth/permission checks and any of its own
+    cache invalidation; this function only validates the script path and
+    runs it.
 
-    if not notebook or not script:
-        return jsonify({'error': 'notebook and script required'}), 400
-
+    `notebook` must already be `_safe_notebook`-validated by the caller --
+    this function trusts it (both current callers validate before calling).
+    `args`, if given, are passed through as plain positional CLI args (e.g.
+    gen-org.py's own required `<name>`) -- subprocess.run's list form, never
+    a shell string, so nothing here needs escaping."""
     # Script must live inside .tools/ and be a .py file — no path traversal.
     script_path = Path(script)
     if script_path.parent.name != '.tools' or script_path.suffix != '.py':
-        return jsonify({'error': 'script must be a .tools/*.py file'}), 400
+        return None, 'script must be a .tools/*.py file'
 
     nb_path     = NB_DIR / notebook
     full_script = nb_path / script_path
     if not full_script.exists():
-        return jsonify({'error': f'{script} not found in {notebook}'}), 404
+        return None, f'{script} not found in {notebook}'
 
     try:
-        _hledger_cache.clear()   # clear before run so stale entries can't be served
         r = subprocess.run(
-            ['python3', str(full_script)],
-            capture_output=True, text=True, timeout=30
+            ['python3', str(full_script), *(args or [])],
+            capture_output=True, text=True, timeout=30, cwd=str(nb_path),
         )
         if r.returncode != 0:
-            return jsonify({'error': r.stderr.strip() or 'script error'}), 500
-        _hledger_cache.clear()   # clear again after run to drop any entries added during script
-        return jsonify({'message': r.stdout.strip().splitlines()[-1] if r.stdout.strip() else 'done'})
+            return None, r.stderr.strip() or 'script error'
+        return (r.stdout.strip().splitlines()[-1] if r.stdout.strip() else 'done'), None
     except subprocess.TimeoutExpired:
-        return jsonify({'error': 'script timed out'}), 500
+        return None, 'script timed out'
+
+
+_ORG_SOURCE_RE = re.compile(r'^\.([\w-]+)-org\.md$')
+
+
+def _maybe_auto_regen_org_source(note_path, nb_root):
+    """Saving a `.{name}-org.md` file (the org-source dotfile `cine org` and
+    any sibling plugin reads, per its own `org <name>` codeblock arg)
+    re-runs `.tools/gen-org.py <name>` immediately, so the cache never sits
+    stale between an edit and the next render. Keyed off the filename
+    pattern itself, not an opt-in FM flag -- the naming convention is
+    already the real signal here, nothing to remember to turn on. Returns
+    the regenerated cache's relative path if one was produced (so the
+    caller can fold it into the same git commit as the source edit), or
+    None if this wasn't an org-source save or the regen script is missing/
+    failed. Best-effort either way: a failed/missing regen just means the
+    next render falls back to live per-node resolution, same as today."""
+    if note_path.parent != nb_root:
+        return None
+    m = _ORG_SOURCE_RE.match(note_path.name)
+    if not m:
+        return None
+    name = m.group(1)
+    if not (nb_root / '.tools' / 'gen-org.py').is_file():
+        return None
+    _message, _error = _run_regen_script(nb_root.name, '.tools/gen-org.py', args=[name])
+    cache_rel = f'.{name}-org-cache.json'
+    return cache_rel if (nb_root / cache_rel).exists() else None
+
+
+def _regen_error_status(error):
+    """Map _run_regen_script's error strings to the same status codes this
+    endpoint pair has always returned (400 bad script path, 404 script
+    missing, 500 the script itself failed/timed out)."""
+    if 'must be' in error:
+        return 400
+    if 'not found' in error:
+        return 404
+    return 500
+
+
+@app.route('/api/regen', methods=['POST'])
+def api_regen():
+    """Generic sibling of /api/hledger/regen -- any plugin can point a manual
+    regen button or an auto-on-save hook at this, not just hledger. Gate is
+    real write access to the target notebook (its own configured `access:`,
+    floor 'user' regardless -- running a script is more sensitive than plain
+    content edits, same floor precedent as other routine content-generating
+    endpoints), not a specific plugin's own codeblock_access gate.
+
+    First consumer: nbweb-cine's `.{name}-org.md` cache (manual regen button
+    + auto-regen on save of a matching filename)."""
+    data     = request.get_json() or {}
+    notebook = _safe_notebook(data.get('notebook', '').strip())
+    script   = data.get('script', '').strip()
+    args_raw = data.get('args') or []
+    if not notebook or not script:
+        return jsonify({'error': 'notebook and script required'}), 400
+    if not isinstance(args_raw, list) or not all(isinstance(a, str) for a in args_raw):
+        return jsonify({'error': 'args must be a list of strings'}), 400
+
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'user') or not _can_access(user, {}, _notebook_config(notebook)):
+        return jsonify({'error': 'not permitted'}), 403
+
+    message, error = _run_regen_script(notebook, script, args=args_raw)
+    if error:
+        status = _regen_error_status(error)
+        return jsonify({'error': error}), status
+    return jsonify({'message': message})
+
+
+@app.route('/api/hledger/regen', methods=['POST'])
+def api_hledger_regen():
+    """hledger's own regen button -- thin wrapper over the shared
+    _run_regen_script, plus hledger's own report-cache invalidation (cached
+    separately from the regen script's own file output, so a generic caller
+    wouldn't know to clear it)."""
+    if not _cb_write_allowed('hledger'):
+        return jsonify({'error': 'hledger write not permitted'}), 403
+    data     = request.get_json() or {}
+    notebook = _safe_notebook(data.get('notebook', '').strip())
+    script   = data.get('script', '').strip()
+    if not notebook or not script:
+        return jsonify({'error': 'notebook and script required'}), 400
+
+    _hledger_cache.clear()   # clear before run so stale entries can't be served
+    message, error = _run_regen_script(notebook, script)
+    _hledger_cache.clear()   # clear again after run to drop any entries added during script
+    if error:
+        status = _regen_error_status(error)
+        return jsonify({'error': error}), status
+    return jsonify({'message': message})
 
 
 # ── .lib barblock extras ──────────────────────────────────────────────────────
@@ -7220,10 +7311,15 @@ def api_edit_note():
             break
         p = p.parent
 
+    regen_cache_rel = _maybe_auto_regen_org_source(note_path, nb_root)
+
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
     rel = note_path.relative_to(nb_root)
     subprocess.run(['git', 'add', str(rel)], cwd=str(nb_root),
                    capture_output=True, env=env)
+    if regen_cache_rel:
+        subprocess.run(['git', 'add', regen_cache_rel], cwd=str(nb_root),
+                       capture_output=True, env=env)
     subprocess.run(['git', 'commit', '-m', f'[nb] Edit: {note_path.name}'],
                    cwd=str(nb_root), capture_output=True, env=env)
 
