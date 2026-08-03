@@ -41,7 +41,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # never wired into the actual command that causes the gap. First fix here was
 # a passive warning; upgraded same day to an actual Y/n prompt (default yes)
 # so the fix is one keypress away instead of a second remembered command.
+#
+# Guarded to run at most once per script invocation: --clean calls this
+# BEFORE its own stop/restart cycle, and the "start if not already running"
+# block later in the script calls it again as a fallback for a plain
+# (non---clean) launch against an already-stopped container. Confirmed live
+# 2026-08-02: hitting both call sites in the same --clean run (the second
+# one landing in the brief window between `podman stop` and the unit's
+# ExecStopPost `podman rm -f`) produced a bogus label read on the second
+# call and re-prompted for a rebuild that had just been done -- a real
+# "circular loop" from djp's perspective. The check was always meant to
+# fire once per launch, not once per call site.
+_STALE_CHECK_DONE=""
 _warn_if_stale() {
+    [ -n "$_STALE_CHECK_DONE" ] && return 0
+    _STALE_CHECK_DONE=1
+
     command -v podman > /dev/null 2>&1 || return 0
     podman inspect nb-web > /dev/null 2>&1 || return 0
     [ -d "$SCRIPT_DIR/.git" ] || return 0
