@@ -29,7 +29,7 @@ FLASK_URL="http://localhost:5001/"
 NBWEB_UNIT="container-nb-web.service"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ── Stale-image warning ────────────────────────────────────────────────────
+# ── Stale-image check — offers to rebuild, doesn't just warn ─────────────────
 # A restart (--clean or otherwise) reuses whatever image is already built --
 # it never picks up new commits, only a rebuild does. This bit twice now
 # (see .checks/sys-container-stale.sh's own header, root-caused 2026-08-02):
@@ -38,8 +38,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # container kept serving code from before the session started, no error,
 # nothing to notice except unexpectedly-old behavior in the browser. That
 # check only ever ran as an ambient note-level check inside nb-web itself,
-# never wired into the actual command that causes the gap -- fixed here so
-# the warning shows up exactly where and when it matters.
+# never wired into the actual command that causes the gap. First fix here was
+# a passive warning; upgraded same day to an actual Y/n prompt (default yes)
+# so the fix is one keypress away instead of a second remembered command.
 _warn_if_stale() {
     command -v podman > /dev/null 2>&1 || return 0
     podman inspect nb-web > /dev/null 2>&1 || return 0
@@ -52,10 +53,21 @@ _warn_if_stale() {
     fi
 
     repo_head=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null)
-    if [ -n "$repo_head" ] && [ "$repo_head" != "$image_commit" ]; then
-        echo "nb-web-launch: WARNING -- container image is stale (has $image_commit, repo HEAD is $repo_head)."
-        echo "nb-web-launch:          a restart will NOT pick up the difference -- run .tools/rebuild-container.sh first if you need current code live."
+    if [ -z "$repo_head" ] || [ "$repo_head" = "$image_commit" ]; then
+        return 0   # up to date
     fi
+
+    echo "nb-web-launch: container image is stale (has $image_commit, repo HEAD is $repo_head) -- a restart alone won't pick this up."
+    if [ ! -t 0 ]; then
+        echo "nb-web-launch: no terminal to prompt on -- run .tools/rebuild-container.sh, or re-run this interactively to be asked."
+        return 0
+    fi
+    local _ans
+    read -r -p "nb-web-launch: rebuild now? [Y/n] " _ans
+    case "$_ans" in
+        [nN]*) echo "nb-web-launch: skipping -- this launch will keep serving $image_commit." ;;
+        *)     "$SCRIPT_DIR/.tools/rebuild-container.sh" ;;
+    esac
 }
 
 # Auto-detect Epiphany profile (created when you install the PWA)
