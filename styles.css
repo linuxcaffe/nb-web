@@ -3392,22 +3392,18 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 }
 /* Bare text while collapsed -- no card background/shadow/padding, so the
    badge is short enough to actually fit in the page's own top margin
-   rather than needing chrome-height on top of it. The open state (a real
-   detail box, not floating in the margin) keeps the normal card look. */
-.nb-check-notify-anchor .nb-group-result {
+   rather than needing chrome-height on top of it. Unfolded, it's left
+   alone entirely -- no special-case override -- so it falls back to the
+   same plain left-border-and-padding look every other check result on
+   the page already uses (.nb-group-result's own base rules), rather than
+   a bespoke card/pill treatment that exists nowhere else. */
+.nb-check-notify-anchor:not(.nb-check-notify-open) .nb-group-result {
   padding: 0;
   background: none;
   box-shadow: none;
   border-radius: 0;
 }
-.nb-check-notify-anchor .nb-group-headrow { margin: 0; }
-.nb-check-notify-anchor.nb-check-notify-open .nb-group-result {
-  background: var(--bg2);
-  border-radius: 6px;
-  padding: 4px 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
-}
-.nb-check-notify-anchor.nb-check-notify-open .nb-group-headrow { margin: 0 0 6px 0; }
+.nb-check-notify-anchor:not(.nb-check-notify-open) .nb-group-headrow { margin: 0; }
 @media (max-width: 480px) {
   .nb-test-block.nb-check-notify-anchor > .nb-test-result { max-width: 85%; }
 }
