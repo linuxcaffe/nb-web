@@ -66,12 +66,18 @@ things per render against this dev server. The real container (gunicorn, `--work
 almost certainly doesn't have this ceiling — not yet confirmed either way, but don't assume the
 bare dev server's concurrency behavior generalizes to production.
 
-**The app's own ambient per-note check system (`/api/check/run`, fired client-side from
-`nbweb-codeblocks.js` on every note render) is a separate, real performance cost, unrelated to
-whatever's being verified** — seen firing 25+ sequential-ish calls in the seconds before an
-otherwise-fast page finished loading, on a totally unrelated note. If a page load looks
-mysteriously slow during verification, check the server log for this burst before assuming the
-thing being tested is what's slow.
+**The app's own ambient per-note check system (`nbweb-codeblocks.js`/`main.js`) used to be a
+separate, real performance cost, unrelated to whatever's being verified** — up to 25-30s added
+to *every* note's first paint from up to 8 ambient glob families each firing their own sequential
+`/api/check/run` calls, and blocking every other plugin's codeblocks on the same note behind it
+in `NbWeb.renderCodeblocks`'s shared serial loop. **Fixed 2026-08-02** (`nb-web` CLAUDE.md
+invariant 20, "Render pipeline" Stage 3): check now runs strictly last, deferred off the shared
+loop, resolves every ambient family in parallel into one `/api/check/batch` call, and
+consolidates into a single sticky badge (`.nb-check-notify-anchor`) in the note's own top margin
+— typically ~2-5s total now, not 25-30s, and no longer blocks anything else. If a page load
+during verification still shows a check-related burst of individual `/api/check/run` calls or
+takes anywhere near the old 25-30s figure, that's now a real regression to investigate, not
+expected background noise to route around.
 
 ## Build/launch the real container (not the test fixtures)
 
