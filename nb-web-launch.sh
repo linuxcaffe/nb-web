@@ -18,9 +18,45 @@
 # A fresh rebuild's first start can take up to ~1min (rootless Podman's
 # --userns=keep-id pays a one-time ID-mapped-layer-copy cost per image
 # build); restarts of an already-built image are near-instant.
+#
+# Any (re)start warns (doesn't block) if the running image's baked-in commit
+# doesn't match this repo's local HEAD -- a restart, --clean or otherwise,
+# never picks up new commits, only .tools/rebuild-container.sh does. Bit
+# twice silently before this warning existed (2026-08-02, see
+# .checks/sys-container-stale.sh's own header for the first incident).
 
 FLASK_URL="http://localhost:5001/"
 NBWEB_UNIT="container-nb-web.service"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── Stale-image warning ────────────────────────────────────────────────────
+# A restart (--clean or otherwise) reuses whatever image is already built --
+# it never picks up new commits, only a rebuild does. This bit twice now
+# (see .checks/sys-container-stale.sh's own header, root-caused 2026-08-02):
+# a whole feature got shipped across several commits, this script's --clean
+# was run believing it would deploy the fix, and it silently didn't -- the
+# container kept serving code from before the session started, no error,
+# nothing to notice except unexpectedly-old behavior in the browser. That
+# check only ever ran as an ambient note-level check inside nb-web itself,
+# never wired into the actual command that causes the gap -- fixed here so
+# the warning shows up exactly where and when it matters.
+_warn_if_stale() {
+    command -v podman > /dev/null 2>&1 || return 0
+    podman inspect nb-web > /dev/null 2>&1 || return 0
+    [ -d "$SCRIPT_DIR/.git" ] || return 0
+
+    local image_commit repo_head
+    image_commit=$(podman inspect nb-web --format '{{index .Config.Labels "nb_web_commit"}}' 2>/dev/null)
+    if [ -z "$image_commit" ] || [ "$image_commit" = "<no value>" ] || [ "$image_commit" = "unknown" ]; then
+        return 0   # no usable label to compare against
+    fi
+
+    repo_head=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null)
+    if [ -n "$repo_head" ] && [ "$repo_head" != "$image_commit" ]; then
+        echo "nb-web-launch: WARNING -- container image is stale (has $image_commit, repo HEAD is $repo_head)."
+        echo "nb-web-launch:          a restart will NOT pick up the difference -- run .tools/rebuild-container.sh first if you need current code live."
+    fi
+}
 
 # Auto-detect Epiphany profile (created when you install the PWA)
 EPIPHANY_PROFILE=$(ls -d ~/.local/share/org.gnome.Epiphany.WebApp-nb-web-* 2>/dev/null | head -1)
@@ -41,6 +77,7 @@ fi
 
 # ── --clean: wipe SW registration + ALL caches, restart Flask ────────────────
 if [ "$1" = "--clean" ]; then
+    _warn_if_stale
     if pgrep -x epiphany > /dev/null; then
         echo "nb-web-launch: closing Epiphany for clean launch..."
         pkill -x epiphany
@@ -103,6 +140,7 @@ done < <(pgrep -f "nb [a-z_-]*:?sync" 2>/dev/null)
 if curl -s "$FLASK_URL" > /dev/null 2>&1; then
     echo "nb-web-launch: server already running"
 else
+    _warn_if_stale
     echo "nb-web-launch: starting $NBWEB_UNIT..."
     systemctl --user start "$NBWEB_UNIT"
 
