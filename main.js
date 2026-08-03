@@ -382,20 +382,36 @@ const NbMain = (() => {
         return [];
     }
 
-    function _matchTagColor(raw, tags) {
-        let colorMap;
-        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-            colorMap = raw;
-        } else {
-            colorMap = {};
-            const entries = Array.isArray(raw) ? raw : [raw];
-            for (const e of entries) {
-                const idx = String(e).indexOf(':');
-                if (idx > 0) colorMap[e.slice(0, idx).trim()] = e.slice(idx + 1).trim();
-            }
+    function _normalizeTagColorMap(raw) {
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+        const colorMap = {};
+        const entries = Array.isArray(raw) ? raw : [raw];
+        for (const e of entries) {
+            const idx = String(e).indexOf(':');
+            if (idx > 0) colorMap[e.slice(0, idx).trim()] = e.slice(idx + 1).trim();
         }
+        return colorMap;
+    }
+
+    function _matchTagColor(raw, tags) {
+        const colorMap = _normalizeTagColorMap(raw);
         for (const tag of (tags || [])) { if (colorMap[tag]) return colorMap[tag]; }
         return null;
+    }
+
+    // Plural sibling of _matchTagColor -- for UI that shows a tag color as a
+    // stripe (can hold N side-by-side swatches), not as text/accent color
+    // (which can only ever be one color). Same raw-shape normalization, same
+    // tag-order/first-writer-wins-per-tag semantics, just collecting every
+    // distinct match instead of returning on the first one.
+    function _matchTagColors(raw, tags) {
+        const colorMap = _normalizeTagColorMap(raw);
+        const colors = [];
+        for (const tag of (tags || [])) {
+            const c = colorMap[tag];
+            if (c && !colors.includes(c)) colors.push(c);
+        }
+        return colors;
     }
 
     function renderList(notes, fromSort = false) {
@@ -4910,7 +4926,8 @@ const NbMain = (() => {
              wireContainer:   (container, note) => _wireContainer(container, note),
              fetchContainer:  (container, note) => _fetchContainer(container, note),
              bustNoteCache:   sel => { if (sel) _noteCache.delete(sel); else _noteCache.clear(); },
-             matchTagColor:   _matchTagColor };
+             matchTagColor:   _matchTagColor,
+             matchTagColors:  _matchTagColors };
 })();
 
 document.addEventListener('DOMContentLoaded', async () => {
