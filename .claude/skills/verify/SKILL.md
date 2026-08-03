@@ -79,6 +79,38 @@ during verification still shows a check-related burst of individual `/api/check/
 takes anywhere near the old 25-30s figure, that's now a real regression to investigate, not
 expected background noise to route around.
 
+**Diagnosing unexplained slowness or an unexpected request burst: instrument `window.fetch`
+directly, don't guess from reading code.** Found two real, non-obvious bugs this way 2026-08-03
+(`cine org` render time regression) that code review alone hadn't caught: two independently-
+serialized background passes that were nonetheless running concurrently with each other, and a
+cache-generator bug where most nodes never got a field set at all, so they silently bypassed the
+cache regardless of freshness. `page.on('request', ...)` only gives you the URL and timing, not
+*which code* issued it — for that, wrap `fetch` itself before navigation (Playwright's
+`add_init_script`, so it's in place before any page JS runs) and capture a stack trace per call:
+
+```javascript
+// fetch_hook.js -- add via page.add_init_script(open('fetch_hook.js').read())
+(() => {
+    const orig = window.fetch;
+    window.__fetchLog = [];
+    window.fetch = function(url, ...rest) {
+        if (typeof url === 'string' && url.includes('/api/')) {
+            window.__fetchLog.push({
+                url, t: performance.now(),
+                stack: (new Error().stack || '').split('\n').slice(0, 6).join(' | '),
+            });
+        }
+        return orig.call(this, url, ...rest);
+    };
+})();
+```
+
+Then `page.evaluate('window.__fetchLog')` after the action under test to get a real, ordered,
+attributed timeline — each entry's stack trace names the exact function and file that issued it,
+which is what actually distinguishes "my own new code" from "an unrelated ambient system" when a
+burst of requests all land around the same time. Cheap, reusable, worth reaching for before
+theorizing about *why* something is slow.
+
 ## Build/launch the real container (not the test fixtures)
 
 What actually shipped a real fix live, 2026-07-20 (see `nb-web/Containerfile`'s own header
