@@ -4069,46 +4069,41 @@
     // Reduces every Form-2 (auto-run) result down to exactly one reserved
     // row: the FIRST .nb-test-block in document order becomes the permanent
     // anchor -- regardless of whether ITS OWN check happens to be the one
-    // that fails -- every other Form-2 block is removed outright. Zero
-    // failures -> anchor cleared (existing .nb-test-block:empty CSS collapses
-    // it, same mechanism as before, now applied to one block instead of up to
-    // 8 independently). Exactly one failing source -> its own detail node
-    // goes straight into the anchor. More than one -> a single collapsed
-    // "N notifications" wrapper holds one nested detail node per failing
-    // source.
+    // that fails -- every other Form-2 block is removed outright. The anchor
+    // sits sticky in the note's own top margin (see .nb-check-notify-anchor
+    // in styles.css) rather than claiming a normal-flow line, so it costs
+    // zero page-bump at 0 *or* 1 *or* N failing sources -- always collapsed
+    // to a single compact toggle by default (even for exactly one failure,
+    // which used to show full detail immediately; uniform "click to see
+    // detail" was chosen over the one-click saving, since it keeps the
+    // collapsed badge's size bounded regardless of how long a single check's
+    // own output happens to be). Zero failures -> anchor cleared (existing
+    // .nb-test-block:empty CSS collapses it further, same mechanism as
+    // before, now applied to one block instead of up to 8 independently).
     function _renderCheckAggregate(form2Sources, failing) {
         if (!form2Sources.length) return;
         const anchor = form2Sources[0].el;
         form2Sources.slice(1).forEach(src => src.el.remove());
-
-        if (!failing.length) { anchor.innerHTML = ''; return; }
-
-        const selector = NbMain.activeSelector() || '';
-        if (failing.length === 1) {
-            const f = failing[0];
-            const node = f.kind === 'group'
-                ? _buildGroupResultDOM(f.scripts, f.failures, () => { anchor.innerHTML = ''; })
-                : _buildSingleResultDOM(f.script, f.text, f.severity, snoozeMin => {
-                      if (snoozeMin > 0) _snooze(selector, f.script, snoozeMin);
-                      anchor.innerHTML = '';
-                  });
-            anchor.innerHTML = '';
-            anchor.appendChild(node);
-            return;
-        }
+        anchor.classList.add('nb-check-notify-anchor');
 
         anchor.innerHTML = '';
-        anchor.appendChild(_buildNotifyAggregate(failing, selector));
+        if (!failing.length) return;
+
+        const selector = NbMain.activeSelector() || '';
+        anchor.appendChild(_buildNotifyAggregate(failing, selector, anchor));
     }
 
     // A near-copy of _buildGroupResultDOM's own header/toggle/body pattern,
-    // relabeled "N notifications" instead of "N of M checks failed" -- one
+    // relabeled "N notification(s)" instead of "N of M checks failed" -- one
     // nested detail node per failing source, each still built via
     // _buildGroupResultDOM/_buildSingleResultDOM, so a failing family still
     // shows its own "N of M checks failed" sub-header nested one level in,
     // reusing all existing dismiss/subtest-toggle interaction with only this
-    // outer wrapper being new.
-    function _buildNotifyAggregate(failing, selector) {
+    // outer wrapper being new. `anchor` gets an open/closed class toggled
+    // alongside the body -- see .nb-check-notify-open in styles.css -- so the
+    // sticky corner badge only reclaims normal document flow (and pushes
+    // content down) once the user actually unfolds it, never passively.
+    function _buildNotifyAggregate(failing, selector, anchor) {
         const result = document.createElement('div');
         result.className = 'nb-test-result nb-test-result--group';
 
@@ -4124,14 +4119,14 @@
         const toggle = document.createElement('button');
         toggle.className = 'nb-group-toggle';
         toggle.dataset.open = '0';
-        toggle.textContent = `${failing.length} notification${failing.length !== 1 ? 's' : ''}`;
+        toggle.textContent = failing.length === 1 ? '1 notification' : `${failing.length} notifications`;
         headRow.appendChild(toggle);
 
         const dismiss = document.createElement('button');
         dismiss.className = 'nb-test-dismiss nb-group-dismiss';
         dismiss.title = 'Dismiss until next render';
         dismiss.textContent = '×';
-        dismiss.addEventListener('click', () => { wrap.remove(); });
+        dismiss.addEventListener('click', () => { wrap.remove(); anchor.classList.remove('nb-check-notify-open'); });
         headRow.appendChild(dismiss);
 
         wrap.appendChild(headRow);
@@ -4143,6 +4138,7 @@
             const open = toggle.dataset.open === '1';
             toggle.dataset.open = open ? '0' : '1';
             body.hidden = open;
+            anchor.classList.toggle('nb-check-notify-open', !open);
         });
 
         failing.forEach(f => {

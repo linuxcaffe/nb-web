@@ -3215,6 +3215,12 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 /* test codeblock */
 .nb-test-block  { margin: 4px 0; }
 .nb-test-block:empty { margin: 0; display: none; }
+/* Pending check blocks (Form-1 buttons and the Form-2 aggregate anchor alike)
+   stay fully invisible and zero-footprint while their spin placeholder is
+   still present -- content pops in once, fully-formed, instead of a visible
+   spinner box appearing then being replaced. Fixes "ghost spinners barging
+   in" during a fast page load (2026-08-02). */
+.nb-test-block:has(.nb-spin) { display: none; }
 .nb-test-name { font-weight: 600; color: var(--text-muted); margin-right: 4px; }
 .nb-test-btn {
   background: none; border: 1px solid var(--border); border-radius: 4px;
@@ -3339,6 +3345,52 @@ span.nb-cb-icon.nb-cb-icon--emoji {
    from .nb-group-result/.nb-subtest-* unchanged; this is only the nesting
    indent, mirroring .nb-subtest-body's own 1.2em. */
 .nb-check-notify-body .nb-group-result { margin: 4px 0 4px 1.2em; }
+
+/* Check-notification anchor -- sticky in the note's own top margin instead
+   of a normal-flow line. Collapsed (default): the anchor's own box stays
+   zero-height regardless of its sticky child's content (overflow: visible
+   lets the child render at full size without being clipped), so nothing
+   below it ever shifts, matching the request that a badge floating in the
+   page's existing top padding costs zero page-bump. Unfolded
+   (.nb-check-notify-open, toggled in nbweb-codeblocks.js alongside the
+   detail body): the anchor switches back to normal block flow, so *only
+   then* does content below it get pushed down -- a deliberate result of the
+   user's own click, not a passive load artifact. Sits inside the note's own
+   #nb-preview-content padding (24px/16px on mobile), not the app's generic
+   toolbar chrome, so it stays visually associated with this note's content
+   rather than reading as global UI. (2026-08-02) */
+.nb-test-block.nb-check-notify-anchor {
+  height: 0;
+  overflow: visible;
+  margin: 0 !important;
+  display: flex;
+  justify-content: flex-end;
+  position: relative;
+  z-index: 5;
+}
+.nb-test-block.nb-check-notify-anchor > .nb-test-result {
+  position: sticky;
+  top: 4px;
+  max-width: 70%;
+}
+.nb-test-block.nb-check-notify-anchor.nb-check-notify-open {
+  height: auto;
+  display: block;
+  margin: 4px 0 !important;
+}
+.nb-test-block.nb-check-notify-anchor.nb-check-notify-open > .nb-test-result {
+  position: static;
+  max-width: none;
+}
+.nb-check-notify-anchor .nb-group-result {
+  background: var(--bg2);
+  border-radius: 6px;
+  padding: 4px 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+@media (max-width: 480px) {
+  .nb-test-block.nb-check-notify-anchor > .nb-test-result { max-width: 85%; }
+}
 
 .nb-hl-help-pop {
   position: fixed;
