@@ -1912,17 +1912,33 @@
         const label   = pipeIdx >= 0 ? raw.slice(pipeIdx + 2).trim() : '';
         const qpart   = pipeIdx >= 0 ? raw.slice(0, pipeIdx).trim() : raw;
 
-        // Consume leading tokens with no colon as notebook names; '.' resolves to current notebook
+        // Consume leading scope tokens as notebook names, optionally paired with a folder
+        // path ("notebook:folder/path/", trailing slash required). '.' resolves to the
+        // current note's notebook. A colon-bearing token only counts as scope when its
+        // value ends in '/' — otherwise it's the first filter (field:value) and the loop
+        // stops there.
         const notebooks = [];
+        const folders   = [];
         const tokens    = qpart ? qpart.split(/\s+/) : [];
         let i = 0;
-        while (i < tokens.length && !tokens[i].includes(':')) {
-            const tok = tokens[i++];
-            if (tok === '.') {
-                const colon = (currentSelector || '').indexOf(':');
-                if (colon >= 0) notebooks.push(currentSelector.slice(0, colon));
+        while (i < tokens.length) {
+            const tok   = tokens[i];
+            const colon = tok.indexOf(':');
+            if (colon < 0) {
+                if (tok === '.') {
+                    const c = (currentSelector || '').indexOf(':');
+                    if (c >= 0) { notebooks.push(currentSelector.slice(0, c)); folders.push(''); }
+                } else {
+                    notebooks.push(tok);
+                    folders.push('');
+                }
+                i++;
+            } else if (tok.slice(colon + 1).endsWith('/')) {
+                notebooks.push(tok.slice(0, colon));
+                folders.push(tok.slice(colon + 1));
+                i++;
             } else {
-                notebooks.push(tok);
+                break;
             }
         }
         const filterPart = tokens.slice(i).join(' ');
@@ -1938,7 +1954,7 @@
                 filters.push({ field, op: value === '' ? 'exists' : 'eq', value });
             }
         }
-        return { notebooks, filters, label };
+        return { notebooks, folders, filters, label };
     }
 
     // ── front changes mode — frontmatter editor ───────────────────────────────
@@ -2233,6 +2249,7 @@
         }
         const parsed = _frontParseQuery(el.dataset.query || '', NbMain?.activeSelector?.() || '');
         el.dataset.frontNotebooks = parsed.notebooks.join(',');
+        el.dataset.frontFolders   = parsed.folders.join(',');
         el.dataset.frontFilters   = JSON.stringify(parsed.filters);
         el.dataset.frontLabel     = parsed.label;
         await _frontRender(el);
@@ -2240,12 +2257,13 @@
 
     async function _frontRender(el) {
         const notebooks  = el.dataset.frontNotebooks || '';
+        const folders    = el.dataset.frontFolders || '';
         const filters    = JSON.parse(el.dataset.frontFilters || '[]');
         const label      = el.dataset.frontLabel || '';
         const wasCollapsed = el.classList.contains('nb-collapsed');
         el.innerHTML       = '<span class="nb-spin">⟳</span>';
         try {
-            const params = new URLSearchParams({ notebooks, filters: JSON.stringify(filters) });
+            const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
             const _fr    = await fetch(`/api/front-query?${params}`);
             if (_fr.status === 403) { _cbDenyRead(el); return; }
             const notes  = await _fr.json();

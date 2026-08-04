@@ -5409,12 +5409,15 @@ def api_front_query():
     """Return notes matching frontmatter field filters.
 
     notebooks: comma-separated notebook names; empty = search all notebooks.
+    folders:   comma-separated folder paths, same order/length as notebooks;
+               '' for a notebook with no folder scope (whole notebook, recursive).
     filters:   JSON array of {field, op, value} — op is 'eq'|'exists'|'empty'.
     """
     notebooks_raw = request.args.get('notebooks', '')
-    folder        = request.args.get('folder', '')
+    folders_raw   = request.args.get('folders', '')
     limit         = min(int(request.args.get('limit', 200)), 500)
     filters_raw   = request.args.get('filters', '[]')
+    user          = session.get('user', {})
 
     try:
         filters = json.loads(filters_raw)
@@ -5426,11 +5429,26 @@ def api_front_query():
         for nb in nb_list:
             if not _safe_notebook(nb):
                 return jsonify({'error': f'invalid notebook: {nb}'}), 400
+        # folders is positionally aligned with nb_list — '' entries are fine and
+        # common (a scope token with no folder qualifier); pad defensively so a
+        # length mismatch can't ever raise instead of just meaning "no folder".
+        folder_list = folders_raw.split(',') if folders_raw else []
+        folder_list += [''] * (len(nb_list) - len(folder_list))
+        nb_folders = dict(zip(nb_list, folder_list))
+        for nb, folder in nb_folders.items():
+            if not folder:
+                continue
+            try:
+                resolved = (nb_dir_for(nb) / folder).resolve()
+                resolved.relative_to(nb_dir_for(nb).resolve())
+            except (ValueError, OSError):
+                return jsonify({'error': f'invalid folder: {folder}'}), 400
     else:
-        nb_list = [d.name for d in sorted(NB_DIR.iterdir())
-                   if d.is_dir() and not d.name.startswith('.')]
+        nb_list    = [d.name for d in sorted(NB_DIR.iterdir())
+                      if d.is_dir() and not d.name.startswith('.')]
+        nb_folders = {}
 
-    def _scan_file(fpath, selector, notebook=None):
+    def _scan_file(fpath, selector, notebook=None, nb_cfg=None):
         itype = classify(fpath.name, notebook)
         if itype in BINARY_TYPES:
             return None
@@ -5439,6 +5457,13 @@ def api_front_query():
         except OSError:
             return None
         meta, body = parse_frontmatter(raw)
+        # Destination check — same floor /api/note already enforces per-note. Was
+        # missing entirely before 2026-08-04: any authenticated session (any level)
+        # could read frontmatter from any notebook regardless of its configured
+        # access:, including office/admin-gated ones. nb_cfg is None only for the
+        # root-dotfiles branch below, which has its own admin gate instead.
+        if nb_cfg is not None and not _can_access(user, meta, nb_cfg):
+            return None
         if not _front_matches(meta, filters):
             return None
         title = meta.get('title') or meta.get('name') or note_title(fpath.name, body)
@@ -5448,8 +5473,10 @@ def api_front_query():
 
     results = []
 
-    # Scan NB_DIR root dotfiles (.nb.md etc.) when no notebook filter is set
-    if not notebooks_raw:
+    # Scan NB_DIR root dotfiles (.nb.md etc.) when no notebook filter is set.
+    # These are global config, not notebook-scoped content — admin floor matches
+    # the existing .nb:.nb.md special case in api_note.
+    if not notebooks_raw and _level_gte(user.get('level', ''), 'admin'):
         for fpath in sorted(NB_DIR.iterdir()):
             if fpath.is_file() and fpath.name.startswith('.'):
                 r = _scan_file(fpath, str(fpath))
@@ -5459,15 +5486,17 @@ def api_front_query():
                         return jsonify(results)
 
     for notebook in nb_list:
-        nb_dir = nb_dir_for(notebook)
-        for dirpath_s, dirnames, filenames in os.walk(nb_dir):
+        nb_dir    = nb_dir_for(notebook)
+        nb_cfg    = _notebook_config(notebook)
+        walk_root = (nb_dir / nb_folders[notebook]) if nb_folders.get(notebook) else nb_dir
+        for dirpath_s, dirnames, filenames in os.walk(walk_root):
             dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
             dirpath = Path(dirpath_s)
             for fname in sorted(filenames):
                 fpath = dirpath / fname
                 rel   = str(fpath.relative_to(nb_dir))
                 selector = f'{notebook}:{rel}'
-                r = _scan_file(fpath, selector, notebook)
+                r = _scan_file(fpath, selector, notebook, nb_cfg)
                 if r:
                     results.append(r)
                     if len(results) >= limit:
