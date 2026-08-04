@@ -7052,11 +7052,10 @@ def api_create_note():
         if data.get('quote'):   args += ['--quote',   data['quote']]
         r = run_nb('bookmark', *args)
     elif ntype == 'todo':
-        # 'nb todo add notebook:title' treats the whole string as a literal title.
-        # Use 'nb notebook: todo add title' so nb doesn't prepend the notebook name.
-        todo_title = (f'{folder}/{title}' if folder and title else
-                      f'{folder}/' if folder else title or 'New todo')
-        args = [f'{notebook}:', 'todo', 'add', todo_title]
+        # target already carries notebook + folder (see above) — pass it
+        # ahead of 'todo add' the same way note/bookmark/folder do, so the
+        # todo lands in the current folder instead of at notebook root.
+        args = [target, 'todo', 'add', title or 'New todo']
         if tags:  args += ['--tags', ','.join(tags)]
         r = run_nb(*args)
     elif ntype == 'folder':
