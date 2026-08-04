@@ -3159,25 +3159,55 @@
         window.addEventListener('mousemove', _onOrgMove);
         window.addEventListener('mouseup',   _onOrgUp);
 
-        // Pinch to zoom
-        let _pinchDist = null;
+        // One finger pans (mirrors the mouse-drag block above -- touch never
+        // gets mousedown/mousemove for a `touch-action:none` element, so
+        // without this a single finger did nothing at all); two fingers
+        // pinch-zoom. `_touchDrag` and `_pinchDist` are mutually exclusive --
+        // touchend re-derives whichever mode the remaining touch count
+        // implies, re-anchored from the current _tx/_ty, so lifting one of
+        // two fingers hands off to single-finger pan without a jump.
+        let _touchDrag = null, _pinchDist = null;
         svgCon.addEventListener('touchstart', e => {
-            if (e.touches.length === 2)
+            if (e.touches.length === 1) {
+                const t = e.touches[0];
+                _touchDrag = { x: t.clientX - _tx, y: t.clientY - _ty };
+                _pinchDist = null;
+            } else if (e.touches.length === 2) {
+                _touchDrag = null;
                 _pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
                                         e.touches[0].clientY - e.touches[1].clientY);
+            }
         }, { passive: true });
         svgCon.addEventListener('touchmove', e => {
-            if (e.touches.length !== 2 || !_pinchDist) return;
-            e.preventDefault();
-            const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
-                                 e.touches[0].clientY - e.touches[1].clientY);
-            const r  = svgCon.getBoundingClientRect();
-            _zoomAt((e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left,
-                    (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top,
-                    d / _pinchDist);
-            _pinchDist = d;
+            if (e.touches.length === 1 && _touchDrag) {
+                e.preventDefault();
+                const t = e.touches[0];
+                _tx = t.clientX - _touchDrag.x;
+                _ty = t.clientY - _touchDrag.y;
+                _applyVP();
+                return;
+            }
+            if (e.touches.length === 2 && _pinchDist) {
+                e.preventDefault();
+                const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                                     e.touches[0].clientY - e.touches[1].clientY);
+                const r  = svgCon.getBoundingClientRect();
+                _zoomAt((e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left,
+                        (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top,
+                        d / _pinchDist);
+                _pinchDist = d;
+            }
         }, { passive: false });
-        svgCon.addEventListener('touchend', () => { _pinchDist = null; });
+        svgCon.addEventListener('touchend', e => {
+            if (e.touches.length === 1) {
+                const t = e.touches[0];
+                _touchDrag = { x: t.clientX - _tx, y: t.clientY - _ty };
+                _pinchDist = null;
+            } else {
+                _touchDrag = null;
+                _pinchDist = null;
+            }
+        });
 
         // Keyboard shortcuts (active while mouse is over svgCon)
         svgCon.addEventListener('mouseenter', () => { _keysActive = true; });
