@@ -6,7 +6,6 @@ const NbMain = (() => {
     let _activeSelector = null;
     let _activeType     = null;   // classify() type of current note
     let _activeFilename = null;   // original filename for raw export
-    let _activeNoteRef  = null;   // "notebook:id" for clipboard copy
     let _editing        = false;
     const _undoBuffer   = {};     // selector → raw content before last edit (level-1 undo)
     let _searchTimer    = null;
@@ -761,7 +760,6 @@ const NbMain = (() => {
         _activeNote     = note;
         _activeType     = note.type;
         _activeFilename = note.filename;
-        _activeNoteRef  = (note.notebook && note.id) ? `${note.notebook}:${note.id}` : null;
         const content = document.getElementById('nb-preview-content');
         // Clear plugin panel state — note click dismisses any open panel
         if (content.dataset.pluginPanel) {
@@ -3823,13 +3821,16 @@ const NbMain = (() => {
         document.getElementById('nb-delete-btn').addEventListener('click', _deleteNote);
         document.getElementById('nb-pin-indicator')?.addEventListener('click', NbUiChrome.togglePin);
 
-        // Click title to copy notebook:id selector to clipboard
+        // Click title to copy the notebook:folder(s)/filename selector to clipboard —
+        // must be the path-qualified form, not an id shorthand: ids are assigned
+        // per-folder (see read_index in app.py), so "notebook:id" is not unique
+        // across folders and can silently resolve to the wrong note.
         const titleEl = document.getElementById('nb-preview-title');
         if (titleEl) {
             titleEl.style.cursor = 'pointer';
             titleEl.title = _t('tip_copy_selector');
             titleEl.addEventListener('click', () => {
-                const link = _activeNoteRef || _activeSelector;
+                const link = _activeSelector;
                 if (!link) return;
                 navigator.clipboard.writeText(link).then(() => {
                     const orig = titleEl.textContent;
