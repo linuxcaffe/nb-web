@@ -2573,6 +2573,21 @@ def api_inline_query():
                 return jsonify({'error': r['stderr'].strip() or 'nb error'}), 500
             return jsonify({'result': r['stdout'].strip()})
 
+        elif provider == 'fm':
+            args = query.strip().split(None, 1)
+            if not args or args[0] != 'count':
+                return jsonify({'error': (
+                    "fm inline query only supports 'count' — e.g. "
+                    '"count Takeout:storylines/film-school/ type:story"'
+                )}), 400
+            nb_list, folder_list, iq_filters = _parse_fm_scope(args[1] if len(args) > 1 else '')
+            iq_user = session.get('user', {})
+            results, err = _run_front_query(iq_user, nb_list, folder_list, iq_filters, limit=500)
+            if err:
+                message, status = err
+                return jsonify({'error': message}), status
+            return jsonify({'result': str(len(results))})
+
         elif provider == 'date':
             fmt = query.strip() or '%Y-%m-%d'
             from datetime import datetime
@@ -5404,36 +5419,28 @@ def api_fm_keys():
     return jsonify({'keys': key_data})
 
 
-@app.route('/api/front-query')
-def api_front_query():
-    """Return notes matching frontmatter field filters.
+def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
+    """Shared scan for frontmatter queries — used by /api/front-query (the fm
+    codeblock) and the 'fm' inline-query provider. Returns (results, error);
+    error is a (message, status) pair on failure, results is a list on success.
 
-    notebooks: comma-separated notebook names; empty = search all notebooks.
-    folders:   comma-separated folder paths, same order/length as notebooks;
-               '' for a notebook with no folder scope (whole notebook, recursive).
-    filters:   JSON array of {field, op, value} — op is 'eq'|'exists'|'empty'.
+    nb_list_in:     notebook names; empty list = search all notebooks.
+    folder_list_in: folder paths, same order/length as nb_list_in; '' (or a
+                     missing/short entry) = no folder scope for that notebook
+                     (whole notebook, recursive).
+    filters:        list of {field, op, value} dicts — op is 'eq'|'exists'|'empty'.
     """
-    notebooks_raw = request.args.get('notebooks', '')
-    folders_raw   = request.args.get('folders', '')
-    limit         = min(int(request.args.get('limit', 200)), 500)
-    filters_raw   = request.args.get('filters', '[]')
-    user          = session.get('user', {})
+    limit = min(limit, 500)
 
-    try:
-        filters = json.loads(filters_raw)
-    except Exception:
-        return jsonify({'error': 'invalid filters'}), 400
-
-    if notebooks_raw:
-        nb_list = [n.strip() for n in notebooks_raw.split(',') if n.strip()]
+    if nb_list_in:
+        nb_list = [n.strip() for n in nb_list_in if n.strip()]
         for nb in nb_list:
             if not _safe_notebook(nb):
-                return jsonify({'error': f'invalid notebook: {nb}'}), 400
+                return None, (f'invalid notebook: {nb}', 400)
         # folders is positionally aligned with nb_list — '' entries are fine and
         # common (a scope token with no folder qualifier); pad defensively so a
         # length mismatch can't ever raise instead of just meaning "no folder".
-        folder_list = folders_raw.split(',') if folders_raw else []
-        folder_list += [''] * (len(nb_list) - len(folder_list))
+        folder_list = list(folder_list_in) + [''] * (len(nb_list) - len(folder_list_in))
         nb_folders = dict(zip(nb_list, folder_list))
         for nb, folder in nb_folders.items():
             if not folder:
@@ -5442,7 +5449,7 @@ def api_front_query():
                 resolved = (nb_dir_for(nb) / folder).resolve()
                 resolved.relative_to(nb_dir_for(nb).resolve())
             except (ValueError, OSError):
-                return jsonify({'error': f'invalid folder: {folder}'}), 400
+                return None, (f'invalid folder: {folder}', 400)
     else:
         nb_list    = [d.name for d in sorted(NB_DIR.iterdir())
                       if d.is_dir() and not d.name.startswith('.')]
@@ -5476,14 +5483,14 @@ def api_front_query():
     # Scan NB_DIR root dotfiles (.nb.md etc.) when no notebook filter is set.
     # These are global config, not notebook-scoped content — admin floor matches
     # the existing .nb:.nb.md special case in api_note.
-    if not notebooks_raw and _level_gte(user.get('level', ''), 'admin'):
+    if not nb_list_in and _level_gte(user.get('level', ''), 'admin'):
         for fpath in sorted(NB_DIR.iterdir()):
             if fpath.is_file() and fpath.name.startswith('.'):
                 r = _scan_file(fpath, str(fpath))
                 if r:
                     results.append(r)
                     if len(results) >= limit:
-                        return jsonify(results)
+                        return results, None
 
     for notebook in nb_list:
         nb_dir    = nb_dir_for(notebook)
@@ -5500,8 +5507,72 @@ def api_front_query():
                 if r:
                     results.append(r)
                     if len(results) >= limit:
-                        return jsonify(results)
+                        return results, None
 
+    return results, None
+
+
+def _parse_fm_scope(qpart):
+    """Parse fm query grammar into (notebooks, folders, filters) — scope tokens
+    (bare notebook name, or 'notebook:folder/path/' with a required trailing
+    slash) followed by field:value filters. Mirrors _frontParseQuery in
+    nbweb-codeblocks.js; kept in sync by hand since one runs in the browser
+    (building a fm codeblock's request) and this one runs server-side (the fm
+    inline-query provider has no client-side parse step at all — main.js just
+    forwards the raw query string to /api/inline-query)."""
+    tokens = qpart.split()
+    notebooks, folders = [], []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if ':' not in tok:
+            notebooks.append(tok)
+            folders.append('')
+            i += 1
+        elif tok.split(':', 1)[1].endswith('/'):
+            nb, _, folder = tok.partition(':')
+            notebooks.append(nb)
+            folders.append(folder)
+            i += 1
+        else:
+            break
+    filter_part = ' '.join(tokens[i:])
+    filters = []
+    for m in re.finditer(r'(\w[\w.-]*):"([^"]*)"|(\w[\w.-]*):(\S*)', filter_part):
+        if m.group(1) is not None:
+            filters.append({'field': m.group(1), 'op': 'empty' if m.group(2) == '' else 'eq', 'value': m.group(2)})
+        else:
+            field, value = m.group(3), m.group(4)
+            filters.append({'field': field, 'op': 'exists' if value == '' else 'eq', 'value': value})
+    return notebooks, folders, filters
+
+
+@app.route('/api/front-query')
+def api_front_query():
+    """Return notes matching frontmatter field filters — backs the fm codeblock.
+
+    notebooks: comma-separated notebook names; empty = search all notebooks.
+    folders:   comma-separated folder paths, same order/length as notebooks;
+               '' for a notebook with no folder scope (whole notebook, recursive).
+    filters:   JSON array of {field, op, value} — op is 'eq'|'exists'|'empty'.
+    """
+    notebooks_raw = request.args.get('notebooks', '')
+    folders_raw   = request.args.get('folders', '')
+    limit         = int(request.args.get('limit', 200))
+    filters_raw   = request.args.get('filters', '[]')
+    user          = session.get('user', {})
+
+    try:
+        filters = json.loads(filters_raw)
+    except Exception:
+        return jsonify({'error': 'invalid filters'}), 400
+
+    nb_list_in     = [n.strip() for n in notebooks_raw.split(',') if n.strip()] if notebooks_raw else []
+    folder_list_in = folders_raw.split(',') if folders_raw else []
+    results, err   = _run_front_query(user, nb_list_in, folder_list_in, filters, limit)
+    if err:
+        message, status = err
+        return jsonify({'error': message}), status
     return jsonify(results)
 
 
