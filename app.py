@@ -5469,8 +5469,23 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
         # could read frontmatter from any notebook regardless of its configured
         # access:, including office/admin-gated ones. nb_cfg is None only for the
         # root-dotfiles branch below, which has its own admin gate instead.
+        # Checked against real meta only — before pseudo-fields are added below,
+        # so a synthetic field can never influence an access decision.
         if nb_cfg is not None and not _can_access(user, meta, nb_cfg):
             return None
+        # Pseudo-fields: computed metadata, not stored in YAML, queryable/filterable/
+        # groupable with the exact same field:value grammar as real frontmatter (the
+        # fm query language plan's unifying idea — one namespace, no second syntax).
+        # Always overrides a same-named real FM field: an actual note setting e.g.
+        # "wordcount:" itself would be a naming collision to avoid, not something
+        # that should silently shadow the computed metric.
+        try:
+            mtime_str = datetime.fromtimestamp(fpath.stat().st_mtime).strftime('%Y-%m-%d')
+        except OSError:
+            mtime_str = ''
+        meta = {**meta, 'mtime': mtime_str,
+                'wordcount': str(len(body.split())),
+                'linecount': str(len(body.splitlines()))}
         if not _front_matches(meta, filters):
             return None
         title = meta.get('title') or meta.get('name') or note_title(fpath.name, body)
