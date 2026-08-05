@@ -1944,17 +1944,21 @@
         const filterPart = tokens.slice(i).join(' ');
 
         const filters = [];
-        const pat = /(\w[\w.-]*):"([^"]*)"|(\w[\w.-]*):(\S*)/g;
+        const pat = /(-)?(\w[\w.-]*):"([^"]*)"|(-)?(\w[\w.-]*):(\S*)/g;
         let m;
         while ((m = pat.exec(filterPart))) {
-            if (m[1] !== undefined) {
-                filters.push({ field: m[1], op: m[2] === '' ? 'empty' : 'eq', value: m[2] });
+            if (m[2] !== undefined) {
+                const neg = !!m[1];
+                filters.push({ field: m[2], op: m[3] === '' ? 'empty' : 'eq', value: m[3], neg });
             } else {
-                const field = m[3], value = m[4];
+                const neg = !!m[4];
+                const field = m[5], value = m[6];
                 if (value[0] === '>' || value[0] === '<') {
-                    filters.push({ field, op: value[0], value: value.slice(1) });
+                    filters.push({ field, op: value[0], value: value.slice(1), neg });
+                } else if (value.includes(',')) {
+                    filters.push({ field, op: 'anyof', value: value.split(','), neg });
                 } else {
-                    filters.push({ field, op: value === '' ? 'exists' : 'eq', value });
+                    filters.push({ field, op: value === '' ? 'exists' : 'eq', value, neg });
                 }
             }
         }
@@ -2251,14 +2255,17 @@
             await _loadFmListBlock(el);
             return;
         }
-        // group:<field> <scope> <filters> — leading aggregation verb, same
+        // group:<field> / sum:<field> / count — leading aggregation verbs, same
         // reserved-prefix convention 'list' already uses. Only recognized as the
-        // very first token; a genuine frontmatter field literally named "group"
-        // can't be filtered on via fm as a result — same tradeoff 'list' already
-        // makes for a field named "list".
+        // very first token, and 'count' specifically only when followed by
+        // whitespace-or-end (not ':') so a genuine field literally named "count"
+        // (count:5) still parses as an ordinary filter, not this verb — same
+        // tradeoff 'list'/'group'/'sum' already make for fields with those names.
         const raw        = (el.dataset.query || '').trim();
         const groupMatch = raw.match(/^group:(\w[\w.-]*)\s+([\s\S]*)$/);
-        const rest        = groupMatch ? groupMatch[2] : raw;
+        const sumMatch    = !groupMatch ? raw.match(/^sum:(\w[\w.-]*)\s+([\s\S]*)$/) : null;
+        const countMatch  = !groupMatch && !sumMatch ? raw.match(/^count(?:\s+([\s\S]*))?$/) : null;
+        const rest = groupMatch ? groupMatch[2] : sumMatch ? sumMatch[2] : countMatch ? (countMatch[1] || '') : raw;
 
         const parsed = _frontParseQuery(rest, NbMain?.activeSelector?.() || '');
         el.dataset.frontNotebooks = parsed.notebooks.join(',');
@@ -2268,8 +2275,14 @@
         if (groupMatch) {
             el.dataset.frontGroup = groupMatch[1];
             await _frontRenderGrouped(el);
+        } else if (sumMatch) {
+            el.dataset.frontSum = sumMatch[1];
+            await _frontRenderSum(el);
+        } else if (countMatch) {
+            await _frontRenderCount(el);
         } else {
             delete el.dataset.frontGroup;
+            delete el.dataset.frontSum;
             await _frontRender(el);
         }
     }
@@ -2472,6 +2485,110 @@
 
         } catch (e) {
             _cbError(el, 'fm', e.message, () => _frontRenderGrouped(el));
+        }
+    }
+
+    // count <scope> <filters> — header-only, no list. The "count without a list"
+    // shape this whole plan started from (Takeout:storylines/storylines.md's own
+    // dashboard use case) — {{fm: count ...}} covers the inline-prose version of
+    // this same need; this is the codeblock equivalent for when a standalone
+    // block reads better than inline text.
+    async function _frontRenderCount(el) {
+        const notebooks  = el.dataset.frontNotebooks || '';
+        const folders    = el.dataset.frontFolders || '';
+        const filters    = JSON.parse(el.dataset.frontFilters || '[]');
+        const label      = el.dataset.frontLabel || '';
+        const wasCollapsed = el.classList.contains('nb-collapsed');
+        el.innerHTML       = '<span class="nb-spin">⟳</span>';
+        try {
+            const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
+            const _fr    = await fetch(`/api/front-query?${params}`);
+            if (_fr.status === 403) { _cbDenyRead(el); return; }
+            const notes  = await _fr.json();
+            if (notes.error) throw new Error(notes.error);
+
+            el.innerHTML = '';
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _frontRenderCount(el) });
+
+            const countEl = document.createElement('span');
+            countEl.className = 'nb-fm-count';
+            countEl.textContent = String(notes.length);
+            meta.appendChild(countEl);
+
+            if (label) {
+                const lbl = document.createElement('span');
+                lbl.className = 'nb-fm-label';
+                lbl.textContent = label;
+                meta.appendChild(lbl);
+            }
+            el.appendChild(hdr);
+
+            if (wasCollapsed) el.classList.add('nb-collapsed');
+            _initCollapseToggle(el);
+
+        } catch (e) {
+            _cbError(el, 'fm', e.message, () => _frontRenderCount(el));
+        }
+    }
+
+    // sum:<field> <scope> <filters> — header-only, no list. Sums whatever numeric
+    // value each matching note's meta[field] holds (works for real frontmatter
+    // fields like budget as well as the wordcount/linecount pseudo-fields). A
+    // note missing the field, or holding a non-numeric value, is silently
+    // skipped from the sum rather than counted as 0 or excluding the note from
+    // the underlying match — the header shows counted/total so that's visible,
+    // not hidden.
+    async function _frontRenderSum(el) {
+        const notebooks  = el.dataset.frontNotebooks || '';
+        const folders    = el.dataset.frontFolders || '';
+        const filters    = JSON.parse(el.dataset.frontFilters || '[]');
+        const label      = el.dataset.frontLabel || '';
+        const sumField   = el.dataset.frontSum || '';
+        const wasCollapsed = el.classList.contains('nb-collapsed');
+        el.innerHTML       = '<span class="nb-spin">⟳</span>';
+        try {
+            const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
+            const _fr    = await fetch(`/api/front-query?${params}`);
+            if (_fr.status === 403) { _cbDenyRead(el); return; }
+            const notes  = await _fr.json();
+            if (notes.error) throw new Error(notes.error);
+
+            let total = 0, counted = 0;
+            for (const n of notes) {
+                const raw = n.meta && n.meta[sumField];
+                if (raw === undefined) continue;
+                const v = parseFloat(raw);
+                if (Number.isNaN(v)) continue;
+                total += v;
+                counted++;
+            }
+
+            el.innerHTML = '';
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _frontRenderSum(el) });
+
+            const sumEl = document.createElement('span');
+            sumEl.className = 'nb-fm-count';
+            sumEl.textContent = String(total);
+            meta.appendChild(sumEl);
+
+            const fieldEl = document.createElement('span');
+            fieldEl.className = 'nb-fm-nb';
+            fieldEl.textContent = `sum:${sumField} (${counted}/${notes.length})`;
+            meta.appendChild(fieldEl);
+
+            if (label) {
+                const lbl = document.createElement('span');
+                lbl.className = 'nb-fm-label';
+                lbl.textContent = label;
+                meta.appendChild(lbl);
+            }
+            el.appendChild(hdr);
+
+            if (wasCollapsed) el.classList.add('nb-collapsed');
+            _initCollapseToggle(el);
+
+        } catch (e) {
+            _cbError(el, 'fm', e.message, () => _frontRenderSum(el));
         }
     }
 

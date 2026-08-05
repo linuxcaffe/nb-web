@@ -5370,31 +5370,48 @@ def _fm_compare(a, b, op) -> bool:
     return a_val > b_val if op == '>' else a_val < b_val
 
 
+def _fm_eval_one(meta: dict, field: str, op: str, value) -> bool:
+    """Evaluate one filter condition against meta, ignoring negation — whether
+    the note satisfies this condition before any '-' prefix is applied."""
+    if op == 'exists':
+        return field in meta
+    if op == 'empty':
+        v = meta.get(field)
+        return v is None or not str(v).strip()
+    if op == 'anyof':
+        v = meta.get(field)
+        if v is None:
+            return False
+        values = {str(x).lower() for x in value}
+        return str(v).lower() in values
+    if op in ('>', '<'):
+        v = meta.get(field)
+        if v is None:
+            return False
+        return _fm_compare(str(v), str(value), op)
+    # eq
+    v = meta.get(field)
+    if v is None:
+        return False
+    return str(v).lower() == str(value).lower()
+
+
 def _front_matches(meta: dict, filters: list) -> bool:
-    """Return True if note meta satisfies all frontmatter filter conditions."""
+    """Return True if note meta satisfies all frontmatter filter conditions.
+
+    A negated filter ('neg': True, from a leading '-' on the token, e.g.
+    "-type:cut") inverts the underlying condition — including the missing-field
+    case: "-type:cut" matches a note with no type field at all just as readily
+    as one with type: something-else, since it certainly isn't type: cut.
+    """
     for f in filters:
-        field = f.get('field', '')
-        op    = f.get('op', 'eq')
-        value = f.get('value', '')
-        if op == 'exists':
-            if field not in meta:
-                return False
-        elif op == 'empty':
-            v = meta.get(field)
-            if v is not None and str(v).strip():
-                return False
-        elif op in ('>', '<'):
-            v = meta.get(field)
-            if v is None:
-                return False
-            if not _fm_compare(str(v), str(value), op):
-                return False
-        else:  # eq
-            v = meta.get(field)
-            if v is None:
-                return False
-            if str(v).lower() != str(value).lower():
-                return False
+        field   = f.get('field', '')
+        op      = f.get('op', 'eq')
+        value   = f.get('value', '')
+        neg     = bool(f.get('neg'))
+        matched = _fm_eval_one(meta, field, op, value)
+        if matched == neg:
+            return False
     return True
 
 
@@ -5532,7 +5549,12 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
         for dirpath_s, dirnames, filenames in os.walk(walk_root):
             dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
             dirpath = Path(dirpath_s)
-            for fname in sorted(filenames):
+            # Dotfiles (.index, .<notebook>.md, folder configs) are bookkeeping,
+            # not notes — never real query results. Was leaking through before
+            # 2026-08-04 for any filter permissive of a missing field (found via
+            # -type:cut: a note lacking type: entirely is a legitimate match for
+            # "not type: cut", and .index/.home.md have no type: field either).
+            for fname in sorted(f for f in filenames if not f.startswith('.')):
                 fpath = dirpath / fname
                 rel   = str(fpath.relative_to(nb_dir))
                 selector = f'{notebook}:{rel}'
@@ -5571,15 +5593,21 @@ def _parse_fm_scope(qpart):
             break
     filter_part = ' '.join(tokens[i:])
     filters = []
-    for m in re.finditer(r'(\w[\w.-]*):"([^"]*)"|(\w[\w.-]*):(\S*)', filter_part):
-        if m.group(1) is not None:
-            filters.append({'field': m.group(1), 'op': 'empty' if m.group(2) == '' else 'eq', 'value': m.group(2)})
+    for m in re.finditer(r'(-)?(\w[\w.-]*):"([^"]*)"|(-)?(\w[\w.-]*):(\S*)', filter_part):
+        if m.group(2) is not None:
+            neg = bool(m.group(1))
+            filters.append({'field': m.group(2), 'op': 'empty' if m.group(3) == '' else 'eq',
+                             'value': m.group(3), 'neg': neg})
         else:
-            field, value = m.group(3), m.group(4)
+            neg = bool(m.group(4))
+            field, value = m.group(5), m.group(6)
             if value[:1] in ('>', '<'):
-                filters.append({'field': field, 'op': value[0], 'value': value[1:]})
+                filters.append({'field': field, 'op': value[0], 'value': value[1:], 'neg': neg})
+            elif ',' in value:
+                filters.append({'field': field, 'op': 'anyof', 'value': value.split(','), 'neg': neg})
             else:
-                filters.append({'field': field, 'op': 'exists' if value == '' else 'eq', 'value': value})
+                filters.append({'field': field, 'op': 'exists' if value == '' else 'eq',
+                                 'value': value, 'neg': neg})
     return notebooks, folders, filters
 
 
