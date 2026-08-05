@@ -2247,12 +2247,54 @@
             await _loadFmListBlock(el);
             return;
         }
-        const parsed = _frontParseQuery(el.dataset.query || '', NbMain?.activeSelector?.() || '');
+        // group:<field> <scope> <filters> — leading aggregation verb, same
+        // reserved-prefix convention 'list' already uses. Only recognized as the
+        // very first token; a genuine frontmatter field literally named "group"
+        // can't be filtered on via fm as a result — same tradeoff 'list' already
+        // makes for a field named "list".
+        const raw        = (el.dataset.query || '').trim();
+        const groupMatch = raw.match(/^group:(\w[\w.-]*)\s+([\s\S]*)$/);
+        const rest        = groupMatch ? groupMatch[2] : raw;
+
+        const parsed = _frontParseQuery(rest, NbMain?.activeSelector?.() || '');
         el.dataset.frontNotebooks = parsed.notebooks.join(',');
         el.dataset.frontFolders   = parsed.folders.join(',');
         el.dataset.frontFilters   = JSON.stringify(parsed.filters);
         el.dataset.frontLabel     = parsed.label;
-        await _frontRender(el);
+        if (groupMatch) {
+            el.dataset.frontGroup = groupMatch[1];
+            await _frontRenderGrouped(el);
+        } else {
+            delete el.dataset.frontGroup;
+            await _frontRender(el);
+        }
+    }
+
+    // Shared row-builder for both the flat list (_frontRender) and each group's
+    // sub-list (_frontRenderGrouped) — same tooltip/click-to-open/notebook-badge
+    // behaviour either way.
+    function _buildFmNoteRow(n, showNbBadge) {
+        const li = document.createElement('li');
+        li.className = 'nb-nav-item';
+        if (n.meta && Object.keys(n.meta).length) {
+            li.dataset.tip = Object.entries(n.meta).map(([k, v]) => `${k}: ${v.replace(/\n/g,' ')}`).join('\n');
+        }
+        const icon = document.createElement('span');
+        icon.className = 'nb-nav-icon';
+        icon.textContent = n.type === 'todo' ? '☐' : '·';
+        const btn = document.createElement('button');
+        btn.className = 'nb-nav-link';
+        btn.textContent = n.title || n.filename;
+        btn.addEventListener('click', () => NbMain.openNote(n.selector));
+        li.appendChild(icon);
+        li.appendChild(btn);
+        if (showNbBadge && n.notebook) {
+            const badge = document.createElement('span');
+            badge.className = 'nb-fm-nb-badge';
+            badge.textContent = n.notebook;
+            li.appendChild(badge);
+        }
+        return li;
     }
 
     async function _frontRender(el) {
@@ -2323,29 +2365,7 @@
             if (notes.length) {
                 const list = document.createElement('ul');
                 list.className = 'nb-nav-list';
-                for (const n of notes) {
-                    const li = document.createElement('li');
-                    li.className = 'nb-nav-item';
-                    if (n.meta && Object.keys(n.meta).length) {
-                        li.dataset.tip = Object.entries(n.meta).map(([k, v]) => `${k}: ${v.replace(/\n/g,' ')}`).join('\n');
-                    }
-                    const icon = document.createElement('span');
-                    icon.className = 'nb-nav-icon';
-                    icon.textContent = n.type === 'todo' ? '☐' : '·';
-                    const btn = document.createElement('button');
-                    btn.className = 'nb-nav-link';
-                    btn.textContent = n.title || n.filename;
-                    btn.addEventListener('click', () => NbMain.openNote(n.selector));
-                    li.appendChild(icon);
-                    li.appendChild(btn);
-                    if (multiNb && n.notebook) {
-                        const badge = document.createElement('span');
-                        badge.className = 'nb-fm-nb-badge';
-                        badge.textContent = n.notebook;
-                        li.appendChild(badge);
-                    }
-                    list.appendChild(li);
-                }
+                for (const n of notes) list.appendChild(_buildFmNoteRow(n, multiNb));
                 el.appendChild(list);
             }
 
@@ -2354,6 +2374,100 @@
 
         } catch (e) {
             _cbError(el, 'fm', e.message, () => _frontRender(el));
+        }
+    }
+
+    // group:<field> <scope> <filters> — same fetch as _frontRender, but buckets
+    // results by a frontmatter field instead of rendering one flat list. Notes
+    // missing the field land in a '(none)' bucket rather than being dropped —
+    // a completeness scan specifically wants to surface those, not hide them.
+    // Groups sort largest-first (the most useful default for "what's the biggest
+    // bucket" at a glance); alphabetical-by-key was considered and rejected —
+    // size is the more actionable signal for this tool's stated completeness/
+    // health-check purpose (see the plan doc's own non-goal boundary).
+    async function _frontRenderGrouped(el) {
+        const notebooks  = el.dataset.frontNotebooks || '';
+        const folders    = el.dataset.frontFolders || '';
+        const filters    = JSON.parse(el.dataset.frontFilters || '[]');
+        const label      = el.dataset.frontLabel || '';
+        const groupField = el.dataset.frontGroup || '';
+        const wasCollapsed = el.classList.contains('nb-collapsed');
+        el.innerHTML       = '<span class="nb-spin">⟳</span>';
+        try {
+            const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
+            const _fr    = await fetch(`/api/front-query?${params}`);
+            if (_fr.status === 403) { _cbDenyRead(el); return; }
+            const notes  = await _fr.json();
+            if (notes.error) throw new Error(notes.error);
+
+            const nbSet   = new Set(notes.map(n => n.notebook).filter(Boolean));
+            const multiNb = nbSet.size > 1;
+
+            const groups = new Map();
+            for (const n of notes) {
+                const key = (n.meta && n.meta[groupField]) || '(none)';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(n);
+            }
+            const sortedGroups = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+
+            el.innerHTML = '';
+
+            // ── Header ──────────────────────────────────────────────────────
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _frontRenderGrouped(el) });
+
+            const toggle = document.createElement('span');
+            toggle.className = 'nb-fm-toggle';
+            meta.appendChild(toggle);
+
+            const countEl = document.createElement('span');
+            countEl.className = 'nb-fm-count';
+            countEl.textContent = notes.length
+                ? `${notes.length} in ${sortedGroups.length} group${sortedGroups.length !== 1 ? 's' : ''}`
+                : 'No matches';
+            meta.appendChild(countEl);
+
+            const grpEl = document.createElement('span');
+            grpEl.className = 'nb-fm-nb';
+            grpEl.textContent = `group:${groupField}`;
+            meta.appendChild(grpEl);
+
+            if (label) {
+                const lbl = document.createElement('span');
+                lbl.className = 'nb-fm-label';
+                lbl.textContent = label;
+                meta.appendChild(lbl);
+            }
+            el.appendChild(hdr);
+
+            // ── Groups ──────────────────────────────────────────────────────
+            if (sortedGroups.length) {
+                const wrap = document.createElement('div');
+                wrap.className = 'nb-fm-group-wrap';
+                for (const [key, groupNotes] of sortedGroups) {
+                    const section = document.createElement('div');
+                    section.className = 'nb-fm-group';
+
+                    const gHdr = document.createElement('div');
+                    gHdr.className = 'nb-fm-group-hdr';
+                    gHdr.textContent = `${key} (${groupNotes.length})`;
+                    section.appendChild(gHdr);
+
+                    const list = document.createElement('ul');
+                    list.className = 'nb-nav-list';
+                    for (const n of groupNotes) list.appendChild(_buildFmNoteRow(n, multiNb));
+                    section.appendChild(list);
+
+                    wrap.appendChild(section);
+                }
+                el.appendChild(wrap);
+            }
+
+            if (wasCollapsed) el.classList.add('nb-collapsed');
+            _initCollapseToggle(el);
+
+        } catch (e) {
+            _cbError(el, 'fm', e.message, () => _frontRenderGrouped(el));
         }
     }
 

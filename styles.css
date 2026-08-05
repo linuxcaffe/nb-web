@@ -2642,6 +2642,11 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-fm-count  { color: var(--text-muted); font-weight: 600; flex-shrink: 0; }
 .nb-fm-nb     { color: var(--text-dim); font-family: var(--font-mono); font-size: 0.9em; flex-shrink: 0; }
 .nb-fm-label  { flex: 1; color: var(--text); font-weight: 500; }
+.nb-fm-group + .nb-fm-group { border-top: 1px solid var(--border); }
+.nb-fm-group-hdr {
+  padding: 4px 10px; font-size: 0.82em; font-weight: 600;
+  color: var(--text-dim); background: var(--bg2);
+}
 
 /* claude_ask barblock (nbweb-claude plugin) -- same collapse convention as
    the front/nav blocks above, not the tui/claude/claude_code bespoke one:
