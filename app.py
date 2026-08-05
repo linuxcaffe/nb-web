@@ -5358,6 +5358,18 @@ def api_notes():
     return _list_notes(notebook, folder, limit)
 
 
+def _fm_compare(a, b, op) -> bool:
+    """a <op> b for fm's '>'/'<' filter ops. Tries numeric comparison first
+    (seq, wordcount, budget, or any other numeric FM field); falls back to
+    string comparison, which is correct for ISO dates (mtime: YYYY-MM-DD) since
+    lexicographic order matches chronological order for that format."""
+    try:
+        a_val, b_val = float(a), float(b)
+    except (TypeError, ValueError):
+        a_val, b_val = str(a), str(b)
+    return a_val > b_val if op == '>' else a_val < b_val
+
+
 def _front_matches(meta: dict, filters: list) -> bool:
     """Return True if note meta satisfies all frontmatter filter conditions."""
     for f in filters:
@@ -5370,6 +5382,12 @@ def _front_matches(meta: dict, filters: list) -> bool:
         elif op == 'empty':
             v = meta.get(field)
             if v is not None and str(v).strip():
+                return False
+        elif op in ('>', '<'):
+            v = meta.get(field)
+            if v is None:
+                return False
+            if not _fm_compare(str(v), str(value), op):
                 return False
         else:  # eq
             v = meta.get(field)
@@ -5558,7 +5576,10 @@ def _parse_fm_scope(qpart):
             filters.append({'field': m.group(1), 'op': 'empty' if m.group(2) == '' else 'eq', 'value': m.group(2)})
         else:
             field, value = m.group(3), m.group(4)
-            filters.append({'field': field, 'op': 'exists' if value == '' else 'eq', 'value': value})
+            if value[:1] in ('>', '<'):
+                filters.append({'field': field, 'op': value[0], 'value': value[1:]})
+            else:
+                filters.append({'field': field, 'op': 'exists' if value == '' else 'eq', 'value': value})
     return notebooks, folders, filters
 
 

@@ -1951,7 +1951,11 @@
                 filters.push({ field: m[1], op: m[2] === '' ? 'empty' : 'eq', value: m[2] });
             } else {
                 const field = m[3], value = m[4];
-                filters.push({ field, op: value === '' ? 'exists' : 'eq', value });
+                if (value[0] === '>' || value[0] === '<') {
+                    filters.push({ field, op: value[0], value: value.slice(1) });
+                } else {
+                    filters.push({ field, op: value === '' ? 'exists' : 'eq', value });
+                }
             }
         }
         return { notebooks, folders, filters, label };
