@@ -2580,12 +2580,14 @@ def api_inline_query():
                     "fm inline query only supports 'count' — e.g. "
                     '"count Takeout:storylines/film-school/ type:story"'
                 )}), 400
-            nb_list, folder_list, iq_filters = _parse_fm_scope(args[1] if len(args) > 1 else '')
+            nb_list, folder_list, iq_filters, iq_sort, iq_limit = _parse_fm_scope(
+                args[1] if len(args) > 1 else '')
             iq_user = session.get('user', {})
             results, err = _run_front_query(iq_user, nb_list, folder_list, iq_filters, limit=500)
             if err:
                 message, status = err
                 return jsonify({'error': message}), status
+            results = _fm_sort_limit(results, iq_sort, iq_limit)
             return jsonify({'result': str(len(results))})
 
         elif provider == 'date':
@@ -5593,6 +5595,7 @@ def _parse_fm_scope(qpart):
             break
     filter_part = ' '.join(tokens[i:])
     filters = []
+    sort_field, limit_val = '', None
     for m in re.finditer(r'(-)?(\w[\w.-]*):"([^"]*)"|(-)?(\w[\w.-]*):(\S*)', filter_part):
         if m.group(2) is not None:
             neg = bool(m.group(1))
@@ -5601,6 +5604,17 @@ def _parse_fm_scope(qpart):
         else:
             neg = bool(m.group(4))
             field, value = m.group(5), m.group(6)
+            # sort:/limit: are directives, not match conditions — they're carried
+            # separately (see _fm_sort_limit), never added to filters.
+            if field == 'sort':
+                sort_field = value
+                continue
+            if field == 'limit':
+                try:
+                    limit_val = int(value)
+                except ValueError:
+                    pass
+                continue
             if value[:1] in ('>', '<'):
                 filters.append({'field': field, 'op': value[0], 'value': value[1:], 'neg': neg})
             elif ',' in value:
@@ -5608,7 +5622,32 @@ def _parse_fm_scope(qpart):
             else:
                 filters.append({'field': field, 'op': 'exists' if value == '' else 'eq',
                                  'value': value, 'neg': neg})
-    return notebooks, folders, filters
+    return notebooks, folders, filters, sort_field, limit_val
+
+
+def _fm_sort_limit(results, sort_field, limit_val):
+    """Post-process a _run_front_query result list per sort:/limit: directives.
+    Orthogonal to _run_front_query's own 'limit' param (a scan-safety cap
+    applied while walking, default 200/max 500) — this is a display-level
+    truncation applied after the fact, on whatever the scan already returned.
+    A leading '-' on sort_field means descending. Numeric-parseable values
+    sort before non-numeric ones (same graceful-fallback shape _fm_compare
+    already uses), so a field that's numeric on some notes and missing/text
+    on others still produces a stable, sensible order rather than an error."""
+    if sort_field:
+        desc  = sort_field.startswith('-')
+        field = sort_field[1:] if desc else sort_field
+
+        def _key(n):
+            v = (n.get('meta') or {}).get(field, '')
+            try:
+                return (0, float(v))
+            except (TypeError, ValueError):
+                return (1, str(v))
+        results = sorted(results, key=_key, reverse=desc)
+    if limit_val is not None:
+        results = results[:limit_val]
+    return results
 
 
 @app.route('/api/front-query')

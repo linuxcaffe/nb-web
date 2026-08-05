@@ -1944,6 +1944,7 @@
         const filterPart = tokens.slice(i).join(' ');
 
         const filters = [];
+        let sort = '', limit = null;
         const pat = /(-)?(\w[\w.-]*):"([^"]*)"|(-)?(\w[\w.-]*):(\S*)/g;
         let m;
         while ((m = pat.exec(filterPart))) {
@@ -1953,6 +1954,10 @@
             } else {
                 const neg = !!m[4];
                 const field = m[5], value = m[6];
+                // sort:/limit: are directives, not match conditions — carried
+                // separately (see _fmSortLimit), never pushed to filters.
+                if (field === 'sort')  { sort = value; continue; }
+                if (field === 'limit') { const n = parseInt(value, 10); if (!Number.isNaN(n)) limit = n; continue; }
                 if (value[0] === '>' || value[0] === '<') {
                     filters.push({ field, op: value[0], value: value.slice(1), neg });
                 } else if (value.includes(',')) {
@@ -1962,7 +1967,43 @@
                 }
             }
         }
-        return { notebooks, folders, filters, label };
+        return { notebooks, folders, filters, label, sort, limit };
+    }
+
+    // Strict whole-string numeric parse — unlike parseFloat, which partially
+    // parses a leading numeric prefix ("2026-08-01" -> 2026, silently wrong
+    // for date sorting), Number() requires the entire trimmed string to be
+    // numeric, matching Python's float() behaviour (_fm_compare's own
+    // fallback relies on that strictness — this is the client-side
+    // equivalent, needed because sort/limit apply client-side, not via
+    // _fm_compare at all). Empty string must be excluded explicitly:
+    // Number('') is 0, not NaN.
+    function _fmNum(v) {
+        const s = String(v ?? '').trim();
+        return s === '' ? NaN : Number(s);
+    }
+
+    // Applies sort:/limit: directives client-side, after the fetch — orthogonal
+    // to /api/front-query's own scan-safety limit (a cap applied while walking,
+    // default 200/max 500); this is a display-level truncation on whatever the
+    // scan already returned. Leading '-' on sortField means descending. Numeric-
+    // parseable values sort before non-numeric ones, matching the same graceful-
+    // fallback shape the backend's >/< comparison already uses.
+    function _fmSortLimit(notes, sortField, limitVal) {
+        if (sortField) {
+            const desc  = sortField[0] === '-';
+            const field = desc ? sortField.slice(1) : sortField;
+            notes = [...notes].sort((a, b) => {
+                const av = (a.meta && a.meta[field]) ?? '';
+                const bv = (b.meta && b.meta[field]) ?? '';
+                const an = _fmNum(av), bn = _fmNum(bv);
+                const bothNumeric = !Number.isNaN(an) && !Number.isNaN(bn);
+                const cmp = bothNumeric ? (an - bn) : String(av).localeCompare(String(bv));
+                return desc ? -cmp : cmp;
+            });
+        }
+        if (limitVal != null) notes = notes.slice(0, limitVal);
+        return notes;
     }
 
     // ── front changes mode — frontmatter editor ───────────────────────────────
@@ -2272,6 +2313,9 @@
         el.dataset.frontFolders   = parsed.folders.join(',');
         el.dataset.frontFilters   = JSON.stringify(parsed.filters);
         el.dataset.frontLabel     = parsed.label;
+        el.dataset.frontSort      = parsed.sort || '';
+        if (parsed.limit != null) el.dataset.frontLimit = String(parsed.limit);
+        else delete el.dataset.frontLimit;
         if (groupMatch) {
             el.dataset.frontGroup = groupMatch[1];
             await _frontRenderGrouped(el);
@@ -2319,14 +2363,17 @@
         const folders    = el.dataset.frontFolders || '';
         const filters    = JSON.parse(el.dataset.frontFilters || '[]');
         const label      = el.dataset.frontLabel || '';
+        const sort       = el.dataset.frontSort || '';
+        const limit      = el.dataset.frontLimit != null ? parseInt(el.dataset.frontLimit, 10) : null;
         const wasCollapsed = el.classList.contains('nb-collapsed');
         el.innerHTML       = '<span class="nb-spin">⟳</span>';
         try {
             const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
             const _fr    = await fetch(`/api/front-query?${params}`);
             if (_fr.status === 403) { _cbDenyRead(el); return; }
-            const notes  = await _fr.json();
+            let notes    = await _fr.json();
             if (notes.error) throw new Error(notes.error);
+            notes = _fmSortLimit(notes, sort, limit);
 
             // Determine which notebooks appear in results
             const nbSet   = new Set(notes.map(n => n.notebook).filter(Boolean));
@@ -2408,14 +2455,21 @@
         const filters    = JSON.parse(el.dataset.frontFilters || '[]');
         const label      = el.dataset.frontLabel || '';
         const groupField = el.dataset.frontGroup || '';
+        const sort       = el.dataset.frontSort || '';
+        const limit      = el.dataset.frontLimit != null ? parseInt(el.dataset.frontLimit, 10) : null;
         const wasCollapsed = el.classList.contains('nb-collapsed');
         el.innerHTML       = '<span class="nb-spin">⟳</span>';
         try {
             const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
             const _fr    = await fetch(`/api/front-query?${params}`);
             if (_fr.status === 403) { _cbDenyRead(el); return; }
-            const notes  = await _fr.json();
+            let notes    = await _fr.json();
             if (notes.error) throw new Error(notes.error);
+            // sort:/limit: apply to the flat match set before grouping — "top 5
+            // most recent, then bucket those" — not a per-group sort/limit
+            // (deliberately out of scope for v1, see the plan doc's own open
+            // questions on group-of-groups sorting).
+            notes = _fmSortLimit(notes, sort, limit);
 
             const nbSet   = new Set(notes.map(n => n.notebook).filter(Boolean));
             const multiNb = nbSet.size > 1;
@@ -2498,14 +2552,18 @@
         const folders    = el.dataset.frontFolders || '';
         const filters    = JSON.parse(el.dataset.frontFilters || '[]');
         const label      = el.dataset.frontLabel || '';
+        const sort       = el.dataset.frontSort || '';
+        const limit      = el.dataset.frontLimit != null ? parseInt(el.dataset.frontLimit, 10) : null;
         const wasCollapsed = el.classList.contains('nb-collapsed');
         el.innerHTML       = '<span class="nb-spin">⟳</span>';
         try {
             const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
             const _fr    = await fetch(`/api/front-query?${params}`);
             if (_fr.status === 403) { _cbDenyRead(el); return; }
-            const notes  = await _fr.json();
+            let notes    = await _fr.json();
             if (notes.error) throw new Error(notes.error);
+            // limit: is meaningful here even without sort — "count, capped at N"
+            notes = _fmSortLimit(notes, sort, limit);
 
             el.innerHTML = '';
             const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _frontRenderCount(el) });
@@ -2544,20 +2602,25 @@
         const filters    = JSON.parse(el.dataset.frontFilters || '[]');
         const label      = el.dataset.frontLabel || '';
         const sumField   = el.dataset.frontSum || '';
+        const sort       = el.dataset.frontSort || '';
+        const limit      = el.dataset.frontLimit != null ? parseInt(el.dataset.frontLimit, 10) : null;
         const wasCollapsed = el.classList.contains('nb-collapsed');
         el.innerHTML       = '<span class="nb-spin">⟳</span>';
         try {
             const params = new URLSearchParams({ notebooks, folders, filters: JSON.stringify(filters) });
             const _fr    = await fetch(`/api/front-query?${params}`);
             if (_fr.status === 403) { _cbDenyRead(el); return; }
-            const notes  = await _fr.json();
+            let notes    = await _fr.json();
             if (notes.error) throw new Error(notes.error);
+            // "sum of the top N" is a legitimate query shape (e.g. sum:budget
+            // sort:-mtime limit:5 — total spend across the 5 most recent cards)
+            notes = _fmSortLimit(notes, sort, limit);
 
             let total = 0, counted = 0;
             for (const n of notes) {
                 const raw = n.meta && n.meta[sumField];
                 if (raw === undefined) continue;
-                const v = parseFloat(raw);
+                const v = _fmNum(raw);
                 if (Number.isNaN(v)) continue;
                 total += v;
                 counted++;
