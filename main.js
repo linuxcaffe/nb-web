@@ -893,6 +893,7 @@ const NbMain = (() => {
                         headers: {'Content-Type': 'application/json'},
                         body:    JSON.stringify({ selector: note.selector, locked: false }),
                     });
+                    _noteCache.delete(note.selector);
                     await openNote(note.selector);
                 } finally {
                     unlockBtn.disabled = false;
@@ -918,6 +919,7 @@ const NbMain = (() => {
                         headers: {'Content-Type': 'application/json'},
                         body:    JSON.stringify({ selector: note.selector, locked: true }),
                     });
+                    _noteCache.delete(note.selector);
                     await openNote(note.selector);
                 } finally {
                     relockBtn.disabled = false;
