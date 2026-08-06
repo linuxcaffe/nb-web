@@ -137,14 +137,6 @@
 
 FROM python:3.10-slim-bookworm
 
-# Which commit this image actually is -- read by nbweb-tui's Process tab
-# (process.nb_web_commit()) so a stale, un-rebuilt image reports its real,
-# stale commit instead of silently reading the checkout's current HEAD and
-# claiming to be up to date. Defaults to "unknown" if built without the
-# --build-arg, rather than a misleading guess.
-ARG GIT_COMMIT=unknown
-LABEL nb_web_commit=$GIT_COMMIT
-
 # git: nb CLI + every notebook's own git repo. hledger/taskwarrior: the two
 # plugin codeblock backends that already degrade gracefully (503) if
 # missing, but Phase 2's own scope is a real single-tenant deploy, not a
@@ -284,6 +276,32 @@ RUN pip install --no-cache-dir -r requirements.txt
 # See claude:nb-web_phase2_docker_and_permissions_2026-07-18.md.
 RUN python3 -c "import yaml, markdown" || \
     (echo "FATAL: a dependency app.py silently degrades without (not crashes without) failed to import -- see the comment above this RUN step" && exit 1)
+
+# Which commit this image actually is -- read by nbweb-tui's Process tab
+# (process.nb_web_commit()) so a stale, un-rebuilt image reports its real,
+# stale commit instead of silently reading the checkout's current HEAD and
+# claiming to be up to date. Defaults to "unknown" if built without the
+# --build-arg, rather than a misleading guess.
+#
+# Declared here, immediately before COPY . . (not right after FROM, where it
+# used to sit) -- confirmed live 2026-08-06 that the classic builder mixes
+# every ARG *in scope*, whether or not a RUN step's command text actually
+# references it, into that layer's cache key. GIT_COMMIT changes on every
+# single rebuild (new commit hash), so declaring it early was silently
+# invalidating the cache for every layer after it on every build --
+# including the ~205MB apt-get/nb/hledger install step above, which never
+# actually changes build to build. `podman history` showed that layer being
+# rebuilt from scratch on a rebuild that changed nothing it depends on;
+# storage ballooned to ~20GB of real, non-deduplicated layer data across
+# just the last several days' rebuilds (podman's own "reclaimable" size
+# reporting is separately misleading and does NOT surface this -- verify
+# real usage with `podman unshare du -sh ~/.local/share/containers/storage`,
+# not `podman system df`). Moving the ARG this late means everything above
+# it -- apt/nb/hledger, the nbweb user, ssh config, pip install, the smoke
+# test -- can now actually be reused from the previous build's cache when
+# none of their own real inputs changed.
+ARG GIT_COMMIT=unknown
+LABEL nb_web_commit=$GIT_COMMIT
 
 COPY . .
 RUN chown -R nbweb:nbweb /app
