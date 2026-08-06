@@ -514,6 +514,16 @@
         // Was hardcoded to the notebook dotfile always, even for a folder's own
         // dashboard (e.g. djp:projects/projects.md linked to djp:.djp.md
         // instead of djp:projects/.projects.md) -- found live 2026-08-07.
+        //
+        // TODO: only checks the *immediate* parent folder -- doesn't walk further
+        // up to an ancestor's dotfile if the immediate folder lacks its own (the
+        // real server-side resolution, _folder_config() in app.py, does walk the
+        // whole chain, innermost-existing-wins). djp confirmed real use cases for
+        // this 2026-08-07; deferred as lower priority. Fix shape: check candidate
+        // selectors from innermost to outermost in parallel via /api/note (404 =
+        // doesn't exist), take the first that resolves, fall back to the notebook
+        // dotfile if none do -- same pattern _resolveParentStoryline in
+        // nbweb-cine.js already uses for a different kind of walk-up.
         const notePath = (note.selector || '').split(':').slice(1).join(':');
         const dirPath  = notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : '';
         const folder   = dirPath ? dirPath.split('/').pop() : '';
