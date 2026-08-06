@@ -505,8 +505,19 @@
             syncLabel = parts.join(' '); syncCls = ' nb-pill-dirty';
         }
 
-        // Config file: .{NotebookName}.md — canonical dotfile uses notebook name, case-preserved
-        const configSel = nb ? `${nb}:.${nb}.md` : '';
+        // Config file: the FOLDER's own dotfile (lives INSIDE that folder, e.g.
+        // projects/.projects.md -- not at the notebook root) if this dashboard
+        // lives inside a subfolder -- same walk-up-chain convention every other
+        // config resolution in nb-web follows (folder config beats notebook
+        // config) -- falling back to the notebook-level dotfile
+        // (.{NotebookName}.md, case-preserved) for a notebook-root dashboard.
+        // Was hardcoded to the notebook dotfile always, even for a folder's own
+        // dashboard (e.g. djp:projects/projects.md linked to djp:.djp.md
+        // instead of djp:projects/.projects.md) -- found live 2026-08-07.
+        const notePath = (note.selector || '').split(':').slice(1).join(':');
+        const dirPath  = notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : '';
+        const folder   = dirPath ? dirPath.split('/').pop() : '';
+        const configSel = nb ? (folder ? `${nb}:${dirPath}/.${folder}.md` : `${nb}:.${nb}.md`) : '';
         const configLink = configSel
             ? `<a class="nb-specialty-link" href="#" data-open="${_esc(configSel)}">config</a>`
             : '';
