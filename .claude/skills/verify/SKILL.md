@@ -166,6 +166,63 @@ Used 2026-08-01 verifying the git-identity build ARG and the plugin-JS build-tim
 djp's live instance was never at risk from a build that might not have worked. Reach for the
 rebuild-and-restart recipe above only once the change needs to actually go live.
 
+## Gotcha: a hash-URL `page.goto()` doesn't mean the note has finished rendering
+
+Playwright's `page.goto(f"{BASE}/#{selector}")` right after login (matches `e2e/tests/helpers.js`'s
+own `openNote()`) does trigger a real navigation and `init()` does run `openNote(deepLink)` — but
+a flat `page.wait_for_timeout(2000)` afterward is not a reliable way to know rendering finished,
+especially for a note whose previewRenderer kicks off its own async data fetch (e.g. any
+`nbweb-cine` type with a `previewRenderers` entry — `_loadCineBlock`'s bundle fetch can outlast a
+2s guess on the bare dev server). `helpers.js` already has this right: `wait_for_selector`
+(`.nb-rendered` for a plain note; for a plugin-driven type, wait on that plugin's own rendered
+root instead) rather than a fixed timeout. Confirmed live 2026-08-06 chasing the Lock/Unlock cache
+bug below — several early repro attempts read "button never appears" as a real symptom when it
+was actually a race: the button *was* being added, just after the fixed timeout had already given
+up and checked.
+
+**Diagnosing a JS error mid-render**: `page.on('pageerror', ...)` (Python) gives a real stack
+trace including the throwing function's name — more reliable than guessing from reading source in
+isolation, which is exactly what mis-scoped a debug `console.log` during that same session (added
+inside what looked like `openNote(selector, ...)` by line-proximity, actually inside a separate
+`renderPreview(note)` — `selector` wasn't in scope there, `note.selector` was).
+
+## Recipe: real login + real data, verifying a UI action's actual effect (not just that it 200s)
+
+Full working pattern, 2026-08-06 (chasing the `_noteCache` bug in invariant 25) — log in as
+`claude` against the bare dev server with real `~/.nb` data, drive an actual button click, and
+check the resulting DOM state, not just that the POST succeeded:
+
+```python
+from playwright.sync_api import sync_playwright
+
+BASE = "http://localhost:5003"   # NB_WEB_PORT=5003 python3 app.py — pick an unused port
+SEL  = "Takeout:storylines/film-school.md"
+
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    page.on("pageerror", lambda exc: print("PAGEERROR:", exc.message))
+
+    page.goto(f"{BASE}/login")
+    page.fill('input[name="username"]', 'Claude')
+    page.fill('input[name="password"]', '<see reference_nbweb_claude_login memory>')
+    page.click('button[type="submit"]')
+    page.wait_for_url('**/')
+
+    page.goto(f"{BASE}/#{SEL}")
+    page.wait_for_selector('.nb-rendered', timeout=10000)   # not a fixed sleep
+
+    page.click('#nb-relock-btn')
+    page.wait_for_timeout(1200)   # fine for settling after a click; not for initial render
+    assert page.query_selector('#nb-unlock-btn') is not None
+```
+
+A real write's effect is verifiable two ways at once, and both should agree: the DOM state
+(as above) and `git -C ~/.nb/<notebook> log --oneline -- <file>` (every `/api/cine/lock` call,
+and most note mutations generally, commit for real — see `nb-web` skill's own note on
+auto-commit). If they disagree, the bug is almost certainly a stale-render/cache issue on the
+frontend, not a write failure — check `_noteCache` (invariant 25) before anything else.
+
 ## Gotcha: gunicorn vs bare `python3 app.py`
 
 The real container runs under gunicorn (`gunicorn.conf.py`'s `on_starting` hook does the
