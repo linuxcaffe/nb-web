@@ -12298,6 +12298,8 @@ def api_cine_data():
                         'seq':          _cine_int(_mmeta.get('seq'), 999),
                         'is_storyline': True,
                         'orders':       _morders,
+                        'locked':       bool(re.match(r'^(yes|on|true|1)$',
+                                             str(_mmeta.get('lock', '')).strip(), re.I)),
                     })
             except Exception:
                 pass
@@ -12323,6 +12325,8 @@ def api_cine_data():
                         'seq':          _cine_int(meta.get('seq'), 999),
                         'is_storyline': ftype == 'storyline',
                         'orders':       orders,
+                        'locked':       bool(re.match(r'^(yes|on|true|1)$',
+                                             str(meta.get('lock', '')).strip(), re.I)),
                     })
                 elif ftype == 'story':
                     _story_raws.append((f, meta, stem, body))
