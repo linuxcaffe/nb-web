@@ -52,4 +52,21 @@ for p in nbweb-cine nbweb-claude nbweb-hledger; do
 done
 
 echo
+echo "Pruning old phase2-vN tags (keeping the newest 5 + phase2)..."
+# `podman images` inflates each tag's "reclaimable" size by counting shared
+# base layers redundantly (confirmed 2026-08-06: system df claimed 130GB
+# reclaimable across 400+ images while the real containers/storage directory
+# was 29MB total) -- this is about keeping `podman images` readable across
+# repeated rebuilds, not meaningful disk savings. `podman rmi` on a tag only
+# removes layers no other tag still references, so this is safe even though
+# most of the bytes are shared with the tag(s) being kept.
+old_tags=$(podman images --format '{{.Tag}}' localhost/nb-web 2>/dev/null \
+    | grep -oP '(?<=^phase2-v)\d+' | sort -rn | tail -n +6)
+for v in $old_tags; do
+    podman rmi "localhost/nb-web:phase2-v${v}" 2>/dev/null \
+        && echo "  removed phase2-v${v}" \
+        || echo "  skipped phase2-v${v} (in use or already gone)"
+done
+
+echo
 echo "Live at whatever port container-nb-web.service publishes (check with: podman port nb-web)."
