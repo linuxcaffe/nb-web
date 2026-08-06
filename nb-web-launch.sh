@@ -61,18 +61,44 @@ _warn_if_stale() {
     podman inspect nb-web > /dev/null 2>&1 || return 0
     [ -d "$SCRIPT_DIR/.git" ] || return 0
 
+    local stale_reason=""
+
     local image_commit repo_head
     image_commit=$(podman inspect nb-web --format '{{index .Config.Labels "nb_web_commit"}}' 2>/dev/null)
-    if [ -z "$image_commit" ] || [ "$image_commit" = "<no value>" ] || [ "$image_commit" = "unknown" ]; then
-        return 0   # no usable label to compare against
+    if [ -n "$image_commit" ] && [ "$image_commit" != "<no value>" ] && [ "$image_commit" != "unknown" ]; then
+        repo_head=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null)
+        if [ -n "$repo_head" ] && [ "$repo_head" != "$image_commit" ]; then
+            stale_reason="container image is stale (has $image_commit, repo HEAD is $repo_head)"
+        fi
     fi
 
-    repo_head=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null)
-    if [ -z "$repo_head" ] || [ "$repo_head" = "$image_commit" ]; then
-        return 0   # up to date
+    # plugins/*.js are symlinks into sibling plugin repos (e.g. nbweb-cine)
+    # with their own independent commit history -- nb-web's own git HEAD
+    # never moves when only a plugin repo changes, so the commit-label check
+    # above alone misses that case entirely. Confirmed live 2026-08-06: six
+    # real nbweb-cine commits landed in one session, nb-web's own HEAD hadn't
+    # moved since its last rebuild, so the check above reported "up to date"
+    # while the container kept serving nbweb-cine.js from before any of that
+    # session's work existed. Falls back to a direct content comparison
+    # (symlink target vs the container's baked copy) instead of trying to
+    # track N sibling repos' commit histories.
+    if [ -z "$stale_reason" ]; then
+        local f base local_sum image_sum
+        for f in "$SCRIPT_DIR"/plugins/*.js; do
+            [ -L "$f" ] || continue
+            base=$(basename "$f")
+            local_sum=$(md5sum "$f" 2>/dev/null | cut -d' ' -f1)
+            image_sum=$(podman exec nb-web md5sum "/app/plugins/$base" 2>/dev/null | cut -d' ' -f1)
+            if [ -n "$local_sum" ] && [ -n "$image_sum" ] && [ "$local_sum" != "$image_sum" ]; then
+                stale_reason="plugin $base is stale (symlinked from a sibling repo whose own commits nb-web's HEAD doesn't track)"
+                break
+            fi
+        done
     fi
 
-    echo "nb-web-launch: container image is stale (has $image_commit, repo HEAD is $repo_head) -- a restart alone won't pick this up."
+    [ -z "$stale_reason" ] && return 0
+
+    echo "nb-web-launch: $stale_reason -- a restart alone won't pick this up."
     if [ ! -t 0 ]; then
         echo "nb-web-launch: no terminal to prompt on -- run .tools/rebuild-container.sh, or re-run this interactively to be asked."
         return 0
@@ -80,7 +106,7 @@ _warn_if_stale() {
     local _ans
     read -r -p "nb-web-launch: rebuild now? [Y/n] " _ans
     case "$_ans" in
-        [nN]*) echo "nb-web-launch: skipping -- this launch will keep serving $image_commit." ;;
+        [nN]*) echo "nb-web-launch: skipping -- this launch will keep serving stale code." ;;
         *)     "$SCRIPT_DIR/.tools/rebuild-container.sh" ;;
     esac
 }
