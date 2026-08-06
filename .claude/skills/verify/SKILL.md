@@ -223,6 +223,14 @@ and most note mutations generally, commit for real — see `nb-web` skill's own 
 auto-commit). If they disagree, the bug is almost certainly a stale-render/cache issue on the
 frontend, not a write failure — check `_noteCache` (invariant 25) before anything else.
 
+**This recipe mutates real production data, not a disposable fixture** — `film-school.md`'s
+`lock: yes` is real example content djp actually keeps, not a test fixture that resets itself.
+Any verification pass that locks/unlocks it (or writes anything else real) needs its own
+restore step at the end, back to the state found at the start — confirmed live 2026-08-06
+verifying the storylines-board lock feature (unlock → inspect unlocked-state DOM → re-lock
+before closing the browser). Don't leave real example data in a different state than you found
+it just because the automated assertions all passed.
+
 ## Gotcha: gunicorn vs bare `python3 app.py`
 
 The real container runs under gunicorn (`gunicorn.conf.py`'s `on_starting` hook does the
