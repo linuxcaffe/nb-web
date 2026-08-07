@@ -1126,7 +1126,11 @@ body {
     border-radius: 4px;
     border: 1px solid var(--border);
 }
-.nb-specialty-link:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* !important on color: this renders inside #nb-preview-content .nb-rendered, whose
+   `a { color: var(--accent) }` prose rule carries an ID selector and otherwise always
+   beats this :hover rule on specificity (0 IDs vs 1), regardless of source order --
+   pinning the text to var(--accent) forever, i.e. invisible accent-on-accent on hover. */
+.nb-specialty-link:hover { background: var(--accent); color: #fff !important; border-color: var(--accent); }
 .nb-project-marker {
     font-size: 0.88em;
     font-family: monospace;
@@ -2340,7 +2344,11 @@ body.nb-fullscreen #nb-cmd-bar::after {
 
 /* ── Light mode (page area only — nav/menus/dropdowns stay dark) ─ */
 /* Scoped to #nb-layout so cmd-bar, opts-bar, side-menu, bottom-bar,
-   and position:fixed dropdowns all inherit :root dark vars unchanged. */
+   and position:fixed dropdowns all inherit :root dark vars unchanged.
+   NOTE: not what drives real theming — theme.js's NbTheme engine sets
+   --vars directly and strips data-theme on every apply() ("CSS-fallback",
+   theme.js:46). This only still fires via settings.html's separate,
+   out-of-sync Appearance toggle. See CLAUDE.md invariant 27. */
 [data-theme="light"] #nb-layout {
   --bg:         #f5f5f5;
   --bg2:        #ffffff;
