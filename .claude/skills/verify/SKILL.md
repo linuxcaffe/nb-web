@@ -186,6 +186,28 @@ isolation, which is exactly what mis-scoped a debug `console.log` during that sa
 inside what looked like `openNote(selector, ...)` by line-proximity, actually inside a separate
 `renderPreview(note)` — `selector` wasn't in scope there, `note.selector` was).
 
+## Gotcha: verifying `:hover` styling with Playwright is flaky if you don't re-anchor
+
+Confirmed live 2026-08-07 chasing an invisible-hover-text bug (CLAUDE.md invariant 28):
+`locator.hover()` immediately followed by a separate `.evaluate()` call to read
+`getComputedStyle` sometimes reported the *unhovered* state (background transparent) even
+though the locator's own coordinates looked right — and a `bounding_box()` captured once and
+reused across a `click()`-triggered re-render can silently point at stale coordinates once the
+DOM has been replaced, landing the mouse somewhere else entirely (confirmed: one run moved to
+`y≈251` instead of the real `y≈623`, because the page had re-rendered between the first
+`bounding_box()` call and the move). A `getComputedStyle` read alone was also once misleading in
+a way not fully root-caused — treat it as one signal, not proof, when it disagrees with the
+pixels.
+
+The pattern that worked reliably: wait for the click's re-render to actually settle
+(`wait_for_selector` + a real timeout, not just the click), grab `bounding_box()` **fresh, right
+before** the move, drive the pointer with `page.mouse.move(cx, cy, steps=10)` (not
+`locator.hover()`), then confirm two ways that agree: `document.querySelectorAll(':hover')`
+mapped to tag/class (proves the browser's own hover-match state, not just coordinates), *and* an
+actual pixel sample from `page.screenshot()` cropped to the element's rect via PIL — the
+computed-style read is useful to have but shouldn't be trusted alone if it disagrees with a
+real screenshot.
+
 ## Recipe: real login + real data, verifying a UI action's actual effect (not just that it 200s)
 
 Full working pattern, 2026-08-06 (chasing the `_noteCache` bug in invariant 25) — log in as
