@@ -337,7 +337,7 @@ body {
   outline: none;
   transition: border-color 0.12s;
   font-family: var(--font-ui);
-  color-scheme: dark;   /* makes native option list respect dark theme */
+  color-scheme: inherit;   /* picks up dark/light from theme.js's documentElement.style.colorScheme, like .nb-tw-inp/.nb-hl-inp */
   min-width: 60px;
   max-width: 160px;
   /* Without appearance:none, WebKit (confirmed: Epiphany/webkit2gtk) draws

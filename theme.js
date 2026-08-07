@@ -37,6 +37,11 @@ const NbTheme = (() => {
         _mode = mode;
         localStorage.setItem('nb-theme-slug', slug);
         localStorage.setItem('nb-theme-mode', mode);
+        // Native controls (select popups, scrollbars, date pickers) don't read our
+        // --vars -- they follow color-scheme directly. _applyVars never touches it,
+        // so without this it stays stuck at styles.css :root's hardcoded 'dark'
+        // forever, regardless of the mode actually applied here.
+        document.documentElement.style.colorScheme = mode;
         // Prism stylesheet
         const prism = document.getElementById('nb-prism-theme');
         if (prism) prism.href = mode === 'light' ? 'vendor/prism-light.min.css' : 'vendor/prism-tomorrow.min.css';
