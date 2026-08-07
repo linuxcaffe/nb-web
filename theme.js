@@ -98,3 +98,9 @@ const NbTheme = (() => {
 
     return { apply, applyRaw, getTheme, clearCache, toggleMode, listThemes, saveToNotebook, getSlug, getMode, init };
 })();
+
+// Top-level `const` does not become a `window` property, so a same-origin child
+// frame (settings.html, loaded via terminal.js's iframe) reaching for
+// window.parent.NbTheme would otherwise always see undefined. Explicit assignment
+// needed for any cross-frame caller.
+window.NbTheme = NbTheme;

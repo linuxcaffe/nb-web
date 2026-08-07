@@ -287,7 +287,7 @@
       <button class="theme-btn" id="theme-dark">☾ Dark</button>
       <button class="theme-btn" id="theme-light">☀ Light</button>
     </div>
-    <p class="hint">Stored in browser localStorage. Only the content area switches; nav and menus stay dark.</p>
+    <p class="hint">Switches the whole app, including nav and menus. Applies immediately and is remembered across sessions.</p>
   </div>
   <div class="field">
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -543,36 +543,39 @@
 
 <script>
   // ── Sync theme with parent frame ──────────────────────────────
-  function _getTheme() {
-    try { return window.parent.document.documentElement.getAttribute('data-theme') || ''; }
-    catch { return localStorage.getItem('nb-theme') || ''; }
+  // Source of truth is the real NbTheme engine (theme.js) on the parent window --
+  // NOT the parent's data-theme attribute (theme.js strips that on every apply(),
+  // "CSS-fallback ... JS vars now drive everything") and NOT localStorage['nb-theme']
+  // (an orphaned key nothing else reads -- the real one is 'nb-theme-mode'). This
+  // panel previously wrote both of those and so had zero effect on the live app,
+  // even though its own in-iframe preview appeared to toggle. Fixed 2026-08-07.
+  function _getMode() {
+    try { return window.parent.NbTheme.getMode(); }
+    catch { return localStorage.getItem('nb-theme-mode') || 'dark'; }
   }
-  function _applyTheme(t) {
-    if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
-    else               document.documentElement.removeAttribute('data-theme');
+  function _applyTheme(mode) {
+    if (mode === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    else                  document.documentElement.removeAttribute('data-theme');
   }
-  _applyTheme(_getTheme());
+  _applyTheme(_getMode());
 
   // ── Theme buttons ─────────────────────────────────────────────
   function _updateThemeBtns() {
-    const t = _getTheme();
-    document.getElementById('theme-dark').classList.toggle('active', t !== 'light');
-    document.getElementById('theme-light').classList.toggle('active', t === 'light');
+    const m = _getMode();
+    document.getElementById('theme-dark').classList.toggle('active', m !== 'light');
+    document.getElementById('theme-light').classList.toggle('active', m === 'light');
   }
   _updateThemeBtns();
 
-  function _setTheme(t) {
-    try {
-      const parent = window.parent.document.documentElement;
-      if (t === 'light') parent.setAttribute('data-theme', 'light');
-      else               parent.removeAttribute('data-theme');
-      window.parent.localStorage.setItem('nb-theme', t);
-    } catch {}
-    _applyTheme(t);
-    localStorage.setItem('nb-theme', t);
-    _updateThemeBtns();
+  async function _setTheme(mode) {
+    try { await window.parent.NbTheme.apply(window.parent.NbTheme.getSlug(), mode); }
+    catch { localStorage.setItem('nb-theme-mode', mode); }
+    _applyTheme(mode);   // this iframe's own preview -- only knows the default dark/light
+                          // palette above, not custom theme slugs (Groovy etc.)
+    _updateThemeBtns();   // must come after the await -- apply() is async, and reading
+                          // the mode back before it resolves shows the pre-click state
   }
-  document.getElementById('theme-dark').addEventListener('click',  () => _setTheme(''));
+  document.getElementById('theme-dark').addEventListener('click',  () => _setTheme('dark'));
   document.getElementById('theme-light').addEventListener('click', () => _setTheme('light'));
 
   // ── Folders first ─────────────────────────────────────────────
