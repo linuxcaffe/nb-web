@@ -84,52 +84,10 @@
         dotfile:   { icon: '⚙️', label: 'Config'    },
     };
 
-    // Type help popover — `help: <topic>` in note FM → ? button on specialty header
-    // Fetches .lib:help-type-<topic>.md and renders it as a popover via _showLibHelp pattern.
-    function _showTypeHelp(trigger, topic) {
-        if (trigger._helpPop) {
-            trigger._helpPop.remove();
-            trigger._helpPop = null;
-            trigger.classList.remove('nb-lib-btn-active');
-            return;
-        }
-        trigger.classList.add('nb-lib-btn-active');
-        const pop = document.createElement('div');
-        pop.className = 'nb-lib-help-pop';
-        pop.innerHTML = '<span class="nb-spin">⟳</span>';
-        document.body.appendChild(pop);
-        const rect = trigger.getBoundingClientRect();
-        pop.style.top  = (rect.bottom + 4) + 'px';
-        pop.style.left = rect.left + 'px';
-
-        fetch(`/api/note?selector=${encodeURIComponent(`.lib:help-type-${topic}.md`)}`)
-            .then(r => r.json())
-            .then(d => {
-                const body = d.body || '';
-                if (body) {
-                    pop.innerHTML = NbMain.renderMarkdown(body, d.selector || '');
-                    NbMain.enrichRendered(pop, d);
-                } else {
-                    pop.innerHTML = '<em style="padding:8px;display:block;color:var(--text-muted)">No help available</em>';
-                }
-                const pr = pop.getBoundingClientRect();
-                if (pr.right > window.innerWidth - 8)
-                    pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
-                if (pr.bottom > window.innerHeight - 8)
-                    pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
-            })
-            .catch(() => { pop.innerHTML = '<em style="padding:8px;display:block">Error loading help</em>'; });
-
-        trigger._helpPop = pop;
-        const dismiss = () => {
-            pop.remove();
-            trigger._helpPop = null;
-            trigger.classList.remove('nb-lib-btn-active');
-            document.removeEventListener('click', outside, true);
-        };
-        const outside = e => { if (!pop.contains(e.target) && e.target !== trigger) dismiss(); };
-        setTimeout(() => document.addEventListener('click', outside, true), 0);
-    }
+    // Type help popover moved to main.js (NbMain's internal _showTypeHelp) as part of
+    // "Help Everywhere" — the ? button now lives in the always-visible preview toolbar
+    // (#nb-help-btn), not the specialty header, so every note type gets one instead of
+    // just project/report/dashboard/dotfile. See claude:nb-web_help-system_design.md.
 
     // Inject the nearest preceding date heading into timedot blocks that have no date line.
     function _injectDateContext(body) {
@@ -418,14 +376,10 @@
             ? `<button class="nb-specialty-today" title="Append today's entry and edit">+ Today</button>`
             : '';
         const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
-        const helpTopic    = note.effective_help || note.meta?.help;
-        const helpBtn      = helpTopic
-            ? `<button class="nb-specialty-action nb-specialty-help-btn" data-help-topic="${_esc(helpTopic)}" title="Help">?</button>`
-            : '';
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}${helpBtn}
+            ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}
         </div>`;
     }
 
@@ -624,10 +578,6 @@
         const pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
 
         const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
-        const helpTopic    = note.effective_help || note.meta?.help;
-        const helpBtn      = helpTopic
-            ? `<button class="nb-specialty-action nb-specialty-help-btn" data-help-topic="${_esc(helpTopic)}" title="Help">?</button>`
-            : '';
 
         const status = (note.meta?.status || '').toLowerCase();
         const markerBtns = status !== 'closed'
@@ -646,7 +596,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${invoiceBtn}${extraActions}${helpBtn}
+            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${invoiceBtn}${extraActions}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
@@ -830,13 +780,6 @@
             await _patchFMSource(reportsNoteSel, filename);
             NbMain.openNote(reportsNoteSel);
         });
-    });
-
-    document.addEventListener('click', e => {
-        const btn = e.target.closest('.nb-specialty-help-btn[data-help-topic]');
-        if (!btn) return;
-        e.stopPropagation();
-        _showTypeHelp(btn, btn.dataset.helpTopic);
     });
 
     document.addEventListener('click', async e => {

@@ -897,7 +897,16 @@ body {
 }
 .nb-tool-btn:hover { color: var(--text); background: var(--bg); }
 .nb-tool-btn.nb-active { color: var(--text); background: var(--bg); border-color: var(--accent); }
-#nb-preview-renderers { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+.nb-help-btn {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 12px;
+  border-radius: 50%;
+}
+/* Reserved even when empty (0-3 renderer-toggle buttons depending on note type) so
+   switching notes doesn't shift #nb-preview-nav/#nb-preview-actions sideways. */
+#nb-preview-renderers { display: flex; gap: 4px; align-items: center; flex-shrink: 0; min-width: 100px; }
 .nb-btn-primary {
   background: var(--accent);
   border: 1px solid var(--accent);

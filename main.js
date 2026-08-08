@@ -756,6 +756,55 @@ const NbMain = (() => {
         }
     }
 
+    // Help popover — fetches .lib:help-type-<topic>.md and renders it near the
+    // triggering button. Moved here from nbweb-specialty.js ("Help Everywhere",
+    // claude:nb-web_help-system_design.md) so every note gets a help button via
+    // the toolbar's #nb-help-btn, not just specialty-header note types.
+    function _showTypeHelp(trigger, topic) {
+        if (trigger._helpPop) {
+            trigger._helpPop.remove();
+            trigger._helpPop = null;
+            trigger.classList.remove('nb-lib-btn-active');
+            return;
+        }
+        trigger.classList.add('nb-lib-btn-active');
+        const pop = document.createElement('div');
+        pop.className = 'nb-lib-help-pop';
+        pop.innerHTML = '<span class="nb-spin">⟳</span>';
+        document.body.appendChild(pop);
+        const rect = trigger.getBoundingClientRect();
+        pop.style.top  = (rect.bottom + 4) + 'px';
+        pop.style.left = rect.left + 'px';
+
+        fetch(`/api/note?selector=${encodeURIComponent(`.lib:help-type-${topic}.md`)}`)
+            .then(r => r.json())
+            .then(d => {
+                const body = d.body || '';
+                if (body) {
+                    pop.innerHTML = _renderMarkdown(body, d.selector || '');
+                    _enrichRendered(pop, d);
+                } else {
+                    pop.innerHTML = '<em style="padding:8px;display:block;color:var(--text-muted)">No help available</em>';
+                }
+                const pr = pop.getBoundingClientRect();
+                if (pr.right > window.innerWidth - 8)
+                    pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
+                if (pr.bottom > window.innerHeight - 8)
+                    pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
+            })
+            .catch(() => { pop.innerHTML = '<em style="padding:8px;display:block">Error loading help</em>'; });
+
+        trigger._helpPop = pop;
+        const dismiss = () => {
+            pop.remove();
+            trigger._helpPop = null;
+            trigger.classList.remove('nb-lib-btn-active');
+            document.removeEventListener('click', outside, true);
+        };
+        const outside = e => { if (!pop.contains(e.target) && e.target !== trigger) dismiss(); };
+        setTimeout(() => document.addEventListener('click', outside, true), 0);
+    }
+
     async function renderPreview(note) {
         _activeNote     = note;
         _activeType     = note.type;
@@ -798,6 +847,17 @@ const NbMain = (() => {
                         body: JSON.stringify({ selector: note.selector }) });
                 } finally { openExtBtn.textContent = _t('btn_open'); openExtBtn.disabled = false; }
             };
+        }
+
+        // Help popover trigger — always-visible far-right toolbar button ("Help
+        // Everywhere"), driven by the cascaded effective_help value rather than a
+        // note's own meta.help directly. See claude:nb-web_help-system_design.md.
+        const helpBtn = document.getElementById('nb-help-btn');
+        if (helpBtn) {
+            const helpTopic = note.effective_help || '';
+            helpBtn.hidden = !helpTopic;
+            helpBtn.dataset.helpTopic = helpTopic;
+            helpBtn.onclick = () => _showTypeHelp(helpBtn, helpTopic);
         }
 
         // Hide embedded-block Save button on every navigation
