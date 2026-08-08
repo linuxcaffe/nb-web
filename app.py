@@ -791,16 +791,25 @@ def _effective_ui_hide(note_meta, nb_meta):
 
 
 def _effective_help(note_meta, nb_meta):
-    """Return the cascading help: topic for a note ("Help Everywhere",
+    """Return the cascading help: value for a note ("Help Everywhere",
     claude:nb-web_help-system_design.md). Note's own value always wins;
     otherwise resolves through nb_meta's existing global -> notebook ->
     folder walk-up, same nearest-wins resolution as _effective_claude.
-    '' means no help topic configured anywhere in the cascade -- callers
-    should render no help button, not fall back to a hardcoded default.
+    '' means no help configured anywhere in the cascade -- callers should
+    render no help button, not fall back to a hardcoded default.
+
+    A value can be a bare topic ("project", looked up as
+    .lib/help-type-project.md) or a real note selector containing ':'
+    ("Takeout:folder/file.md", fetched directly) -- the frontend decides
+    which, this function just passes the value through. A list mixes either
+    form; each entry is resolved and concatenated in the popover. Same
+    list-or-string handling as _collect_cascading_tokens elsewhere in this
+    file, not a new convention.
     """
-    if 'help' in note_meta:
-        return str(note_meta['help'] or '')
-    return str(nb_meta.get('help') or '')
+    val = note_meta['help'] if 'help' in note_meta else nb_meta.get('help')
+    if isinstance(val, list):
+        return [str(v).strip() for v in val if v]
+    return str(val or '')
 
 
 def _resolve_claude_account(selector):

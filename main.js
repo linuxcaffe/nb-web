@@ -756,10 +756,18 @@ const NbMain = (() => {
         }
     }
 
-    // Help popover — fetches .lib:help-type-<topic>.md and renders it near the
-    // triggering button. Moved here from nbweb-specialty.js ("Help Everywhere",
-    // claude:nb-web_help-system_design.md) so every note gets a help button via
-    // the toolbar's #nb-help-btn, not just specialty-header note types.
+    // A help: entry is either a bare topic ("project" -> .lib:help-type-project.md)
+    // or a real note selector containing ':' ("Takeout:folder/file.md", fetched as-is).
+    function _helpSelectorFor(entry) {
+        const s = String(entry || '').trim();
+        return s.includes(':') ? s : `.lib:help-type-${s}.md`;
+    }
+
+    // Help popover — resolves one or more help: entries (see _helpSelectorFor) and
+    // renders them near the triggering button, concatenated in order when there's more
+    // than one. Moved here from nbweb-specialty.js ("Help Everywhere",
+    // claude:nb-web_help-system_design.md) so every note gets a help button via the
+    // toolbar's #nb-help-btn, not just specialty-header note types.
     function _showTypeHelp(trigger, topic) {
         if (trigger._helpPop) {
             trigger._helpPop.remove();
@@ -776,23 +784,43 @@ const NbMain = (() => {
         pop.style.top  = (rect.bottom + 4) + 'px';
         pop.style.left = rect.left + 'px';
 
-        fetch(`/api/note?selector=${encodeURIComponent(`.lib:help-type-${topic}.md`)}`)
-            .then(r => r.json())
-            .then(d => {
-                const body = d.body || '';
-                if (body) {
-                    pop.innerHTML = _renderMarkdown(body, d.selector || '');
-                    _enrichRendered(pop, d);
-                } else {
-                    pop.innerHTML = '<em style="padding:8px;display:block;color:var(--text-muted)">No help available</em>';
-                }
-                const pr = pop.getBoundingClientRect();
-                if (pr.right > window.innerWidth - 8)
-                    pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
-                if (pr.bottom > window.innerHeight - 8)
-                    pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
-            })
-            .catch(() => { pop.innerHTML = '<em style="padding:8px;display:block">Error loading help</em>'; });
+        const reposition = () => {
+            const pr = pop.getBoundingClientRect();
+            if (pr.right > window.innerWidth - 8)
+                pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
+            if (pr.bottom > window.innerHeight - 8)
+                pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
+        };
+
+        (async () => {
+            // Sequential, not Promise.all — the bare dev server stalls on bursts of
+            // concurrent fetches (see nb-web's verify skill); a help popover is rare
+            // enough that a few sequential round-trips cost nothing noticeable.
+            const entries = Array.isArray(topic) ? topic : [topic];
+            const parts = [];
+            for (const entry of entries) {
+                try {
+                    const r = await fetch(`/api/note?selector=${encodeURIComponent(_helpSelectorFor(entry))}`);
+                    const d = await r.json();
+                    if (!d.body) continue;
+                    const wrap = document.createElement('div');
+                    wrap.className = 'nb-help-part';
+                    wrap.innerHTML = _renderMarkdown(d.body, d.selector || '');
+                    _enrichRendered(wrap, d);
+                    parts.push(wrap);
+                } catch (e) { /* skip this entry, try the rest */ }
+            }
+            pop.innerHTML = '';
+            if (!parts.length) {
+                pop.innerHTML = '<em style="padding:8px;display:block;color:var(--text-muted)">No help available</em>';
+            } else {
+                parts.forEach((wrap, i) => {
+                    if (i > 0) pop.appendChild(Object.assign(document.createElement('hr'), { className: 'nb-help-divider' }));
+                    pop.appendChild(wrap);
+                });
+            }
+            reposition();
+        })();
 
         trigger._helpPop = pop;
         const dismiss = () => {
@@ -855,8 +883,9 @@ const NbMain = (() => {
         const helpBtn = document.getElementById('nb-help-btn');
         if (helpBtn) {
             const helpTopic = note.effective_help || '';
-            helpBtn.hidden = !helpTopic;
-            helpBtn.dataset.helpTopic = helpTopic;
+            const hasHelp   = Array.isArray(helpTopic) ? helpTopic.length > 0 : !!helpTopic;
+            helpBtn.hidden = !hasHelp;
+            helpBtn.dataset.helpTopic = Array.isArray(helpTopic) ? helpTopic.join(', ') : helpTopic;
             helpBtn.onclick = () => _showTypeHelp(helpBtn, helpTopic);
         }
 

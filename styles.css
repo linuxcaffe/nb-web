@@ -3474,6 +3474,7 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-lib-help-pop p  { margin: 4px 0; }
 .nb-lib-help-pop code { font-family: var(--font-mono); font-size: 0.95em; }
 .nb-lib-help-pop pre { background: var(--bg2); padding: 6px 8px; border-radius: 4px; overflow-x: auto; }
+.nb-help-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 
 .nb-hl-table {
   width: 100%; border-collapse: collapse;
