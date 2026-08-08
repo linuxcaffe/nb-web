@@ -3452,7 +3452,7 @@
         const svgCon = document.createElement('div');
         svgCon.className = 'nb-org-svg-con';
         svgCon.style.cssText = `overflow:hidden;position:relative;width:100%;` +
-            `height:${Math.min(svgH + 8, 520)}px;cursor:grab;touch-action:none`;
+            `height:${Math.min(svgH + 8, 520)}px;cursor:grab;touch-action:pan-y`;
         svgCon.appendChild(svg);
 
         // Ctrl+wheel zooms; plain wheel scrolls the page normally
@@ -3475,54 +3475,42 @@
         window.addEventListener('mousemove', _onOrgMove);
         window.addEventListener('mouseup',   _onOrgUp);
 
-        // One finger pans (mirrors the mouse-drag block above -- touch never
-        // gets mousedown/mousemove for a `touch-action:none` element, so
-        // without this a single finger did nothing at all); two fingers
-        // pinch-zoom. `_touchDrag` and `_pinchDist` are mutually exclusive --
-        // touchend re-derives whichever mode the remaining touch count
-        // implies, re-anchored from the current _tx/_ty, so lifting one of
-        // two fingers hands off to single-finger pan without a jump.
-        let _touchDrag = null, _pinchDist = null;
+        // Two fingers pan+zoom together (drag the shared midpoint to pan,
+        // pinch to zoom, both at once); single-finger touch is deliberately
+        // left alone here so it stays a universal scroll gesture everywhere,
+        // including over the chart -- an earlier version captured
+        // single-finger drag for chart-pan (`touch-action:none`), which on a
+        // phone-sized viewport (this container can run up to 520px/65vh
+        // tall) made it impossible to finger-scroll the note past the chart
+        // at all. `touch-action:pan-y` lets the browser handle single-finger
+        // vertical scroll natively instead of this widget ever seeing it.
+        let _pinchDist = null, _pinchMid = null;
+        function _pinchState(e) {
+            const [a, b] = e.touches;
+            return {
+                dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+                mid:  { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+            };
+        }
         svgCon.addEventListener('touchstart', e => {
-            if (e.touches.length === 1) {
-                const t = e.touches[0];
-                _touchDrag = { x: t.clientX - _tx, y: t.clientY - _ty };
-                _pinchDist = null;
-            } else if (e.touches.length === 2) {
-                _touchDrag = null;
-                _pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
-                                        e.touches[0].clientY - e.touches[1].clientY);
-            }
+            if (e.touches.length === 2) ({ dist: _pinchDist, mid: _pinchMid } = _pinchState(e));
+            else { _pinchDist = null; _pinchMid = null; }
         }, { passive: true });
         svgCon.addEventListener('touchmove', e => {
-            if (e.touches.length === 1 && _touchDrag) {
-                e.preventDefault();
-                const t = e.touches[0];
-                _tx = t.clientX - _touchDrag.x;
-                _ty = t.clientY - _touchDrag.y;
-                _applyVP();
-                return;
-            }
-            if (e.touches.length === 2 && _pinchDist) {
-                e.preventDefault();
-                const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
-                                     e.touches[0].clientY - e.touches[1].clientY);
-                const r  = svgCon.getBoundingClientRect();
-                _zoomAt((e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left,
-                        (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top,
-                        d / _pinchDist);
-                _pinchDist = d;
-            }
+            if (e.touches.length !== 2 || !_pinchDist || !_pinchMid) return;
+            e.preventDefault();
+            const { dist, mid } = _pinchState(e);
+            const r = svgCon.getBoundingClientRect();
+            _zoomAt(mid.x - r.left, mid.y - r.top, dist / _pinchDist);
+            _tx += mid.x - _pinchMid.x;
+            _ty += mid.y - _pinchMid.y;
+            _applyVP();
+            _pinchDist = dist;
+            _pinchMid  = mid;
         }, { passive: false });
         svgCon.addEventListener('touchend', e => {
-            if (e.touches.length === 1) {
-                const t = e.touches[0];
-                _touchDrag = { x: t.clientX - _tx, y: t.clientY - _ty };
-                _pinchDist = null;
-            } else {
-                _touchDrag = null;
-                _pinchDist = null;
-            }
+            if (e.touches.length === 2) ({ dist: _pinchDist, mid: _pinchMid } = _pinchState(e));
+            else { _pinchDist = null; _pinchMid = null; }
         });
 
         // Keyboard shortcuts (active while mouse is over svgCon)
