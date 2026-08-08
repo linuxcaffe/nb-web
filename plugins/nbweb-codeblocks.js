@@ -7003,6 +7003,119 @@
         },
     };
 
+    // Fields modal -- generalized from nbweb-hledger.js's own `_itemFieldsModal`
+    // (2026-08-07; first cross-plugin consumer: `cine org`'s readiness-check
+    // dialog). Shows one row per field a note's own folder `.{folder}.md`
+    // declares under `constraints:` (required or optional, blank or not),
+    // reusing the exact same helpers the Frontmatter Changes panel uses
+    // (_fmParseFields/_fmWidget/_fmPatch, same closure) so widget rendering
+    // and the save mechanism can't drift from that panel's behaviour.
+    //
+    // Deliberately does NOT navigate anywhere itself -- unlike the old
+    // hledger-only version, which always opened the note after a successful
+    // save. Callers that want that behavior do it themselves after awaiting
+    // this; nbweb-cine's caller specifically needs to navigate regardless of
+    // outcome (saved, cancelled, or closed via backdrop), which only the
+    // caller can decide.
+    //
+    // Returns a Promise that resolves (never rejects) once the modal is gone,
+    // by whatever path: Save success, Cancel, or backdrop click. Resolves
+    // immediately, without ever showing UI, if the folder declares no
+    // constraints at all (or the fetch fails) -- unless opts.silentIfEmpty is
+    // false, in which case that case surfaces an alert first (hledger's own
+    // original, deliberate behavior for its own explicit "Fill fields" button;
+    // cine's automatic on-click offer wants the silent version instead, since
+    // a dead-end alert would be a worse interruption than no dialog at all).
+    NbWeb.openFieldsModal = async function (note, opts = {}) {
+        const { title, subtitle, silentIfEmpty = false } = opts;
+        if (!note?.selector) return;
+
+        let constraints;
+        try {
+            constraints = await fetch(`/api/note/constraints-full?selector=${encodeURIComponent(note.selector)}`).then(r => r.json());
+        } catch (e) {
+            if (!silentIfEmpty) alert(`Could not load fields: ${e.message}`);
+            return;
+        }
+        if (constraints.error) {
+            if (!silentIfEmpty) alert(`Could not load fields: ${constraints.error}`);
+            return;
+        }
+        const keys = Object.keys(constraints);
+        if (!keys.length) {
+            if (!silentIfEmpty) alert('No fields declared in this folder\'s config.');
+            return;
+        }
+
+        const fu = NbWeb.fmUtils;
+        // Mirrors api_note_constraints_full's own derivation (app.py):
+        // fpath.parent.name -- a subfolder's own name, or the notebook name
+        // itself for a root-level note (.{notebook}.md is a valid constraints
+        // host too, same mechanism).
+        const [nbName, relPath = ''] = note.selector.split(':');
+        const relDir     = relPath.includes('/') ? relPath.replace(/\/[^/]+$/, '') : '';
+        const folderName = relDir ? relDir.split('/').pop() : nbName;
+        const raw        = note.raw || '';
+        const current = Object.fromEntries(fu.parseFields(raw).map(f => [f.key, f.value]));
+
+        return new Promise(resolve => {
+            document.getElementById('nb-fields-modal')?.remove();
+            const el = document.createElement('div');
+            el.id = 'nb-fields-modal';
+            el.className = 'nb-invoice-overlay';
+            el.innerHTML = `
+                <div class="nb-invoice-panel">
+                    <div class="nb-invoice-hdr">${title || `📝 Fields — <em>${_esc(note.meta?.title || note.filename || '')}</em>`}</div>
+                    <div class="nb-invoice-sub">${subtitle || `Fields marked <span class="nb-item-field-required">*</span> are required — from .${_esc(folderName)}.md`}</div>
+                    <div class="nb-invoice-fields" id="nb-fields-modal-body"></div>
+                    <div class="nb-invoice-btns">
+                        <button id="nb-fields-modal-cancel">Cancel</button>
+                        <button id="nb-fields-modal-save" class="nb-inv-primary">Save</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(el);
+
+            const body = el.querySelector('#nb-fields-modal-body');
+            for (const key of keys) {
+                const { widget, required } = constraints[key];
+                const value = current[key] ?? '';
+                const row = document.createElement('label');
+                row.className = 'nb-item-field-row' + (required && !value ? ' nb-item-field-missing' : '');
+                const lbl = document.createElement('span');
+                lbl.className = 'nb-item-field-label';
+                lbl.textContent = key + (required ? ' *' : '');
+                row.appendChild(lbl);
+                row.appendChild(fu.widget(key, value, widget));
+                body.appendChild(row);
+            }
+
+            const done = () => { el.remove(); resolve(); };
+            el.querySelector('#nb-fields-modal-cancel').addEventListener('click', done);
+            el.addEventListener('click', e => { if (e.target === el) done(); });
+
+            el.querySelector('#nb-fields-modal-save').addEventListener('click', async () => {
+                const saveBtn = el.querySelector('#nb-fields-modal-save');
+                const updates = {};
+                for (const w of body.querySelectorAll('[data-fm-key]')) {
+                    updates[w.dataset.fmKey] = w.type === 'checkbox' ? String(w.checked) : w.value;
+                }
+                saveBtn.disabled = true; saveBtn.textContent = '…';
+                try {
+                    const r = await fetch('/api/note', {
+                        method:  'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body:    JSON.stringify({ selector: note.selector, content: fu.patch(raw, updates) }),
+                    }).then(r => r.json());
+                    if (r.error) throw new Error(r.error);
+                    done();
+                } catch (e) {
+                    saveBtn.textContent = `⚠ ${e.message}`;
+                    saveBtn.disabled = false;
+                }
+            });
+        });
+    };
+
     // Export the shared barblock header + collapse-toggle so other plugin files
     // (separate closures, e.g. nbweb-cine.js) can join the same header
     // convention every core codeblock uses, instead of hand-rolling their own
