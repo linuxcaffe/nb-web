@@ -951,8 +951,8 @@ def _path_in_scope(file_path, cwd, patterns):
     cwd resolution succeeding -- confirmed real 2026-07-12 (claude:69): a
     correctly-scoped, correctly-executing goal got killed because
     claude_account: wasn't set (so cwd fell back to the notes-notebook
-    guess, unrelated to the real repo) and fnmatch('/home/djp/dev/nb-web/
-    dialog.js', 'dialog.js') is False -- a bare pattern only ever matched
+    guess, unrelated to the real repo) and fnmatch(<repo>/dialog.js
+    as a full absolute path, 'dialog.js') is False -- a bare pattern only ever matched
     a cwd-relative path, never a full absolute one, even though the
     pattern itself was perfectly reasonable. Retroactively fixing cwd via
     claude_account: was considered and rejected -- changing it on a note

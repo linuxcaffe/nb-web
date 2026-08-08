@@ -246,8 +246,21 @@
         return !!(await pr.json()).success;
     }
 
+    // Resolves via /api/templates' own listing (real, server-side-computed
+    // paths) rather than constructing the path here -- api_get_template
+    // requires an absolute path under the server's own NB_DIR, which the
+    // client has no reliable way to know (differs by machine, and inside the
+    // container it's not djp's real $HOME at all -- see nb-web CLAUDE.md
+    // invariant 14). Every other /api/template caller in this codebase
+    // (cine, hledger, templates.js) already gets its path this way; this one
+    // used to hardcode it instead.
     async function _fetchTemplateContent(name) {
-        const r = await fetch(`/api/template?path=${encodeURIComponent(`/home/djp/.nb/.templates/${name}.md`)}`);
+        const listR = await fetch('/api/templates');
+        if (!listR.ok) return null;
+        const { templates } = await listR.json();
+        const entry = (templates || []).find(t => t.scope === 'global' && t.name === name);
+        if (!entry) return null;
+        const r = await fetch(`/api/template?path=${encodeURIComponent(entry.path)}`);
         if (!r.ok) return null;
         return (await r.json()).content || null;
     }
