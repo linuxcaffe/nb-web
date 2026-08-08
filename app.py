@@ -790,6 +790,19 @@ def _effective_ui_hide(note_meta, nb_meta):
     return ','.join(t for t in tokens if t in _UI_HIDE_TOKENS_V1)
 
 
+def _effective_help(note_meta, nb_meta):
+    """Return the cascading help: topic for a note ("Help Everywhere",
+    claude:nb-web_help-system_design.md). Note's own value always wins;
+    otherwise resolves through nb_meta's existing global -> notebook ->
+    folder walk-up, same nearest-wins resolution as _effective_claude.
+    '' means no help topic configured anywhere in the cascade -- callers
+    should render no help button, not fall back to a hardcoded default.
+    """
+    if 'help' in note_meta:
+        return str(note_meta['help'] or '')
+    return str(nb_meta.get('help') or '')
+
+
 def _resolve_claude_account(selector):
     """Resolve the claude_account: FM cascade for a selector, or '' if
     unconfigured anywhere. Mirrors _resolve_claude_model_flag exactly.
@@ -6906,6 +6919,7 @@ def api_note():
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
+        'effective_help': _effective_help(meta, nb_meta),
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
     })

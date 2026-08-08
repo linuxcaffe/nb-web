@@ -418,7 +418,7 @@
             ? `<button class="nb-specialty-today" title="Append today's entry and edit">+ Today</button>`
             : '';
         const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
-        const helpTopic    = note.meta?.help;
+        const helpTopic    = note.effective_help || note.meta?.help;
         const helpBtn      = helpTopic
             ? `<button class="nb-specialty-action nb-specialty-help-btn" data-help-topic="${_esc(helpTopic)}" title="Help">?</button>`
             : '';
@@ -624,7 +624,7 @@
         const pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
 
         const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
-        const helpTopic    = note.meta?.help;
+        const helpTopic    = note.effective_help || note.meta?.help;
         const helpBtn      = helpTopic
             ? `<button class="nb-specialty-action nb-specialty-help-btn" data-help-topic="${_esc(helpTopic)}" title="Help">?</button>`
             : '';
