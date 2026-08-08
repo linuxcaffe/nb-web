@@ -1851,7 +1851,8 @@ const NbMain = (() => {
             }
             const r = NbWeb.getCodeblockRenderer(key);
             if (!r) continue;
-            const query = val === true ? '' : String(val ?? '').trim();
+            let query = val === true ? '' : String(val ?? '').trim();
+            if (key === 'cfg') query = _mergeCfgTokens(query, note);
             const tmp = document.createElement('div');
             tmp.innerHTML = r.html(query);
             const block = tmp.firstElementChild;
@@ -1950,6 +1951,36 @@ const NbMain = (() => {
     // through the _pluginHtml !== null branch via nbweb-specialty.js's
     // registered renderer, not the generic fallback) -- both bugs applied to
     // dotfiles simultaneously; both are fixed here.
+    // cfg_attr_add:/cfg_attr_skip: — second use of the check_add:/check_skip:
+    // accumulate pattern (see .rules/checks.md). cfg:'s org/tree attribute-
+    // token list (`org access, access:guest, ...`) is override-replace by
+    // default, same as check: was before check_add:/check_skip: existed;
+    // this lets a deeper config extend/trim that list without restating it
+    // whole. Only touches org/tree-mode values (the only cfg: shape with a
+    // token list to accumulate into) — bare/key-target cfg: forms pass
+    // through unchanged. Named cfg_attr_* rather than cfg_add:/cfg_skip: —
+    // plain cfg_skip: already means something else (a per-node bool that
+    // collapses that node's children in the org/tree chart display); reusing
+    // it here would collide.
+    function _mergeCfgTokens(raw, note) {
+        const m = /^(org|tree)\b(.*)$/i.exec(raw || '');
+        if (!m) return raw;
+        const [, mode, rest] = m;
+
+        const addRaw  = [note?.meta?.cfg_attr_add, note?.effective_cfg_attr_add].filter(Boolean).join(' ');
+        const skipRaw = [note?.meta?.cfg_attr_skip, note?.effective_cfg_attr_skip].filter(Boolean).join(' ');
+        if (!addRaw && !skipRaw) return raw;
+
+        let tokens = rest.trim().split(/[\s,]+/).filter(Boolean);
+        const adds = addRaw.trim().split(/[\s,]+/).filter(Boolean);
+        tokens = [...new Set([...tokens, ...adds])];
+
+        const skips = skipRaw.trim().split(/[\s,]+/).filter(Boolean);
+        if (skips.length) tokens = tokens.filter(t => !skips.includes(t));
+
+        return `${mode} ${tokens.join(' ')}`;
+    }
+
     function _virtualTestPrefix(note) {
         // Per-note FM check: wins; fall back to effective value from config chain
         const raw = (note?.meta?.check !== undefined)

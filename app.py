@@ -560,6 +560,31 @@ def _collect_check_skip(notebook, note_path):
     return _collect_cascading_tokens('check_skip', notebook, note_path)
 
 
+def _collect_cfg_attr_add(notebook, note_path):
+    """Union all cfg_attr_add: values from global → notebook → folder configs.
+
+    Second use of the check_add:/check_skip: accumulate pattern (see
+    .rules/checks.md) — cfg:'s org/tree attribute-token list is override-
+    replace by default, so a deeper config wanting one more filter chip had
+    to restate the whole list; cfg_attr_add: lets it extend instead. Named
+    cfg_attr_* rather than cfg_* — plain cfg_skip: already means something
+    else entirely (a per-node bool that collapses that node's children in
+    the org/tree chart display, see _walk's `skipped` above); reusing the
+    name for this unrelated per-note accumulate key would collide.
+    """
+    return _collect_cascading_tokens('cfg_attr_add', notebook, note_path)
+
+
+def _collect_cfg_attr_skip(notebook, note_path):
+    """Union all cfg_attr_skip: values from global → notebook → folder configs.
+
+    Subtracted from the resolved cfg org/tree attribute-token list at render
+    time — see main.js _mergeCfgTokens. See _collect_cfg_attr_add for why
+    this isn't named cfg_skip:.
+    """
+    return _collect_cascading_tokens('cfg_attr_skip', notebook, note_path)
+
+
 def _notebook_config(notebook):
     """Read ~/.nb/{notebook}/.{notebook}.md merged over global config."""
     base = _global_config()
@@ -6876,6 +6901,8 @@ def api_note():
         'effective_checks':     nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
         'effective_check_add':  _collect_check_add(note_notebook, fpath) if note_notebook else '',
         'effective_check_skip': _collect_check_skip(note_notebook, fpath) if note_notebook else '',
+        'effective_cfg_attr_add':  _collect_cfg_attr_add(note_notebook, fpath) if note_notebook else '',
+        'effective_cfg_attr_skip': _collect_cfg_attr_skip(note_notebook, fpath) if note_notebook else '',
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
