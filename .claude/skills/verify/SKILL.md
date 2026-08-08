@@ -39,12 +39,13 @@ built-in `verify` skill's own instructions, so the next session doesn't cold-sta
 **There is a real login for testing against real `~/.nb` data: the `claude` account**
 (`~/.nb/.users/claude.md`, `level: tech`, same privilege as djp's own account — created
 2026-07-08 specifically for this). Password lives in Claude's own memory
-(`reference_nbweb_claude_login`) — check there first before assuming it's unusable; it went
-missing once (2026-07-08→2026-08-02, memory file never actually got written despite the
-original note claiming it would be) and had to be reset from scratch with djp's authorization.
-If that memory entry is ever gone again, reset it the same way rather than concluding there's no
-login at all: `generate_password_hash(new_pw)` (werkzeug), write the hash into
-`.users/claude.md`'s `password_hash:` field, save the new plaintext to memory immediately.
+(`reference_nbweb_claude_login`) — check there first before assuming it's unusable. **This has
+now gone stale twice** (2026-07-08→2026-08-02, memory file never actually got written despite
+the original note claiming it would be; then again 2026-08-02→2026-08-07, real login failure
+against the bare dev server mid-verification) — treat "stale credential" as the expected steady
+state to check for, not a surprising one-off. Reset it the same way each time rather than
+concluding there's no login at all: `generate_password_hash(new_pw)` (werkzeug), write the hash
+into `.users/claude.md`'s `password_hash:` field, save the new plaintext to memory immediately.
 
 **Real browser automation against real data is possible, not just CLI-level checks** — Python's
 `playwright` package is installed (`pip show playwright`; browser binary via
@@ -185,6 +186,23 @@ trace including the throwing function's name — more reliable than guessing fro
 isolation, which is exactly what mis-scoped a debug `console.log` during that same session (added
 inside what looked like `openNote(selector, ...)` by line-proximity, actually inside a separate
 `renderPreview(note)` — `selector` wasn't in scope there, `note.selector` was).
+
+## Gotcha: `NbMain.openNote()` never updates `location.hash` — don't assert on `page.url`
+
+The URL hash is read exactly once, at initial page load (`init()`'s deep-link handling) — every
+subsequent in-app navigation (a list click, a wikilink, a programmatic `NbMain.openNote(sel)`
+call) swaps `#nb-preview-content` in place and never touches `location.hash` again. Confirmed
+live 2026-08-07/08 verifying the cine-org QUERY readiness feature: a test asserted
+`'pitch-deck' in page.url` right after a click that should have navigated there, and it failed
+every time even though the navigation had genuinely happened — `page.url` simply doesn't change
+on this app's own in-app navigations, ever, so that assertion could never have passed. The
+reliable signal is DOM state, not the URL: `#nb-preview-title`'s `textContent` is set
+synchronously at the very top of `openNote()`, before any async fetch, so
+`page.wait_for_function("document.getElementById('nb-preview-title').textContent.includes('...')")`
+is both correct and fast. This also means a same-page `page.goto(f"{BASE}/#Other:note.md")` from
+a page already on that base URL does **not** re-render anything (no `hashchange` listener exists
+either) — force a real reinitialization instead: `page.evaluate("location.hash = '...'")` then
+`page.reload()`.
 
 ## Gotcha: verifying `:hover` styling with Playwright is flaky if you don't re-anchor
 
