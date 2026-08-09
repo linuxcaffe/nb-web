@@ -585,6 +585,56 @@ def _collect_cfg_attr_skip(notebook, note_path):
     return _collect_cascading_tokens('cfg_attr_skip', notebook, note_path)
 
 
+def _collect_help_add(notebook, note_path):
+    """Union all help_add: values from global → notebook → folder configs.
+
+    Third use of the check_add:/cfg_attr_add: accumulate pattern. Unlike
+    help: (nearest-wins single value/list -- see _effective_help), help_add:
+    layers on top of the resolved help list from every level at once, same
+    as check_add: layers on top of check:. See _resolve_help_list for how
+    the two combine, plus the auto type-derived entry.
+    """
+    return _collect_cascading_tokens('help_add', notebook, note_path)
+
+
+def _resolve_help_list(meta, nb_meta, notebook, note_path, itype):
+    """Combine the three help: sources into the final popover entry list.
+
+    Order: auto type-derived entry (only if a matching .lib/help-type-<type>.md
+    actually exists -- avoids every ordinary note firing a wasted fetch for a
+    type with no dedicated file) → help_add: cascade union (broadest-first,
+    same order _collect_cascading_tokens already produces) → help:'s own
+    nearest-wins value/list (the most deliberately-specific layer, shown
+    last). Deduplicated, order preserved.
+
+    Returns '' when nothing resolves anywhere, a bare string when exactly one
+    source contributes a single value (preserves the pre-help_add scalar
+    shape existing callers/tests expect), otherwise a list -- same contract
+    _effective_help already had, just fed by three sources instead of one.
+    """
+    parts = []
+    if itype and (NB_DIR / '.lib' / f'help-type-{itype}.md').exists():
+        parts.append(itype)
+    if notebook:
+        parts.extend(_collect_help_add(notebook, note_path).split())
+    explicit = _effective_help(meta, nb_meta)
+    if isinstance(explicit, list):
+        parts.extend(explicit)
+    elif explicit:
+        parts.append(explicit)
+
+    seen = {}
+    for p in parts:
+        if p:
+            seen[p] = None
+    result = list(seen.keys())
+    if not result:
+        return ''
+    if len(result) == 1:
+        return result[0]
+    return result
+
+
 def _notebook_config(notebook):
     """Read ~/.nb/{notebook}/.{notebook}.md merged over global config."""
     base = _global_config()
@@ -6928,7 +6978,7 @@ def api_note():
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
-        'effective_help': _effective_help(meta, nb_meta),
+        'effective_help': _resolve_help_list(meta, nb_meta, note_notebook, fpath, itype),
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
     })
