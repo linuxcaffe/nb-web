@@ -67,6 +67,21 @@ things per render against this dev server. The real container (gunicorn, `--work
 almost certainly doesn't have this ceiling — not yet confirmed either way, but don't assume the
 bare dev server's concurrency behavior generalizes to production.
 
+**The bare dev server does not hot-reload (`use_reloader=False`) — an `app.py` edit needs the
+process actually killed and restarted, not just re-launched over a still-running old one.**
+Confirmed live 2026-08-08 building the `help:` list/selector extension: `pkill -f
+"NB_WEB_PORT=5002"` (matching the launch command's own env-var prefix) silently killed nothing,
+because a shell env-var assignment in front of a command isn't part of that process's own
+`argv` — `pkill -f` matches against argv, not the shell line that spawned it. The new
+`nohup ... &` looked like a normal restart (no error, new-looking log lines appended) but was
+actually a second process failing to bind the already-held port, while the *original* stale
+process kept serving requests underneath it with the old code in memory — cost real time
+chasing what looked like a "list value got stringified" application bug that was actually just
+stale bytecode. Kill by PID when in doubt: `ss -ltnp | grep <port>` → `kill -9 <pid>`, then
+confirm the port was actually freed before relaunching. This is a bare-dev-server-only concern —
+the real container (`systemctl --user restart container-nb-web.service`) doesn't have this
+failure mode, it always tears down the old process cleanly.
+
 **The app's own ambient per-note check system (`nbweb-codeblocks.js`/`main.js`) used to be a
 separate, real performance cost, unrelated to whatever's being verified** — up to 25-30s added
 to *every* note's first paint from up to 8 ambient glob families each firing their own sequential
@@ -187,22 +202,28 @@ isolation, which is exactly what mis-scoped a debug `console.log` during that sa
 inside what looked like `openNote(selector, ...)` by line-proximity, actually inside a separate
 `renderPreview(note)` — `selector` wasn't in scope there, `note.selector` was).
 
-## Gotcha: `NbMain.openNote()` never updates `location.hash` — don't assert on `page.url`
+## Fixed 2026-08-08: `NbMain.openNote()` now updates `location.hash` — the gotcha below is history
 
-The URL hash is read exactly once, at initial page load (`init()`'s deep-link handling) — every
-subsequent in-app navigation (a list click, a wikilink, a programmatic `NbMain.openNote(sel)`
-call) swaps `#nb-preview-content` in place and never touches `location.hash` again. Confirmed
-live 2026-08-07/08 verifying the cine-org QUERY readiness feature: a test asserted
+Superseded by `nb-web` commit `081932a`. Kept below (struck through in spirit, not deleted) as a
+still-useful example of the DOM-state-over-URL-assertion pattern, and because the *old* behavior
+is exactly what you'll hit if you're checking out a commit from before this date. As of
+`081932a`: `openNote()` calls `history.replaceState()` on every navigation, so `page.url`/
+`location.hash` genuinely does reflect the current note now, and a `hashchange` listener means
+`page.goto(f"{BASE}/#Other:note.md")` from an already-loaded page reliably navigates too
+(confirmed live: title updates correctly, no `page.reload()` workaround needed anymore). Asserting
+on `page.url` after a navigation is a valid signal again. The DOM-state signal below
+(`#nb-preview-title`) is still the *faster* one (set synchronously at the top of `openNote()`,
+before the hash update and before any async fetch) — prefer it when speed matters, but you're no
+longer forced into it.
+
+**Original gotcha (pre-`081932a`), for historical/pre-fix-commit reference:** the URL hash used to
+be read exactly once, at initial page load (`init()`'s deep-link handling) — every subsequent
+in-app navigation swapped `#nb-preview-content` in place and never touched `location.hash` again.
+Confirmed live 2026-08-07/08 verifying the cine-org QUERY readiness feature: a test asserted
 `'pitch-deck' in page.url` right after a click that should have navigated there, and it failed
-every time even though the navigation had genuinely happened — `page.url` simply doesn't change
-on this app's own in-app navigations, ever, so that assertion could never have passed. The
-reliable signal is DOM state, not the URL: `#nb-preview-title`'s `textContent` is set
-synchronously at the very top of `openNote()`, before any async fetch, so
-`page.wait_for_function("document.getElementById('nb-preview-title').textContent.includes('...')")`
-is both correct and fast. This also means a same-page `page.goto(f"{BASE}/#Other:note.md")` from
-a page already on that base URL does **not** re-render anything (no `hashchange` listener exists
-either) — force a real reinitialization instead: `page.evaluate("location.hash = '...'")` then
-`page.reload()`.
+every time even though the navigation had genuinely happened. The reliable signal was DOM state,
+not the URL: `#nb-preview-title`'s `textContent`, via
+`page.wait_for_function("document.getElementById('nb-preview-title').textContent.includes('...')")`.
 
 ## Gotcha: verifying `:hover` styling with Playwright is flaky if you don't re-anchor
 
