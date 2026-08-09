@@ -773,9 +773,16 @@ const NbMain = (() => {
 
     // A help: entry is either a bare topic ("project" -> .lib:help-type-project.md)
     // or a real note selector containing ':' ("Takeout:folder/file.md", fetched as-is).
-    function _helpSelectorFor(entry) {
+    // A bare topic tries the type-matched naming form first (help-type-<topic>.md,
+    // the same form auto type-derivation uses), then the generic form
+    // (help-<topic>.md, for topics never tied to a note type -- "nb", "help") as a
+    // fallback -- so a hand-typed bare word ("nb", "hledger") works regardless of
+    // which naming convention its file actually uses, without every reference
+    // needing to spell out the selector form. A real note selector (contains ':')
+    // has nothing to fall back to.
+    function _helpCandidatesFor(entry) {
         const s = String(entry || '').trim();
-        return s.includes(':') ? s : `.lib:help-type-${s}.md`;
+        return s.includes(':') ? [s] : [`.lib:help-type-${s}.md`, `.lib:help-${s}.md`];
     }
 
     // Help popover — resolves one or more help: entries (see _helpSelectorFor) and
@@ -815,9 +822,13 @@ const NbMain = (() => {
             const parts = [];
             for (const entry of entries) {
                 try {
-                    const r = await fetch(`/api/note?selector=${encodeURIComponent(_helpSelectorFor(entry))}`);
-                    const d = await r.json();
-                    if (!d.body) continue;
+                    let d = null;
+                    for (const sel of _helpCandidatesFor(entry)) {
+                        const r = await fetch(`/api/note?selector=${encodeURIComponent(sel)}`);
+                        const j = await r.json();
+                        if (j.body) { d = j; break; }
+                    }
+                    if (!d) continue;
                     const wrap = document.createElement('div');
                     wrap.className = 'nb-help-part';
                     wrap.innerHTML = _renderMarkdown(d.body, d.selector || '');
