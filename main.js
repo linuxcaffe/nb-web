@@ -187,6 +187,15 @@ const NbMain = (() => {
         _noAutoSelect = false;
         if (deepLink) openNote(deepLink);
         _loadVersion();
+
+        // Manual hash edits / a hash-carrying link opened in an already-loaded tab don't
+        // trigger a page reload (same-document navigation), so openNote() alone -- read
+        // once at boot above -- never sees them. history.replaceState() above never fires
+        // this event, so there's no feedback loop with our own navigation.
+        window.addEventListener('hashchange', () => {
+            const sel = location.hash ? decodeURIComponent(location.hash.slice(1)) : null;
+            if (sel && sel.includes(':') && sel !== _activeSelector) openNote(sel);
+        });
     }
 
     async function _loadVersion() {
@@ -693,6 +702,12 @@ const NbMain = (() => {
         }
         _activeSelector = selector;
         _updateNavBtns();
+        // Reflect the current note in the address bar so it's copy/bookmark/refresh-able.
+        // replaceState (not pushState) deliberately creates no browser history entry --
+        // nb-web already has its own back/forward stack (_history/_future, sessionStorage-
+        // backed); native browser back/forward stays out of that model's way entirely.
+        const _hash = '#' + encodeURI(selector);
+        if (location.hash !== _hash) history.replaceState(null, '', _hash);
         document.getElementById('nb-pin-indicator').hidden = !_pinnedSelectors.has(selector);
 
         // Show toolbar, reset TOC bar until note is rendered
