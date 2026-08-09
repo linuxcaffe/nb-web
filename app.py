@@ -776,6 +776,23 @@ def _can_access(user, note_meta, nb_meta):
     return _level_gte(user.get('level', ''), access)
 
 
+def _lib_file_accessible(user, filename):
+    """`.lib` files encode their required access level in a `-<level>` filename
+    suffix (e.g. `user-mgmt-admin.html`, `open-block-hl-admin.sh`) instead of
+    frontmatter `access:` -- most have no frontmatter at all, so the normal
+    _can_access()/_effective_access() cascade would fall through to the
+    global default (guest) and grant everyone access. This is the one real
+    gate for that convention -- shared by api_note's `.lib:` selector
+    handling and _run_front_query's `.lib` scan, so an `fm` query can't see
+    content a direct fetch wouldn't already show the same user.
+    """
+    stem = Path(filename).stem
+    for lvl in LEVELS:
+        if stem.endswith(f'-{lvl}'):
+            return _level_gte(user.get('level', ''), lvl)
+    return True
+
+
 def _effective_claude(note_meta, nb_meta):
     """Return the claude: model/availability specifier for a note, or '' if
     unconfigured anywhere in the cascade (nbweb-claude's badge simply doesn't
@@ -1593,6 +1610,7 @@ INDICATORS = {
     'reports':     '📊',
     'invoice':     '🧾',
     'dashboard':   '🗂️',
+    'help':        '❓',
     'note':        '',
     'dotfile':     '⚙',
     'code':        '📋',
@@ -1624,8 +1642,9 @@ INDICATORS = {
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
+#   help      — a .lib/help-*.md help-popover source note  ❓  (core, so fm queries can list them)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile', 'journal',
-                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item'})
+                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
@@ -5569,6 +5588,16 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
     if nb_list_in:
         nb_list = [n.strip() for n in nb_list_in if n.strip()]
         for nb in nb_list:
+            # .lib is the one dotfolder exempted from _safe_notebook's blanket
+            # leading-dot rejection, deliberately scoped here only (not a change
+            # to _safe_notebook itself, which 19 other call sites rely on for
+            # real notebook validation — create/wire/delete/sync/etc.). Safe
+            # specifically because _scan_file applies _lib_file_accessible()
+            # below, the same filename-suffix gate api_note's .lib: selector
+            # handling already enforces — an fm query can't see anything a
+            # direct fetch wouldn't already show this user.
+            if nb == '.lib':
+                continue
             if not _safe_notebook(nb):
                 return None, (f'invalid notebook: {nb}', 400)
         # folders is positionally aligned with nb_list — '' entries are fine and
@@ -5592,6 +5621,13 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
     def _scan_file(fpath, selector, notebook=None, nb_cfg=None):
         itype = classify(fpath.name, notebook)
         if itype in BINARY_TYPES:
+            return None
+        # .lib has no per-notebook access: cascade of its own (no .lib/.lib.md
+        # config) -- its real gate is the filename-suffix convention, checked
+        # here explicitly since the generic _can_access below wouldn't catch it
+        # (most .lib files carry no access: FM at all and would otherwise fall
+        # through to the global default).
+        if notebook == '.lib' and not _lib_file_accessible(user, fpath.name):
             return None
         try:
             raw = fpath.read_text(errors='replace')
@@ -6825,15 +6861,10 @@ def api_note():
             dot_nb = selector.partition(':')[0]
             if dot_nb not in _DOT_OPEN and not _level_gte(user.get('level', ''), 'admin'):
                 return jsonify({'error': 'forbidden'}), 403
-            # .lib files: filename suffix declares required level — e.g. user-mgmt-admin.html
+            # .lib files: filename suffix declares required level (_lib_file_accessible) —
             # serves empty body (silent) if user doesn't qualify; no error, no 403.
-            if dot_nb == '.lib':
-                stem = Path(dot_path.name).stem
-                for lvl in LEVELS:
-                    if stem.endswith(f'-{lvl}'):
-                        if not _level_gte(user.get('level', ''), lvl):
-                            return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
-                        break
+            if dot_nb == '.lib' and not _lib_file_accessible(user, dot_path.name):
+                return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
             if not dot_path.exists():
                 return jsonify({'error': 'not found'}), 404
             note_notebook = selector.partition(':')[0]
