@@ -1265,6 +1265,24 @@ body {
                    font-size: 0.85em; line-height: 1.65; overflow-x: auto;
                    min-height: 100%; box-sizing: border-box; }
 
+/* ── JSON tree view (code-view toggle, .json/.jsonc) ──────────────── */
+.nb-json-tree { padding: 20px 24px; font-family: var(--font-mono, monospace);
+                font-size: 0.85em; line-height: 1.7; }
+.nb-json-node > summary { cursor: pointer; list-style: none; }
+.nb-json-node > summary::-webkit-details-marker { display: none; }
+.nb-json-node > summary::before { content: '▸'; display: inline-block; width: 1em;
+                                   color: var(--text-dim); }
+.nb-json-node[open] > summary::before { content: '▾'; }
+.nb-json-children { margin-left: 1.4em; border-left: 1px solid var(--border-dim, #444);
+                     padding-left: 0.6em; }
+.nb-json-line { padding-left: 1em; }
+.nb-json-key    { color: var(--accent); }
+.nb-json-string { color: var(--green); }
+.nb-json-number { color: var(--yellow); }
+.nb-json-bool   { color: var(--yellow); font-weight: 600; }
+.nb-json-null   { color: var(--text-dim); font-style: italic; }
+.nb-json-punct  { color: var(--text-dim); }
+
 /* ── Inline live queries  {{provider: query}} ────────────────────── */
 .nb-inline-content { margin: 0.75em 0; padding: 0.5em 0.75em;
                      border-left: 2px solid var(--border-dim, #444);

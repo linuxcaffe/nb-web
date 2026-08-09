@@ -1558,8 +1558,7 @@ def classify(filename, notebook=None):
     if ext in ('.rs',):                                  return 'code'
     if ext in ('.toml',):                                return 'code'
     if ext == '.vcf':                 return 'contact'
-    if ext in ('.html', '.htm'):      return 'html'
-    if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'): return 'image'
+    if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'): return 'image'
     if ext == '.csv':                 return 'sheet'
     if ext in ('.zip', '.tar', '.tgz', '.7z', '.rar', '.gz', '.bz2'): return 'archive'
     if ext in ('.mp3', '.ogg', '.flac', '.wav', '.m4a'):  return 'audio'
@@ -2224,7 +2223,11 @@ def api_preview():
 
     itype = classify(fpath.name)
 
-    if itype == 'html':
+    # .html/.htm classify() as 'code' (rendered as source by default, see main.js's
+    # code-type view-mode toggle) -- checked by extension here, not itype, since this
+    # branch is reached on-demand from that toggle's "Rendered" button, not from the
+    # note's own type.
+    if fpath.suffix.lower() in ('.html', '.htm'):
         try:
             html = fpath.read_text(errors='replace')
             return jsonify({'type': 'html', 'html': _sanitize_html(html)})

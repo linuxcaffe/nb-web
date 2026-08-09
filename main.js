@@ -1104,24 +1104,93 @@ const NbMain = (() => {
                 toml:'toml',
             };
             const lang = _langMap[ext] || 'plaintext';
-            // Show plain text immediately so the file is readable without waiting for Prism
-            content.innerHTML = `<div class="nb-rendered"><pre class="nb-code-preview language-${lang}"><code class="language-${lang}">${_esc(note.body || '')}</code></pre></div>`;
-            if (lang === 'ledger') _addIncludeLinks(content, note);
-            _appendAnnotation(content, note);
-            if (typeof Prism !== 'undefined') {
-                const codeEl = content.querySelector('code');
-                _StatusPill.add(1);
-                const _sched = typeof requestIdleCallback !== 'undefined'
-                    ? cb => requestIdleCallback(cb, { timeout: 2000 })
-                    : cb => setTimeout(cb, 0);
-                _sched(() => {
-                    if (codeEl) {
-                        const grammar = Prism.languages[lang] || Prism.languages.plaintext;
-                        codeEl.innerHTML = Prism.highlight(note.body || '', grammar, lang);
-                        if (lang === 'ledger') _addIncludeLinks(content, note);
+
+            const _showCodeSource = () => {
+                // Show plain text immediately so the file is readable without waiting for Prism
+                content.innerHTML = `<div class="nb-rendered"><pre class="nb-code-preview language-${lang}"><code class="language-${lang}">${_esc(note.body || '')}</code></pre></div>`;
+                if (lang === 'ledger') _addIncludeLinks(content, note);
+                _appendAnnotation(content, note);
+                if (typeof Prism !== 'undefined') {
+                    const codeEl = content.querySelector('code');
+                    _StatusPill.add(1);
+                    const _sched = typeof requestIdleCallback !== 'undefined'
+                        ? cb => requestIdleCallback(cb, { timeout: 2000 })
+                        : cb => setTimeout(cb, 0);
+                    _sched(() => {
+                        if (codeEl) {
+                            const grammar = Prism.languages[lang] || Prism.languages.plaintext;
+                            codeEl.innerHTML = Prism.highlight(note.body || '', grammar, lang);
+                            if (lang === 'ledger') _addIncludeLinks(content, note);
+                        }
+                        _StatusPill.tick();
+                    });
+                }
+            };
+
+            // View-mode toggle: some extensions have a second, equally legitimate view
+            // (raw source vs. rendered) alongside the Prism source view above. Default
+            // differs per extension -- svg is almost always opened to be *seen*, html/json
+            // are almost always opened to be *read/authored* -- so only the non-default
+            // view is ever fetched/built on demand, never both up front.
+            const _codeViewModes = {
+                svg:   { label: 'Source',   icon: '&lt;/&gt;', default: 'rendered' },
+                html:  { label: 'Rendered', icon: '▣',         default: 'source' },
+                htm:   { label: 'Rendered', icon: '▣',         default: 'source' },
+                json:  { label: 'Tree',     icon: '▤',         default: 'source' },
+                jsonc: { label: 'Tree',     icon: '▤',         default: 'source' },
+            };
+            const _viewMode = _codeViewModes[ext];
+
+            const _showCodeRendered = async () => {
+                if (ext === 'svg') {
+                    content.innerHTML = `<div class="nb-rendered" style="text-align:center"><img src="${fileUrl}" class="nb-img-preview" alt="${_esc(note.title)}"></div>`;
+                    _appendAnnotation(content, note);
+                    return;
+                }
+                if (ext === 'html' || ext === 'htm') {
+                    content.innerHTML = '<div style="padding:40px;color:var(--text-muted)">Loading…</div>';
+                    try {
+                        const r = await fetch(`/api/preview?selector=${encodeURIComponent(note.selector)}`);
+                        const d = await r.json();
+                        content.innerHTML = d.html
+                            ? `<div class="nb-rendered nb-converted">${d.html}</div>`
+                            : `<div style="padding:40px;color:var(--red)">${_esc(d.error || 'Cannot render')}</div>`;
+                    } catch (e) {
+                        content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(String(e))}</div>`;
                     }
-                    _StatusPill.tick();
-                });
+                    _appendAnnotation(content, note);
+                    return;
+                }
+                if (ext === 'json' || ext === 'jsonc') {
+                    try {
+                        const data = JSON.parse(note.body || 'null');
+                        content.innerHTML = `<div class="nb-rendered"><div class="nb-json-tree">${_buildJsonTree(data)}</div></div>`;
+                    } catch (e) {
+                        content.innerHTML = `<div style="padding:40px;color:var(--red)">Invalid JSON: ${_esc(String(e))}</div>`;
+                    }
+                    _appendAnnotation(content, note);
+                }
+            };
+
+            if (_viewMode) {
+                let mode = _viewMode.default;
+                const _rEl = document.getElementById('nb-preview-renderers');
+                if (_rEl) {
+                    const btn = document.createElement('button');
+                    btn.className = 'nb-tool-btn';
+                    btn.title = mode === 'source' ? `View ${_viewMode.label}` : 'View source';
+                    btn.innerHTML = _viewMode.icon;
+                    btn.addEventListener('click', () => {
+                        mode = mode === 'source' ? 'rendered' : 'source';
+                        btn.title = mode === 'source' ? `View ${_viewMode.label}` : 'View source';
+                        btn.classList.toggle('nb-active', mode !== _viewMode.default);
+                        if (mode === 'source') _showCodeSource(); else _showCodeRendered();
+                    });
+                    _rEl.appendChild(btn);
+                }
+                if (mode === 'source') _showCodeSource(); else _showCodeRendered();
+            } else {
+                _showCodeSource();
             }
             return;
         } else if (_pluginHtml !== null) {
@@ -3824,6 +3893,30 @@ const NbMain = (() => {
             `<button class="nb-fm-empty-toggle nb-tw-btn" title="Toggle empty fields">` +
             `${showEmpty ? 'Hide empty' : 'Show empty'}</button>` +
             `</div>`;
+    }
+
+    // Recursive collapsible tree for the JSON code-view toggle. `key` is the property
+    // name when called for an object member; omitted at the top level and for array items.
+    function _buildJsonTree(value, key) {
+        const keyHtml = key !== undefined ? `<span class="nb-json-key">${_esc(key)}</span>: ` : '';
+        if (value === null || value === undefined)
+            return `<div class="nb-json-line">${keyHtml}<span class="nb-json-null">null</span></div>`;
+        if (Array.isArray(value)) {
+            if (!value.length) return `<div class="nb-json-line">${keyHtml}<span class="nb-json-punct">[]</span></div>`;
+            const items = value.map(v => _buildJsonTree(v)).join('');
+            return `<details class="nb-json-node" open><summary>${keyHtml}<span class="nb-json-punct">[${value.length}]</span></summary><div class="nb-json-children">${items}</div></details>`;
+        }
+        if (typeof value === 'object') {
+            const keys = Object.keys(value);
+            if (!keys.length) return `<div class="nb-json-line">${keyHtml}<span class="nb-json-punct">{}</span></div>`;
+            const items = keys.map(k => _buildJsonTree(value[k], k)).join('');
+            return `<details class="nb-json-node" open><summary>${keyHtml}<span class="nb-json-punct">{${keys.length}}</span></summary><div class="nb-json-children">${items}</div></details>`;
+        }
+        if (typeof value === 'string')
+            return `<div class="nb-json-line">${keyHtml}<span class="nb-json-string">"${_esc(value)}"</span></div>`;
+        if (typeof value === 'boolean')
+            return `<div class="nb-json-line">${keyHtml}<span class="nb-json-bool">${value}</span></div>`;
+        return `<div class="nb-json-line">${keyHtml}<span class="nb-json-number">${value}</span></div>`;
     }
 
     function _renderBookmark(note) {
