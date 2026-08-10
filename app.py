@@ -192,24 +192,42 @@ def _cb_write_allowed(block_type):
 # Template variable resolution
 # ---------------------------------------------------------------------------
 
-_weather_cache: dict = {'value': None, 'ts': 0.0}
+_weather_cache: dict = {}   # keyed by location string; '' = global/no-location (server-guessed)
 _check_cache:    dict = {}   # (script, selector) -> {'result': dict, 'ts': float}
 _CHECK_CACHE_TTL = 30        # seconds; force=True bypasses
 
-def _fetch_weather() -> str:
-    if _weather_cache['value'] and time.time() - _weather_cache['ts'] < 3600:
-        return _weather_cache['value']
+def _fetch_weather(location: str = '') -> str:
+    """Fetch a wttr.in one-liner, cached 1h per location ('' = server-guessed default)."""
+    key = location.strip()
+    cached = _weather_cache.get(key)
+    if cached and time.time() - cached['ts'] < 3600:
+        return cached['value']
     try:
-        import urllib.request
-        url = 'https://wttr.in/?format=%c+%C,+%t+(feels+%f),+%h+humidity,+%w&m'
+        import urllib.request, urllib.parse
+        place = urllib.parse.quote(key.replace(' ', '+'), safe='+,') if key else ''
+        url = f'https://wttr.in/{place}?format=%c+%C,+%t+(feels+%f),+%h+humidity,+%w&m'
         req = urllib.request.Request(url, headers={'User-Agent': 'curl/7.88'})
         with urllib.request.urlopen(req, timeout=5) as resp:
             result = resp.read().decode('utf-8', errors='replace').strip()
-        _weather_cache['value'] = result
-        _weather_cache['ts'] = time.time()
+        _weather_cache[key] = {'value': result, 'ts': time.time()}
         return result
     except Exception:
         return '(weather unavailable)'
+
+
+def _resolve_location_address(notebook: str, alias: str) -> 'str | None':
+    """Look up a cine location note by its alias: field; return its address: field, or None."""
+    loc_dir = NB_DIR / notebook / 'locations'
+    if not loc_dir.is_dir():
+        return None
+    for f in sorted(loc_dir.glob('*.md')):
+        try:
+            meta, _ = parse_frontmatter(f.read_text(errors='replace'))
+        except Exception:
+            continue
+        if str(meta.get('alias', '') or '').strip().lower() == alias.strip().lower():
+            return str(meta.get('address', '') or '').strip() or None
+    return None
 
 
 def _resolve_template_vars(text: str, title: str = '', tags: str = '', content: str = '') -> str:
@@ -2631,7 +2649,12 @@ def api_inline_query():
     notebook = request.args.get('notebook', '').strip()
     selector = request.args.get('selector', '').strip()
 
-    if not provider or not query:
+    # date/day/mtime/weather all have sensible behavior with an empty query
+    # (default format, default location) — everything else needs a real command.
+    _QUERY_OPTIONAL = {'date', 'day', 'mtime', 'weather'}
+    if not provider:
+        return jsonify({'error': 'provider required'}), 400
+    if not query and provider not in _QUERY_OPTIONAL:
         return jsonify({'error': 'provider and query required'}), 400
 
     try:
@@ -2694,25 +2717,65 @@ def api_inline_query():
 
         elif provider == 'fm':
             args = query.strip().split(None, 1)
-            if not args or args[0] != 'count':
+            if args and args[0] == 'count':
+                nb_list, folder_list, iq_filters, iq_sort, iq_limit = _parse_fm_scope(
+                    args[1] if len(args) > 1 else '')
+                iq_user = session.get('user', {})
+                results, err = _run_front_query(iq_user, nb_list, folder_list, iq_filters, limit=500)
+                if err:
+                    message, status = err
+                    return jsonify({'error': message}), status
+                results = _fm_sort_limit(results, iq_sort, iq_limit)
+                return jsonify({'result': str(len(results))})
+            elif len(args) == 1 and args[0]:
+                # Single-token query: read that field from the CURRENT note's own frontmatter.
+                field = args[0]
+                if not selector:
+                    return jsonify({'error': 'fm field mode requires a note selector'}), 400
+                _np = _resolve_to_nb_path(selector)
+                if not _np or not _np.exists():
+                    return jsonify({'error': 'note not found'}), 404
+                meta, _ = parse_frontmatter(_np.read_text(errors='replace'))
+                if field not in meta:
+                    return jsonify({'error': f'field not found: {field}'}), 404
+                val = meta[field]
+                result = ', '.join(str(v) for v in val) if isinstance(val, list) else str(val or '')
+                return jsonify({'result': result})
+            else:
                 return jsonify({'error': (
-                    "fm inline query only supports 'count' — e.g. "
-                    '"count Takeout:storylines/film-school/ type:story"'
+                    "fm inline query supports 'count ...' or a single field name — e.g. "
+                    '"count Takeout:storylines/film-school/ type:story" or "tags"'
                 )}), 400
-            nb_list, folder_list, iq_filters, iq_sort, iq_limit = _parse_fm_scope(
-                args[1] if len(args) > 1 else '')
-            iq_user = session.get('user', {})
-            results, err = _run_front_query(iq_user, nb_list, folder_list, iq_filters, limit=500)
-            if err:
-                message, status = err
-                return jsonify({'error': message}), status
-            results = _fm_sort_limit(results, iq_sort, iq_limit)
-            return jsonify({'result': str(len(results))})
 
         elif provider == 'date':
             fmt = query.strip() or '%Y-%m-%d'
             from datetime import datetime
             return jsonify({'result': datetime.now().strftime(fmt)})
+
+        elif provider == 'day':
+            fmt = query.strip() or '%A, %B %-d, %Y'   # same default as the template placeholder
+            from datetime import datetime
+            return jsonify({'result': datetime.now().strftime(fmt)})
+
+        elif provider == 'mtime':
+            if not selector:
+                return jsonify({'error': 'mtime requires a note selector'}), 400
+            _np = _resolve_to_nb_path(selector)
+            if not _np or not _np.exists():
+                return jsonify({'error': 'note not found'}), 404
+            fmt = query.strip() or '%Y-%m-%d %H:%M'
+            from datetime import datetime
+            return jsonify({'result': datetime.fromtimestamp(_np.stat().st_mtime).strftime(fmt)})
+
+        elif provider == 'weather':
+            place = query.strip()
+            if place and notebook:
+                resolved = _resolve_location_address(notebook, place)
+                if resolved:
+                    place = resolved
+            if not place and notebook:
+                place = (_notebook_config(notebook).get('weather_location') or '').strip()
+            return jsonify({'result': _fetch_weather(place)})
 
         else:
             return jsonify({'error': f'unknown provider: {provider}'}), 400

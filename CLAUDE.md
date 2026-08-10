@@ -289,11 +289,23 @@ unfolds it. Form-1 (labeled, click-to-run) blocks are unaffected, still built in
 
 ### Inline queries — `{{provider: query}}`
 
-Text spans matching `{{provider: query}}` are replaced with `.nb-inline-query` spans during `_resolveInlineQueries`. Non-`inline` providers (hledger, tw, nb, date) resolve in parallel via `/api/inline-query`.
+Text spans matching `{{provider: query}}` are replaced with `.nb-inline-query` spans during `_resolveInlineQueries`. Non-`inline` providers (hledger, tw, nb, fm, date, day, mtime, weather) resolve in parallel via `/api/inline-query` — the client has no per-provider logic, any provider that returns plain `{result}`/`{error}` just works, so new providers only ever require an `app.py` change.
+
+**`fm` has two modes** (`api_inline_query`'s `fm` branch): `{{fm: count ...}}` — the scoped/filtered count, same query grammar as the `fm` codeblock — and, as of 2026-08-09, a single bare field name — `{{fm: tags}}` — which reads that field from the **current note's own frontmatter** (via `selector`) instead of running a query. Deliberately distinct from template placeholders (`_resolve_template_vars`, one-shot at creation time) — this is live, re-resolved every render.
+
+**`day`/`mtime`/`weather`** (added 2026-08-09, same motivation) round out the live equivalents of the template placeholders of the same name: `day` is `date` with a friendlier default format (`%A, %B %-d, %Y`); `mtime` reads the current note's own file mtime (`_resolve_to_nb_path` + `.stat().st_mtime`, same pairing the `hledger` branch already uses to read `journal:` off a note); `weather` reuses `_fetch_weather()`.
+
+**Adding these surfaced a pre-existing latent bug, fixed in the same pass:** `api_inline_query`'s top-level guard used to be a single `if not provider or not query: return 400` — meaning a genuinely bare `{{date: }}` (empty query, relying on the default format) had *always* 400'd, for as long as `date` existed, never actually usable despite the branch itself having a working default. Fixed by splitting the guard — `provider` is still always required; `query` is only required for providers with no sensible empty-query behavior (`hledger`/`tw`/`nb`/`fm`). `date`/`day`/`mtime`/`weather` are exempt (`_QUERY_OPTIONAL` set at the top of the function). Any new provider with a real default should be added to that set explicitly — it's opt-in, not inferred.
+
+**`_fetch_weather()`'s cache is now keyed per-location** (`_weather_cache: dict`, was a single `{'value', 'ts'}` slot) — `_fetch_weather(location='')` (the empty-string key) is what `_resolve_template_vars`'s existing bare `_fetch_weather()` call site still gets, so the one-shot template placeholder's behavior is unchanged. Don't revert this to a single global slot without checking both call sites.
+
+**`weather` provider's location resolution, in order:** (1) explicit query resolved against a cine `locations/*.md` note's `alias:` field in the current notebook (`_resolve_location_address`) → that note's `address:` field; (2) explicit query with no alias match → used as a literal wttr.in place name; (3) empty query → the notebook's own `weather_location:` config key (`_notebook_config()`, new — same walk-up primitive `regen_script`/`journal` already use, see below); (4) still empty → today's existing server-IP-guessed default. This exists specifically for callsheets: before a shoot's actual location is locked, `{{weather: }}` bare falls back to a production notebook's own default location instead of guessing from the server's IP.
 
 **Regen button:** when `/api/inline-query` returns a `regen: {notebook, script}` field, the span gets a `↻` button (`.nb-iq-refresh`) appended. On click: POSTs `{notebook, script}` to `/api/hledger/regen` (runs the script, clears hledger cache), then re-fetches the inline query and updates the result in place.
 
 **Wiring regen:** set `regen_script: .tools/gen-budget.py` under the `hledger:` block in the notebook's own `.{notebook}.md` dotfile (see `djp`'s config for a live example) — or, legacy path, `"regen_script": ".tools/gen-budget.py"` in a standalone `.nb-hledger.json`, which still takes precedence if present (`_hledger_config_for_notebook()` in `app.py`). The `api_inline_query` endpoint reads this and includes `regen` in the response only when both `regen_script` and `notebook` are present. Script must live in `.tools/` and be a `.py` file (enforced by `/api/hledger/regen`).
+
+**Wiring `weather_location`:** set `weather_location: Toronto, ON` (top-level, not nested under `hledger:`) in the notebook's own `.{notebook}.md` dotfile — read via `_notebook_config()`, not `_hledger_config_for_notebook()`, since it's not hledger-specific. Keep it city-level; wttr.in resolves place names, not full street addresses (same caveat applies to a cine location note's own `address:` field when resolved through the `weather` provider's alias lookup above).
 
 ## Active claude: notes
 
