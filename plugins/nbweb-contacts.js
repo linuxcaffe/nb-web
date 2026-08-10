@@ -27,7 +27,7 @@
         return `hsl(${h % 360},40%,38%)`;
     }
 
-    function _renderContact(note) {
+    function _renderContact(note, opts = {}) {
         const m    = note.meta || {};
         const name = m.name || m.fn || note.title || '';
         const emails  = _contactFields(m.email);
@@ -67,7 +67,10 @@
             ? `<div class="nb-contact-tags">${tags.map(t => `<span class="nb-tag-link">#${_esc(t)}</span>`).join('')}</div>`
             : '';
 
-        const bodyHtml = note.body?.trim()
+        // {{inline: card path}} passes opts.inline -- an embedded card is card-only,
+        // same convention nbweb-cine's own cards follow (see nb-web CLAUDE.md,
+        // "Inline queries" section). Own notes only make sense on the real note.
+        const bodyHtml = (!opts.inline && note.body?.trim())
             ? `<div class="nb-contact-notes">${NbMain.renderMarkdown(note.body)}</div>` : '';
 
         return `<div class="nb-contact-card">
@@ -303,9 +306,9 @@
 
         previewTypes:          ['contact'],
         previewRendererDetect: note => note.type === 'contact',
-        previewRenderer: (note) => {
+        previewRenderer: (note, opts) => {
             if (note.type !== 'contact') return null;
-            return _renderContact(note);
+            return _renderContact(note, opts);
         },
 
         listButtons: [
