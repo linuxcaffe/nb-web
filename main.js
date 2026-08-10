@@ -1515,10 +1515,16 @@ const NbMain = (() => {
                     html = (raw instanceof Promise) ? await raw : raw;
                 }
             }
+            const gotCard = wantCard && html != null;
             if (html == null) html = _renderMarkdown(d.body || '', d.selector || selector);
             const wrap = document.createElement('div');
-            wrap.className = 'nb-inline-content';
+            wrap.className = gotCard ? 'nb-inline-content nb-inline-card' : 'nb-inline-content';
             wrap.innerHTML = `<div class="nb-rendered">${html}</div>`;
+            // Card mode inlines the card only, never the note's own body prose (a card
+            // renderer's own _cBody-style helper appends it as a sibling after the card,
+            // e.g. `<div class="nb-card">...</div><div class="nb-card-body">...</div>`) --
+            // djp: "should only inline: the card contents."
+            if (gotCard) wrap.querySelector('.nb-card-body')?.remove();
             span.replaceWith(wrap);
             _enrichRendered(wrap, d);
             window.NbAuth?.applyVisibility();

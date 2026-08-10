@@ -1294,6 +1294,12 @@ body {
 .nb-inline-content > .nb-rendered > *:first-child { margin-top: 0; }
 .nb-inline-content > .nb-rendered > *:last-child  { margin-bottom: 0; }
 
+/* {{inline: card path}} — the card brings its own complete chrome (bg, padding,
+   border-radius), so the plain-inline indicator line/background would just double
+   it up. Neutralize the wrapper entirely in card mode. */
+.nb-inline-content.nb-inline-card { margin: 0.75em 0; padding: 0; border-left: none;
+                                     border-radius: 0; background: none; }
+
 #nb-tabs-bar {
     display: flex; flex-wrap: wrap; gap: 2px;
     padding: 0 0 0; margin: 0 0 0.75em;
@@ -1719,7 +1725,7 @@ body {
 /* All nb-web "card" renderers share this base. Custom card types add their */
 /* own classes on top. The card has a distinct background that separates    */
 /* the structured frontmatter block from free-form body content below.      */
-.nb-card              { background: var(--bg3); border-radius: 8px; padding: 20px 24px; max-width: 680px; }
+.nb-card              { background: var(--bg3); border-radius: 8px; padding: 20px 24px; max-width: 680px; line-height: normal; }
 .nb-card-header       { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 .nb-card-avatar       {
   width: 46px; height: 46px; border-radius: 50%;
