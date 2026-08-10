@@ -1488,18 +1488,34 @@ const NbMain = (() => {
     }
 
     // {{inline: path}} — fetch target note body, render markdown inline.
+    // {{inline: card path}} — same fetch, but try the target's own registered
+    // plugin card renderer first (NbWeb.getPreviewRenderers, the exact dispatch
+    // renderPreview itself uses for the main note view) -- falls back to plain
+    // body markdown if the target has no registered renderer, so a typo or a
+    // body-only note degrades to today's behavior rather than erroring.
     // Depth-guarded: included content is not processed for further {{inline:}} to
     // prevent recursion.
     async function _resolveInlineInclude(span, rawPath, note, signal) {
         if (span.closest('.nb-inline-content')) { span.remove(); return; }
-        const rendered = span.closest('.nb-rendered');
-        const selector = _resolveRelPath(rawPath.trim(), note?.selector || '');
+        const rendered  = span.closest('.nb-rendered');
+        const wantCard  = /^card\s+/i.test(rawPath.trim());
+        const targetRaw = wantCard ? rawPath.trim().replace(/^card\s+/i, '') : rawPath.trim();
+        const selector  = _resolveRelPath(targetRaw, note?.selector || '');
         try {
             const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}&inline=1`, { signal });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
             if (d.error) throw new Error(d.error);
-            const html = _renderMarkdown(d.body || '', d.selector || selector);
+            let html = null;
+            if (wantCard) {
+                await NbWeb.loadNotebookConfig(d.notebook);
+                const rend = NbWeb.getPreviewRenderers(d.notebook, d)[0];
+                if (rend) {
+                    const raw = rend.render(d);
+                    html = (raw instanceof Promise) ? await raw : raw;
+                }
+            }
+            if (html == null) html = _renderMarkdown(d.body || '', d.selector || selector);
             const wrap = document.createElement('div');
             wrap.className = 'nb-inline-content';
             wrap.innerHTML = `<div class="nb-rendered">${html}</div>`;
