@@ -1627,6 +1627,7 @@ INDICATORS = {
     'reports':     '📊',
     'invoice':     '🧾',
     'dashboard':   '🗂️',
+    'production':  '🎥',
     'help':        '❓',
     'note':        '',
     'dotfile':     '⚙',
@@ -1659,9 +1660,10 @@ INDICATORS = {
 #   location  — shooting location card               📍  (NbWeb-cine plugin)
 #   day       — shoot day record (date, hours)       📅  (NbWeb-cine plugin)
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
+#   production — one per notebook, company/ATL admin source 🎥  (NbWeb-cine plugin)
 #   help      — a .lib/help-*.md help-popover source note  ❓  (core, so fm queries can list them)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'location', 'day', 'resource', 'dotfile', 'journal',
-                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help'})
+                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
