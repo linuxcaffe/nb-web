@@ -873,6 +873,15 @@ const NbMain = (() => {
         document.getElementById('nb-done-bar')?.remove();
         document.getElementById('nb-preview-actions').hidden = false;
 
+        // The note's own lock: FM field (toggled via /api/cine/lock, e.g. by the
+        // Lock/Unlock button below) is a *different* signal from note.locked
+        // (a folder-level .nb-lock marker file, _find_nb_lock() in app.py) --
+        // computed once, up here, so both the Edit button (below) and the
+        // Changes/FM panel button respect it. Previously only Edit did, so a
+        // locked note's frontmatter could still be edited via Changes -- found
+        // live 2026-08-10 on a real type:production note.
+        const _isLocked = /^(yes|on|true|1)$/i.test(String(note.meta?.lock ?? ''));
+
         const doneBtn    = document.getElementById('nb-done-btn');
         const editBtn    = document.getElementById('nb-edit-btn');
         const changesBtn = document.getElementById('nb-changes-btn');
@@ -881,7 +890,7 @@ const NbMain = (() => {
         if (editBtn) editBtn.hidden = ['sheet','image','audio','video','pdf','ebook','document','archive'].includes(note.type);
         if (changesBtn) {
             const hasMeta = note.meta && Object.keys(note.meta).length > 0;
-            changesBtn.hidden   = !hasMeta || !!note.locked;
+            changesBtn.hidden   = !hasMeta || !!note.locked || _isLocked;
             changesBtn.classList.remove('nb-active');
             changesBtn.onclick  = () => _toggleFmChangesPanel(note, changesBtn);
             // Close panel when navigating to a new note
@@ -988,7 +997,6 @@ const NbMain = (() => {
 
         // ── Lock / Unlock UI ───────────────────────────────────────────────
         document.getElementById('nb-unlock-btn')?.remove();
-        const _isLocked = /^(yes|on|true|1)$/i.test(String(note.meta?.lock ?? ''));
         // Stamp lock state on the content pane so codeblock renderers can read it
         const _contentPane = document.getElementById('nb-preview-content');
         if (_contentPane) _contentPane.dataset.noteLocked = _isLocked ? 'true' : '';
