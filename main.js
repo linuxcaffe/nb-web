@@ -1437,6 +1437,15 @@ const NbMain = (() => {
         }
         if (nonInlineCount > 0) _StatusPill.add(nonInlineCount);
 
+        // {{inline:}} alone on its own paragraph line was already converted to a
+        // <div class="nb-inline-pending" data-query="..."> placeholder before marked ever
+        // ran (see _renderMarkdown) -- pick those up here too, alongside any span-based
+        // {{inline:}} found genuinely mid-sentence above, and merge in real document order
+        // so "eager ones resolve sequentially top-to-bottom" still holds across both sources.
+        for (const el of container.querySelectorAll('.nb-inline-pending[data-query]')) inlineSpans.push(el);
+        inlineSpans.sort((a, b) =>
+            (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
+
         // Inline includes: eager ones (near viewport) resolve sequentially top-to-bottom;
         // lazy ones (below fold) are deferred to an IntersectionObserver and resolve
         // independently as the user scrolls.  nb-inlines-settled fires after the eager
@@ -3851,7 +3860,17 @@ const NbMain = (() => {
                     return `<span class="nb-wiki-link" data-selector="${_esc(page)}"${fragAttr}${label ? '' : ' data-autolabel="1"'}>${_esc(label || target)}</span>`
                 })
                 .replace(/(^|\s)(#[\w/-]+)/g, (_, pre, tag) =>
-                    `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`);
+                    `${pre}<span class="nb-tag-link">${_esc(tag)}</span>`)
+                // {{inline: path}}/{{inline: card path}} alone on its own paragraph line
+                // (the documented/intended usage) becomes a placeholder div *before* marked
+                // ever sees it, same technique as the csv-block pre-processing below --
+                // marked recognises a bare `<div ...>` line as an HTML block and passes it
+                // through untouched, so the eventual block-level replacement in Stage 2
+                // (_resolveInlineQueries) never ends up trapped inside a <p>. {{inline:}}
+                // used genuinely mid-sentence (not alone on its own line) doesn't match here
+                // and still falls through to the existing text-node/span path unchanged.
+                .replace(/^[ \t]*\{\{inline:\s*([^}]+)\}\}[ \t]*$/gm, (_, arg) =>
+                    `<div class="nb-inline-pending" data-query="${_esc(arg.trim())}"></div>`);
         // Pre-process csv template blocks (```csv token) into placeholder divs before
         // marked sees them — marked drops all but the first word of the info string.
         body = body.replace(/```csv ([\w-]+)\n([\s\S]*?)```/g, (_, token, content) =>
