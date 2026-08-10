@@ -1520,7 +1520,7 @@ const NbMain = (() => {
                 await NbWeb.loadNotebookConfig(d.notebook);
                 const rend = NbWeb.getPreviewRenderers(d.notebook, d)[0];
                 if (rend) {
-                    const raw = rend.render(d);
+                    const raw = rend.render(d, { inline: true });
                     html = (raw instanceof Promise) ? await raw : raw;
                 }
             }
@@ -1534,6 +1534,20 @@ const NbMain = (() => {
             // e.g. `<div class="nb-card">...</div><div class="nb-card-body">...</div>`) --
             // djp: "should only inline: the card contents."
             if (gotCard) wrap.querySelector('.nb-card-body')?.remove();
+            // An inlined card has no toolbar of its own to edit through (the Changes
+            // panel belongs to whatever note is actually open) -- djp: "an inlined card
+            // becomes one big clickable link to the source file." Whole-card click opens
+            // the source note, except where the click actually landed on something the
+            // card already made interactive (a tel:/mailto: link, a resolved wikilink).
+            const cardEl = gotCard ? wrap.querySelector('.nb-card') : null;
+            if (cardEl && d.selector) {
+                cardEl.classList.add('nb-inline-card-link');
+                cardEl.title = `Open ${d.title || d.filename || d.selector}`;
+                cardEl.addEventListener('click', e => {
+                    if (e.target.closest('a, .nb-wiki-link, button')) return;
+                    openNote(d.selector);
+                });
+            }
             span.replaceWith(wrap);
             _enrichRendered(wrap, d);
             window.NbAuth?.applyVisibility();

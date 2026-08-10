@@ -1300,6 +1300,12 @@ body {
 .nb-inline-content.nb-inline-card { margin: 0.75em 0; padding: 0; border-left: none;
                                      border-radius: 0; background: none; }
 
+/* An inlined card is a whole-card link to its source note (no Changes panel of its
+   own to edit through) -- subtle hover lift so it reads as clickable without looking
+   like a button. */
+.nb-inline-card-link { cursor: pointer; transition: box-shadow 0.1s ease; }
+.nb-inline-card-link:hover { box-shadow: 0 0 0 2px var(--accent); }
+
 #nb-tabs-bar {
     display: flex; flex-wrap: wrap; gap: 2px;
     padding: 0 0 0; margin: 0 0 0.75em;
