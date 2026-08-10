@@ -196,6 +196,8 @@ Flat registry populated at load time by `registerRenderer(id, spec)`. `registerM
 
 **`getPreviewRenderers` promotion** — if the notebook's `types[note.type].renderer` preference is set, that renderer is moved to index 0 (becomes the toggle default) without removing the others. The user can still switch per-session via toolbar toggle.
 
+**Not the mechanism behind every toolbar toggle** — `getPreviewRenderers()` only pulls from active *plugin modules* per notebook (`_activeFor`), never from the flat `registerRenderer()` registry directly, so it's plugin-scoped by design. The `code`-type preview's own source/rendered view toggle (html/svg/json, see invariant 35) reuses the same `#nb-preview-renderers` toolbar slot visually but is plain local state inside `main.js`'s `renderPreview`, not this registry — extending a core built-in type into this mechanism would be a bigger change than a simple two-view toggle needs.
+
 ### Configure Notebook — Types tab
 
 Located in the Notebooks panel (Configure Notebook dialog), "Type renderers & access" tab.
