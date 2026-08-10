@@ -331,3 +331,25 @@ tr '\0' '\n' < /proc/$PID/environ | grep NB_AUTO_SYNC
 (auto-sync ON), not `0` — checked via `env -i HOME=<fresh empty dir> nb settings get
 auto_sync`. Never assume a "should default to off" setting actually does; check the real
 default in isolation if it matters.
+
+## Testing a `.checks/` script directly, without going through the app
+
+`api_check_run`/`api_check_batch` (`app.py`) invoke a check script as `subprocess.run(['bash',
+script_path], env={**os.environ, 'NB_DIR': ..., 'NB_APP_DIR': str(Path(__file__).parent),
+'NB_NOTE_SELECTOR': ..., 'NB_NOTEBOOK': ..., 'NB_NOTE_PATH': ..., ...})` — reproduce that
+env directly rather than launching the whole server just to exercise one script:
+
+```bash
+bash ~/.nb/.checks/some-check.sh --demo                              # Tier 2 spec self-test
+NB_APP_DIR=/home/djp/dev/nb-web NB_DIR=/home/djp/.nb \
+    bash ~/.nb/.checks/some-check.sh                                 # real run against real data
+```
+
+`NB_APP_DIR` matters specifically for any check that needs to know where the *running app's
+own code* lives (not just notebook content under `NB_DIR`) — e.g. reading `$NB_APP_DIR/plugins/
+*.js` to cross-check something in a plugin's source. It's tier-agnostic by construction: same
+env var name resolves to `~/dev/nb-web` on the bare dev server and `/app` inside the container,
+so a check written against it works on both without special-casing either. Confirmed live
+2026-08-10 building `nb-config-renderer.sh` (flags a notebook's `types:*:renderer:` value that
+doesn't match any real registered id) — this two-line manual-env recipe caught real, accurate
+findings against live `~/.nb` data without ever needing 5001/5002 up at all.
