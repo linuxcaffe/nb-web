@@ -7280,6 +7280,14 @@ def api_note_constraints():
     return jsonify(_load_constraints(fpath))
 
 
+def _normalize_constraints_map(raw):
+    """{key: constraint_spec} -> {key: {'widget': ..., 'required': ...}}."""
+    result = {}
+    for k, v in (raw or {}).items():
+        required = bool(v.get('required')) if isinstance(v, dict) else False
+        result[k] = {'widget': _normalize_constraint(v), 'required': required}
+    return result
+
 @app.route('/api/note/constraints-full')
 def api_note_constraints_full():
     """Constraints from a note's own folder's .{foldername}.md, normalized to
@@ -7297,6 +7305,15 @@ def api_note_constraints_full():
     unrelated inherited fields (a service-pack client:/billing_type: schema)
     when tried against _folder_config. A folder-specific schema like
     items/.items.md should show exactly what it declares, nothing inherited.
+
+    A note's own frontmatter may then layer on top of that folder-level
+    result -- fenced to just note + immediate folder, deliberately not
+    reopening the general cascade above for the same contamination reason:
+      constraints:      per-key OVERRIDE (a key here replaces the folder's
+                         declaration for that same key, same "nearest wins"
+                         shape as help:/help_add: elsewhere in this file)
+      constraints_add:  per-key ADD ONLY -- ignored for any key the folder
+                         (or the note's own constraints: above) already governs
     """
     selector = request.args.get('selector', '').strip()
     if not selector:
@@ -7317,18 +7334,24 @@ def api_note_constraints_full():
         if not nb_ok(path_r):
             return jsonify({'error': 'not found'}), 404
         fpath = Path(path_r['stdout'].strip())
-    folder_cfg_path = fpath.parent / f'.{fpath.parent.name}.md'
-    if not folder_cfg_path.exists():
-        return jsonify({})
-    try:
-        meta, _ = parse_frontmatter(folder_cfg_path.read_text(errors='replace'))
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    raw = meta.get('constraints') or {}
+
     result = {}
-    for k, v in raw.items():
-        required = bool(v.get('required')) if isinstance(v, dict) else False
-        result[k] = {'widget': _normalize_constraint(v), 'required': required}
+    folder_cfg_path = fpath.parent / f'.{fpath.parent.name}.md'
+    if folder_cfg_path.exists():
+        try:
+            folder_meta, _ = parse_frontmatter(folder_cfg_path.read_text(errors='replace'))
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+        result = _normalize_constraints_map(folder_meta.get('constraints'))
+
+    try:
+        note_meta, _ = parse_frontmatter(fpath.read_text(errors='replace'))
+    except Exception:
+        note_meta = {}
+    result.update(_normalize_constraints_map(note_meta.get('constraints')))
+    for k, v in _normalize_constraints_map(note_meta.get('constraints_add')).items():
+        result.setdefault(k, v)
+
     return jsonify(result)
 
 

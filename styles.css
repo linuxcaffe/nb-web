@@ -1735,6 +1735,8 @@ body {
 .nb-card-value        { color: var(--text); word-break: break-word; }
 .nb-card-value a      { color: var(--accent); text-decoration: none; }
 .nb-card-value a:hover { text-decoration: underline; }
+.nb-card-row-missing  { opacity: 0.8; }
+.nb-card-value-missing { color: var(--red); font-style: italic; }
 .nb-card-block        { margin-top: 8px; }
 .nb-card-block-key    { font-size: 0.74em; text-transform: uppercase; letter-spacing: 0.07em;
                         color: var(--text-muted); margin-bottom: 4px; margin-left: 90px; opacity: 0.7; }
