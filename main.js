@@ -2432,9 +2432,30 @@ const NbMain = (() => {
         return m ? m[1].trim() : raw;
     }
 
+    // Annotation sidecar frontmatter is first-class data (not just an editor
+    // convenience) -- e.g. accounting fields like unit:/cost per: on a cast or
+    // location note's own sidecar. _annBodyText above strips it from the body
+    // render on purpose (it's not prose), but stripping must not mean hiding:
+    // this parses it back out so _renderAnnotationFoot can display it as its
+    // own block, below the body, same as any other note's FM fallback. Simple
+    // flat key: value pairs only -- matches how these sidecars are actually
+    // authored; not a general YAML parser.
+    function _parseAnnotationFm(raw) {
+        if (!raw) return null;
+        const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+        if (!m) return null;
+        const meta = {};
+        for (const line of m[1].split('\n')) {
+            const km = line.match(/^([A-Za-z0-9_ -]+):\s?(.*)$/);
+            if (km) meta[km[1].trim()] = km[2].trim() || null;
+        }
+        return Object.keys(meta).length ? meta : null;
+    }
+
     function _renderAnnotationFoot(foot, note, text) {
         if (text) {
             const displayText = _annBodyText(text);
+            const annFm       = _parseAnnotationFm(text);
             foot.innerHTML = `
                 <div class="nb-ann-bar">
                     <span class="nb-ann-label">📝 Annotation</span>
@@ -2443,7 +2464,8 @@ const NbMain = (() => {
                         <button class="nb-ann-del-btn nb-tw-btn nb-action-write">Delete</button>
                     </span>
                 </div>
-                <div class="nb-ann-body nb-rendered">${_renderMarkdown(displayText)}</div>`;
+                <div class="nb-ann-body nb-rendered">${_renderMarkdown(displayText)}</div>
+                ${annFm ? _renderFmFallback(annFm) : ''}`;
 
             _enrichRendered(foot.querySelector('.nb-ann-body'), note);
             foot.querySelector('.nb-ann-edit-btn').addEventListener('click', () =>
