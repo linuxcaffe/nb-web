@@ -2465,7 +2465,7 @@ const NbMain = (() => {
                     </span>
                 </div>
                 <div class="nb-ann-body nb-rendered">${_renderMarkdown(displayText)}</div>
-                ${annFm ? _renderFmFallback(annFm) : ''}`;
+                ${annFm ? _renderFmFallback(annFm, 'nb-ann-fm') : ''}`;
 
             _enrichRendered(foot.querySelector('.nb-ann-body'), note);
             foot.querySelector('.nb-ann-edit-btn').addEventListener('click', () =>
@@ -3949,7 +3949,13 @@ const NbMain = (() => {
     const _FM_SKIP    = new Set(['title', 'tags']);
     const _FM_EMPTY_KEY = 'nb-fm-show-empty';
 
-    function _renderFmFallback(meta) {
+    // extraClass: lets a caller opt this instance out of the ui_hide: fm /
+    // extras-toggle suppression below (see the annotation-foot call site,
+    // and styles.css's #nb-preview-content.nb-hide-fm .nb-fm-fallback rule) --
+    // that mechanism exists to declutter a note's own generic FM dump, not to
+    // conceal an annotation's frontmatter, which is first-class content there,
+    // not a fallback.
+    function _renderFmFallback(meta, extraClass) {
         if (!meta || typeof meta !== 'object') return '';
         const rows = Object.entries(meta)
             .filter(([k]) => !_FM_SKIP.has(k))
@@ -3973,7 +3979,7 @@ const NbMain = (() => {
             });
         if (!rows.length) return '';
         const showEmpty = localStorage.getItem(_FM_EMPTY_KEY) === '1';
-        return `<div class="nb-contact-fields nb-fm-fallback${showEmpty ? ' nb-fm-show-empty' : ''}" data-fm-fallback>` +
+        return `<div class="nb-contact-fields nb-fm-fallback${extraClass ? ' ' + extraClass : ''}${showEmpty ? ' nb-fm-show-empty' : ''}" data-fm-fallback>` +
             rows.join('') +
             `<button class="nb-fm-empty-toggle nb-tw-btn" title="Toggle empty fields">` +
             `${showEmpty ? 'Hide empty' : 'Show empty'}</button>` +

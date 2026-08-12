@@ -1690,7 +1690,11 @@ body {
    rather than one combined toggle, since config can hide just one of the
    two (the manual button still flips both together, matching its
    existing single-toggle UX -- see ui-chrome.js's _applyExtrasHidden). */
-#nb-preview-content.nb-hide-fm .nb-fm-fallback { display: none; }
+/* .nb-ann-fm exempt: ui_hide: fm declutters a note's own generic FM dump,
+   it was never meant to also conceal an annotation's frontmatter (2026-08-12
+   -- annotation FM went from silently-stripped to first-class content; see
+   _renderFmFallback's extraClass param in main.js). */
+#nb-preview-content.nb-hide-fm .nb-fm-fallback:not(.nb-ann-fm) { display: none; }
 /* Hide annotation foot; Add annotation button is exempt (nb-ann-empty) */
 #nb-preview-content.nb-hide-annotation .nb-annotation-foot:not(:has(.nb-ann-empty)) { display: none; }
 /* Dot badge on extras button when annotation exists but is hidden */
