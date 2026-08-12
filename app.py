@@ -13194,7 +13194,7 @@ def api_cine_export_pdf():
     if not _AW_BIN.exists():
         return jsonify({'error': 'afterwriting not installed (run: npm install afterwriting)'}), 503
     try:
-        content, slug, cover_meta = _build_fountain(notebook)
+        content, slug, _ = _build_fountain(notebook)
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
 
@@ -13203,8 +13203,14 @@ def api_cine_export_pdf():
         src = Path(tmp) / f'{slug}.fountain'
         out = Path(tmp) / f'{slug}.pdf'
         src.write_text(content, encoding='utf-8')
-        paper   = str(cover_meta.get('paper', 'usletter')).lower().replace(' ', '')
-        profile = 'usletter' if paper in ('usletter', 'letter', 'us') else 'a4'
+        # paper: is a whole-production setting (same tier as strip_colors), not a
+        # per-cover-note one -- lives in the notebook's own cine: config block so
+        # every scene/shot view can read it too via the same /api/cine/data.config
+        # they already fetch, not just the export path. See nbweb-cine.js's own
+        # page-width logic for the client-side half of this.
+        cine_cfg = _notebook_config(notebook).get('cine') or {}
+        paper    = str(cine_cfg.get('paper', 'usletter')).lower().replace(' ', '')
+        profile  = 'usletter' if paper in ('usletter', 'letter', 'us') else 'a4'
         result = subprocess.run(
             [str(_AW_BIN), '--source', str(src), '--pdf', str(out), '--overwrite',
              '--setting', f'print_profile={profile}'],
