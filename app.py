@@ -12446,11 +12446,19 @@ def api_cine_data():
     resources  = _scan_dir('resources', 'code')
 
     scenes = []
+    script_cover = None
     script_dir = nb_path / 'script'
     if script_dir.is_dir():
         for f in sorted(script_dir.glob('*.md')):
             try:
                 meta, body = parse_frontmatter(f.read_text(errors='replace'))
+                # Captured in the same walk that already skips this file for
+                # scenes below -- avoids a second script_dir scan just for this.
+                if meta.get('type') == 'script' and script_cover is None:
+                    script_cover = {
+                        'selector': f'{notebook}:script/{f.name}',
+                        'title':    str(meta.get('title', '') or notebook),
+                    }
                 if meta.get('type') != 'scene':
                     continue  # skip cover page and non-scene files
                 synopsis = next(
@@ -12618,6 +12626,7 @@ def api_cine_data():
         'stories':       stories,
         'milestones':    milestones,
         'orphan_scenes': orphan_scenes,
+        'script':        script_cover,
     })
 
 
