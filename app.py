@@ -13083,6 +13083,20 @@ def api_cine_lock():
 
 _AW_BIN = Path(__file__).parent / 'node_modules' / '.bin' / 'afterwriting'
 
+_SHOT_CUE_RE = re.compile(r'\s*\[\[[^\]]+\]\]')
+
+def _strip_shot_cues(text):
+    """Remove shot-cue markers ([[filename-stem]]) from formal/print output.
+
+    App-internal shot-boundary bookkeeping -- afterwriting has no idea what
+    [[...]] means, so left in place it renders as literal bracket text in the
+    real PDF. Collapses any space left dangling before it, e.g.
+    "stops [[cue]]." -> "stops.". Mirrored client-side in nbweb-cine.js's
+    _stripShotCues for the on-screen formal Screenplay render, so both agree
+    on the same underlying prose.
+    """
+    return _SHOT_CUE_RE.sub('', text)
+
 
 def _build_fountain(notebook):
     """Return (fountain_text, title_slug) for all script/ scenes in alias order.
@@ -13144,7 +13158,7 @@ def _build_fountain(notebook):
         loc = str(meta.get('loc', '')).upper()
         parts.append(f'{ie} {loc} - {dn}')
         parts.append('')
-        parts.append(body)
+        parts.append(_strip_shot_cues(body))
         parts.append('')
         parts.append('')
 
