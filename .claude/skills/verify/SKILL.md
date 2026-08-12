@@ -225,6 +225,32 @@ every time even though the navigation had genuinely happened. The reliable signa
 not the URL: `#nb-preview-title`'s `textContent`, via
 `page.wait_for_function("document.getElementById('nb-preview-title').textContent.includes('...')")`.
 
+## Gotcha: `page.inner_html()` proves markup exists, not that it's visible
+
+Confirmed live 2026-08-12 chasing the annotation-frontmatter-rendering feature (CLAUDE.md
+invariant 39's follow-on bug): a Playwright check that only calls `page.inner_html(selector)`
+and greps the result for the expected markup will report success even when a CSS rule is
+hiding that exact element (`display: none`) — `inner_html()` returns the DOM's serialized HTML
+regardless of computed visibility, hidden elements included. This app has more than one
+class-toggle suppression mechanism that can silently swallow new markup this way (`ui_hide:
+fm`/`ui_hide: annotation` → `.nb-hide-fm`/`.nb-hide-annotation` on `#nb-preview-content`, the
+extras-toggle button doing the same thing manually) — a first verification pass genuinely
+passed (`.nb-ann-fm` was present in the captured HTML) while the real browser showed nothing,
+because the note under test had `ui_hide: fm` configured and the new block reused
+`.nb-fm-fallback` for styling, so it got caught by that suppression rule too.
+
+**When a feature could plausibly be gated by a CSS class rather than being conditionally
+rendered at all**, don't stop at `inner_html()` — confirm actual visibility:
+
+```python
+el = page.locator('.some-new-block')
+print("visible:", el.is_visible())
+print("display:", el.first.evaluate("e => getComputedStyle(e).display"))
+```
+
+`is_visible()` is the quick pass/fail; the `getComputedStyle` read is useful when you need to
+know *which* rule is winning, not just whether something's hidden.
+
 ## Gotcha: verifying `:hover` styling with Playwright is flaky if you don't re-anchor
 
 Confirmed live 2026-08-07 chasing an invisible-hover-text bug (CLAUDE.md invariant 28):
