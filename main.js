@@ -4270,11 +4270,32 @@ const NbMain = (() => {
         return patterns.some(p => { try { return new RegExp(p, 'i').test(probe); } catch(_) { return false; } });
     }
 
+    // > TODAY: is the hard pivot between past/actual and future/planning
+    // content (see project-today-boundary.sh, .checks/) -- any automated
+    // insertion of a heading or marker must land immediately before it, never
+    // blindly appended at end-of-file where it could land after TODAY or
+    // after future/MILESTONE content. Falls back to before the first
+    // MILESTONE (no TODAY yet) or plain end-of-file (neither exists).
+    // Shared by _ensureTodayHeading below and nbweb-specialty.js's
+    // _appendTodayAndEdit (via NbMain.insertBeforeToday) -- one correct
+    // implementation, not two.
+    function _insertBeforeToday(body, content) {
+        const todayM     = /^> TODAY:/m.exec(body);
+        const milestoneM = /^> MILESTONE:/m.exec(body);
+        if (todayM) {
+            return body.slice(0, todayM.index).trimEnd() + `\n\n${content}\n\n` + body.slice(todayM.index);
+        }
+        if (milestoneM) {
+            return body.slice(0, milestoneM.index).trimEnd() + `\n\n${content}\n\n` + body.slice(milestoneM.index);
+        }
+        return body.trimEnd() + `\n\n${content}\n\n`;
+    }
+
     async function _ensureTodayHeading(sel, d) {
         const today = new Date().toISOString().slice(0, 10);
         const body  = d.raw || d.body || '';
         if (body.includes(`## ${today}`)) return;
-        const updated = body.trimEnd() + `\n\n## ${today}\n`;
+        const updated = _insertBeforeToday(body, `## ${today}`);
         const r  = await fetch('/api/note', {
             method: 'PUT', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ selector: sel, content: updated }),
@@ -5172,6 +5193,7 @@ const NbMain = (() => {
     }
 
     return { init, loadNotes, resetAndLoad, resetSort, search, openNote,
+             insertBeforeToday: _insertBeforeToday,
              openToday: NbNoteActions.openToday,
              showAddForm: NbNoteActions.showAddForm,
              addNote: NbNoteActions.addNote,

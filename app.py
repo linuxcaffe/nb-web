@@ -4391,7 +4391,6 @@ def api_t_journal_from_csv():
     itc_acct      = 'Assets:HST:InputTaxCredits'
 
     from datetime import date as _date
-    import re as _re
 
     # Each block's transaction date is the nearest preceding '## YYYY-MM-DD'
     # diary heading -- mirrors timedot's own date inheritance (_injectDateContext /
@@ -4401,24 +4400,10 @@ def api_t_journal_from_csv():
     # actually logged under -- so on any project invoiced more than once, a
     # materials block added after the first invoice landed *before* every
     # subsequent invoice's since-last-invoice cutoff and silently never billed.
-    heading_re = _re.compile(r'^#{1,6}\s+(\d{4}-\d{2}-\d{2})', _re.MULTILINE)
-    headings   = [(m.start(), m.group(1)) for m in heading_re.finditer(body)]
     default_date = meta.get('started') or str(_date.today())
 
     # Raw note text has no header row (headers come from .lib/ template); col[0]=name, col[4]=total.
-    block_re = _re.compile(r'```csv ' + _re.escape(token) + r'\n([\s\S]*?)```')
-    rows_by_date = {}
-    for m in block_re.finditer(body):
-        block_date = default_date
-        for pos, d in headings:
-            if pos <= m.start():
-                block_date = d
-            else:
-                break
-        for line in m.group(1).splitlines():
-            s = line.strip()
-            if s and s.lower() != 'contents':
-                rows_by_date.setdefault(block_date, []).append(line)
+    rows_by_date = _csv_block_rows(body, token, default_date)
 
     if not rows_by_date:
         return jsonify({'success': False, 'error': f'no csv {token} block found'}), 404
@@ -4438,25 +4423,7 @@ def api_t_journal_from_csv():
         total      = 0.0
         desc_lines = []
         for row in parsed:
-            lt = 0.0
-            # Try col[4] (total column) first
-            if len(row) > 4:
-                try: lt = float(row[4].replace(',', ''))
-                except ValueError: pass
-            # Fallback: formula cell — multiply all numeric values in the row (qty × rate)
-            if not lt:
-                nums = []
-                for c in row:
-                    c = c.strip()
-                    if c and not c.startswith('='):
-                        try: nums.append(float(c.replace(',', '')))
-                        except ValueError: pass
-                if len(nums) >= 2:
-                    lt = nums[0]
-                    for n in nums[1:]: lt *= n
-                elif len(nums) == 1:
-                    lt = nums[0]
-            lt = round(lt, 2)
+            lt = _csv_row_total(row)
             if lt:
                 total += lt
                 item = row[0].strip() if row else '?'
@@ -4586,6 +4553,309 @@ def _invoice_journal_totals(journal_key: str, scope: str = 'since_invoice'):
             if sub > 0:
                 expense_dict[token] = (round(sub, 2), round(gross, 2))
     return round(labour_total, 2), expense_dict
+
+
+# ── Milestone-grouped invoice/quote sections ────────────────────────────────
+# > MILESTONE: Name markers (existing display-only chips on the `timeline`
+# codeblock, plugins/nbweb-codeblocks.js) get real $ calculation here for the
+# first time. An "opening" marker in this codebase's actual usage — content
+# following it, until the next MILESTONE marker or end of scope, belongs to
+# it. Shared between api_t_invoice_generate and api_t_quote_generate: whichever
+# generator's resolved scope happens to contain MILESTONE markers gets grouped
+# per-milestone sections instead of one flat table; a scope with none is
+# entirely unaffected (existing flat-table code path, untouched).
+
+def _diary_markers(body: str) -> list:
+    """List of {type, ref, line} for every '> TYPE: ref' marker line, in
+    document order. Python port of _cbqlMarkerLines
+    (plugins/nbweb-codeblocks.js:5315) — the relaxed marker regex (digits/
+    underscore allowed after the first letter)."""
+    markers = []
+    for i, line in enumerate(body.split('\n')):
+        m = re.match(r'^> ([A-Z][A-Z0-9_]+):[ \t]*(.*)$', line)
+        if m:
+            markers.append({'type': m.group(1), 'ref': m.group(2).strip(), 'line': i})
+    return markers
+
+
+def _milestone_summary(lines: list, start: int, end: int) -> str:
+    """Prose immediately following a MILESTONE marker: lines up to (not
+    including) the first blank line, heading, code fence, or another marker
+    line — whichever comes first."""
+    out = []
+    for line in lines[start:end]:
+        s = line.strip()
+        if not s or s.startswith('#') or s.startswith('```') or re.match(r'^> [A-Z][A-Z0-9_]+:', line):
+            break
+        out.append(line)
+    return '\n'.join(out).strip()
+
+
+def _milestone_groups(body: str, scope: str) -> 'list | None':
+    """Return None if no MILESTONE marker falls inside the resolved scope,
+    else a list of {title, summary, line_start, line_end} in document order.
+    A milestone's own range runs to the next MILESTONE marker (or the outer
+    scope's own end) — other marker types (RATE, INVOICED, ...) inside it
+    don't end it; those are handled by _parse_timedot_slice's own walk.
+
+    scope: 'since_invoice' (mirrors _last_invoice_cutoff, but by marker LINE
+    not date) | 'future' (after TODAY) | 'all' (whole body)."""
+    lines   = body.split('\n')
+    markers = _diary_markers(body)
+
+    if scope == 'future':
+        today_m = next((m for m in markers if m['type'] == 'TODAY'), None)
+        if not today_m:
+            return None
+        scope_start, scope_end = today_m['line'] + 1, len(lines)
+    elif scope == 'all':
+        scope_start, scope_end = 0, len(lines)
+    else:  # since_invoice
+        billing = [m for m in markers if m['type'] in ('INVOICED', 'CLOSED')]
+        scope_start = billing[-1]['line'] + 1 if billing else 0
+        scope_end   = len(lines)
+
+    milestones = [m for m in markers
+                  if m['type'] == 'MILESTONE' and scope_start <= m['line'] < scope_end]
+    if not milestones:
+        return None
+
+    groups = []
+    for i, m in enumerate(milestones):
+        seg_start = m['line'] + 1
+        seg_end   = milestones[i + 1]['line'] if i + 1 < len(milestones) else scope_end
+        groups.append({
+            'title':      m['ref'],
+            'summary':    _milestone_summary(lines, seg_start, seg_end),
+            'line_start': seg_start,
+            'line_end':   seg_end,
+        })
+    return groups
+
+
+def _parse_timedot(text: str, fallback_date: str) -> list:
+    """Return [(date, hours, comment), ...] from raw timedot block content.
+    Ported verbatim from djp:.tools/gen-project-journal.py's _parse_timedot —
+    already proven against real diary content (nathan.md and others)."""
+    entries  = []
+    cur_date = fallback_date
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith('#'):
+            continue
+        m = re.match(r'^(\d{4}-\d{2}-\d{2})\s*$', s)
+        if m:
+            cur_date = m.group(1)
+            continue
+        m = re.match(r'^\s*\S.*?\s{2,}([.\d]+)\s*(?:;\s*(.*))?$', line)
+        if m:
+            h_str, comment = m.group(1), (m.group(2) or '').strip()
+            try:
+                hours = float(h_str)
+            except ValueError:
+                hours = h_str.count('.') * 0.25
+            if cur_date:
+                entries.append((cur_date, hours, comment))
+    return entries
+
+
+def _parse_timedot_slice(text: str, default_date: str, start_rate: float) -> list:
+    """Parse '## date' headings + ```timedot blocks + '> RATE:' markers
+    directly from a body slice (not the generated journal — this is what lets
+    a milestone-bounded slice get its own itemized rows). Returns entries:
+    {date, hours, description, rate, amount}.
+
+    RATE-marker tracking mirrors _timedotExtractLabourJournal's sequential
+    walk (plugins/nbweb-codeblocks.js:5782) — that JS function is the
+    authoritative, already-correct implementation (real invoices' "rate
+    change to $X" rows come from it); this is a faithful port for the slice
+    case, where there's no pre-generated journal to lean on instead."""
+    lines       = text.split('\n')
+    cur_rate    = start_rate
+    cur_date    = default_date
+    entries     = []
+    in_block    = False
+    block_lines = []
+    for line in lines:
+        m_rate = re.match(r'^>\s*RATE:\s*([\d.]+)', line)
+        if m_rate:
+            cur_rate = float(m_rate.group(1))
+            continue
+        if line.startswith('```timedot'):
+            in_block, block_lines = True, []
+            continue
+        if in_block:
+            if line.startswith('```'):
+                in_block = False
+                for edate, hours, comment in _parse_timedot('\n'.join(block_lines), cur_date):
+                    amount = round(hours * cur_rate, 2)
+                    entries.append({'date': edate, 'hours': hours, 'description': comment,
+                                     'rate': cur_rate, 'amount': amount})
+                continue
+            block_lines.append(line)
+            continue
+        m_head = re.match(r'^#{1,6}\s+(\d{4}-\d{2}-\d{2})', line)
+        if m_head:
+            cur_date = m_head.group(1)
+    return entries
+
+
+def _entry_rate(e: dict, fallback_rate: float) -> float:
+    return round(e['amount'] / e['hours'], 2) if e['hours'] else fallback_rate
+
+
+def _labour_row(e: dict, fallback_rate: float) -> str:
+    desc = (e['description'] or '—')[:60]
+    return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${_entry_rate(e, fallback_rate):.2f} | ${e['amount']:.2f} |"
+
+
+def _build_labour_table(entries: list, rate_unit_abbrev: str, fallback_rate: float,
+                         total_hours: float, total_amount: float) -> tuple:
+    """Returns (labour_lines_markdown, current_rate). Shared row-building —
+    same "rate change to $X" row logic used by the flat (no-milestone) path
+    and, per-slice, by each milestone's own section."""
+    rows, prev_rate = [], None
+    for e in entries:
+        r = _entry_rate(e, fallback_rate)
+        if prev_rate is not None and r != prev_rate:
+            rows.append(f"| | rate change to ${r:.2f}/{rate_unit_abbrev} | | | |")
+        rows.append(_labour_row(e, fallback_rate))
+        prev_rate = r
+    current_rate = prev_rate if prev_rate is not None else fallback_rate
+    lines = '\n'.join(rows) if rows else \
+        f"| — | Labour | {total_hours:.1f} | ${fallback_rate:.2f} | ${total_amount:.2f} |"
+    return lines, current_rate
+
+
+def _csv_block_rows(text: str, token: str, default_date: str) -> dict:
+    """Bucket a `csv <token>` block's data rows by nearest-preceding '## date'
+    heading within `text`. Returns {date: [raw_row_lines]}. Extracted from the
+    original inline loop in api_t_journal_from_csv so both the full-body
+    journal-regen endpoint and the milestone-slice renderer share one
+    implementation."""
+    heading_re = re.compile(r'^#{1,6}\s+(\d{4}-\d{2}-\d{2})', re.MULTILINE)
+    headings   = [(m.start(), m.group(1)) for m in heading_re.finditer(text)]
+    block_re   = re.compile(r'```csv ' + re.escape(token) + r'\n([\s\S]*?)```')
+    rows_by_date = {}
+    for m in block_re.finditer(text):
+        block_date = default_date
+        for pos, d in headings:
+            if pos <= m.start():
+                block_date = d
+            else:
+                break
+        for line in m.group(1).splitlines():
+            s = line.strip()
+            if s and s.lower() != 'contents':
+                rows_by_date.setdefault(block_date, []).append(line)
+    return rows_by_date
+
+
+def _csv_row_total(row: list) -> float:
+    """Line total for one parsed csv row — col[4] if present, else qty×cost
+    fallback. Extracted from api_t_journal_from_csv's per-row loop."""
+    lt = 0.0
+    if len(row) > 4:
+        try: lt = float(row[4].replace(',', ''))
+        except ValueError: pass
+    if not lt:
+        nums = []
+        for c in row:
+            c = c.strip()
+            if c and not c.startswith('='):
+                try: nums.append(float(c.replace(',', '')))
+                except ValueError: pass
+        if len(nums) >= 2:
+            lt = nums[0]
+            for n in nums[1:]: lt *= n
+        elif len(nums) == 1:
+            lt = nums[0]
+    return round(lt, 2)
+
+
+def _csv_tokens_in_text(text: str) -> list:
+    """Distinct csv <token> fence names appearing in text, in first-seen order."""
+    seen, tokens = set(), []
+    for m in re.finditer(r'```csv\s+(\w[\w/-]*)', text):
+        tok = m.group(1)
+        if tok not in seen:
+            seen.add(tok)
+            tokens.append(tok)
+    return tokens
+
+
+def _csv_token_subtotal(text: str, token: str, default_date: str, hst_rate: float = 0.13) -> 'tuple | None':
+    """Sum a csv <token> block's rows within `text`. Returns (subtotal, gross)
+    or None if the token has no data rows in this text."""
+    import csv as _csv, io as _io
+    rows_by_date = _csv_block_rows(text, token, default_date)
+    total, any_rows = 0.0, False
+    for rows in rows_by_date.values():
+        reader = _csv.reader(_io.StringIO('\n'.join(rows)))
+        for row in reader:
+            if not any(c.strip() for c in row):
+                continue
+            lt = _csv_row_total(row)
+            if lt:
+                total += lt
+                any_rows = True
+    if not any_rows:
+        return None
+    total = round(total, 2)
+    return total, round(total * (1 + hst_rate), 2)
+
+
+def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit_abbrev: str,
+                                btype: str, default_date: str, hst_rate: float = 0.13) -> tuple:
+    """Build markdown for each milestone's own section (heading, summary,
+    itemized labour rows, materials row(s), per-milestone subtotal). Returns
+    (markdown, labour_total, mat_sub, mat_gross) — the last three are GRAND
+    aggregates across all milestones, in the exact shape
+    _invoice_journal_totals's callers already expect, so the caller's
+    existing cash/t&m total + ledger-block logic is reused unchanged rather
+    than duplicated here."""
+    sections = []
+    grand_labour = grand_mat_sub = grand_mat_gross = 0.0
+    for g in groups:
+        slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
+        entries  = _parse_timedot_slice(slice_text, default_date, rate)
+        hours    = round(sum(e['hours'] for e in entries), 2)
+        m_labour = round(sum(e['amount'] for e in entries), 2)
+        labour_md, _ = _build_labour_table(entries, rate_unit_abbrev, rate, hours, m_labour)
+
+        mat_rows, m_sub, m_gross = [], 0.0, 0.0
+        for token in _csv_tokens_in_text(slice_text):
+            result = _csv_token_subtotal(slice_text, token, default_date, hst_rate)
+            if result:
+                sub, gross = result
+                mat_rows.append(f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |")
+                m_sub   += sub
+                m_gross += gross
+
+        grand_labour    += m_labour
+        grand_mat_sub   += m_sub
+        grand_mat_gross += m_gross
+
+        if btype == 'cash':
+            m_total  = round(m_labour + m_gross, 2)
+            sub_line = f"**{g['title']} subtotal: ${m_total:.2f}**"
+        else:
+            m_pretax = round(m_labour + m_sub, 2)
+            m_hst    = round(m_pretax * hst_rate, 2)
+            m_total  = round(m_pretax + m_hst, 2)
+            sub_line = f"**{g['title']} subtotal: ${m_pretax:.2f} + HST ${m_hst:.2f} = ${m_total:.2f}**"
+
+        section = f"### {g['title']}\n"
+        if g['summary']:
+            section += f"\n{g['summary']}\n"
+        section += "\n| Date | Description | Hours | Rate | Amount |\n|---|---|---|---|---|\n" + labour_md + "\n"
+        if mat_rows:
+            section += '\n'.join(mat_rows) + '\n'
+        section += f"\n{sub_line}\n"
+        sections.append(section)
+
+    markdown = '\n---\n\n'.join(sections)
+    return markdown, round(grand_labour, 2), round(grand_mat_sub, 2), round(grand_mat_gross, 2)
 
 
 def _lookup_contact(client_ref: str, project_str: str) -> str:
@@ -4732,7 +5002,7 @@ def api_t_invoice_generate():
     if not note_path or not note_path.exists():
         return jsonify({'error': 'note not found'}), 404
 
-    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
+    meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
     notebook   = selector.split(':')[0] if ':' in selector else 'home'
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
@@ -4745,11 +5015,25 @@ def api_t_invoice_generate():
     if not timedot_key and journal_key:
         timedot_key = journal_key.replace('.journal', '-gen.timedot')
 
-    labour_total, expense_dict = _invoice_journal_totals(journal_key)
-    entries, _ = _parse_labour_entries(journal_key)
-    mat_sub   = sum(v[0] for v in expense_dict.values())
-    mat_gross = sum(v[1] for v in expense_dict.values())
-    labour_hours = round(sum(e['hours'] for e in entries), 2)
+    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
+        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
+    default_date = str(meta.get('started') or _dt.date.today())
+    _milestones  = _milestone_groups(body, 'since_invoice')
+
+    if _milestones:
+        # Milestone markers inside the invoiced period are rare in practice
+        # (MILESTONE content normally lives past > TODAY:, in quote/planning
+        # territory) but handled the same way, per-milestone sections instead
+        # of one flat table — see _render_milestone_sections.
+        milestone_md, labour_total, mat_sub, mat_gross = _render_milestone_sections(
+            _milestones, body.split('\n'), rate, rate_unit_abbrev, btype, default_date)
+        entries, labour_hours = None, None
+    else:
+        labour_total, expense_dict = _invoice_journal_totals(journal_key)
+        entries, _ = _parse_labour_entries(journal_key)
+        mat_sub   = sum(v[0] for v in expense_dict.values())
+        mat_gross = sum(v[1] for v in expense_dict.values())
+        labour_hours = round(sum(e['hours'] for e in entries), 2)
 
     # Derive notebook + relative folder
     nb_root     = NB_DIR / notebook
@@ -4814,37 +5098,25 @@ def api_t_invoice_generate():
 ;     {payment_acct:<{W-4}} {ar_total:.2f} CAD
 ;     {ar_acct:<{W-4}}-{ar_total:.2f} CAD'''
 
-    # Per-day labour rows (entries already computed above). Each row's rate is
-    # derived from that entry's own already-correct amount/hours — never the note's
-    # single current-rate scalar, which disagrees with older entries whenever a
-    # > RATE: marker changed the rate mid-project (see rate-drift finding,
-    # claude:nbweb-hledger_plugin_design.md). A "rate change to $X" row is inserted
-    # wherever consecutive entries' derived rates differ — the same thing INV-2026-009
-    # did by hand; this makes it automatic.
-    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
-        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
-
-    def _entry_rate(e):
-        return round(e['amount'] / e['hours'], 2) if e['hours'] else rate
-
-    def _labour_row(e):
-        desc = (e['description'] or '—')[:60]
-        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${_entry_rate(e):.2f} | ${e['amount']:.2f} |"
-
-    labour_rows, prev_rate = [], None
-    for e in entries:
-        r = _entry_rate(e)
-        if prev_rate is not None and r != prev_rate:
-            labour_rows.append(f"| | rate change to ${r:.2f}/{rate_unit_abbrev} | | | |")
-        labour_rows.append(_labour_row(e))
-        prev_rate = r
-    current_rate = prev_rate if prev_rate is not None else rate
-    labour_lines = '\n'.join(labour_rows) if labour_rows else \
-        f"| — | Labour | {labour_hours:.1f} | ${rate:.2f} | ${labour_total:.2f} |"
-    expense_lines = '\n'.join(
-        f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
-        for token, (_, gross) in expense_dict.items()
-    )
+    # Per-day labour rows. Each row's rate is derived from that entry's own
+    # already-correct amount/hours — never the note's single current-rate
+    # scalar, which disagrees with older entries whenever a > RATE: marker
+    # changed the rate mid-project (see rate-drift finding,
+    # claude:nbweb-hledger_plugin_design.md). A "rate change to $X" row is
+    # inserted wherever consecutive entries' derived rates differ — the same
+    # thing INV-2026-009 did by hand; this makes it automatic
+    # (_build_labour_table, shared with the milestone-grouped path below).
+    if _milestones:
+        labour_lines  = milestone_md
+        expense_lines = ''
+        current_rate  = rate
+    else:
+        labour_lines, current_rate = _build_labour_table(
+            entries, rate_unit_abbrev, rate, labour_hours, labour_total)
+        expense_lines = '\n'.join(
+            f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
+            for token, (_, gross) in expense_dict.items()
+        )
 
     notes_section = f'\n\n**Notes:** {notes}' if notes else ''
 
@@ -5050,7 +5322,7 @@ def api_t_quote_generate():
     if not note_path or not note_path.exists():
         return jsonify({'error': 'note not found'}), 404
 
-    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
+    meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
     notebook   = selector.split(':')[0] if ':' in selector else 'home'
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
@@ -5063,11 +5335,24 @@ def api_t_quote_generate():
     if not timedot_key and journal_key:
         timedot_key = journal_key.replace('.journal', '-gen.timedot')
 
-    labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
-    entries, _ = _parse_labour_entries(journal_key, scope)
-    mat_sub   = sum(v[0] for v in expense_dict.values())
-    mat_gross = sum(v[1] for v in expense_dict.values())
-    labour_hours = round(sum(e['hours'] for e in entries), 2)
+    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
+        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
+    default_date = str(meta.get('started') or _date.today())
+    # scope is already resolved to 'future' | 'all' above (never 'since_invoice'
+    # here — quotes are never scoped to since-last-invoice) — _milestone_groups
+    # accepts the same three scope strings the invoice path uses.
+    _milestones = _milestone_groups(body, scope)
+
+    if _milestones:
+        milestone_md, labour_total, mat_sub, mat_gross = _render_milestone_sections(
+            _milestones, body.split('\n'), rate, rate_unit_abbrev, btype, default_date)
+        entries, labour_hours = None, None
+    else:
+        labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
+        entries, _ = _parse_labour_entries(journal_key, scope)
+        mat_sub   = sum(v[0] for v in expense_dict.values())
+        mat_gross = sum(v[1] for v in expense_dict.values())
+        labour_hours = round(sum(e['hours'] for e in entries), 2)
 
     nb_root     = NB_DIR / notebook
     project_dir = note_path.parent
@@ -5090,31 +5375,19 @@ def api_t_quote_generate():
         est_total     = round(subtotal + total_hst, 2)
         total_display = f'**Estimated Subtotal: ${subtotal:.2f} + HST ${total_hst:.2f} = Estimated Total: ${est_total:.2f}**'
 
-    # Same rate-drift handling as api_t_invoice_generate — see comment there.
-    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
-        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
-
-    def _entry_rate(e):
-        return round(e['amount'] / e['hours'], 2) if e['hours'] else rate
-
-    def _labour_row(e):
-        desc = (e['description'] or '—')[:60]
-        return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${_entry_rate(e):.2f} | ${e['amount']:.2f} |"
-
-    labour_rows, prev_rate = [], None
-    for e in entries:
-        r = _entry_rate(e)
-        if prev_rate is not None and r != prev_rate:
-            labour_rows.append(f"| | rate change to ${r:.2f}/{rate_unit_abbrev} | | | |")
-        labour_rows.append(_labour_row(e))
-        prev_rate = r
-    current_rate = prev_rate if prev_rate is not None else rate
-    labour_lines = '\n'.join(labour_rows) if labour_rows else \
-        f"| — | Labour | {labour_hours:.1f} | ${rate:.2f} | ${labour_total:.2f} |"
-    expense_lines = '\n'.join(
-        f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
-        for token, (_, gross) in expense_dict.items()
-    )
+    # Same rate-drift handling as api_t_invoice_generate — see comment there
+    # (_build_labour_table, shared with the milestone-grouped path below).
+    if _milestones:
+        labour_lines  = milestone_md
+        expense_lines = ''
+        current_rate  = rate
+    else:
+        labour_lines, current_rate = _build_labour_table(
+            entries, rate_unit_abbrev, rate, labour_hours, labour_total)
+        expense_lines = '\n'.join(
+            f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
+            for token, (_, gross) in expense_dict.items()
+        )
     scope_label = 'remaining work (from tomorrow on)' if scope == 'future' else 'the whole job, start to finish'
     valid_line  = f' · **Valid until:** {valid_until}' if valid_until else ''
     notes_md    = f'\n**Notes:** {notes}\n' if notes else ''
@@ -5143,6 +5416,10 @@ def api_t_quote_generate():
             content = content.replace(k, v)
     else:
         mat_row = f'| Materials (est.) | cost + HST | ${mat_gross:.2f} |\n' if mat_gross > 0 else ''
+        # Milestone sections each carry their own '### title' + table header
+        # (_render_milestone_sections) — the flat header below only applies
+        # to the single-table (no-milestone) case.
+        header_row = '' if _milestones else '| Date | Description | Hours | Rate | Amount |\n|---|---|---|---|---|\n'
         content = f'''---
 title: "{quote_num} — {client}"
 type: quote
@@ -5173,9 +5450,7 @@ Actual amounts are determined when the work is done and invoiced separately.
 
 ## Estimated services
 
-| Date | Description | Hours | Rate | Amount |
-|---|---|---|---|---|
-{labour_lines}
+{header_row}{labour_lines}
 {expense_lines}
 
 {total_display}{notes_md}

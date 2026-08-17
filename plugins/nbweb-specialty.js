@@ -122,23 +122,9 @@
         const body    = note.body || '';
 
         if (!body.includes(heading)) {
-            const todayM     = /^> TODAY:/m.exec(body);
-            const milestoneM = /^> MILESTONE:/m.exec(body);
-
-            let newBody;
-            if (todayM) {
-                // Insert immediately above > TODAY: marker
-                newBody = body.slice(0, todayM.index).trimEnd()
-                    + `\n\n${heading}\n\n`
-                    + body.slice(todayM.index);
-            } else if (milestoneM) {
-                // No TODAY marker — insert before first planned milestone
-                newBody = body.slice(0, milestoneM.index).trimEnd()
-                    + `\n\n${heading}\n\n`
-                    + body.slice(milestoneM.index);
-            } else {
-                newBody = body.trimEnd() + `\n\n${heading}\n\n`;
-            }
+            // Shared with main.js's _ensureTodayHeading -- one correct
+            // "insert before the > TODAY: pivot" implementation, not two.
+            const newBody = NbMain.insertBeforeToday(body, heading);
 
             // Preserve FM: note.raw = full file; FM ends at second ---
             const raw = note.raw || '';
