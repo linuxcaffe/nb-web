@@ -1036,11 +1036,19 @@ body {
     font-size: 0.85em; color: var(--text-muted);
     white-space: nowrap;
 }
-.nb-invoice-fields input {
+.nb-invoice-fields input,
+.nb-invoice-fields select {
     flex: 1; padding: 3px 7px;
     border: 1px solid var(--border); border-radius: 4px;
     background: var(--bg2); color: var(--text); font-size: 1em;
 }
+/* Org-directive scaffolding wizard's create-modal preview list (nbweb-cine.js) --
+   sits between the field form and the buttons, reusing the invoice dialog's
+   overlay/panel/fields/buttons but this one row-list shape is new. */
+.nb-org-action-preview { font-size: 0.83em; color: var(--text-muted); margin-bottom: 10px; max-height: 160px; overflow-y: auto; }
+.nb-org-action-preview-row { padding: 2px 0; }
+.nb-org-action-preview-row code { color: var(--text); }
+.nb-org-action-preview-skipped { opacity: 0.55; }
 .nb-invoice-btns { display: flex; justify-content: flex-end; gap: 8px; }
 .nb-invoice-btns button {
     padding: 5px 14px; font-size: 0.9em; cursor: pointer;
@@ -2945,6 +2953,21 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-config-org-chip        { font-size: 11px; padding: 2px 9px; border-radius: 10px; background: var(--bg3); color: var(--text-dim); border: 1px solid var(--border); cursor: pointer; user-select: none; transition: color 0.1s, border-color 0.1s; }
 .nb-config-org-chip:hover  { color: var(--text); border-color: var(--accent, #4a9eff); }
 .nb-config-org-chip-active { background: color-mix(in srgb, var(--accent, #4a9eff) 15%, var(--bg2)); color: var(--accent, #4a9eff); border-color: var(--accent, #4a9eff); }
+
+/* add: org — process-tree scaffolding wizard (2026-08-16). Static SVG, no
+   pan/zoom (these trees are small — a handful of nodes, not cfg/cine org's
+   scale). Action nodes get a visibly different fill/dash from a plain
+   navigate node — a real cue that clicking one does something other than
+   the "always safe, always just navigates" behavior every other org chart
+   in this app has. */
+.nb-add-org-svg  { display: block; }
+.nb-add-org-edge { stroke: var(--border); stroke-width: 1.5; }
+.nb-add-org-rect { fill: var(--bg2); stroke: var(--border); stroke-width: 1.5; transition: filter 0.1s; }
+.nb-add-org-node[style*="pointer"]:hover .nb-add-org-rect { filter: brightness(1.18); }
+.nb-add-org-node.nb-add-org-inert .nb-add-org-rect { stroke-dasharray: 4 3; }
+.nb-add-org-node.nb-add-org-inert .nb-add-org-label { fill: var(--text-muted, #aaa); }
+.nb-add-org-node.nb-add-org-action .nb-add-org-rect { fill: var(--bg3); stroke: var(--accent-alt, #f0a500); stroke-dasharray: 2 2; }
+.nb-add-org-label { font-size: 11px; fill: var(--text); font-family: var(--font-sans, system-ui); dominant-baseline: auto; }
 
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }

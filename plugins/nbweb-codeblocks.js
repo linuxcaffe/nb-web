@@ -3025,6 +3025,558 @@
         }
     }
 
+    // ── add org — process-tree scaffolding wizard ────────────────────────────
+    // A fourth, genuinely distinct org-chart data source (2026-08-16 design):
+    // not cfg org's filesystem walk, not a hypothetical frontmatter-relationship
+    // tree, not cine org's plugin-gated production-pipeline display (which stays
+    // exactly as it was, untouched by this). This is a hand-authored *process*
+    // tree, read from a `.{name}-org.md` file (same file-naming convention cine
+    // org already established, same recursive-heading source shape) -- but
+    // every node's own grammar is closed to KIND/TEMPLATE/AT/IF only, no
+    // PHASE/QUERY (those are cine-specific concepts this has no use for).
+    // Click on any KIND-bearing node opens a create-modal (field-collection
+    // form derived from the referenced templates' own {{placeholders}}, a
+    // preview, then execution) instead of navigating -- a genuinely different
+    // click contract from every other org chart in this app, which is exactly
+    // why this needed its own lang rather than folding into cfg/cine's.
+
+    const _ADD_ORG_FIELD_RE = /^(KIND|TEMPLATE|AT|IF):\s*(.*)$/;
+    const _ADD_ORG_WIKILINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/;
+
+    function _parseAddOrgSource(body) {
+        const lines = (body || '').split('\n');
+        const root = { level: 0, label: '', wikiTarget: null, kind: null, template: null, at: null, cond: null, caption: '', children: [] };
+        const stack = [root];
+        // Tracks whether we're still inside a wrapped "- comment" paragraph --
+        // a multi-line list-item comment only has its FIRST line starting
+        // with "- "; continuation lines are indented, no leading dash. Found
+        // live: without this, a wrapped comment's continuation lines fell
+        // through into caption and leaked into the create-modal's preview.
+        // Reset whenever a heading starts (new owner) or a blank/col-0 line
+        // ends the wrapped paragraph -- a continuation line always keeps its
+        // original leading whitespace, a real new field/caption line doesn't.
+        let inComment = false;
+        for (const raw of lines) {
+            const hm = /^(#{1,6})\s+(.*)$/.exec(raw);
+            if (hm) {
+                inComment = false;
+                const level = hm[1].length;
+                const text  = hm[2].trim();
+                const wm = _ADD_ORG_WIKILINK_RE.exec(text);
+                const node = {
+                    level, label: wm ? (wm[2] || wm[1]).trim() : text, wikiTarget: wm ? wm[1].trim() : null,
+                    kind: null, template: null, at: null, cond: null, caption: '', children: [],
+                };
+                while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
+                stack[stack.length - 1].children.push(node);
+                stack.push(node);
+                continue;
+            }
+            const owner = stack[stack.length - 1];
+            if (owner === root) continue;
+            const trimmed = raw.trim();
+            if (!trimmed) { inComment = false; continue; }   // blank line ends any wrapped comment
+            if (/^-\s+/.test(trimmed)) { inComment = true; continue; }   // comment start -- never stored
+            if (inComment) {
+                if (/^\s/.test(raw)) continue;   // indented continuation -- still part of the comment
+                inComment = false;               // col-0 line -- comment's over, fall through and process normally
+            }
+            if (trimmed.startsWith('>')) {
+                const rest = trimmed.slice(1).trim();
+                const fm = _ADD_ORG_FIELD_RE.exec(rest);
+                if (fm) {
+                    const [, field, value] = fm;
+                    if (field === 'KIND' && owner.kind === null)     owner.kind = value.trim();
+                    if (field === 'TEMPLATE' && owner.template === null) owner.template = value.trim();
+                    if (field === 'AT' && owner.at === null)         owner.at = value.trim();
+                    if (field === 'IF' && owner.cond === null)       owner.cond = value.trim();
+                    continue;
+                }
+                owner.caption += (owner.caption ? '\n' : '') + rest;
+                continue;
+            }
+            owner.caption += (owner.caption ? '\n' : '') + trimmed;
+        }
+        return root;
+    }
+
+    const _ADD_ORG_PLACEHOLDER_RE = /\{\{(\w+)(?::([^{}]*)|\|([^{}]*))?\}\}/g;
+
+    function _addOrgActionLeaves(node, out) {
+        out = out || [];
+        if (node.kind) out.push(node);
+        for (const c of (node.children || [])) _addOrgActionLeaves(c, out);
+        return out;
+    }
+
+    // Mirrors app.py's re.sub(r'[^\w\-]', '_', value).strip('_') --
+    // api_create_note's own notebook-creation branch, reused here rather
+    // than inventing a second sanitization rule.
+    function _addOrgSanitizeSlug(value) {
+        return String(value == null ? '' : value).replace(/[^\w-]/g, '_').replace(/^_+|_+$/g, '');
+    }
+
+    // {name, options, defaultVal}[] for every {{field}}/{{field|default}}/
+    // {{field:opt1|opt2}} in text. [^{}] keeps a match from crossing into an
+    // unrelated nested brace pair (e.g. a {{hledger: ...}} inline query) --
+    // verified directly against that exact case (see app.py's
+    // _resolve_template_vars docstring for the same reasoning, ported here).
+    function _addOrgPlaceholderFields(text) {
+        const fields = [];
+        _ADD_ORG_PLACEHOLDER_RE.lastIndex = 0;
+        let m;
+        while ((m = _ADD_ORG_PLACEHOLDER_RE.exec(text || ''))) {
+            const [, name, opts, def] = m;
+            fields.push({ name, options: opts ? opts.split('|') : null, defaultVal: def || '' });
+        }
+        return fields;
+    }
+
+    async function _addOrgFetchTemplate(notebook, name) {
+        try {
+            // /api/templates returns every notebook's templates unfiltered
+            // (the `notebook` query param is API-compat only) -- filter to
+            // this notebook explicitly, not just by name, since a generic
+            // name like "contact" could plausibly exist in another notebook.
+            const list = await fetch(`/api/templates?notebook=${encodeURIComponent(notebook)}`).then(r => r.json());
+            const meta = (list.templates || []).find(t => t.name === name && t.notebook === notebook);
+            if (!meta?.path) return '';
+            const d = await fetch(`/api/template?path=${encodeURIComponent(meta.path)}`).then(r => r.json());
+            return d.content || '';
+        } catch { return ''; }
+    }
+
+    // Builtin vars _resolve_template_vars (app.py) already fills in
+    // server-side -- must never show up as a form field the user gets asked
+    // to fill in themselves. Found live: {{date}} in project.md's own
+    // `started: {{date}}` leaked into the create-modal's form.
+    const _ADD_ORG_BUILTIN_VARS = new Set(['title', 'name', 'input', 'tags', 'content', 'date', 'day', 'time', 'weather']);
+
+    // Union of every {{placeholder}} across every leaf's own AT: and fetched
+    // TEMPLATE content, plus every IF: field name -- first-occurrence-wins
+    // per field name. Also returns fetched template bodies (keyed by name)
+    // so the caller doesn't re-fetch at execute time.
+    async function _addOrgScanForm(leaves, notebook) {
+        const seen = new Map();
+        const add = f => { if (!_ADD_ORG_BUILTIN_VARS.has(f.name) && !seen.has(f.name)) seen.set(f.name, f); };
+        const templates = new Map();
+        for (const leaf of leaves) {
+            for (const f of _addOrgPlaceholderFields(leaf.at || '')) add(f);
+            if (leaf.cond) add({ name: leaf.cond, options: null, defaultVal: '' });
+            if (leaf.template && !templates.has(leaf.template)) {
+                templates.set(leaf.template, await _addOrgFetchTemplate(notebook, leaf.template));
+            }
+        }
+        for (const [, content] of templates) {
+            for (const f of _addOrgPlaceholderFields(content)) add(f);
+        }
+        return { fields: [...seen.values()], templates };
+    }
+
+    // Resolves an AT: path against current form values -- same per-known-
+    // field-name approach as app.py's _resolve_template_vars (not a generic
+    // {{...}} scan-then-replace), for the identical nested-brace reason.
+    // Sanitizes each SUBSTITUTED VALUE before insertion, never the
+    // surrounding literal template text -- e.g. ".{{project_slug}}.md"'s own
+    // leading/trailing dots are the template author's literal dotfile
+    // syntax, not user input, and must survive untouched. Sanitizing the
+    // whole resolved path string afterward instead (the original approach)
+    // can't tell those apart: a leading "." converts to "_" then gets
+    // stripped by the trim step, silently erasing the dotfile marker and
+    // colliding two different leaves onto the same filename. Found live.
+    function _addOrgResolveText(text, values) {
+        let out = text || '';
+        for (const [name, val] of Object.entries(values)) {
+            const safeVal = _addOrgSanitizeSlug(val);
+            const re = new RegExp('\\{\\{' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\|([^{}]*)|:[^{}]*)?\\}\\}', 'g');
+            out = out.replace(re, (m, def) => (safeVal ? safeVal : (def || '')));
+        }
+        return out;
+    }
+
+    function _addOrgConditionMet(leaf, values) {
+        if (!leaf.cond) return true;
+        return !!String(values[leaf.cond] || '').trim();
+    }
+
+    function _addOrgSplitFolderPath(path) {
+        const parts = path.split('/').filter(Boolean);
+        return { folder: parts.slice(0, -1).join('/'), title: parts[parts.length - 1] || '' };
+    }
+
+    async function _addOrgNoteExists(selector) {
+        try {
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}`);
+            if (!r.ok) return false;
+            const d = await r.json();
+            return !d.error;
+        } catch { return false; }
+    }
+
+    // Whether a subfolder already exists directly under `parentFolder`.
+    // run_nb('folders', 'add', ...) is NOT idempotent -- confirmed live: on
+    // an already-existing target it silently creates a numbered sibling
+    // (zztestverify-1, -2, -3, ...) instead of succeeding as a no-op or
+    // erroring. So a real pre-check is required here, unlike note/contact
+    // KIND where the exists-check is a genuine safety mechanism and unlike
+    // what the plan originally assumed ("idempotent, skip-if-exists" was the
+    // agreed design intent -- this is what actually makes that true, since
+    // the underlying nb command doesn't provide it itself).
+    async function _addOrgFolderExists(notebook, parentFolder, name) {
+        try {
+            const params = new URLSearchParams({ notebook, folder: parentFolder, limit: '500' });
+            const d = await fetch(`/api/notes?${params}`).then(r => r.json());
+            return (d.notes || []).some(it => it.type === 'folder' && it.filename === name);
+        } catch { return false; }
+    }
+
+    // Executes one leaf. Returns {status: 'created'|'exists'|'skipped'|'error', selector?}.
+    // folder KIND: every ancestor path segment created in order (idempotent,
+    // skip-if-exists per segment) rather than trusting a single call to
+    // create N nested levels atomically -- not verified either way, safer
+    // not to assume. note/contact KIND: exists -> treated as the navigable
+    // result same as freshly created; missing -> created from the resolved
+    // template content + a `vars` dict (server-side substitution, app.py's
+    // _resolve_template_vars extension -- no client-side content
+    // substitution needed beyond the AT: path itself). Always live against
+    // real disk state, never a cache (Q6 -- an action about to write files
+    // can't trust a possibly-stale exists-check).
+    async function _addOrgExecuteLeaf(leaf, notebook, values, templates) {
+        if (!_addOrgConditionMet(leaf, values)) return { status: 'skipped' };
+        const rawAt = leaf.at || '';
+        // Already safe -- _addOrgResolveText sanitizes each substituted
+        // value at insertion time, leaving the template's own literal path
+        // text (dots, slashes, the .md extension) untouched.
+        const resolvedAt = _addOrgResolveText(rawAt, values);
+
+        if (leaf.kind === 'folder') {
+            const segments = resolvedAt.split('/').filter(Boolean);
+            let built = [];
+            for (const seg of segments) {
+                const folder = built.join('/');
+                built.push(seg);
+                // Real pre-check, not a try/catch-and-hope -- see
+                // _addOrgFolderExists's own comment for why the create call
+                // itself can't be trusted to be idempotent here.
+                if (await _addOrgFolderExists(notebook, folder, seg)) continue;
+                try {
+                    await fetch('/api/notes', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ notebook, folder, title: seg, type: 'folder' }),
+                    });
+                } catch { /* best-effort per segment */ }
+            }
+            return { status: 'created' };
+        }
+
+        // note / contact / notebook
+        if (leaf.kind === 'notebook') {
+            const nbName = _addOrgResolveText(rawAt, values);
+            try {
+                const r = await fetch('/api/notes', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notebook: nbName, title: nbName, type: 'notebook' }),
+                });
+                const d = await r.json();
+                if (!r.ok || d.error) return { status: 'error' };
+                return { status: 'created', selector: d.selector };
+            } catch { return { status: 'error' }; }
+        }
+
+        // AT: may or may not already spell out .md in its own template text
+        // (our worked example's note leaves do: ".../{{project_slug}}.md")
+        // -- normalize once here rather than assuming either way.
+        const targetNotebook = leaf.kind === 'contact' ? 'contacts' : notebook;
+        const atBase = resolvedAt.endsWith('.md') ? resolvedAt.slice(0, -3) : resolvedAt;
+        const selector = `${targetNotebook}:${atBase}.md`;
+        if (await _addOrgNoteExists(selector)) return { status: 'exists', selector };
+
+        const templateContent = templates.get(leaf.template) || '';
+        const { folder, title } = _addOrgSplitFolderPath(atBase);
+        try {
+            const r = await fetch('/api/notes', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    notebook: targetNotebook, folder, title,
+                    // Explicit filename bypasses api_create_note's own
+                    // title->slug conversion (re.sub(r'[^\w]+', '_',
+                    // title).lower() -- hyphens become underscores, case is
+                    // lost) and its type:dotfile-in-template-FM-triggered,
+                    // folder-name-derived dotfile naming -- neither matches
+                    // what an AT: path literally spells out. `title` is a
+                    // real path segment here, already includes any leading
+                    // "." for a dotfile leaf, so it's exactly the filename.
+                    // Found live: without this, ".zzsmoketest.md" (the
+                    // folder dotfile) and "zzsmoketest-reports.md" both
+                    // landed as something else entirely.
+                    filename: title + '.md',
+                    type: 'note',
+                    template_content: templateContent, vars: values,
+                }),
+            });
+            const d = await r.json();
+            if (!r.ok || d.error) return { status: 'error' };
+            return { status: 'created', selector: d.selector || selector };
+        } catch {
+            return { status: 'error' };
+        }
+    }
+
+    // Runs every leaf under `node` (itself included if it carries a KIND) in
+    // document order, respecting IF gates. primarySelector = first KIND:
+    // note leaf's resulting selector (created or already-existing) -- the
+    // agreed post-execute navigation target; contact/folder/notebook leaves
+    // are plumbing, never the target. A dotfile leaf (e.g. the folder-config
+    // ".{project}.md") is still KIND: note -- nothing else distinguishes it
+    // in the grammar -- but its own resolved filename starts with ".", same
+    // signal this whole app already treats as "config, not content"
+    // elsewhere, so it's excluded here too. Found live: without this, a
+    // dotfile leaf appearing before the real content note in document order
+    // won navigation, landing the user on a bare journal-path config file
+    // instead of the note they actually just asked to create.
+    async function _addOrgExecuteBranch(node, notebook, values) {
+        const leaves = _addOrgActionLeaves(node);
+        const templates = new Map();
+        for (const leaf of leaves) {
+            if (leaf.template && !templates.has(leaf.template)) {
+                templates.set(leaf.template, await _addOrgFetchTemplate(notebook, leaf.template));
+            }
+        }
+        const results = [];
+        let primarySelector = null;
+        for (const leaf of leaves) {
+            const r = await _addOrgExecuteLeaf(leaf, notebook, values, templates);
+            results.push({ leaf, ...r });
+            const isDotfile = r.selector && (r.selector.split('/').pop() || '').startsWith('.');
+            if (!primarySelector && leaf.kind === 'note' && r.selector && !isDotfile) primarySelector = r.selector;
+        }
+        return { results, primarySelector };
+    }
+
+    // Field-collection form (derived, not hand-authored per org-source file)
+    // + preview + execute, one form then run. Reuses the existing generic
+    // overlay/panel/fields/buttons CSS (styles.css's "Invoice generation
+    // dialog" block -- already shared cross-plugin) rather than inventing
+    // new unstyled classes.
+    async function _openAddOrgModal(node, notebook) {
+        document.getElementById('nb-add-org-modal')?.remove();
+        const leaves = _addOrgActionLeaves(node);
+        if (!leaves.length) return;
+
+        const el = document.createElement('div');
+        el.id = 'nb-add-org-modal';
+        el.className = 'nb-invoice-overlay';
+        el.innerHTML = '<div class="nb-invoice-panel nb-org-action-panel"><span class="nb-spin">⟳</span></div>';
+        document.body.appendChild(el);
+        const close = () => el.remove();
+        el.addEventListener('click', e => { if (e.target === el) close(); });
+        const escHandler = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escHandler); } };
+        document.addEventListener('keydown', escHandler);
+
+        const { fields, templates } = await _addOrgScanForm(leaves, notebook);
+        const box = el.querySelector('.nb-org-action-panel');
+
+        function renderPreview(values) {
+            return leaves.map(leaf => {
+                const met = _addOrgConditionMet(leaf, values);
+                // _addOrgResolveText already sanitizes substituted values at
+                // insertion time -- this is the same real resulting path
+                // _addOrgExecuteLeaf resolves, not a separate approximation.
+                const path = met ? _addOrgResolveText(leaf.at || '', values) : null;
+                const line = leaf.caption ? _esc(leaf.caption.split('\n')[0]) : _esc(leaf.label);
+                const where = met ? `<code>${_esc(path)}</code>` : '<em>skipped</em>';
+                return `<div class="nb-org-action-preview-row${met ? '' : ' nb-org-action-preview-skipped'}">` +
+                       `<strong>${_esc(leaf.kind)}</strong> — ${line} → ${where}</div>`;
+            }).join('');
+        }
+
+        function currentValues() {
+            const values = {};
+            for (const f of fields) {
+                const input = box.querySelector(`[name="${CSS.escape(f.name)}"]`);
+                values[f.name] = input ? input.value.trim() : '';
+            }
+            return values;
+        }
+
+        const fieldsHtml = fields.map(f => {
+            if (f.options) {
+                const opts = f.options.map(o => `<option value="${_esc(o)}">${_esc(o)}</option>`).join('');
+                return `<label>${_esc(f.name)}<select name="${_esc(f.name)}">${opts}</select></label>`;
+            }
+            return `<label>${_esc(f.name)}` +
+                   `<input name="${_esc(f.name)}" type="text" placeholder="${_esc(f.defaultVal)}"></label>`;
+        }).join('');
+
+        box.innerHTML =
+            `<div class="nb-invoice-hdr">${_esc(node.label)}</div>` +
+            (node.caption ? `<div class="nb-invoice-sub">${_esc(node.caption)}</div>` : '') +
+            `<form class="nb-invoice-fields nb-org-action-form">${fieldsHtml}</form>` +
+            `<div class="nb-org-action-preview">${renderPreview(currentValues())}</div>` +
+            `<div class="nb-inv-tax nb-org-action-status"></div>` +
+            `<div class="nb-invoice-btns">` +
+            `<button type="button" class="nb-org-action-cancel">Cancel</button>` +
+            `<button type="button" class="nb-inv-primary nb-org-action-create">Create</button>` +
+            `</div>`;
+
+        const preview = box.querySelector('.nb-org-action-preview');
+        box.querySelectorAll('.nb-org-action-form input, .nb-org-action-form select').forEach(inp => {
+            inp.addEventListener('input', () => { preview.innerHTML = renderPreview(currentValues()); });
+        });
+        box.querySelector('.nb-org-action-cancel').addEventListener('click', close);
+
+        box.querySelector('.nb-org-action-create').addEventListener('click', async () => {
+            const btn = box.querySelector('.nb-org-action-create');
+            btn.disabled = true; btn.textContent = 'Working…';
+            const values = currentValues();
+            const { results, primarySelector } = await _addOrgExecuteBranch(node, notebook, values);
+            const errors = results.filter(r => r.status === 'error').length;
+            if (errors) {
+                box.querySelector('.nb-org-action-status').textContent =
+                    `${errors} of ${results.length} step(s) failed — see console for detail.`;
+                btn.disabled = false; btn.textContent = 'Create';
+                console.error('add org branch errors', results);
+                return;
+            }
+            close();
+            if (primarySelector) NbMain.openNote(primarySelector);
+        });
+    }
+
+    // Static auto-layout render (no pan/zoom -- these trees are small,
+    // a handful of nodes, not cfg/cine org's own much larger scale, so the
+    // interactive viewport those two need isn't worth porting here yet;
+    // revisit if a real add-org tree grows large enough to need it).
+    function _addOrgRender(el, tree, notebook, orgSource, wasOpen) {
+        el.innerHTML = '';
+        const { hdr, meta } = _buildBarHeader(el, {
+            lang: 'add', cls: 'add-org', collapseZone: true,
+            onRefresh: () => _loadAddOrgBlock(el),
+        });
+        meta.textContent = `add org ${orgSource}`;
+        el.appendChild(hdr);
+        if (!wasOpen) el.classList.add('nb-collapsed');
+        _initCollapseToggle(el);
+
+        const NW = 140, NH = 26, GX = 40, GY = 6, PAD = 14, PAD_BOT = 24;
+
+        function measure(node) {
+            if (!node.children?.length) { node._h = NH; return; }
+            node.children.forEach(measure);
+            const total = node.children.reduce((s, c) => s + c._h, 0) + GY * (node.children.length - 1);
+            node._h = Math.max(NH, total);
+        }
+        function place(node, x, cy) {
+            node._x = x; node._y = cy - NH / 2;
+            if (!node.children?.length) return;
+            let top = cy - node._h / 2;
+            for (const c of node.children) { place(c, x + NW + GX, top + c._h / 2); top += c._h + GY; }
+        }
+        const root = tree.children?.length === 1 ? tree.children[0] : tree;
+        measure(root);
+        place(root, PAD, PAD + root._h / 2);
+        const maxX = n => Math.max(n._x + NW, ...(n.children || []).map(maxX));
+        const maxY = n => Math.max(n._y + NH, ...(n.children || []).map(maxY));
+        const svgW = maxX(root) + PAD, svgH = maxY(root) + PAD_BOT;
+
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('width', svgW); svg.setAttribute('height', svgH);
+        svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+        svg.setAttribute('class', 'nb-add-org-svg');
+
+        function drawEdges(node) {
+            for (const c of (node.children || [])) {
+                const edge = document.createElementNS(NS, 'path');
+                const x1 = node._x + NW, y1 = node._y + NH / 2, x2 = c._x, y2 = c._y + NH / 2;
+                const mx = (x1 + x2) / 2;
+                edge.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+                edge.setAttribute('fill', 'none');
+                edge.setAttribute('class', 'nb-add-org-edge');
+                svg.appendChild(edge);
+                drawEdges(c);
+            }
+        }
+        function drawNode(node) {
+            // A pure subject-header (no KIND of its own, e.g. "Projects" in
+            // the worked example) still needs to be clickable if any
+            // descendant carries a KIND -- it's the natural "run this whole
+            // branch" entry point, not just the individual leaves under it.
+            // Found live: without this, the root heading -- the single most
+            // obvious thing to click -- silently did nothing.
+            const actionableHere = node.kind || _addOrgActionLeaves(node).length > 0;
+
+            const g = document.createElementNS(NS, 'g');
+            g.setAttribute('transform', `translate(${node._x},${node._y})`);
+            const cls = ['nb-add-org-node'];
+            if (actionableHere) cls.push('nb-add-org-action');
+            else if (!node.wikiTarget) cls.push('nb-add-org-inert');
+            g.setAttribute('class', cls.join(' '));
+
+            const tip = document.createElementNS(NS, 'title');
+            tip.textContent = node.label + (node.caption ? `\n${node.caption}` : '');
+            g.appendChild(tip);
+
+            const rect = document.createElementNS(NS, 'rect');
+            rect.setAttribute('width', NW); rect.setAttribute('height', NH); rect.setAttribute('rx', 5);
+            rect.setAttribute('class', 'nb-add-org-rect');
+            g.appendChild(rect);
+
+            const label = document.createElementNS(NS, 'text');
+            label.setAttribute('x', NW / 2); label.setAttribute('y', NH / 2 + 4);
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('class', 'nb-add-org-label');
+            const maxCh = 18;
+            label.textContent = node.label.length > maxCh ? node.label.slice(0, maxCh - 1) + '…' : node.label;
+            g.appendChild(label);
+
+            if (actionableHere) {
+                // Click dispatch: this node or something under it carries
+                // KIND/TEMPLATE/AT -> create-modal, not navigate. Every
+                // heading is independently clickable this way, whether it's
+                // a single leaf or a whole branch's root.
+                g.style.cursor = 'pointer';
+                g.addEventListener('click', () => _openAddOrgModal(node, notebook));
+            } else if (node.wikiTarget) {
+                g.style.cursor = 'pointer';
+                g.addEventListener('click', async () => {
+                    const sel = node.selector || await NbMain.resolveWikilinkSelector(node.wikiTarget);
+                    node.selector = sel;
+                    NbMain.openNote(sel);
+                });
+            }
+            svg.appendChild(g);
+            for (const c of (node.children || [])) drawNode(c);
+        }
+        drawEdges(root);
+        drawNode(root);
+        el.appendChild(svg);
+    }
+
+    async function _loadAddOrgBlock(el) {
+        const note = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+        const notebook = note?.notebook || (note?.selector || '').split(':')[0];
+        const wasOpen = !el.classList.contains('nb-collapsed');
+        const query = (el.dataset.query || '').trim();
+        const m = /^org\s+(\S+)/.exec(query);
+        if (!notebook || !m) {
+            _cbError(el, 'add', 'add: usage is "org <name>" (no default -- name the process tree explicitly)', () => _loadAddOrgBlock(el));
+            return;
+        }
+        const orgSource = m[1];
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const sel = `${notebook}:.${orgSource}-org.md`;
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sel)}`);
+            const d = await r.json();
+            if (d.error) throw new Error(d.error);
+            const tree = _parseAddOrgSource(d.body || '');
+            _addOrgRender(el, tree, notebook, orgSource, wasOpen);
+        } catch (e) {
+            _cbError(el, 'add', e.message, () => _loadAddOrgBlock(el));
+        }
+    }
+
     function _configHelpPopover(trigger) {
         if (trigger._helpPop) { trigger._helpPop.remove(); trigger._helpPop = null; return; }
         const pop = document.createElement('div');
@@ -6598,6 +7150,17 @@
                     if (!blocks.length) return;
                     NbWeb.statusPill?.add(blocks.length);
                     await Promise.all(blocks.map(async el => { try { await _loadConfigBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
+                },
+            },
+            {
+                lang:   'add',
+                html:   text => `<div class="nb-add-org-block" data-query="${text.replace(/"/g, '&quot;')}"><span class="nb-spin">⟳</span></div>`,
+                renderOne: async el => _loadAddOrgBlock(el),
+                render: async container => {
+                    const blocks = [...container.querySelectorAll('.nb-add-org-block')];
+                    if (!blocks.length) return;
+                    NbWeb.statusPill?.add(blocks.length);
+                    await Promise.all(blocks.map(async el => { try { await _loadAddOrgBlock(el); } finally { NbWeb.statusPill?.tick(); } }));
                 },
             },
             {
