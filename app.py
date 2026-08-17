@@ -230,13 +230,32 @@ def _resolve_location_address(notebook: str, alias: str) -> 'str | None':
     return None
 
 
-def _resolve_template_vars(text: str, title: str = '', tags: str = '', content: str = '') -> str:
+def _resolve_template_vars(text: str, title: str = '', tags: str = '', content: str = '',
+                            extra_vars: dict = None) -> str:
     """Resolve {{placeholders}} in a template before note creation.
 
-    Handled vars: {{title}}, {{input}} (alias for title — whatever the user
-    typed in the title/input field), {{tags}}, {{content}}, {{date}}, {{day}},
-    {{time}}, {{weather}} (triggers a wttr.in fetch only if present).
-    """
+    Handled builtin vars: {{title}}, {{input}} (alias for title — whatever the
+    user typed in the title/input field), {{tags}}, {{content}}, {{date}},
+    {{day}}, {{time}}, {{weather}} (triggers a wttr.in fetch only if present).
+
+    extra_vars: optional {name: value} dict for arbitrary custom fields beyond
+    the builtin set — e.g. a scaffolding wizard's own collected form values
+    (client_slug, rate, billing_type, ...). Two extra placeholder shapes
+    beyond a bare {{field}}: {{field|default}} (falls back to the literal
+    default when the field's value is empty) and {{field:opt1|opt2}} (a
+    fixed-option field for the caller's own dropdown rendering — the option
+    list itself isn't consulted here, the submitted value is used as-is).
+
+    Substitution is done per known field name (one targeted regex per
+    extra_vars key), not by first scanning the whole text for every {{...}}
+    then replacing found tokens — a generic scan can't tell where a nested
+    {{...}} inside an unrelated {{provider: query}} inline-query block
+    (e.g. "{{hledger: bal Assets:AR:{{client_slug|personal}}}}") actually
+    closes, and silently fails to find (and therefore never resolves) a field
+    used *only* in that nested position. Searching for one known field name
+    at a time, bounded by [^{}] so the match can't cross into a different
+    brace pair, sidesteps the ambiguity entirely — verified against exactly
+    this nested case before relying on it."""
     now = datetime.now()
     subs = {
         '{{title}}':   title,
@@ -252,6 +271,12 @@ def _resolve_template_vars(text: str, title: str = '', tags: str = '', content: 
         subs['{{weather}}'] = _fetch_weather()
     for k, v in subs.items():
         text = text.replace(k, v)
+
+    if extra_vars:
+        for name, val in extra_vars.items():
+            val = '' if val is None else str(val)
+            pattern = re.compile(r'\{\{' + re.escape(str(name)) + r'(?:\|([^{}]*)|:[^{}]*)?\}\}')
+            text = pattern.sub(lambda m, val=val: val if val else (m.group(1) or ''), text)
     return text
 try:
     _GIT_REV = subprocess.run(
@@ -7742,6 +7767,13 @@ def api_create_note():
     target = f"{notebook}:" + (f"{folder}/" if folder else '')
 
     template_path = data.get('template_path', '').strip()
+    # Arbitrary custom {{field}} substitution beyond the builtin set (title/
+    # tags/content/date/...) -- e.g. a scaffolding wizard's own collected form
+    # values. See _resolve_template_vars's own docstring for the placeholder
+    # shapes this supports ({{field}}, {{field|default}}, {{field:opt1|opt2}}).
+    extra_vars = data.get('vars')
+    if extra_vars is not None and not isinstance(extra_vars, dict):
+        return jsonify({'error': 'vars must be an object'}), 400
 
     if ntype == 'bookmark':
         url = data.get('url', '')
@@ -7808,6 +7840,7 @@ def api_create_note():
                         title=title,
                         tags=' '.join(f'#{t}' for t in tags) if tags else '',
                         content=content or '',
+                        extra_vars=extra_vars,
                     )
             except (ValueError, OSError):
                 pass
@@ -7817,6 +7850,7 @@ def api_create_note():
                 title=title,
                 tags=' '.join(f'#{t}' for t in tags) if tags else '',
                 content=content or '',
+                extra_vars=extra_vars,
             )
 
         using_template = bool(template_path or template_content)
