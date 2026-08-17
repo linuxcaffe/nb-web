@@ -3243,6 +3243,41 @@
     // can't trust a possibly-stale exists-check).
     async function _addOrgExecuteLeaf(leaf, notebook, values, templates) {
         if (!_addOrgConditionMet(leaf, values)) return { status: 'skipped' };
+
+        // today: no TEMPLATE/AT at all -- a hardcoded quick-action, not file
+        // creation. Reuses NbMain.insertBeforeToday (the same shared helper
+        // _ensureTodayHeading/_appendTodayAndEdit already use) rather than a
+        // new insertion algorithm. Deliberately NOT a generic "any built-in
+        // action can be bolted on" dispatch yet -- one hardcoded KIND value
+        // until a second real quick-action shows up to design that against.
+        if (leaf.kind === 'today') {
+            const note = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
+            if (!note?.selector) return { status: 'error' };
+            const today = new Date().toISOString().slice(0, 10);
+            const heading = `## ${today}`;
+            // body only, NOT raw -- raw's own frontmatter gets re-prepended
+            // below; using raw here too would duplicate it. Found live.
+            const body = note.body || '';
+            if (body.includes(heading)) return { status: 'exists', selector: note.selector };
+            const updatedBody = NbMain.insertBeforeToday(body, heading);
+            const raw = note.raw || '';
+            let fullContent = updatedBody;
+            if (raw.startsWith('---')) {
+                const fmClose = raw.indexOf('\n---', 3);
+                if (fmClose !== -1) fullContent = raw.slice(0, fmClose + 4) + '\n' + updatedBody;
+            }
+            try {
+                const r = await fetch('/api/note', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: note.selector, content: fullContent }),
+                });
+                const d = await r.json();
+                if (!r.ok || d.error) return { status: 'error' };
+                NbMain.bustNoteCache?.(note.selector);
+                return { status: 'created', selector: note.selector };
+            } catch { return { status: 'error' }; }
+        }
+
         const rawAt = leaf.at || '';
         // Already safe -- _addOrgResolveText sanitizes each substituted
         // value at insertion time, leaving the template's own literal path
@@ -3348,7 +3383,8 @@
             const r = await _addOrgExecuteLeaf(leaf, notebook, values, templates);
             results.push({ leaf, ...r });
             const isDotfile = r.selector && (r.selector.split('/').pop() || '').startsWith('.');
-            if (!primarySelector && leaf.kind === 'note' && r.selector && !isDotfile) primarySelector = r.selector;
+            const isPrimaryKind = leaf.kind === 'note' || leaf.kind === 'today';
+            if (!primarySelector && isPrimaryKind && r.selector && !isDotfile) primarySelector = r.selector;
         }
         return { results, primarySelector };
     }
@@ -3375,6 +3411,20 @@
 
         const { fields, templates } = await _addOrgScanForm(leaves, notebook);
         const box = el.querySelector('.nb-org-action-panel');
+
+        // Nothing to collect (e.g. KIND: today, or any leaf whose templates/
+        // AT: carry no {{placeholders}}) -- skip the form/preview detour
+        // entirely and just run it. Forcing a click through an empty form
+        // with nothing to fill in would make this feel slower than the
+        // single button it's meant to replace.
+        if (!fields.length) {
+            close();
+            const { results, primarySelector } = await _addOrgExecuteBranch(node, notebook, {});
+            const errors = results.filter(r => r.status === 'error').length;
+            if (errors) { console.error('add org branch errors', results); return; }
+            if (primarySelector) NbMain.openNote(primarySelector);
+            return;
+        }
 
         function renderPreview(values) {
             return leaves.map(leaf => {
@@ -3442,6 +3492,86 @@
             if (primarySelector) NbMain.openNote(primarySelector);
         });
     }
+
+    // ── Compact tree picker ──────────────────────────────────────────────
+    // The "+" entry point on a project note's specialty header (replaces
+    // [+ Today] there -- see nbweb-specialty.js) needs a lightweight way to
+    // pick among several top-level org-source entries (e.g. "Today" next to
+    // "Projects") without committing to one specific embedded tree the way
+    // the `add` codeblock does. A nested list, not the SVG chart -- these
+    // menus are short and a full auto-layout render would be overkill for
+    // "pick one of a handful of top-level options." Reuses every dispatch/
+    // execute/modal function the SVG chart already uses -- only the tree's
+    // own presentation is different here, not the underlying engine.
+    function _renderAddOrgPickerRow(container, node, depth, notebook) {
+        const actionable = !!(node.kind || _addOrgActionLeaves(node).length);
+        const row = document.createElement('div');
+        row.className = 'nb-add-org-picker-row' + (actionable ? ' nb-add-org-picker-actionable' : '');
+        row.style.paddingLeft = (depth * 16) + 'px';
+
+        const label = document.createElement('span');
+        label.className = 'nb-add-org-picker-label';
+        label.textContent = node.label;
+        row.appendChild(label);
+
+        if (node.caption) {
+            const cap = document.createElement('span');
+            cap.className = 'nb-add-org-picker-caption';
+            cap.textContent = node.caption.split('\n')[0];
+            row.appendChild(cap);
+        }
+
+        if (actionable) {
+            row.addEventListener('click', e => {
+                e.stopPropagation();
+                document.getElementById('nb-add-org-picker')?.remove();
+                _openAddOrgModal(node, notebook);
+            });
+        } else if (node.wikiTarget) {
+            row.addEventListener('click', async e => {
+                e.stopPropagation();
+                const sel = node.selector || await NbMain.resolveWikilinkSelector(node.wikiTarget);
+                document.getElementById('nb-add-org-picker')?.remove();
+                NbMain.openNote(sel);
+            });
+        }
+        container.appendChild(row);
+        for (const c of (node.children || [])) _renderAddOrgPickerRow(container, c, depth + 1, notebook);
+    }
+
+    // Entry point -- fetches `.{orgSource}-org.md` fresh (Q6: always live,
+    // same as the codeblock) and shows every top-level heading as a
+    // parallel, independently-clickable option. Exported as
+    // NbWeb.openAddOrgPicker for nbweb-specialty.js's "+" button to call.
+    async function _openAddOrgPicker(notebook, orgSource) {
+        document.getElementById('nb-add-org-picker')?.remove();
+        const el = document.createElement('div');
+        el.id = 'nb-add-org-picker';
+        el.className = 'nb-invoice-overlay';
+        el.innerHTML = '<div class="nb-invoice-panel nb-org-action-panel"><span class="nb-spin">⟳</span></div>';
+        document.body.appendChild(el);
+        const close = () => el.remove();
+        el.addEventListener('click', e => { if (e.target === el) close(); });
+        const escHandler = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escHandler); } };
+        document.addEventListener('keydown', escHandler);
+
+        const box = el.querySelector('.nb-org-action-panel');
+        try {
+            const sel = `${notebook}:.${orgSource}-org.md`;
+            const r = await fetch(`/api/note?selector=${encodeURIComponent(sel)}`);
+            const d = await r.json();
+            if (d.error) throw new Error(d.error);
+            const tree = _parseAddOrgSource(d.body || '');
+            box.innerHTML = `<div class="nb-invoice-hdr">${_esc(d.meta?.title || orgSource)}</div>`;
+            const list = document.createElement('div');
+            list.className = 'nb-add-org-picker-list';
+            for (const c of (tree.children || [])) _renderAddOrgPickerRow(list, c, 0, notebook);
+            box.appendChild(list);
+        } catch (e) {
+            box.innerHTML = `<div class="nb-invoice-hdr">add org</div><div class="nb-inv-tax">${_esc(e.message)}</div>`;
+        }
+    }
+    NbWeb.openAddOrgPicker = _openAddOrgPicker;
 
     // Static auto-layout render (no pan/zoom -- these trees are small,
     // a handful of nodes, not cfg/cine org's own much larger scale, so the

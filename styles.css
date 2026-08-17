@@ -977,17 +977,18 @@ body {
 .nb-specialty-nav-item:hover { background: var(--bg3); color: var(--text); }
 .nb-specialty-nav-item.nb-specialty-nav-current { font-weight: 600; padding-left: 10px; }
 .nb-specialty-nav-item.nb-specialty-nav-current::before { content: '▸ '; color: var(--accent); }
-.nb-specialty-today {
+.nb-specialty-add {
     margin-left: auto;
-    padding: 2px 8px;
-    font-size: 0.85em;
+    padding: 2px 10px;
+    font-size: 0.95em;
+    font-weight: 600;
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--bg);
     color: var(--text-muted);
     cursor: pointer;
 }
-.nb-specialty-today:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.nb-specialty-add:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .nb-specialty-label { font-weight: 600; color: var(--text); }
 .nb-specialty-actions {
     margin-left: auto;
@@ -2968,6 +2969,20 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-add-org-node.nb-add-org-inert .nb-add-org-label { fill: var(--text-muted, #aaa); }
 .nb-add-org-node.nb-add-org-action .nb-add-org-rect { fill: var(--bg3); stroke: var(--accent-alt, #f0a500); stroke-dasharray: 2 2; }
 .nb-add-org-label { font-size: 11px; fill: var(--text); font-family: var(--font-sans, system-ui); dominant-baseline: auto; }
+
+/* add:org compact tree picker (2026-08-17) -- the "+" button's own entry
+   point (project sp-header), a nested list rather than the SVG chart, for
+   picking among several top-level org-source options (e.g. "Today" next to
+   "Projects"). Plain HTML elements, not SVG -- var() fallbacks behave more
+   predictably here than the chart's fill/stroke attributes do. */
+.nb-add-org-picker-list { max-height: 50vh; overflow-y: auto; margin-top: 4px; }
+.nb-add-org-picker-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 6px; border-radius: 4px; color: var(--text); }
+.nb-add-org-picker-row.nb-add-org-picker-actionable { cursor: pointer; }
+.nb-add-org-picker-row.nb-add-org-picker-actionable:hover { background: var(--bg2); }
+.nb-add-org-picker-row:not(.nb-add-org-picker-actionable) { color: var(--text-muted); }
+.nb-add-org-picker-label { font-weight: 500; }
+.nb-add-org-picker-row.nb-add-org-picker-actionable .nb-add-org-picker-label { color: var(--accent); }
+.nb-add-org-picker-caption { font-size: 0.82em; color: var(--text-muted); }
 
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }

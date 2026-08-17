@@ -116,49 +116,6 @@
         return result.join('\n');
     }
 
-    async function _appendTodayAndEdit(note) {
-        const today   = new Date().toISOString().slice(0, 10);
-        const heading = `## ${today}`;
-        const body    = note.body || '';
-
-        if (!body.includes(heading)) {
-            // Shared with main.js's _ensureTodayHeading -- one correct
-            // "insert before the > TODAY: pivot" implementation, not two.
-            const newBody = NbMain.insertBeforeToday(body, heading);
-
-            // Preserve FM: note.raw = full file; FM ends at second ---
-            const raw = note.raw || '';
-            let fullContent = newBody;
-            if (raw.startsWith('---')) {
-                const fmClose = raw.indexOf('\n---', 3);
-                if (fmClose !== -1)
-                    fullContent = raw.slice(0, fmClose + 4) + '\n' + newBody;
-            }
-
-            await fetch('/api/note', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ selector: note.selector, content: fullContent }),
-            });
-        }
-        NbMain.openEditor(note.selector);
-
-        // After openEditor re-fetches and populates the textarea, position the
-        // cursor on the blank line just below the inserted heading (before > TODAY:).
-        let attempts = 0;
-        const positionCursor = () => {
-            const ta = document.getElementById('nb-editor');
-            if (ta && ta.value.includes(heading)) {
-                const pos = ta.value.indexOf(heading) + heading.length + 1; // past \n
-                ta.setSelectionRange(pos, pos);
-                ta.focus();
-                return;
-            }
-            if (++attempts < 60) requestAnimationFrame(positionCursor);
-        };
-        requestAnimationFrame(positionCursor);
-    }
-
     // Derive the selector for a paired note by swapping the filename suffix.
     function _pairedSel(note, newFilename) {
         const sel = note.selector || '';
@@ -358,14 +315,14 @@
                 sourceWarn = `<span class="nb-source-warn">no source <button class="nb-specialty-action nb-link-source-btn" data-reports-sel="${_esc(note.selector || '')}" data-notebook="${_esc(note.notebook || '')}">link…</button></span>`;
         }
 
-        const todayBtn     = note.type === 'project'
-            ? `<button class="nb-specialty-today" title="Append today's entry and edit">+ Today</button>`
+        const addBtn       = note.type === 'project'
+            ? `<button class="nb-specialty-add" title="Add — today's entry, or scaffold a new client/project">+</button>`
             : '';
         const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${todayBtn}${extraActions}
+            ${pairLink}${sourceWarn}${pillsHtml}${addBtn}${extraActions}
         </div>`;
     }
 
@@ -717,10 +674,15 @@
     });
 
     document.addEventListener('click', e => {
-        if (!e.target.closest('.nb-specialty-today')) return;
+        if (!e.target.closest('.nb-specialty-add')) return;
         e.preventDefault();
+        // Hardcoded org-source name for v1 -- no per-notebook config yet
+        // (same "don't decide before it's needed" call made elsewhere in
+        // this feature's own design). NbWeb.openAddOrgPicker is the compact
+        // list (nbweb-codeblocks.js) -- "Today" and "Projects" as parallel
+        // top-level options, not the SVG chart the `add` codeblock renders.
         const note = NbMain.activeNote();
-        if (note) _appendTodayAndEdit(note);
+        if (note?.notebook) NbWeb.openAddOrgPicker(note.notebook, 'new-project');
     });
 
     document.addEventListener('click', e => {
