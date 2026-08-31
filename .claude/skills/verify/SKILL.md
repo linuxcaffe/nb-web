@@ -379,3 +379,55 @@ so a check written against it works on both without special-casing either. Confi
 2026-08-10 building `nb-config-renderer.sh` (flags a notebook's `types:*:renderer:` value that
 doesn't match any real registered id) — this two-line manual-env recipe caught real, accurate
 findings against live `~/.nb` data without ever needing 5001/5002 up at all.
+
+## Recipe: screenshot a header/modal/popup instead of trusting computed-style checks alone
+
+Built 2026-08-31 verifying the `add:org` `[+]` picker's create-modal and its dev-only "open
+source" link. `is_visible()`/`getComputedStyle()` reported the link as genuinely
+`display:block`, `opacity:1`, non-clipped — and it *was* technically visible — but djp still
+couldn't spot it in real use (a `var(--text-muted)` token is 50%-alpha; combined with djp's own
+`solarized` notebook theme it read as functionally invisible even though every automated
+visibility check passed). Computed-style/bounding-box checks prove an element *isn't hidden*;
+they don't prove a human will actually notice it — for a genuine "can I see this" question,
+render it and look, the same lesson as the `inner_html()`-proves-markup-not-visibility gotcha
+above but one level further (this one passed *even* the visibility check).
+
+```python
+from playwright.sync_api import sync_playwright
+
+BASE = "http://localhost:5002"
+SEL  = "<notebook>:<path-to-a-real-type-project-note>"   # any note with effective_add_org set
+
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.goto(f"{BASE}/login")
+    page.fill('input[name="username"]', 'claude')
+    page.fill('input[name="password"]', '<see reference_nbweb_claude_login memory>')
+    page.click('button[type="submit"]')
+    page.wait_for_url('**/')
+
+    page.goto(f"{BASE}/#{SEL}")
+    page.wait_for_selector('.nb-rendered', timeout=15000)
+
+    page.locator('.nb-specialty-add').first.click()
+    page.wait_for_selector('#nb-add-org-picker', timeout=5000)
+    # Pick a branch/leaf node that actually collects fields (e.g. "Projects"),
+    # not a zero-field leaf like "Today" -- those auto-execute and never show
+    # a modal at all, so a screenshot of that path would show nothing to see.
+    row = page.locator('#nb-add-org-picker .nb-add-org-picker-row.nb-add-org-picker-actionable',
+                        has_text="Projects").first
+    row.click()
+    # Wait on the real form, not just the modal id -- the modal starts as a
+    # bare spinner (.nb-org-action-panel) while _addOrgScanForm awaits its
+    # own template fetches, and a fixed sleep here is exactly the kind of
+    # flaky wait the "hash doesn't mean rendering finished" gotcha warns about.
+    page.wait_for_selector('#nb-add-org-modal .nb-org-action-form', timeout=15000)
+    page.wait_for_timeout(300)
+
+    page.locator('.nb-invoice-panel').first.screenshot(path="/tmp/modal_panel.png")
+    browser.close()
+```
+
+Then actually `Read` the PNG — don't just check `is_visible()`/`bounding_box()` and call it
+done when the question is specifically about legibility/contrast, not presence.
