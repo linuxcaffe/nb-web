@@ -237,6 +237,63 @@ Access levels: `guest` / `user` / `office` / `admin` / empty (inherit notebook d
 
 FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyline`, `plotline`, `story`, `milestone`, `actor`, `location`, `character` (cine); add new types here + `INDICATORS` dict.
 
+## Specialty headers
+
+`plugins/nbweb-specialty.js` — the typed header bar (`<div class="nb-specialty-header">`)
+rendered above the body for any note whose `type:` is registered in `_cfg` (`project`,
+`report`/`reports`, `dashboard`, `dotfile`, `invoice`, `quote`, `budget`, `tools`, `materials`,
+`transport`, plus whatever other plugins `register()` in — cine's `storyline` registers with
+`noRender: true` purely to get into the nav popup, not to get a header of its own). Grown
+feature-rich enough on its own — pills, pair-chips, a nav popup, an extensible actions slot,
+and now the `[+]` add:org button — that it's worth documenting as its own subsystem rather than
+letting its pieces stay scattered across unrelated invariants below.
+
+**Extension points**, via `window.NbSpecialty`:
+- `register(type, {icon, label, noRender?})` — add a type to `_cfg`.
+- `getActions` — overridable `fn(note) => HTML string`, appended into every header that calls
+  it; default is a no-op (`() => ''`).
+- `renderHeader` — exports `_renderSpecialtyHeader` directly, for another plugin's own body
+  renderer to embed a specialty header without competing as a second full `previewRenderer` for
+  the same note (see `noRender`'s own comment in the file for why this exists).
+
+**Four independent header builders, not one — this is the single most important thing to know
+before touching header markup.** `dashboard`/`reports`/`dotfile` each build their own
+`<div class="nb-specialty-header">...</div>` in their own function
+(`_renderDashboardNote`/`_renderReportsNote`/`_renderDotfileNote`), completely independent of
+the generic `_renderSpecialtyHeader` that handles `project` and every other plain `_cfg` type.
+**Any change meant to apply to every specialty header — a new button, a new pill, a layout
+tweak — has to be threaded into all four by hand; there is no single shared template.** This
+bit for real 2026-08-31: the `[+]` add:org button was wired into `_renderSpecialtyHeader` only
+at first, and silently never appeared on dashboard/reports/dotfile notes even once their own
+`.{type}-org.md` existed, until the same markup (via a shared `_addOrgBtnHtml(note)` helper) was
+added to all four separately. When adding new cross-cutting header UI, grep `nb-specialty-header`
+for all four call sites, not just the one you happened to be looking at.
+
+**Trailing UI (buttons/badges meant to sit at the header's right edge) goes last in each
+builder's own markup, after that builder's own pills/pair-chips/`extraActions`, relying on
+`margin-left: auto` on the trailing element's own CSS class to push it (and nothing before it)
+flush right** — the same end-of-bar convention `#nb-help-btn` already uses at the far right of
+the preview toolbar, for the same reason (a fixed, predictable landing spot regardless of how
+many pills a given note happens to have). `dashboard`'s header already has its own right-aligned
+cluster (`<span class="nb-specialty-right">`, wrapping the theme/sync/access badges) — new
+trailing UI there goes *inside* that span, last, rather than as a header-level sibling.
+Getting this placement right took three iterations in the same session (leftmost — briefly
+misread — then rightmost-of-the-pills instead of rightmost-of-the-whole-bar, i.e. still
+trailing `extraActions` instead of following it): don't assume DOM order alone predicts visual
+position when `margin-left: auto` is involved — a real bounding-box check (or the
+verify skill's screenshot recipe) is worth it before calling placement done.
+
+**The `[+]` button's own engine lives in a different file than its markup.** `_addOrgBtnHtml`
+(the `<button class="nb-specialty-add">` markup, gated on `note.effective_add_org`) is here in
+`nbweb-specialty.js`, but clicking it calls `NbWeb.openAddOrgPicker`, defined in
+`plugins/nbweb-codeblocks.js` alongside the `add` codeblock lang's own SVG-chart renderer — see
+invariant 43 below. Tracing "what happens when `+` is clicked" means crossing that file
+boundary; it isn't a bug, just worth knowing going in. Whether the picker/modal/org-source-
+parsing engine (not the `add` codeblock's own body-embed renderer, which is a legitimate
+codeblock type and belongs in `nbweb-codeblocks.js` by the same convention every other lang
+follows) should move into its own file, given `nbweb-codeblocks.js` is now ~7900 lines, is an
+open question — flagged, not yet acted on.
+
 ## NbWeb-cine plugin
 
 Plugin: `~/dev/nbweb-cine/nbweb-cine.js`. Activated by a `cine:` block in the
