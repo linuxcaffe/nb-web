@@ -3394,7 +3394,7 @@
     // overlay/panel/fields/buttons CSS (styles.css's "Invoice generation
     // dialog" block -- already shared cross-plugin) rather than inventing
     // new unstyled classes.
-    async function _openAddOrgModal(node, notebook) {
+    async function _openAddOrgModal(node, notebook, orgSource) {
         document.getElementById('nb-add-org-modal')?.remove();
         const leaves = _addOrgActionLeaves(node);
         if (!leaves.length) return;
@@ -3458,8 +3458,18 @@
                    `<input name="${_esc(f.name)}" type="text" placeholder="${_esc(f.defaultVal)}"></label>`;
         }).join('');
 
+        // Dev-only shortcut to the org-source file itself (the .{orgSource}
+        // -org.md a form field/AT: path came from) -- not end-user surface,
+        // just a fast way to jump straight to the directive text while
+        // iterating on one. Skipped if orgSource somehow isn't known (should
+        // always be passed by real call sites, but the link is cosmetic, not
+        // load-bearing, so a missing name just means no link, not an error).
+        const srcLink = orgSource
+            ? `<a href="#" class="nb-org-action-source" data-sel="${_esc(`${notebook}:.${orgSource}-org.md`)}" title="Open org-source file (dev)">✎ source</a>`
+            : '';
+
         box.innerHTML =
-            `<div class="nb-invoice-hdr">${_esc(node.label)}</div>` +
+            `<div class="nb-invoice-hdr">${_esc(node.label)}${srcLink}</div>` +
             (node.caption ? `<div class="nb-invoice-sub">${_esc(node.caption)}</div>` : '') +
             `<form class="nb-invoice-fields nb-org-action-form">${fieldsHtml}</form>` +
             `<div class="nb-org-action-preview">${renderPreview(currentValues())}</div>` +
@@ -3468,6 +3478,12 @@
             `<button type="button" class="nb-org-action-cancel">Cancel</button>` +
             `<button type="button" class="nb-inv-primary nb-org-action-create">Create</button>` +
             `</div>`;
+
+        box.querySelector('.nb-org-action-source')?.addEventListener('click', e => {
+            e.preventDefault();
+            close();
+            NbMain.openNote(e.currentTarget.dataset.sel);
+        });
 
         const preview = box.querySelector('.nb-org-action-preview');
         box.querySelectorAll('.nb-org-action-form input, .nb-org-action-form select').forEach(inp => {
@@ -3503,7 +3519,7 @@
     // "pick one of a handful of top-level options." Reuses every dispatch/
     // execute/modal function the SVG chart already uses -- only the tree's
     // own presentation is different here, not the underlying engine.
-    function _renderAddOrgPickerRow(container, node, depth, notebook) {
+    function _renderAddOrgPickerRow(container, node, depth, notebook, orgSource) {
         const actionable = !!(node.kind || _addOrgActionLeaves(node).length);
         const row = document.createElement('div');
         row.className = 'nb-add-org-picker-row' + (actionable ? ' nb-add-org-picker-actionable' : '');
@@ -3525,7 +3541,7 @@
             row.addEventListener('click', e => {
                 e.stopPropagation();
                 document.getElementById('nb-add-org-picker')?.remove();
-                _openAddOrgModal(node, notebook);
+                _openAddOrgModal(node, notebook, orgSource);
             });
         } else if (node.wikiTarget) {
             row.addEventListener('click', async e => {
@@ -3536,7 +3552,7 @@
             });
         }
         container.appendChild(row);
-        for (const c of (node.children || [])) _renderAddOrgPickerRow(container, c, depth + 1, notebook);
+        for (const c of (node.children || [])) _renderAddOrgPickerRow(container, c, depth + 1, notebook, orgSource);
     }
 
     // Entry point -- fetches `.{orgSource}-org.md` fresh (Q6: always live,
@@ -3574,7 +3590,7 @@
             const r = await fetch(`/api/note?selector=${encodeURIComponent(sel)}`);
             const d = await r.json();
             if (d.error) throw new Error(d.error);
-            return { title: d.meta?.title || orgSource, tree: _parseAddOrgSource(d.body || '') };
+            return { orgSource, title: d.meta?.title || orgSource, tree: _parseAddOrgSource(d.body || '') };
         }));
         const results = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
         if (!results.length) {
@@ -3584,14 +3600,14 @@
         box.innerHTML = `<div class="nb-invoice-hdr">${_esc(results.length === 1 ? results[0].title : 'Add')}</div>`;
         const list = document.createElement('div');
         list.className = 'nb-add-org-picker-list';
-        for (const { title, tree } of results) {
+        for (const { orgSource, title, tree } of results) {
             if (results.length > 1) {
                 const groupHdr = document.createElement('div');
                 groupHdr.className = 'nb-add-org-picker-group';
                 groupHdr.textContent = title;
                 list.appendChild(groupHdr);
             }
-            for (const c of (tree.children || [])) _renderAddOrgPickerRow(list, c, 0, notebook);
+            for (const c of (tree.children || [])) _renderAddOrgPickerRow(list, c, 0, notebook, orgSource);
         }
         box.appendChild(list);
     }
@@ -3690,7 +3706,7 @@
                 // heading is independently clickable this way, whether it's
                 // a single leaf or a whole branch's root.
                 g.style.cursor = 'pointer';
-                g.addEventListener('click', () => _openAddOrgModal(node, notebook));
+                g.addEventListener('click', () => _openAddOrgModal(node, notebook, orgSource));
             } else if (node.wikiTarget) {
                 g.style.cursor = 'pointer';
                 g.addEventListener('click', async () => {
