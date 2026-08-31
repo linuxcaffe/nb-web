@@ -3100,6 +3100,22 @@
         return root;
     }
 
+    // Dev-only shortcut to a .{orgSource}-org.md file itself -- not end-user
+    // surface, just a fast way to jump straight into editing the directive
+    // text while iterating on one. Used on the top-level picker (one per
+    // source, so it's reachable before drilling into any specific branch --
+    // djp's own correction, 2026-08-31: the create-modal alone wasn't
+    // enough since not every top-level entry even reaches a modal, e.g. a
+    // zero-field KIND: today leaf auto-executes with no modal at all) and
+    // on the create-modal's own header. A single delegated document click
+    // listener (below, near the other .nb-sa-link-style delegated handlers)
+    // handles every instance -- no per-element wiring needed.
+    function _orgSourceLinkHtml(notebook, orgSource) {
+        return orgSource
+            ? `<a href="#" class="nb-org-action-source" data-sel="${_esc(`${notebook}:.${orgSource}-org.md`)}" title="Edit org-source file (dev)">✎ edit source</a>`
+            : '';
+    }
+
     const _ADD_ORG_PLACEHOLDER_RE = /\{\{(\w+)(?::([^{}]*)|\|([^{}]*))?\}\}/g;
 
     function _addOrgActionLeaves(node, out) {
@@ -3458,20 +3474,7 @@
                    `<input name="${_esc(f.name)}" type="text" placeholder="${_esc(f.defaultVal)}"></label>`;
         }).join('');
 
-        // Dev-only shortcut to the org-source file itself (the .{orgSource}
-        // -org.md a form field/AT: path came from) -- not end-user surface,
-        // just a fast way to jump straight into editing the directive text
-        // while iterating on one, hence NbMain.openEditor (not openNote) on
-        // click below -- lands directly in edit mode, same
-        // create-then-immediately-edit pattern nav.js/note-actions.js/
-        // nbweb-cine.js already use elsewhere, rather than an extra click
-        // through the preview first. Skipped if orgSource somehow isn't
-        // known (should always be passed by real call sites, but the link
-        // is cosmetic, not load-bearing, so a missing name just means no
-        // link, not an error).
-        const srcLink = orgSource
-            ? `<a href="#" class="nb-org-action-source" data-sel="${_esc(`${notebook}:.${orgSource}-org.md`)}" title="Edit org-source file (dev)">✎ edit source</a>`
-            : '';
+        const srcLink = _orgSourceLinkHtml(notebook, orgSource);
 
         box.innerHTML =
             `<div class="nb-invoice-hdr">${_esc(node.label)}${srcLink}</div>` +
@@ -3483,12 +3486,6 @@
             `<button type="button" class="nb-org-action-cancel">Cancel</button>` +
             `<button type="button" class="nb-inv-primary nb-org-action-create">Create</button>` +
             `</div>`;
-
-        box.querySelector('.nb-org-action-source')?.addEventListener('click', e => {
-            e.preventDefault();
-            close();
-            NbMain.openEditor(e.currentTarget.dataset.sel);
-        });
 
         const preview = box.querySelector('.nb-org-action-preview');
         box.querySelectorAll('.nb-org-action-form input, .nb-org-action-form select').forEach(inp => {
@@ -3602,14 +3599,19 @@
             box.innerHTML = `<div class="nb-invoice-hdr">Add</div><div class="nb-inv-tax">${_esc(settled[0]?.reason?.message || 'no org-source resolved')}</div>`;
             return;
         }
-        box.innerHTML = `<div class="nb-invoice-hdr">${_esc(results.length === 1 ? results[0].title : 'Add')}</div>`;
+        // Single source: the top-level header carries the edit-source link
+        // (reachable before drilling into any branch). Multiple sources:
+        // each group's own header carries its own link, since each group
+        // is a distinct .{orgSource}-org.md file.
+        box.innerHTML = `<div class="nb-invoice-hdr">${_esc(results.length === 1 ? results[0].title : 'Add')}` +
+            (results.length === 1 ? _orgSourceLinkHtml(notebook, results[0].orgSource) : '') + `</div>`;
         const list = document.createElement('div');
         list.className = 'nb-add-org-picker-list';
         for (const { orgSource, title, tree } of results) {
             if (results.length > 1) {
                 const groupHdr = document.createElement('div');
                 groupHdr.className = 'nb-add-org-picker-group';
-                groupHdr.textContent = title;
+                groupHdr.innerHTML = `${_esc(title)}${_orgSourceLinkHtml(notebook, orgSource)}`;
                 list.appendChild(groupHdr);
             }
             for (const c of (tree.children || [])) _renderAddOrgPickerRow(list, c, 0, notebook, orgSource);
@@ -7609,6 +7611,20 @@
         e.preventDefault();
         const sel = link.dataset.open;
         if (sel) NbMain.openNote(sel);
+    });
+
+    // add:org dev-only "edit source" link — appears in both the top-level
+    // picker (_openAddOrgPicker) and the create-modal (_openAddOrgModal),
+    // see _orgSourceLinkHtml. One delegated listener covers every instance
+    // regardless of which overlay it's in.
+    document.addEventListener('click', e => {
+        const link = e.target.closest('.nb-org-action-source[data-sel]');
+        if (!link) return;
+        e.preventDefault();
+        e.stopPropagation();
+        document.getElementById('nb-add-org-picker')?.remove();
+        document.getElementById('nb-add-org-modal')?.remove();
+        NbMain.openEditor(link.dataset.sel);
     });
 
     // CBQL DELIVERED button — write > DELIVERED: marker into the project source note.
