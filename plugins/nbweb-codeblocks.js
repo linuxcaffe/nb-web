@@ -3460,12 +3460,17 @@
 
         // Dev-only shortcut to the org-source file itself (the .{orgSource}
         // -org.md a form field/AT: path came from) -- not end-user surface,
-        // just a fast way to jump straight to the directive text while
-        // iterating on one. Skipped if orgSource somehow isn't known (should
-        // always be passed by real call sites, but the link is cosmetic, not
-        // load-bearing, so a missing name just means no link, not an error).
+        // just a fast way to jump straight into editing the directive text
+        // while iterating on one, hence NbMain.openEditor (not openNote) on
+        // click below -- lands directly in edit mode, same
+        // create-then-immediately-edit pattern nav.js/note-actions.js/
+        // nbweb-cine.js already use elsewhere, rather than an extra click
+        // through the preview first. Skipped if orgSource somehow isn't
+        // known (should always be passed by real call sites, but the link
+        // is cosmetic, not load-bearing, so a missing name just means no
+        // link, not an error).
         const srcLink = orgSource
-            ? `<a href="#" class="nb-org-action-source" data-sel="${_esc(`${notebook}:.${orgSource}-org.md`)}" title="Open org-source file (dev)">✎ source</a>`
+            ? `<a href="#" class="nb-org-action-source" data-sel="${_esc(`${notebook}:.${orgSource}-org.md`)}" title="Edit org-source file (dev)">✎ edit source</a>`
             : '';
 
         box.innerHTML =
@@ -3482,7 +3487,7 @@
         box.querySelector('.nb-org-action-source')?.addEventListener('click', e => {
             e.preventDefault();
             close();
-            NbMain.openNote(e.currentTarget.dataset.sel);
+            NbMain.openEditor(e.currentTarget.dataset.sel);
         });
 
         const preview = box.querySelector('.nb-org-action-preview');

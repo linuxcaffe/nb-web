@@ -26,10 +26,12 @@
     // types.<type>.add_org / add_org: override resolves), no per-type code
     // change needed here. Click handling is a single document-level listener
     // matching .nb-specialty-add, so emitting this markup is the only wiring
-    // any header builder needs. Placed last among each header's own pills
-    // (rightmost, via .nb-specialty-add's own margin-left:auto) — every
-    // header builder appends this at the tail of its own pill list, right
-    // before any trailing per-note action buttons.
+    // any header builder needs. Placed at the true tail of the whole header
+    // bar (via .nb-specialty-add's own margin-left:auto), past every pill
+    // AND any trailing per-note action buttons — same end-of-bar convention
+    // #nb-help-btn already uses at the far right of the preview toolbar,
+    // and for the same reason (a fixed, predictable landing spot regardless
+    // of how many pills/actions a given note happens to have).
     function _addOrgBtnHtml(note) {
         return note.effective_add_org
             ? `<button class="nb-specialty-add" title="Add — today's entry, or scaffold a new client/project">+</button>`
@@ -343,7 +345,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${addBtn}${extraActions}
+            ${pairLink}${sourceWarn}${pillsHtml}${extraActions}${addBtn}
         </div>`;
     }
 
@@ -560,7 +562,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${invoiceBtn}${_addOrgBtnHtml(note)}${extraActions}
+            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${invoiceBtn}${extraActions}${_addOrgBtnHtml(note)}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
