@@ -26,7 +26,10 @@
     // types.<type>.add_org / add_org: override resolves), no per-type code
     // change needed here. Click handling is a single document-level listener
     // matching .nb-specialty-add, so emitting this markup is the only wiring
-    // any header builder needs.
+    // any header builder needs. Placed last among each header's own pills
+    // (rightmost, via .nb-specialty-add's own margin-left:auto) — every
+    // header builder appends this at the tail of its own pill list, right
+    // before any trailing per-note action buttons.
     function _addOrgBtnHtml(note) {
         return note.effective_add_org
             ? `<button class="nb-specialty-add" title="Add — today's entry, or scaffold a new client/project">+</button>`
@@ -333,14 +336,14 @@
 
         const addBtn        = _addOrgBtnHtml(note);
         const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
-        // addBtn sits leftmost among the pill-like elements (right after the
-        // label) so it bumps pairLink/sourceWarn/pillsHtml rightward instead
-        // of trailing after them -- none of those are removed or reordered
-        // relative to each other, just pushed right to make room.
+        // addBtn sits rightmost (its own margin-left:auto pushes it, and
+        // extraActions after it, flush to the header's right edge) rather
+        // than inline with pairLink/pillsHtml -- none of those are removed
+        // or reordered, they just stay in their normal left-flowing spot.
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${addBtn}${pairLink}${sourceWarn}${pillsHtml}${extraActions}
+            ${pairLink}${sourceWarn}${pillsHtml}${addBtn}${extraActions}
         </div>`;
     }
 
@@ -398,8 +401,8 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', '⚙️')}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${_addOrgBtnHtml(note)}${dashLink}
-            ${scopePill}${parentPill}${keysPill}
+            ${dashLink}
+            ${scopePill}${parentPill}${keysPill}${_addOrgBtnHtml(note)}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
@@ -470,12 +473,12 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(nb, '🗂️')}
             <span class="nb-specialty-label">${_esc(domain)}</span>
-            ${_addOrgBtnHtml(note)}${configLink}
+            ${configLink}
             <span class="nb-specialty-pill">${fileCount} files</span>
             <span class="nb-specialty-pill">${folderCount} folders</span>
             <span class="nb-specialty-right">
                 <button class="nb-specialty-theme-btn" data-notebook="${_esc(nb)}" title="Choose theme">🎨</button>
-                ${syncPill}${accessBadge}
+                ${syncPill}${accessBadge}${_addOrgBtnHtml(note)}
             </span>
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
@@ -557,7 +560,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
             <span class="nb-specialty-label">${_esc(label)}</span>
-            ${_addOrgBtnHtml(note)}${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${invoiceBtn}${extraActions}
+            ${pairLink}${sourceWarn}${pillsHtml}${markerBtns}${invoiceBtn}${_addOrgBtnHtml(note)}${extraActions}
         </div>` + NbMain.renderMarkdown(note.body || '', note.selector);
     }
 
