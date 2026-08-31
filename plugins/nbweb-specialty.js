@@ -676,13 +676,18 @@
     document.addEventListener('click', e => {
         if (!e.target.closest('.nb-specialty-add')) return;
         e.preventDefault();
-        // Hardcoded org-source name for v1 -- no per-notebook config yet
-        // (same "don't decide before it's needed" call made elsewhere in
-        // this feature's own design). NbWeb.openAddOrgPicker is the compact
-        // list (nbweb-codeblocks.js) -- "Today" and "Projects" as parallel
-        // top-level options, not the SVG chart the `add` codeblock renders.
+        // Target org-source(s) come from the note's own effective_add_org
+        // (app.py _resolve_add_org_list) -- type-derived default (.{type}
+        // -org.md existence) + notebook's types.<type>.add_org override +
+        // add_org_add: bolt-ons, same shape as effective_help. No longer a
+        // single hardcoded name: this is now type-aware, and a note whose
+        // type has no configured wizard just gets an empty-state picker
+        // instead of always opening the project wizard regardless of type.
+        // NbWeb.openAddOrgPicker is the compact list (nbweb-codeblocks.js)
+        // -- parallel top-level options, not the SVG chart the `add`
+        // codeblock renders.
         const note = NbMain.activeNote();
-        if (note?.notebook) NbWeb.openAddOrgPicker(note.notebook, 'new-project');
+        if (note?.notebook) NbWeb.openAddOrgPicker(note.notebook, note.effective_add_org || '');
     });
 
     document.addEventListener('click', e => {

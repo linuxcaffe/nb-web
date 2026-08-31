@@ -3543,7 +3543,15 @@
     // same as the codeblock) and shows every top-level heading as a
     // parallel, independently-clickable option. Exported as
     // NbWeb.openAddOrgPicker for nbweb-specialty.js's "+" button to call.
-    async function _openAddOrgPicker(notebook, orgSource) {
+    // orgSourceOrList accepts either one name or an array -- the caller now
+    // passes note.effective_add_org straight through (app.py's
+    // _resolve_add_org_list: type-derived default + add_org_add: bolt-ons),
+    // which resolves to a string, a list, or '' when nothing's configured
+    // for this note's type. Each source is fetched independently
+    // (Promise.allSettled) so one stale/missing add_org_add: entry degrades
+    // to "skip that group" rather than failing the whole picker -- same
+    // "skip silently" shape the help: topic fallback already uses.
+    async function _openAddOrgPicker(notebook, orgSourceOrList) {
         document.getElementById('nb-add-org-picker')?.remove();
         const el = document.createElement('div');
         el.id = 'nb-add-org-picker';
@@ -3556,20 +3564,36 @@
         document.addEventListener('keydown', escHandler);
 
         const box = el.querySelector('.nb-org-action-panel');
-        try {
+        const sources = Array.isArray(orgSourceOrList) ? orgSourceOrList : (orgSourceOrList ? [orgSourceOrList] : []);
+        if (!sources.length) {
+            box.innerHTML = `<div class="nb-invoice-hdr">Add</div><div class="nb-inv-tax">No org-source configured for this note type (add_org:).</div>`;
+            return;
+        }
+        const settled = await Promise.allSettled(sources.map(async orgSource => {
             const sel = `${notebook}:.${orgSource}-org.md`;
             const r = await fetch(`/api/note?selector=${encodeURIComponent(sel)}`);
             const d = await r.json();
             if (d.error) throw new Error(d.error);
-            const tree = _parseAddOrgSource(d.body || '');
-            box.innerHTML = `<div class="nb-invoice-hdr">${_esc(d.meta?.title || orgSource)}</div>`;
-            const list = document.createElement('div');
-            list.className = 'nb-add-org-picker-list';
-            for (const c of (tree.children || [])) _renderAddOrgPickerRow(list, c, 0, notebook);
-            box.appendChild(list);
-        } catch (e) {
-            box.innerHTML = `<div class="nb-invoice-hdr">add org</div><div class="nb-inv-tax">${_esc(e.message)}</div>`;
+            return { title: d.meta?.title || orgSource, tree: _parseAddOrgSource(d.body || '') };
+        }));
+        const results = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
+        if (!results.length) {
+            box.innerHTML = `<div class="nb-invoice-hdr">Add</div><div class="nb-inv-tax">${_esc(settled[0]?.reason?.message || 'no org-source resolved')}</div>`;
+            return;
         }
+        box.innerHTML = `<div class="nb-invoice-hdr">${_esc(results.length === 1 ? results[0].title : 'Add')}</div>`;
+        const list = document.createElement('div');
+        list.className = 'nb-add-org-picker-list';
+        for (const { title, tree } of results) {
+            if (results.length > 1) {
+                const groupHdr = document.createElement('div');
+                groupHdr.className = 'nb-add-org-picker-group';
+                groupHdr.textContent = title;
+                list.appendChild(groupHdr);
+            }
+            for (const c of (tree.children || [])) _renderAddOrgPickerRow(list, c, 0, notebook);
+        }
+        box.appendChild(list);
     }
     NbWeb.openAddOrgPicker = _openAddOrgPicker;
 

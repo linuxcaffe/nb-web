@@ -2983,6 +2983,8 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-add-org-picker-label { font-weight: 500; }
 .nb-add-org-picker-row.nb-add-org-picker-actionable .nb-add-org-picker-label { color: var(--accent); }
 .nb-add-org-picker-caption { font-size: 0.82em; color: var(--text-muted); }
+.nb-add-org-picker-group { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); padding: 8px 6px 2px; }
+.nb-add-org-picker-group:first-child { padding-top: 2px; }
 
 /* notebooks sub-layout */
 .nb-nb-nb-item { justify-content: space-between; }

@@ -678,6 +678,80 @@ def _resolve_help_list(meta, nb_meta, notebook, note_path, itype):
     return result
 
 
+def _collect_add_org_add(notebook, note_path):
+    """Union all add_org_add: values from global → notebook → folder configs.
+
+    Fourth use of the check_add:/cfg_attr_add:/help_add: accumulate pattern —
+    bolt-on wizard options alongside whatever _effective_add_org resolves as
+    the single default (e.g. a dashboard note's own folder config adding
+    `new-report` next to its type's own default tree). See
+    _resolve_add_org_list for how the two combine.
+    """
+    return _collect_cascading_tokens('add_org_add', notebook, note_path)
+
+
+def _effective_add_org(note_meta, nb_meta, notebook, itype):
+    """Resolve the single default org-source name for a note's `[+]` picker.
+
+    Deliberately a *replace* chain, not help:'s union/accumulate shape —
+    "which wizard tree is the default add-target for this type" is a
+    single-answer question, so each more-specific layer replaces rather
+    than adds to the last: note's own `add_org:` FM wins outright; else the
+    notebook's own per-type config (`types.<type>.add_org` in
+    `.{notebook}.md` — the same `types:` block the Configure Notebook Types
+    tab already writes renderer:/access: into, so this reuses an existing
+    type-scoped config surface rather than inventing a new one); else,
+    if neither is set, auto-derived from the note's own type — the
+    org-source name equals the type itself (`.{type}-org.md`), checked for
+    existence so a type with no dedicated wizard tree contributes nothing
+    (no button) rather than a 404. Accumulating extra options on top of
+    whichever of these wins is add_org_add:'s job, not this function's.
+    """
+    val = note_meta['add_org'] if 'add_org' in note_meta else None
+    if val:
+        return [str(v).strip() for v in val if v] if isinstance(val, list) else str(val).strip()
+    type_cfg = (nb_meta.get('types') or {}).get(itype) or {}
+    val = type_cfg.get('add_org')
+    if val:
+        return [str(v).strip() for v in val if v] if isinstance(val, list) else str(val).strip()
+    if itype and notebook and (NB_DIR / notebook / f'.{itype}-org.md').exists():
+        return itype
+    return ''
+
+
+def _resolve_add_org_list(meta, nb_meta, notebook, note_path, itype):
+    """Combine _effective_add_org's single default with add_org_add:'s
+    bolt-on extras into the final `[+]`-picker entry list.
+
+    Default first, then the add_org_add: cascade union (global → notebook →
+    folder, same accumulate order _collect_cascading_tokens already
+    produces elsewhere). Deduplicated, order preserved.
+
+    Returns '' when nothing resolves anywhere, a bare string when exactly
+    one org-source contributes, otherwise a list — same contract
+    _resolve_help_list already has.
+    """
+    parts = []
+    default = _effective_add_org(meta, nb_meta, notebook, itype)
+    if isinstance(default, list):
+        parts.extend(default)
+    elif default:
+        parts.append(default)
+    if notebook:
+        parts.extend(_collect_add_org_add(notebook, note_path).split())
+
+    seen = {}
+    for p in parts:
+        if p:
+            seen[p] = None
+    result = list(seen.keys())
+    if not result:
+        return ''
+    if len(result) == 1:
+        return result[0]
+    return result
+
+
 def _notebook_config(notebook):
     """Read ~/.nb/{notebook}/.{notebook}.md merged over global config."""
     base = _global_config()
@@ -1694,7 +1768,7 @@ _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotlin
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
-_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot', 'timelog_file', 'timedot_file', 'csv', 'theme', 'claude_code'})
+_FM_BLOCK_KEYS = frozenset({'nav', 'toc', 'toc_min', 'fm', 'tw', 'hl', 'git', 'gallery', 'cfg', 't', 'nb', 'tabs', 'journal', 'timedot', 'timelog_file', 'timedot_file', 'csv', 'theme', 'claude_code', 'add'})
 
 def _apply_meta_type(itype, meta):
     fm = str(meta.get('type', '') or '').strip().lower()
@@ -7380,6 +7454,7 @@ def api_note():
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
         'effective_help': _resolve_help_list(meta, nb_meta, note_notebook, fpath, itype),
+        'effective_add_org': _resolve_add_org_list(meta, nb_meta, note_notebook, fpath, itype) if note_notebook else '',
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
     })
