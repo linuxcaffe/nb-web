@@ -4867,27 +4867,54 @@ def _entry_rate(e: dict, fallback_rate: float) -> float:
     return round(e['amount'] / e['hours'], 2) if e['hours'] else fallback_rate
 
 
-def _labour_row(e: dict, fallback_rate: float) -> str:
+def _money_or_dash(raw: str) -> str:
+    """Format a raw csv-cell string as currency if numeric, else a dash —
+    a materials row's Unit Cost column is free text some notebooks leave
+    blank, not a value nb-web can guarantee is always parseable."""
+    try:
+        return f"${float(raw or 0):.2f}"
+    except ValueError:
+        return raw or '—'
+
+
+def _labour_row(e: dict, fallback_rate: float, show_date: bool = True) -> str:
     desc = (e['description'] or '—')[:60]
-    return f"| {e['date']} | {desc} | {e['hours']:.1f} | ${_entry_rate(e, fallback_rate):.2f} | ${e['amount']:.2f} |"
+    prefix = f"{e['date']} | " if show_date else ''
+    return f"| {prefix}{desc} | {e['hours']:.1f} | ${_entry_rate(e, fallback_rate):.2f} | ${e['amount']:.2f} |"
 
 
 def _build_labour_table(entries: list, rate_unit_abbrev: str, fallback_rate: float,
-                         total_hours: float, total_amount: float) -> tuple:
+                         total_hours: float, total_amount: float, show_date: bool = True) -> tuple:
     """Returns (labour_lines_markdown, current_rate). Shared row-building —
     same "rate change to $X" row logic used by the flat (no-milestone) path
-    and, per-slice, by each milestone's own section."""
+    and, per-slice, by each milestone's own section.
+
+    show_date=False drops the Date column entirely — for a scope='future'
+    quote (a projection of not-yet-done work), an entry's "date" is really
+    just whichever diary heading it happened to be typed under, not a real
+    committed schedule; showing it next to a dollar amount implies a
+    precision that doesn't exist yet. scope='since_invoice'/'all' (real,
+    already-logged work) keep dates — those are genuine history."""
     rows, prev_rate = [], None
     for e in entries:
         r = _entry_rate(e, fallback_rate)
         if prev_rate is not None and r != prev_rate:
-            rows.append(f"| | rate change to ${r:.2f}/{rate_unit_abbrev} | | | |")
-        rows.append(_labour_row(e, fallback_rate))
+            note = f"rate change to ${r:.2f}/{rate_unit_abbrev}"
+            rows.append(f"| | {note} | | | |" if show_date else f"| {note} | | | |")
+        rows.append(_labour_row(e, fallback_rate, show_date))
         prev_rate = r
     current_rate = prev_rate if prev_rate is not None else fallback_rate
-    lines = '\n'.join(rows) if rows else \
-        f"| — | Labour | {total_hours:.1f} | ${fallback_rate:.2f} | ${total_amount:.2f} |"
+    if rows:
+        lines = '\n'.join(rows)
+    else:
+        tail = f"Labour | {total_hours:.1f} | ${fallback_rate:.2f} | ${total_amount:.2f} |"
+        lines = f"| — | {tail}" if show_date else f"| {tail}"
     return lines, current_rate
+
+
+def _labour_table_header(show_date: bool = True) -> str:
+    return ("| Date | Description | Hours | Rate | Amount |\n|---|---|---|---|---|\n" if show_date
+            else "| Description | Hours | Rate | Amount |\n|---|---|---|---|\n")
 
 
 def _csv_block_rows(text: str, token: str, default_date: str) -> dict:
@@ -4968,16 +4995,50 @@ def _csv_token_subtotal(text: str, token: str, default_date: str, hst_rate: floa
     return total, round(total * (1 + hst_rate), 2)
 
 
+def _csv_token_items(text: str, token: str, default_date: str) -> list:
+    """Itemized rows for a csv <token> block within `text` -- one dict per
+    real line item (skips blank template rows the same way
+    _csv_token_subtotal already does when summing): {date, description,
+    unit, unit_cost, supplier, total}. Column shape matches
+    .lib/materials.csv's own header (Description, Unit, Unit Cost,
+    Supplier, Total, extra) -- Total is frequently a spreadsheet-style
+    formula string (=B1*C1) rather than a literal number, so
+    _csv_row_total is reused rather than trusting column 4 directly."""
+    import csv as _csv, io as _io
+    rows_by_date = _csv_block_rows(text, token, default_date)
+    items = []
+    for date in sorted(rows_by_date):
+        reader = _csv.reader(_io.StringIO('\n'.join(rows_by_date[date])))
+        for row in reader:
+            if not any(c.strip() for c in row):
+                continue
+            total = _csv_row_total(row)
+            desc  = row[0].strip() if row else ''
+            if not total and not desc:
+                continue
+            items.append({
+                'date':        date,
+                'description': desc or '—',
+                'unit':        row[1].strip() if len(row) > 1 else '',
+                'unit_cost':   row[2].strip() if len(row) > 2 else '',
+                'supplier':    row[3].strip() if len(row) > 3 else '',
+                'total':       total,
+            })
+    return items
+
+
 def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbrev: str,
                           btype: str, default_date: str, hst_rate: float = 0.13) -> list:
     """Per-group numeric computation shared by _render_milestone_sections
     (markdown, for quote/invoice generation) and api_t_marker_groups (JSON,
     for the timeline codeblock's live grouped view — see nb-web CLAUDE.md
     invariant 47). Returns [{title, summary, entries, hours, labour_total,
-    materials: [{token, subtotal, gross}], materials_sub, materials_gross,
-    total}, ...] in document order. `entries` carries the raw per-line
-    labour rows (used to build the markdown table) — callers that only need
-    the numeric summary should drop it before serializing."""
+    materials: [{token, subtotal, gross, items}], materials_sub,
+    materials_gross, total}, ...] in document order. `entries` carries the
+    raw per-line labour rows (used to build the markdown table); each
+    materials entry's `items` carries the itemized csv rows behind its
+    subtotal (see _csv_token_items) — callers that only need the numeric
+    summary should drop both before serializing."""
     results = []
     for g in groups:
         slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
@@ -4990,7 +5051,10 @@ def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbre
             result = _csv_token_subtotal(slice_text, token, default_date, hst_rate)
             if result:
                 sub, gross = result
-                materials.append({'token': token, 'subtotal': round(sub, 2), 'gross': round(gross, 2)})
+                materials.append({
+                    'token': token, 'subtotal': round(sub, 2), 'gross': round(gross, 2),
+                    'items': _csv_token_items(slice_text, token, default_date),
+                })
                 m_sub   += sub
                 m_gross += gross
 
@@ -5015,24 +5079,40 @@ def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbre
 
 
 def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit_abbrev: str,
-                                btype: str, default_date: str, hst_rate: float = 0.13) -> tuple:
+                                btype: str, default_date: str, hst_rate: float = 0.13,
+                                show_date: bool = True) -> tuple:
     """Build markdown for each milestone's own section (heading, summary,
-    itemized labour rows, materials row(s), per-milestone subtotal). Returns
-    (markdown, labour_total, mat_sub, mat_gross) — the last three are GRAND
-    aggregates across all milestones, in the exact shape
-    _invoice_journal_totals's callers already expect, so the caller's
+    itemized labour rows, itemized materials table(s), per-milestone
+    subtotal). Returns (markdown, labour_total, mat_sub, mat_gross) — the
+    last three are GRAND aggregates across all milestones, in the exact
+    shape _invoice_journal_totals's callers already expect, so the caller's
     existing cash/t&m total + ledger-block logic is reused unchanged rather
-    than duplicated here."""
+    than duplicated here.
+
+    show_date=False drops the labour table's Date column — see
+    _build_labour_table's own docstring for why (meaningless on a
+    scope='future' projection)."""
     totals = _marker_group_totals(groups, lines, rate, rate_unit_abbrev, btype, default_date, hst_rate)
+    header = _labour_table_header(show_date)
     sections = []
     grand_labour = grand_mat_sub = grand_mat_gross = 0.0
     for g, t in zip(groups, totals):
         entries  = t['entries']
         hours    = t['hours']
         m_labour = t['labour_total']
-        labour_md, _ = _build_labour_table(entries, rate_unit_abbrev, rate, hours, m_labour)
-        mat_rows = [f"| — | {m['token'].capitalize()} | — | cost | ${m['gross']:.2f} |" for m in t['materials']]
+        labour_md, _ = _build_labour_table(entries, rate_unit_abbrev, rate, hours, m_labour, show_date)
         m_sub, m_gross = t['materials_sub'], t['materials_gross']
+
+        mat_md = ''
+        for m in t['materials']:
+            if not m['items']:
+                continue
+            item_rows = '\n'.join(
+                f"| {it['description']} | {it['unit'] or '—'} | {_money_or_dash(it['unit_cost'])} | ${it['total']:.2f} |"
+                for it in m['items']
+            )
+            mat_md += (f"\n**{m['token'].capitalize()}**\n\n"
+                       "| Item | Qty | Unit Cost | Total |\n|---|---|---|---|\n" + item_rows + "\n")
 
         grand_labour    += m_labour
         grand_mat_sub   += m_sub
@@ -5050,9 +5130,9 @@ def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit
         section = f"### {g['title']}\n"
         if g['summary']:
             section += f"\n{g['summary']}\n"
-        section += "\n| Date | Description | Hours | Rate | Amount |\n|---|---|---|---|---|\n" + labour_md + "\n"
-        if mat_rows:
-            section += '\n'.join(mat_rows) + '\n'
+        section += f"\n{header}" + labour_md + "\n"
+        if mat_md:
+            section += mat_md
         section += f"\n{sub_line}\n"
         sections.append(section)
 
@@ -5572,6 +5652,10 @@ def api_t_quote_generate():
     q_date     = data.get('date', str(_date.today()))
     valid_until = data.get('valid_until', '').strip()
     notes      = data.get('notes', '').strip()
+    # Not yet wired to any UI (MILESTONE is the only real vocabulary in
+    # active use), but the grouping engine itself is generic — see
+    # _marker_groups, invariant 45 — so the endpoint shouldn't hardcode it.
+    marker_type = (data.get('marker_type', 'MILESTONE').strip() or 'MILESTONE').upper()
 
     if scope not in ('future', 'all'):
         return jsonify({'error': "scope must be 'future' or 'all'"}), 400
@@ -5599,13 +5683,21 @@ def api_t_quote_generate():
         str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
     default_date = str(meta.get('started') or _date.today())
     # scope is already resolved to 'future' | 'all' above (never 'since_invoice'
-    # here — quotes are never scoped to since-last-invoice) — _milestone_groups
+    # here — quotes are never scoped to since-last-invoice) — _marker_groups
     # accepts the same three scope strings the invoice path uses.
-    _milestones = _milestone_groups(body, scope)
+    _milestones = _marker_groups(body, scope, marker_type)
+    # A scope='future' quote is a projection of not-yet-done work -- an
+    # entry's "date" there is really just whichever diary heading it
+    # happened to be typed under, not a real committed schedule. Dropped
+    # entirely rather than shown and risk implying false precision; a real,
+    # already-logged scope ('all', or invoice's own 'since_invoice') keeps
+    # dates since those are genuine history. See _build_labour_table.
+    show_date = scope != 'future'
 
     if _milestones:
         milestone_md, labour_total, mat_sub, mat_gross = _render_milestone_sections(
-            _milestones, body.split('\n'), rate, rate_unit_abbrev, btype, default_date)
+            _milestones, body.split('\n'), rate, rate_unit_abbrev, btype, default_date,
+            show_date=show_date)
         entries, labour_hours = None, None
     else:
         labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
@@ -5643,7 +5735,7 @@ def api_t_quote_generate():
         current_rate  = rate
     else:
         labour_lines, current_rate = _build_labour_table(
-            entries, rate_unit_abbrev, rate, labour_hours, labour_total)
+            entries, rate_unit_abbrev, rate, labour_hours, labour_total, show_date)
         expense_lines = '\n'.join(
             f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
             for token, (_, gross) in expense_dict.items()
@@ -5679,7 +5771,7 @@ def api_t_quote_generate():
         # Milestone sections each carry their own '### title' + table header
         # (_render_milestone_sections) — the flat header below only applies
         # to the single-table (no-milestone) case.
-        header_row = '' if _milestones else '| Date | Description | Hours | Rate | Amount |\n|---|---|---|---|---|\n'
+        header_row = '' if _milestones else _labour_table_header(show_date)
         content = f'''---
 title: "{quote_num} — {client}"
 type: quote
