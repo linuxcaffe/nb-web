@@ -304,21 +304,35 @@ def _dev_no_cache(response):
 def run_nb(*args, input_text=None, readonly=False):
     """Run nb with args; return {'stdout', 'stderr', 'returncode'}.
 
-    Deliberately does NOT pass --no-color as a trailing CLI arg (the
-    NO_COLOR=1 env var below already suppresses color output on its own —
-    confirmed sufficient by _nb_index_reconcile's own docstring, which
-    avoids the flag for exactly this reason). nb.sh's own arg parsers for
-    several subcommands (confirmed directly in nb.sh's source for `index
-    reconcile`/`rebuild`: any unrecognized trailing token silently
-    overwrites the folder-path argument) treat a stray trailing flag as a
-    positional override, not noise to ignore — appending --no-color
-    unconditionally here previously meant *every* run_nb() call across the
-    app carried that risk, not just the one call site index reconcile was
-    already special-cased to avoid. Root-caused live 2026-08-31 after this
-    exact bug wiped ~/.nb/djp's own root .index a second time (first
-    incident: 2026-07-07, see _nb_index_reconcile's docstring) — this
-    removes the whole bug class at its one shared source instead of
-    patching call sites one at a time as they're individually discovered.
+    Deliberately does NOT pass --no-color as a trailing CLI arg. nb.sh's own
+    arg parsers for several subcommands (confirmed directly in nb.sh's
+    source for `index reconcile`/`rebuild`: any unrecognized trailing token
+    silently overwrites the folder-path argument) treat a stray trailing
+    flag as a positional override, not noise to ignore — appending
+    --no-color unconditionally here previously meant *every* run_nb() call
+    across the app carried that risk, not just the one call site index
+    reconcile was already special-cased to avoid. Root-caused live
+    2026-08-31 after this exact bug wiped ~/.nb/djp's own root .index a
+    second time (first incident: 2026-07-07, see _nb_index_reconcile's
+    docstring) — this removes the whole bug class at its one shared source
+    instead of patching call sites one at a time as they're individually
+    discovered.
+
+    The env var below does NOT replace --no-color as color suppression —
+    confirmed false 2026-09-01, corrected from an earlier version of this
+    docstring that claimed it did. nb.sh never reads NO_COLOR at all
+    (grepped the whole source, zero hits); its own _COLOR_ENABLED defaults
+    to 1 unconditionally (nb.sh:907) regardless of tty/pipe, and is only
+    ever cleared by the literal --no-color flag this function deliberately
+    doesn't pass. Real symptom: `nb notebooks --names` still wraps the
+    CURRENT notebook's name in raw ANSI codes even under this env var,
+    which broke api_notebooks()'s JSON response until it was fixed to
+    strip_ansi() the output (nb-web CLAUDE.md invariant 46). Kept in the
+    env anyway since it's harmless and matches the informal NO_COLOR
+    convention other tools do honor — but any new run_nb() call site whose
+    output will be parsed as data (not just relayed as human-readable text)
+    must defensively strip_ansi() it, the same as several existing call
+    sites already do; don't rely on this env var to have done that job.
     """
     cmd = [NB_BIN] + list(args)
     result = subprocess.run(
@@ -346,13 +360,15 @@ def _nb_index_reconcile(path):
     memory for the unrelated but similarly-shaped pytest bug found the same
     day) -- and again, 2026-08-31, the same class of bug via a different
     run_nb() call site during the same djp notebook's real production use
-    (see run_nb()'s own docstring). NO_COLOR=1 in the env is sufficient for
-    quiet output on its own, which is why run_nb() no longer passes the
-    flag at all as of the second incident -- this function's separate
-    subprocess call is now redundant-but-harmless rather than
-    load-bearing; kept as-is rather than refactored onto run_nb() in the
-    same pass that fixed the actual bug, to keep that fix minimal and
-    easy to verify in isolation.
+    (see run_nb()'s own docstring, corrected 2026-09-01 -- NO_COLOR=1 does
+    NOT actually suppress nb's own color output; nb.sh never reads that env
+    var at all, and defaults color on regardless of tty/pipe). run_nb() no
+    longer passes --no-color at all as of the second incident, for the
+    arg-parser-safety reason explained there. This function's own result is
+    discarded (no return, no strip_ansi() needed) — it exists purely to run
+    `index reconcile` as a side effect, so any stray ANSI codes in its
+    output are harmless by construction, unlike api_notebooks()'s use of
+    `nb notebooks --names` output as actual JSON data.
     """
     subprocess.run([NB_BIN, 'index', 'reconcile', str(path)],
                    capture_output=True, text=True,
@@ -1854,7 +1870,7 @@ def _indicator(itype, todo_status=None, fpath=None):
     return INDICATORS.get(itype, '')
 
 
-ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+ANSI_RE = re.compile(r'\x1b\[[0-9;]*m|\x1b\([A-Za-z0-9]')
 
 
 def strip_ansi(s):
@@ -5918,7 +5934,11 @@ def ws_pty(ws):
 @app.route('/api/notebooks')
 def api_notebooks():
     r = run_nb('notebooks', '--names', '--unarchived', '--global')
-    names = [n for n in r['stdout'].splitlines() if n.strip()]
+    # nb highlights the CURRENT notebook's name with ANSI color/underline
+    # codes -- NO_COLOR=1 (run_nb()'s env) does not suppress this, or any of
+    # nb's own coloring; see run_nb()'s own docstring. Strip it here or the
+    # escape codes ride straight through into the notebook-switcher dropdown.
+    names = [n for n in strip_ansi(r['stdout']).splitlines() if n.strip()]
     current_nb = 'home'
     try:
         cur_path = NB_DIR / '.current'
