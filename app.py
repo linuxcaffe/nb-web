@@ -10125,8 +10125,17 @@ def api_nb_create_from_template():
     dest.write_text(content, encoding='utf-8')
 
     if not is_seed:
-        # Singleton notes live in the notebook root — register with nb's index
-        run_nb('index', 'add', filename, '--notebook', notebook)
+        # Singleton notes live in the notebook root — register with nb's index.
+        # `nb index add <basename> <folder-path>` is purely positional (confirmed
+        # directly in nb.sh's own source, _index()'s `add` branch) -- it has no
+        # --notebook flag at all. The previous call passed '--notebook', notebook
+        # (a bare notebook name) as the third/fourth positional args; _index()'s
+        # add handler reads $3 as _folder_path unconditionally, so it was
+        # literally using the string "--notebook" as the folder path every time,
+        # silently failing the `-e "${_folder_path}/${_basename}"` existence
+        # check and never actually registering the note. dest_dir (the real
+        # notebook-root Path) is what belongs here.
+        run_nb('index', 'add', filename, str(dest_dir))
 
     commit_msg = f'[nb] Seed template: {filename}' if is_seed else f'[nb] Add: {filename}'
     subprocess.run(['git', '-C', str(nb_path), 'add', git_relp], capture_output=True)
