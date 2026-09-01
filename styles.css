@@ -4294,6 +4294,15 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 }
 .nb-timeline-type-sel { max-width: 7em; }
 .nb-timeline-tf-sel   { max-width: 12em; }
+.nb-timeline-money-toggle {
+  font-size: 0.8em; font-weight: 700; line-height: 1; padding: 2px 7px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); color: var(--text-muted); cursor: pointer;
+}
+.nb-timeline-money-toggle:hover { color: #27ae60; border-color: #27ae60; }
+.nb-timeline-money-toggle--active {
+  background: color-mix(in srgb, #27ae60 15%, var(--bg)); color: #27ae60; border-color: #27ae60;
+}
 .nb-timeline-hdr-date {
   margin-left: auto; font-size: 0.8em;
   color: #d4ac0d; font-family: var(--font-mono, monospace); white-space: nowrap;
@@ -4311,6 +4320,23 @@ span.nb-cb-icon.nb-cb-icon--emoji {
   font-size: 0.75em; color: #d4ac0d;
   font-family: var(--font-mono, monospace); white-space: nowrap;
 }
+/* $ toggle: MILESTONE-grouped subtotal rows, GET /api/t/marker-groups */
+.nb-timeline-money-row {
+  display: flex; align-items: baseline; gap: 0.6em;
+  padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 0.9em;
+}
+.nb-timeline-money-row:last-child { border-bottom: none; }
+.nb-timeline-money-title { color: var(--text); font-weight: 600; }
+.nb-timeline-money-detail { color: var(--text-muted); font-size: 0.86em; flex: 1; }
+.nb-timeline-money-total {
+  font-family: var(--font-mono, monospace); color: var(--text); white-space: nowrap;
+}
+.nb-timeline-money-grand {
+  display: flex; justify-content: space-between;
+  margin-top: 4px; padding-top: 6px; border-top: 1px solid #27ae60;
+  font-weight: 700; color: #27ae60;
+}
+.nb-timeline-money-grand span:last-child { font-family: var(--font-mono, monospace); }
 
 /* ── checklist codeblock ────────────────────────────────────────────────────── */
 .nb-checklist-block  { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin: 0.5em 0; }

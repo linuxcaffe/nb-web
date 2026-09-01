@@ -6343,6 +6343,21 @@
         hdr.appendChild(titleSpan);
         hdr.appendChild(typeSel);
         hdr.appendChild(tfSel);
+        // $ toggle -- switches the list view to a MILESTONE-grouped subtotal
+        // view (GET /api/t/marker-groups, achievement-style attribution, see
+        // nb-web CLAUDE.md invariant 45/47), independent of the type/
+        // timeframe selects above (which govern the flat chronological view
+        // this replaces while active). Only shown when the note actually has
+        // MILESTONE markers at all -- a project with none has nothing to
+        // group, so the toggle would only ever show an empty state.
+        if (typeSet.has('milestone')) {
+            const moneyBtn = document.createElement('button');
+            moneyBtn.className = 'nb-timeline-money-toggle';
+            moneyBtn.type = 'button';
+            moneyBtn.title = 'Show $ subtotals per milestone';
+            moneyBtn.textContent = '$';
+            hdr.appendChild(moneyBtn);
+        }
         return hdr;
     }
 
@@ -6396,6 +6411,73 @@
         if (hasTodayMarker && !todayInserted) list.appendChild(_timelineTodaySep());
     }
 
+    // Dispatch to either the flat chronological list or the MILESTONE-
+    // grouped subtotal view, based on the $ toggle's current state.
+    function _renderTimelineList(el, timeframe) {
+        if (el.dataset.moneyMode === '1') { _renderTimelineGrouped(el, timeframe); return; }
+        _renderTimelineFromData(el, timeframe);
+    }
+
+    // Map the timeline's own timeframe vocabulary (current/future/all, or a
+    // specific "TYPE: ref" cumulative-scope label -- see _timelineScope's
+    // last branch) onto api_t_marker_groups' three well-defined scopes. A
+    // specific marker label has no direct equivalent (the endpoint groups by
+    // marker, it doesn't do cumulative-up-to-here scoping) -- falls back to
+    // 'all' rather than guessing at one.
+    function _timelineMoneyScope(timeframe) {
+        if (timeframe === 'current') return 'since_invoice';
+        if (timeframe === 'future' || timeframe === 'all') return timeframe;
+        return 'all';
+    }
+
+    // $-mode: fetch GET /api/t/marker-groups (achievement-style attribution,
+    // nb-web CLAUDE.md invariant 45/47) and render each milestone as a
+    // subtotal row instead of the flat per-marker chip list. Independent of
+    // the type/timeframe selects' own flat-view meaning -- always groups by
+    // MILESTONE specifically, since that's the one marker type with real $
+    // data behind it (invoicing/quoting).
+    async function _renderTimelineGrouped(el, timeframe) {
+        let list = el.querySelector('.nb-timeline-list');
+        if (!list) {
+            list = document.createElement('div');
+            list.className = 'nb-timeline-list';
+            el.appendChild(list);
+        }
+        list.innerHTML = '<span class="nb-spin">⟳</span>';
+
+        const sourceSel = el.dataset.sourceSel || '';
+        const scope = _timelineMoneyScope(timeframe);
+        try {
+            const r = await fetch(`/api/t/marker-groups?selector=${encodeURIComponent(sourceSel)}` +
+                                   `&marker_type=MILESTONE&scope=${encodeURIComponent(scope)}`);
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+
+            list.innerHTML = '';
+            if (!d.groups.length) {
+                list.innerHTML = '<div class="nb-timeline-empty">No MILESTONE markers in this scope</div>';
+                return;
+            }
+            for (const g of d.groups) {
+                const row = document.createElement('div');
+                row.className = 'nb-timeline-money-row';
+                const matPart = g.materials_gross
+                    ? ` + $${g.materials_gross.toFixed(2)} materials` : '';
+                row.innerHTML =
+                    `<span class="nb-timeline-money-title">${_esc(g.title)}</span>` +
+                    `<span class="nb-timeline-money-detail">${g.hours.toFixed(1)}h${matPart}</span>` +
+                    `<span class="nb-timeline-money-total">$${g.total.toFixed(2)}</span>`;
+                list.appendChild(row);
+            }
+            const totalRow = document.createElement('div');
+            totalRow.className = 'nb-timeline-money-grand';
+            totalRow.innerHTML = `<span>Total</span><span>$${d.grand_total.toFixed(2)}</span>`;
+            list.appendChild(totalRow);
+        } catch (e) {
+            list.innerHTML = `<div class="nb-timedot-err">$ subtotals: ${_esc(e.message)}</div>`;
+        }
+    }
+
     // Load a CBQL timeline block: fetch source once, build header with controls, cache data.
     // Type changes and timeframe changes both re-render the list without re-fetching.
     async function _loadTimelineCBQLBlock(el) {
@@ -6430,11 +6512,20 @@
                 const type = typeSel?.value || 'all';
                 el.dataset.activeTimeframe  = tf;
                 el.dataset.activeTypeFilter = type;
-                _renderTimelineFromData(el, tf);
+                _renderTimelineList(el, tf);
                 // Broadcast timeframe change so timedot blocks stay in sync
                 if (ev.target === tfSel)
                     document.dispatchEvent(new CustomEvent('nb-timeframe-changed', { detail: { timeframe: tf } }));
             });
+            const moneyBtn = el.querySelector('.nb-timeline-money-toggle');
+            if (moneyBtn) {
+                moneyBtn.addEventListener('click', () => {
+                    const on = el.dataset.moneyMode === '1';
+                    el.dataset.moneyMode = on ? '0' : '1';
+                    moneyBtn.classList.toggle('nb-timeline-money-toggle--active', !on);
+                    _renderTimelineList(el, el.dataset.activeTimeframe ?? 'current');
+                });
+            }
         }
 
         const timeframe = el.dataset.activeTimeframe ?? params.timeframe ?? 'current';
@@ -6442,7 +6533,7 @@
         // Sync the tf-sel dropdown to current timeframe state
         const tfSel = el.querySelector('.nb-timeline-tf-sel');
         if (tfSel) tfSel.value = timeframe;
-        _renderTimelineFromData(el, timeframe);
+        _renderTimelineList(el, timeframe);
     }
 
     // Rebuild a timedot file from all ```timedot blocks in raw note text.
