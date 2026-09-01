@@ -4456,8 +4456,40 @@ def _nb_index_add(file_path: Path):
 
 
 def _ensure_journal_stubs(journal_path: Path):
-    """Touch any files named in include directives of journal_path that don't exist yet."""
-    if not journal_path or not journal_path.exists():
+    """Ensure a project's master journal exists, creating it (with
+    `include` lines for every real {stem}-gen.*.journal sibling already on
+    disk) if it's missing entirely — then, as before, touch any file named
+    in an existing master's own `include` directive that doesn't exist yet.
+
+    The add:org wizard's project-dotfile template only ever sets the
+    journal: frontmatter *pointer* — every step in its grammar
+    (KIND: notebook|folder|note|contact|today, invariant 40) that writes a
+    file writes a real note with frontmatter, and a plain hledger journal
+    isn't one, so nothing in the wizard ever creates the actual .journal
+    file. Confirmed live 2026-09-01: djp:projects/Johnson/Aarons-house's
+    master journal had never existed despite three real -gen.*.journal
+    siblings already existing from genuine timedot/csv activity — every
+    hl/CBQL query against it failed with "data file was not found." This
+    function is already called on every timedot-block save
+    (api_t_timedot_write), so closing the gap here makes it self-healing
+    for both newly-scaffolded and already-broken projects alike, without
+    needing a wizard grammar change or manual intervention.
+
+    Deliberately does NOT touch an already-existing master journal's own
+    content/include list — unlike the `-gen.*` files themselves (house
+    rule: generated, never hand-edited), the master journal is the one
+    hledger artifact in this system a person might reasonably
+    hand-maintain (account declarations, extra includes, opening
+    balances)."""
+    if not journal_path:
+        return
+    if not journal_path.exists():
+        siblings = sorted(p.name for p in journal_path.parent.glob(f'{journal_path.stem}-gen.*.journal')) \
+            if journal_path.parent.is_dir() else []
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f'; {journal_path.stem} — master journal, auto-created', ''] + \
+                [f'include {name}' for name in siblings]
+        journal_path.write_text('\n'.join(lines) + '\n')
         return
     import re as _re
     text = journal_path.read_text(errors='replace')
@@ -4586,6 +4618,7 @@ def api_t_journal_from_csv():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text('\n'.join(jlines))
     _nb_index_add(out_path)
+    _ensure_journal_stubs(journal_path)
     _hledger_cache.clear()
     return jsonify({'success': True, 'path': str(out_path)})
 
