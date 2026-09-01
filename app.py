@@ -5332,7 +5332,19 @@ def api_t_invoice_preflight():
     today = _dt.date.today()
     year  = today.year
     existing = sorted(f.stem for f in (note_path.parent.parent / 'invoices').glob(f'INV-{year}-*.md'))
-    next_num = (int(existing[-1].split('-')[-1]) + 1) if existing else 1
+    # int(), not string-sort order -- 'QUO-2026-9' sorts after 'QUO-2026-10'
+    # lexicographically, which would pick the wrong file as "last" past nine.
+    # Non-numeric suffixes (e.g. a stray verification artifact like
+    # QUO-2026-DEBUG.md sitting in a real folder) are skipped rather than
+    # crashing the whole preflight -- confirmed live 2026-09-01, a leftover
+    # test file made every subsequent Generate Quote click 500.
+    _nums = []
+    for _stem in existing:
+        try:
+            _nums.append(int(_stem.split('-')[-1]))
+        except ValueError:
+            pass
+    next_num = max(_nums) + 1 if _nums else 1
 
     return jsonify({
         'suggested_num':     f'INV-{year}-{next_num:03d}',
@@ -5668,7 +5680,19 @@ def api_t_quote_preflight():
     today = _dt.date.today()
     year  = today.year
     existing = sorted(f.stem for f in (note_path.parent.parent / 'quotes').glob(f'QUO-{year}-*.md'))
-    next_num = (int(existing[-1].split('-')[-1]) + 1) if existing else 1
+    # int(), not string-sort order -- 'QUO-2026-9' sorts after 'QUO-2026-10'
+    # lexicographically, which would pick the wrong file as "last" past nine.
+    # Non-numeric suffixes (e.g. a stray verification artifact like
+    # QUO-2026-DEBUG.md sitting in a real folder) are skipped rather than
+    # crashing the whole preflight -- confirmed live 2026-09-01, a leftover
+    # test file made every subsequent Generate Quote click 500.
+    _nums = []
+    for _stem in existing:
+        try:
+            _nums.append(int(_stem.split('-')[-1]))
+        except ValueError:
+            pass
+    next_num = max(_nums) + 1 if _nums else 1
 
     return jsonify({
         'suggested_num':     f'QUO-{year}-{next_num:03d}',
