@@ -4796,6 +4796,46 @@ def _milestone_groups(body: str, scope: str) -> 'list | None':
     return _marker_groups(body, scope, 'MILESTONE')
 
 
+def _resolve_diary_source(note_path: Path, meta: dict, body: str) -> tuple:
+    """Resolve the note whose body actually holds diary/marker content, for
+    quote/invoice generation's marker-grouping. Returns (diary_path,
+    diary_body, effective_meta).
+
+    Generate Quote/Invoice's real-world entry point is the *reports* page
+    (nbweb-hledger.js's _reportsGenQuote/_reportsGenInvoice both POST
+    `note.selector` — whatever note is actually open, which in practice is
+    always the reports note, never the diary note directly). A `type:
+    reports` note's own body has no `> MILESTONE:` markers or timedot/csv
+    blocks at all — those live only in the diary/project note it reports
+    on, referenced via its own `source: <filename>` frontmatter field
+    (bare, same folder) — and a reports note deliberately doesn't duplicate
+    `rate:`/`rate_unit:` in its own frontmatter either. Confirmed live
+    2026-09-01: every real Generate Quote click against
+    djp:projects/Johnson/Aarons-house-reports.md silently fell back to the
+    flat (non-grouped) rendering path because of exactly this — the
+    grouping engine itself (invariant 45) was already fully correct. The
+    journal-based flat path masked this for months: journal_key resolves
+    via folder config (identical regardless of which note in the folder
+    was selected) and re-derives its own effective rate from real
+    historical journal amounts rather than trusting meta['rate'] at all —
+    the marker-grouping path has neither luxury.
+
+    effective_meta merges the diary note's own fields in as a fallback
+    layer *underneath* whatever the originally-selected note already has
+    (its own explicit values always win) — covers rate/rate_unit missing
+    from the reports note without needing every individual field lookup
+    below to be rewritten with a third fallback."""
+    src = str(meta.get('source') or '').strip()
+    if meta.get('type') != 'reports' or not src:
+        return note_path, body, meta
+    candidate = note_path.parent / src
+    if not candidate.is_file():
+        return note_path, body, meta
+    diary_body = candidate.read_text(errors='replace')
+    diary_meta, _ = parse_frontmatter(diary_body)
+    return candidate, diary_body, {**diary_meta, **meta}
+
+
 def _parse_timedot(text: str, fallback_date: str) -> list:
     """Return [(date, hours, comment), ...] from raw timedot block content.
     Ported verbatim from djp:.tools/gen-project-journal.py's _parse_timedot —
@@ -5331,6 +5371,7 @@ def api_t_invoice_generate():
         return jsonify({'error': 'note not found'}), 404
 
     meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
+    _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
     notebook   = selector.split(':')[0] if ':' in selector else 'home'
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
@@ -5346,7 +5387,7 @@ def api_t_invoice_generate():
     rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
         str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
     default_date = str(meta.get('started') or _dt.date.today())
-    _milestones  = _milestone_groups(body, 'since_invoice')
+    _milestones  = _milestone_groups(diary_body, 'since_invoice')
 
     if _milestones:
         # Milestone markers inside the invoiced period are rare in practice
@@ -5354,7 +5395,7 @@ def api_t_invoice_generate():
         # territory) but handled the same way, per-milestone sections instead
         # of one flat table — see _render_milestone_sections.
         milestone_md, labour_total, mat_sub, mat_gross = _render_milestone_sections(
-            _milestones, body.split('\n'), rate, rate_unit_abbrev, btype, default_date)
+            _milestones, diary_body.split('\n'), rate, rate_unit_abbrev, btype, default_date)
         entries, labour_hours = None, None
     else:
         labour_total, expense_dict = _invoice_journal_totals(journal_key)
@@ -5473,13 +5514,26 @@ def api_t_invoice_generate():
         }.items():
             content = content.replace(k, v)
     else:
-        # Fallback inline content (no template found). No per-row template here,
-        # so this stays a single blended line — but blended (not the flat frontmatter
-        # rate) so hours × rate still equals the total shown, same fix as preflight.
-        display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
-        notes_md   = f'\n**Notes:** {notes}\n' if notes else ''
-        labour_row = f'| Labour | {labour_hours:.1f} h × ${display_rate:.2f} | ${labour_total:.2f} |\n'
-        mat_row    = f'| Materials | cost + HST | ${mat_gross:.2f} |\n' if mat_gross > 0 else ''
+        # Fallback inline content (no template found). Milestone-grouped
+        # invoices reuse labour_lines (= milestone_md, its own '### Title'
+        # sections) exactly as the template-based branch above does via
+        # {{labour_lines}} -- must NOT reconstruct a single "Labour" summary
+        # row from labour_hours/labour_total here, which are None whenever
+        # _milestones is truthy (same bug shape quote's fallback already
+        # guards against via its own header_row/_milestones check).
+        notes_md = f'\n**Notes:** {notes}\n' if notes else ''
+        if _milestones:
+            services_header = ''
+            services_body   = labour_lines
+        else:
+            # No per-row template here, so this stays a single blended line —
+            # but blended (not the flat frontmatter rate) so hours × rate
+            # still equals the total shown, same fix as preflight.
+            display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
+            labour_row = f'| Labour | {labour_hours:.1f} h × ${display_rate:.2f} | ${labour_total:.2f} |\n'
+            mat_row    = f'| Materials | cost + HST | ${mat_gross:.2f} |\n' if mat_gross > 0 else ''
+            services_header = '| Description | Detail | Amount |\n|---|---|---|\n'
+            services_body   = f'{labour_row}{mat_row}'
         content = f'''---
 title: "{invoice_num} — {client}"
 type: invoice
@@ -5503,9 +5557,7 @@ invoice_num: {invoice_num}
 
 ## Services
 
-| Description | Detail | Amount |
-|---|---|---|
-{labour_row}{mat_row}
+{services_header}{services_body}
 {total_display}{notes_md}
 
 ---
@@ -5667,6 +5719,7 @@ def api_t_quote_generate():
         return jsonify({'error': 'note not found'}), 404
 
     meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
+    _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
     notebook   = selector.split(':')[0] if ':' in selector else 'home'
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
@@ -5685,7 +5738,7 @@ def api_t_quote_generate():
     # scope is already resolved to 'future' | 'all' above (never 'since_invoice'
     # here — quotes are never scoped to since-last-invoice) — _marker_groups
     # accepts the same three scope strings the invoice path uses.
-    _milestones = _marker_groups(body, scope, marker_type)
+    _milestones = _marker_groups(diary_body, scope, marker_type)
     # A scope='future' quote is a projection of not-yet-done work -- an
     # entry's "date" there is really just whichever diary heading it
     # happened to be typed under, not a real committed schedule. Dropped
@@ -5696,7 +5749,7 @@ def api_t_quote_generate():
 
     if _milestones:
         milestone_md, labour_total, mat_sub, mat_gross = _render_milestone_sections(
-            _milestones, body.split('\n'), rate, rate_unit_abbrev, btype, default_date,
+            _milestones, diary_body.split('\n'), rate, rate_unit_abbrev, btype, default_date,
             show_date=show_date)
         entries, labour_hours = None, None
     else:
