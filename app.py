@@ -5036,6 +5036,27 @@ def _csv_row_total(row: list) -> float:
     return round(lt, 2)
 
 
+def _checklist_items_in_text(text: str) -> list:
+    """`- [ ]`/`- [x]` checkbox items within `text`, in document order,
+    skipping any line inside a fenced code block (a materials/timedot
+    block's own content can never be mistaken for a real checklist item).
+    Returns [{'checked': bool, 'text': str}, ...]. The one thing pulled
+    out of an otherwise-freeform project note's prose for quote/invoice
+    display — see _render_milestone_sections."""
+    items    = []
+    in_fence = False
+    for line in text.split('\n'):
+        if line.strip().startswith('```'):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = re.match(r'^\s*-\s*\[([ xX])\]\s*(.+)$', line)
+        if m:
+            items.append({'checked': m.group(1).lower() == 'x', 'text': m.group(2).strip()})
+    return items
+
+
 def _csv_tokens_in_text(text: str) -> list:
     """Distinct csv <token> fence names appearing in text, in first-seen order."""
     seen, tokens = set(), []
@@ -5111,11 +5132,16 @@ def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbre
     raw per-line labour rows (used to build the markdown table); each
     materials entry's `items` carries the itemized csv rows behind its
     subtotal (see _csv_token_items) — callers that only need the numeric
-    summary should drop both before serializing."""
+    summary should drop both before serializing. `checklist` carries the
+    group's own `- [ ]`/`- [x]` items (see _checklist_items_in_text) —
+    present regardless of whether the group has any real cost data, since
+    a not-yet-started milestone's checklist is exactly what's useful to
+    show in its place."""
     results = []
     for g in groups:
         slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
-        entries  = _parse_timedot_slice(slice_text, default_date, rate)
+        entries   = _parse_timedot_slice(slice_text, default_date, rate)
+        checklist = _checklist_items_in_text(slice_text)
         hours    = round(sum(e['hours'] for e in entries), 2)
         m_labour = round(sum(e['amount'] for e in entries), 2)
 
@@ -5141,6 +5167,7 @@ def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbre
             'title':           g['title'],
             'summary':         g['summary'],
             'entries':         entries,
+            'checklist':       checklist,
             'hours':           hours,
             'labour_total':    m_labour,
             'materials':       materials,
@@ -5203,10 +5230,21 @@ def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit
         section = f"### {g['title']}\n"
         if g['summary']:
             section += f"\n{g['summary']}\n"
-        section += f"\n{header}" + labour_md + "\n"
-        if mat_md:
-            section += mat_md
-        section += f"\n{sub_line}\n"
+        if t['checklist']:
+            section += '\n' + '\n'.join(
+                f"- [{'x' if c['checked'] else ' '}] {c['text']}" for c in t['checklist']
+            ) + '\n'
+        # A milestone with no real cost data yet (not started) gets no
+        # synthesized "Labour | 0.0 | ... | $0.00" row or "$0.00" subtotal
+        # line -- those were fabricated placeholders, not real numbers;
+        # the checklist above (if any) is what's actually useful to show
+        # in their place. Real Aarons-house.md has 12 of its 14 milestones
+        # in exactly this state.
+        if entries or t['materials']:
+            section += f"\n{header}" + labour_md + "\n"
+            if mat_md:
+                section += mat_md
+            section += f"\n{sub_line}\n"
         sections.append(section)
 
     markdown = '\n---\n\n'.join(sections)
