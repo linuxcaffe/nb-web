@@ -4968,6 +4968,52 @@ def _csv_token_subtotal(text: str, token: str, default_date: str, hst_rate: floa
     return total, round(total * (1 + hst_rate), 2)
 
 
+def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbrev: str,
+                          btype: str, default_date: str, hst_rate: float = 0.13) -> list:
+    """Per-group numeric computation shared by _render_milestone_sections
+    (markdown, for quote/invoice generation) and api_t_marker_groups (JSON,
+    for the timeline codeblock's live grouped view — see nb-web CLAUDE.md
+    invariant 47). Returns [{title, summary, entries, hours, labour_total,
+    materials: [{token, subtotal, gross}], materials_sub, materials_gross,
+    total}, ...] in document order. `entries` carries the raw per-line
+    labour rows (used to build the markdown table) — callers that only need
+    the numeric summary should drop it before serializing."""
+    results = []
+    for g in groups:
+        slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
+        entries  = _parse_timedot_slice(slice_text, default_date, rate)
+        hours    = round(sum(e['hours'] for e in entries), 2)
+        m_labour = round(sum(e['amount'] for e in entries), 2)
+
+        materials, m_sub, m_gross = [], 0.0, 0.0
+        for token in _csv_tokens_in_text(slice_text):
+            result = _csv_token_subtotal(slice_text, token, default_date, hst_rate)
+            if result:
+                sub, gross = result
+                materials.append({'token': token, 'subtotal': round(sub, 2), 'gross': round(gross, 2)})
+                m_sub   += sub
+                m_gross += gross
+
+        if btype == 'cash':
+            total = round(m_labour + m_gross, 2)
+        else:
+            pretax = round(m_labour + m_sub, 2)
+            total  = round(pretax + round(pretax * hst_rate, 2), 2)
+
+        results.append({
+            'title':           g['title'],
+            'summary':         g['summary'],
+            'entries':         entries,
+            'hours':           hours,
+            'labour_total':    m_labour,
+            'materials':       materials,
+            'materials_sub':   round(m_sub, 2),
+            'materials_gross': round(m_gross, 2),
+            'total':           total,
+        })
+    return results
+
+
 def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit_abbrev: str,
                                 btype: str, default_date: str, hst_rate: float = 0.13) -> tuple:
     """Build markdown for each milestone's own section (heading, summary,
@@ -4977,23 +5023,16 @@ def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit
     _invoice_journal_totals's callers already expect, so the caller's
     existing cash/t&m total + ledger-block logic is reused unchanged rather
     than duplicated here."""
+    totals = _marker_group_totals(groups, lines, rate, rate_unit_abbrev, btype, default_date, hst_rate)
     sections = []
     grand_labour = grand_mat_sub = grand_mat_gross = 0.0
-    for g in groups:
-        slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
-        entries  = _parse_timedot_slice(slice_text, default_date, rate)
-        hours    = round(sum(e['hours'] for e in entries), 2)
-        m_labour = round(sum(e['amount'] for e in entries), 2)
+    for g, t in zip(groups, totals):
+        entries  = t['entries']
+        hours    = t['hours']
+        m_labour = t['labour_total']
         labour_md, _ = _build_labour_table(entries, rate_unit_abbrev, rate, hours, m_labour)
-
-        mat_rows, m_sub, m_gross = [], 0.0, 0.0
-        for token in _csv_tokens_in_text(slice_text):
-            result = _csv_token_subtotal(slice_text, token, default_date, hst_rate)
-            if result:
-                sub, gross = result
-                mat_rows.append(f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |")
-                m_sub   += sub
-                m_gross += gross
+        mat_rows = [f"| — | {m['token'].capitalize()} | — | cost | ${m['gross']:.2f} |" for m in t['materials']]
+        m_sub, m_gross = t['materials_sub'], t['materials_gross']
 
         grand_labour    += m_labour
         grand_mat_sub   += m_sub
@@ -5087,6 +5126,52 @@ def _find_invoice_template(notebook: str, btype: str) -> 'Path | None':
             if p.exists():
                 return p
     return None
+
+
+@app.route('/api/t/marker-groups')
+def api_t_marker_groups():
+    """Read-only JSON marker-grouped $ breakdown -- the same _marker_groups
+    + _marker_group_totals engine api_t_quote_generate/api_t_invoice_generate
+    use for their markdown output, exposed as data for the `timeline`
+    codeblock's live grouped/subtotaled view (see nb-web CLAUDE.md
+    invariant 47). No note is written; this never runs billing generation
+    itself, just previews what a milestone-scoped quote/invoice would show."""
+    selector    = request.args.get('selector', '').strip()
+    marker_type = (request.args.get('marker_type', 'MILESTONE').strip() or 'MILESTONE').upper()
+    scope       = request.args.get('scope', 'all').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    if scope not in ('since_invoice', 'future', 'all'):
+        return jsonify({'error': "scope must be 'since_invoice', 'future', or 'all'"}), 400
+
+    note_path = _resolve_to_nb_path(selector)
+    if not note_path or not note_path.exists():
+        return jsonify({'error': 'note not found'}), 404
+
+    notebook = selector.split(':')[0] if ':' in selector else 'home'
+    meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
+    nb_meta = _folder_config(notebook, str(note_path))
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user') or not _can_access(user, meta, nb_meta):
+        return jsonify({'error': 'forbidden'}), 403
+
+    rate  = float(meta.get('rate') or nb_meta.get('rate') or 0)
+    btype = str(meta.get('billing_type') or nb_meta.get('billing_type') or 't&m').strip()
+    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
+        str(meta.get('rate_unit') or nb_meta.get('rate_unit') or 'hour').strip().lower(), 'hr')
+    default_date = str(meta.get('started') or datetime.now().date())
+
+    groups = _marker_groups(body, scope, marker_type)
+    if not groups:
+        return jsonify({'groups': [], 'grand_total': 0.0, 'btype': btype})
+
+    lines  = body.split('\n')
+    totals = _marker_group_totals(groups, lines, rate, rate_unit_abbrev, btype, default_date)
+    grand_total = round(sum(t['total'] for t in totals), 2)
+    # `entries` is internal (feeds the markdown table builder for quote/
+    # invoice) and not useful as a JSON payload for this view.
+    out = [{k: v for k, v in t.items() if k != 'entries'} for t in totals]
+    return jsonify({'groups': out, 'grand_total': grand_total, 'btype': btype})
 
 
 @app.route('/api/t/invoice/preflight')
