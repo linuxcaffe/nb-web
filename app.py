@@ -302,9 +302,25 @@ def _dev_no_cache(response):
 # ---------------------------------------------------------------------------
 
 def run_nb(*args, input_text=None, readonly=False):
-    """Run nb with args; return {'stdout', 'stderr', 'returncode'}."""
-    # --no-color must trail the subcommand, so append it rather than prepend.
-    cmd = [NB_BIN] + list(args) + ['--no-color']
+    """Run nb with args; return {'stdout', 'stderr', 'returncode'}.
+
+    Deliberately does NOT pass --no-color as a trailing CLI arg (the
+    NO_COLOR=1 env var below already suppresses color output on its own —
+    confirmed sufficient by _nb_index_reconcile's own docstring, which
+    avoids the flag for exactly this reason). nb.sh's own arg parsers for
+    several subcommands (confirmed directly in nb.sh's source for `index
+    reconcile`/`rebuild`: any unrecognized trailing token silently
+    overwrites the folder-path argument) treat a stray trailing flag as a
+    positional override, not noise to ignore — appending --no-color
+    unconditionally here previously meant *every* run_nb() call across the
+    app carried that risk, not just the one call site index reconcile was
+    already special-cased to avoid. Root-caused live 2026-08-31 after this
+    exact bug wiped ~/.nb/djp's own root .index a second time (first
+    incident: 2026-07-07, see _nb_index_reconcile's docstring) — this
+    removes the whole bug class at its one shared source instead of
+    patching call sites one at a time as they're individually discovered.
+    """
+    cmd = [NB_BIN] + list(args)
     result = subprocess.run(
         cmd,
         capture_output=True, text=True,
@@ -319,17 +335,24 @@ def run_nb(*args, input_text=None, readonly=False):
 
 
 def _nb_index_reconcile(path):
-    """Run `nb index reconcile <path>` directly -- NOT via run_nb(), because
-    run_nb()'s unconditional trailing `--no-color` breaks this specific
-    subcommand: `_index()`'s reconcile arg-parser only recognizes
-    `--ancestors`/`--commit`/`--checkpoint`, and treats any other trailing arg
-    (including `--no-color`) as an override for the folder-path argument that
-    came before it -- silently reconciling the wrong (nonexistent) path instead
-    of `path`. NO_COLOR=1 in the env is sufficient for quiet output; verified
-    against a scratch copy that this reconciles the intended folder and
-    correctly de-duplicates .index (confirmed root cause of a real ~/.nb/djp
-    corruption incident, 2026-07-07 -- see feedback_test_isolation_subprocess_env
-    memory for the unrelated but similarly-shaped pytest bug found the same day).
+    """Run `nb index reconcile <path>` directly, own subprocess call rather
+    than run_nb(). Originally written this way because run_nb() used to
+    append an unconditional trailing `--no-color`, which `_index()`'s
+    reconcile arg-parser (only recognizes `--ancestors`/`--commit`/
+    `--checkpoint`) silently treated as an override for the folder-path
+    argument that came before it -- reconciling the wrong (nonexistent)
+    path instead of `path`. Confirmed root cause of a real ~/.nb/djp
+    corruption incident, 2026-07-07 (see feedback_test_isolation_subprocess_env
+    memory for the unrelated but similarly-shaped pytest bug found the same
+    day) -- and again, 2026-08-31, the same class of bug via a different
+    run_nb() call site during the same djp notebook's real production use
+    (see run_nb()'s own docstring). NO_COLOR=1 in the env is sufficient for
+    quiet output on its own, which is why run_nb() no longer passes the
+    flag at all as of the second incident -- this function's separate
+    subprocess call is now redundant-but-harmless rather than
+    load-bearing; kept as-is rather than refactored onto run_nb() in the
+    same pass that fixed the actual bug, to keep that fix minimal and
+    easy to verify in isolation.
     """
     subprocess.run([NB_BIN, 'index', 'reconcile', str(path)],
                    capture_output=True, text=True,
