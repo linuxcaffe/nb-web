@@ -4713,12 +4713,30 @@ def _milestone_summary(lines: list, start: int, end: int) -> str:
     return '\n'.join(out).strip()
 
 
-def _milestone_groups(body: str, scope: str) -> 'list | None':
-    """Return None if no MILESTONE marker falls inside the resolved scope,
-    else a list of {title, summary, line_start, line_end} in document order.
-    A milestone's own range runs to the next MILESTONE marker (or the outer
-    scope's own end) — other marker types (RATE, INVOICED, ...) inside it
-    don't end it; those are handled by _parse_timedot_slice's own walk.
+def _marker_groups(body: str, scope: str, marker_type: str = 'MILESTONE') -> 'list | None':
+    """Return None if no marker of `marker_type` falls inside the resolved
+    scope, else a list of {title, summary, line_start, line_end} in document
+    order. ACHIEVEMENT-style (backward) attribution: a marker's own range
+    runs SINCE the previous marker of the *same type* (or the scope's own
+    start), UP TO AND INCLUDING the marker's own line — not forward to the
+    next marker, like a heading. This matches how the diary is actually
+    written: you log the work, then drop the marker to stamp what you just
+    finished, the same shape `> INVOICED:`/`> CLOSED:` already use (appended
+    after the fact, closing out what came before) rather than `> RATE:`
+    (which governs what follows). Confirmed against real content
+    2026-09-01 (djp:projects/Johnson/Aarons-house.md) — every one of its 14
+    `> MILESTONE:` markers sits at the end of the block it names; the
+    original forward implementation produced a systematic off-by-one where
+    every marker's computed content actually matched the *previous*
+    marker's label.
+
+    Filtering to `marker_type` happens before segmenting, so other marker
+    types interleaved in the same diary (RATE, INVOICED, or an unrelated
+    marker vocabulary like a per-unit `> CABIN: 15`) are simply invisible to
+    this pass — grouping by a different marker_type over the same body
+    gives an independent, orthogonal partition. A label's own text (e.g. a
+    leading "10." in "10. Second Bedroom") is opaque and never parsed —
+    sequencing is driven purely by diary line position.
 
     scope: 'since_invoice' (mirrors _last_invoice_cutoff, but by marker LINE
     not date) | 'future' (after TODAY) | 'all' (whole body)."""
@@ -4737,22 +4755,29 @@ def _milestone_groups(body: str, scope: str) -> 'list | None':
         scope_start = billing[-1]['line'] + 1 if billing else 0
         scope_end   = len(lines)
 
-    milestones = [m for m in markers
-                  if m['type'] == 'MILESTONE' and scope_start <= m['line'] < scope_end]
-    if not milestones:
+    typed = [m for m in markers
+             if m['type'] == marker_type and scope_start <= m['line'] < scope_end]
+    if not typed:
         return None
 
-    groups = []
-    for i, m in enumerate(milestones):
-        seg_start = m['line'] + 1
-        seg_end   = milestones[i + 1]['line'] if i + 1 < len(milestones) else scope_end
+    groups   = []
+    prev_end = scope_start
+    for m in typed:
         groups.append({
             'title':      m['ref'],
-            'summary':    _milestone_summary(lines, seg_start, seg_end),
-            'line_start': seg_start,
-            'line_end':   seg_end,
+            'summary':    _milestone_summary(lines, m['line'] + 1, scope_end),
+            'line_start': prev_end,
+            'line_end':   m['line'],
         })
+        prev_end = m['line'] + 1
     return groups
+
+
+def _milestone_groups(body: str, scope: str) -> 'list | None':
+    """Thin MILESTONE-specific wrapper over _marker_groups — the shape the
+    two billing call sites (api_t_invoice_generate / api_t_quote_generate)
+    actually want; see _marker_groups' own docstring for the real logic."""
+    return _marker_groups(body, scope, 'MILESTONE')
 
 
 def _parse_timedot(text: str, fallback_date: str) -> list:
