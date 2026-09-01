@@ -358,6 +358,47 @@ tr '\0' '\n' < /proc/$PID/environ | grep NB_AUTO_SYNC
 auto_sync`. Never assume a "should default to off" setting actually does; check the real
 default in isolation if it matters.
 
+## Gotcha: the bare dev server and the real container are two code versions sharing one real data store
+
+Confirmed live 2026-09-01, and the confusion it caused was real: verifying against real
+`~/.nb` data on the bare dev server (`:5002`, whatever's currently checked out) and djp's
+actual day-to-day container (`:5001`, whatever image was last *built*) is **not** test
+isolation — it's production write access through two doors that can disagree with each
+other. The exact sequence that happened: djp generated real quotes through the live
+container while a session was independently verifying fixes on the bare dev server; both
+wrote to the same real `Aarons-house/quotes/` folder; djp then rebuilt the container,
+generated two more quotes, and reported "still no change" — which briefly looked like a
+failed rebuild (it wasn't: `podman inspect nb-web --format '{{.Config.Labels.nb_web_commit}}'`
+matched `git rev-parse --short HEAD` exactly, and `podman exec nb-web md5sum /app/app.py`
+matched the local file byte-for-byte) but was actually a real, separate integration bug
+only reachable through the container's real usage pattern (see nb-web CLAUDE.md invariant
+49 — generating from the *reports* note, not the diary note, which a dev-server session
+testing the "obvious" selector had never tried).
+
+This doesn't call for full synthetic isolation the way the pytest/e2e fixtures use —
+the entire value of testing against `Aarons-house.md` specifically is that it's real,
+organically-authored content messier than any synthetic fixture would be; that's what
+surfaced the achievement-style off-by-one and the materials-formatting gaps in the same
+session. Cheaper habits instead:
+
+- Tag every manual verification artifact unmistakably (`VERIFY`/`TESTFIX`/`DEBUG`) and
+  delete it **immediately** after confirming the result, not "eventually" — the longer a
+  same-named-pattern file sits around, the more it looks like it could be someone's real
+  in-progress work the next time anyone (human or a fresh session) looks at the folder.
+- When there's any ambiguity about which code produced a given artifact, check
+  `git rev-parse --short HEAD` vs the container's baked-in `nb_web_commit` label
+  *immediately*, before assuming a rebuild didn't work or that a bug wasn't fixed —
+  reactive today, worth making a standing reflex.
+- Before deleting anything that looks like a leftover test artifact but wasn't confirmed
+  as your own, check its git commit timestamp/author against your own action log first —
+  don't assume presence-after-cleanup means "I forgot to delete this," since it might
+  just as easily mean the user created it independently, through the real app, at the
+  same wall-clock time.
+- Treat "the user is actively using :5001 while I'm verifying on :5002" as a real signal
+  worth a quick heads-up before touching real data, not background noise — the actual
+  incident here was two independent writers to the same real folder within minutes of
+  each other, not a hypothetical.
+
 ## Testing a `.checks/` script directly, without going through the app
 
 `api_check_run`/`api_check_batch` (`app.py`) invoke a check script as `subprocess.run(['bash',
