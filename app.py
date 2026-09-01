@@ -5325,6 +5325,17 @@ invoice_num: {invoice_num}
         with open(index_path, 'a') as f:
             f.write(inv_filename + '\n')
 
+    # inv_dir may have just been created (first invoice for this project) --
+    # reconcile the parent folder's own .index so 'invoices' itself becomes a
+    # visible entry there, not just a directory the filesystem knows about.
+    # Writing straight to inv_dir/.index above never touches
+    # project_dir.parent/.index, so a freshly-created invoices/ folder (and
+    # every file inside it) stayed invisible to _list_folders_recursive's
+    # per-level .index-required walk even though the folder's own index was
+    # perfectly correct. Confirmed live 2026-09-01 (djp:projects/Johnson) —
+    # see test_quote_invoice_folder_indexing.py.
+    _nb_index_reconcile(project_dir.parent)
+
     # Append invoice marker to project diary — source of truth for billing cutoff.
     # Delete this line from the diary to regenerate the same invoice period.
     jpath      = Path(os.path.expanduser(journal_key))
@@ -5337,8 +5348,9 @@ invoice_num: {invoice_num}
 
     rel_in_nb  = inv_path.relative_to(nb_root)
     index_rel  = index_path.relative_to(nb_root)
+    parent_idx = (project_dir.parent / '.index').relative_to(nb_root)
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
-    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)] + extra_files,
+    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel), str(parent_idx)] + extra_files,
                    cwd=str(nb_root), capture_output=True, env=env)
     subprocess.run(['git', 'commit', '-m', f'[nb] Added: {inv_filename}'],
                    cwd=str(nb_root), capture_output=True, env=env)
@@ -5593,10 +5605,22 @@ Actual amounts are determined when the work is done and invoiced separately.
         with open(index_path, 'a') as f:
             f.write(quo_filename + '\n')
 
+    # quo_dir may have just been created (first quote for this project) --
+    # reconcile the parent folder's own .index so 'quotes' itself becomes a
+    # visible entry there, not just a directory the filesystem knows about.
+    # Writing straight to quo_dir/.index above never touches
+    # project_dir.parent/.index, so a freshly-created quotes/ folder (and
+    # every file inside it) stayed invisible to _list_folders_recursive's
+    # per-level .index-required walk even though the folder's own index was
+    # perfectly correct. Confirmed live 2026-09-01 (djp:projects/Johnson) —
+    # see test_quote_invoice_folder_indexing.py.
+    _nb_index_reconcile(project_dir.parent)
+
     rel_in_nb  = quo_path.relative_to(nb_root)
     index_rel  = index_path.relative_to(nb_root)
+    parent_idx = (project_dir.parent / '.index').relative_to(nb_root)
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
-    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel)],
+    subprocess.run(['git', 'add', str(rel_in_nb), str(index_rel), str(parent_idx)],
                    cwd=str(nb_root), capture_output=True, env=env)
     subprocess.run(['git', 'commit', '-m', f'[nb] Added: {quo_filename}'],
                    cwd=str(nb_root), capture_output=True, env=env)
