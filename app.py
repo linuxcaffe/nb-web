@@ -4786,6 +4786,35 @@ def _diary_markers(body: str) -> list:
     return markers
 
 
+def _line_for_date_after(lines: list, cutoff_date: str) -> int:
+    """Line index of the first '## YYYY-MM-DD' diary heading dated strictly
+    after cutoff_date, scanning the WHOLE body — not bounded by any
+    marker's own line position. Returns 0 if cutoff_date is empty (no
+    cutoff at all), or len(lines) if nothing in the body is dated after it.
+
+    This exists because a `> INVOICED:`/`> CLOSED:` marker's own LINE
+    position is not a safe proxy for "everything after this is new,
+    unbilled work" — api_t_invoice_generate appends that marker to the
+    very END of the file, while new diary content is always inserted
+    *before* the `> TODAY:` marker (NbMain.insertBeforeToday, invariant
+    42), near the top. Confirmed live 2026-09-02: a real project with one
+    real invoice already generated had its `> INVOICED:` marker on line
+    134 of 137 — using that LINE as the since_invoice cutoff left a
+    since_invoice scope of two lines containing nothing, so every
+    subsequent invoice silently billed $0 regardless of how much new work
+    had actually been logged since. This mirrors _last_invoice_cutoff's
+    own DATE-based approach (already correct, used by the older flat/
+    journal invoicing path) instead of _marker_groups' original
+    line-position one."""
+    if not cutoff_date:
+        return 0
+    for i, line in enumerate(lines):
+        m = re.match(r'^#{1,6}\s+(\d{4}-\d{2}-\d{2})', line)
+        if m and m.group(1) > cutoff_date:
+            return i
+    return len(lines)
+
+
 def _milestone_summary(lines: list, start: int, end: int) -> str:
     """Prose immediately following a MILESTONE marker: lines up to (not
     including) the first blank line, heading, code fence, or another marker
@@ -4838,7 +4867,11 @@ def _marker_groups(body: str, scope: str, marker_type: str = 'MILESTONE') -> 'li
         scope_start, scope_end = 0, len(lines)
     else:  # since_invoice
         billing = [m for m in markers if m['type'] in ('INVOICED', 'CLOSED')]
-        scope_start = billing[-1]['line'] + 1 if billing else 0
+        cutoff_date = ''
+        if billing:
+            _cutoff_m = re.search(r'(\d{4}-\d{2}-\d{2})', billing[-1]['ref'])
+            cutoff_date = _cutoff_m.group(1) if _cutoff_m else ''
+        scope_start = _line_for_date_after(lines, cutoff_date)
         scope_end   = len(lines)
 
     typed = [m for m in markers
