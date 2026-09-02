@@ -2268,7 +2268,23 @@ def api_create_export_template():
 # ---------------------------------------------------------------------------
 
 def _resolve_to_nb_path(selector):
-    """Return Path within NB_DIR for selector, or None on error/traversal."""
+    """Return Path within NB_DIR for selector, or None on error/traversal.
+
+    Absolute-path selector (no notebook:path shape at all) -- a real,
+    already-supported form elsewhere (api_note's own `elif
+    selector.startswith('/')` branch, _resolve_abs_selector) that this
+    shared helper never handled, so any of this function's 40+ other
+    callers 404'd on a selector api_note itself would happily resolve.
+    Resolved directly rather than shelling out to `nb show`, which doesn't
+    understand a raw filesystem path as a selector at all."""
+    if selector.startswith('/'):
+        try:
+            p = Path(selector).resolve()
+            p.relative_to(NB_DIR.resolve())
+        except (ValueError, OSError):
+            return None
+        return p if p.exists() else None
+
     path_r = run_nb('show', selector, '--path')
     if nb_ok(path_r):
         p = Path(path_r['stdout'].strip())
@@ -2288,6 +2304,27 @@ def _resolve_to_nb_path(selector):
         except (ValueError, OSError):
             pass
     return None
+
+
+def _notebook_for_path(note_path: Path) -> str:
+    """Real notebook name for a resolved note path, derived from its actual
+    location under NB_DIR — not by string-splitting a selector on ':',
+    which silently falls back to the wrong default ('home') whenever the
+    selector that reached this note wasn't a notebook:path one (e.g. the
+    absolute-path form _resolve_to_nb_path now also resolves directly).
+    Confirmed live 2026-09-01: quote/invoice generation crashed with
+    `ValueError: '.../Aarons-house' is not in the subpath of '.../home'`
+    when the note was opened via such a selector — 'home' was never the
+    right notebook, the string-split just couldn't tell. Mirrors
+    _resolve_abs_selector's own path-based notebook derivation, used there
+    for access control; falls back to 'home' only if note_path genuinely
+    isn't under any real notebook."""
+    try:
+        rel = note_path.resolve().relative_to(NB_DIR.resolve())
+    except (ValueError, OSError):
+        return 'home'
+    top = rel.parts[0] if rel.parts else ''
+    return _safe_notebook(top) or 'home'
 
 
 @app.route('/api/file')
@@ -4539,7 +4576,7 @@ def api_t_journal_from_csv():
 
     text          = note_path.read_text(errors='replace')
     meta, body    = parse_frontmatter(text)
-    notebook      = selector.split(':')[0] if ':' in selector else 'home'
+    notebook      = _notebook_for_path(note_path)
     _fcfg         = _folder_config(notebook, str(note_path))
     project       = meta.get('project', note_path.stem)
     journal_key   = str(meta.get('journal') or _fcfg.get('journal') or '').strip()
@@ -5339,7 +5376,7 @@ def api_t_marker_groups():
     if not note_path or not note_path.exists():
         return jsonify({'error': 'note not found'}), 404
 
-    notebook = selector.split(':')[0] if ':' in selector else 'home'
+    notebook = _notebook_for_path(note_path)
     meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
     nb_meta = _folder_config(notebook, str(note_path))
     user = session.get('user', {})
@@ -5383,9 +5420,7 @@ def api_t_invoice_preflight():
     client     = client_raw.replace('contacts:', '').replace('.md', '')
     journal_key = str(meta.get('journal', '')).strip()
     if not journal_key:
-        _notebook = selector.split(':')[0] if ':' in selector else ''
-        if _notebook:
-            journal_key = str(_folder_config(_notebook, str(note_path)).get('journal', '')).strip()
+        journal_key = str(_folder_config(_notebook_for_path(note_path), str(note_path)).get('journal', '')).strip()
 
     labour_total, expense_dict = _invoice_journal_totals(journal_key)
     entries, _ = _parse_labour_entries(journal_key)
@@ -5455,7 +5490,7 @@ def api_t_invoice_generate():
 
     meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
     _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
-    notebook   = selector.split(':')[0] if ':' in selector else 'home'
+    notebook   = _notebook_for_path(note_path)
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
     rate       = float(meta.get('rate') or _fcfg.get('rate') or 0)
@@ -5731,7 +5766,7 @@ def api_t_quote_preflight():
         return jsonify({'error': 'note not found'}), 404
 
     meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
-    notebook   = selector.split(':')[0] if ':' in selector else 'home'
+    notebook   = _notebook_for_path(note_path)
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
     rate       = float(meta.get('rate') or _fcfg.get('rate') or 0)
@@ -5815,7 +5850,7 @@ def api_t_quote_generate():
 
     meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
     _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
-    notebook   = selector.split(':')[0] if ':' in selector else 'home'
+    notebook   = _notebook_for_path(note_path)
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
     rate       = float(meta.get('rate') or _fcfg.get('rate') or 0)
