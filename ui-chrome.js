@@ -530,7 +530,21 @@ const NbUiChrome = (() => {
   th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
   img { max-width: 100%; }
   a { color: #2255aa; }
-  @media print { body { margin: 0; } }
+  @media print {
+    body { margin: 0; }
+    /* Keep a heading attached to at least its next line, and never split
+       a list or table mid-item/mid-row -- the exact shape a milestone-
+       grouped quote/invoice needs (### Title, its checklist <ul>, its
+       labour/materials <table>s). Old page-break-* aliases included
+       alongside the modern break-* properties for older engines; both are
+       harmless together in a Chromium print-to-PDF context. */
+    h1, h2, h3 {
+      break-after: avoid-page; page-break-after: avoid;
+    }
+    table, ul, ol {
+      break-inside: avoid-page; page-break-inside: avoid;
+    }
+  }
 </style></head><body>${content}</body></html>`);
         win.document.close();
         win.focus();
