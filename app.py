@@ -5217,17 +5217,30 @@ def _checklist_items_in_text(text: str) -> list:
     return items
 
 
-def _other_markers_in_text(text: str, exclude_type: str) -> list:
-    """Every `> TYPE: ref` marker line within `text` whose TYPE is not
-    `exclude_type` (the type already doing active grouping), in document
-    order, skipping any line inside a fenced code block — same guard
-    _checklist_items_in_text already uses, for the same reason (a csv/
-    timedot block's own content can never be mistaken for a real marker).
-    Returns [{'type': str, 'ref': str}, ...]. Quote generation renders
-    these as childless headings within a milestone's own section — a
-    landmark (TODAY, INVOICED, CLOSED, ...) with no grouped content of
-    its own, alongside the checklist items already extracted there."""
-    markers  = []
+def _slice_annotations_in_order(text: str, exclude_marker_type: str) -> list:
+    """Checklist items AND other-type marker lines within `text`, combined
+    into ONE fence-aware pass so they come back in true document order --
+    not two independently-extracted lists concatenated in a fixed bucket
+    order. Returns a mix of
+    {'kind': 'checklist', 'checked': bool, 'text': str} and
+    {'kind': 'marker', 'type': str, 'ref': str} dicts.
+
+    This exists because ordering here is not cosmetic: a marker like
+    `> TODAY:` is "in no way special, just a random marker" as far as
+    quote placement goes (djp) -- it has to land exactly where it falls
+    relative to checklist items, nothing more. The first version of this
+    feature extracted checklist items and other markers separately
+    (_checklist_items_in_text + a since-removed _other_markers_in_text)
+    and rendered checklist-block-then-markers-block unconditionally,
+    regardless of which actually came first in the diary -- confirmed live
+    against real Aarons-house.md data: a TODAY marker sitting at the very
+    TOP of a milestone's slice (right after the previous MILESTONE marker,
+    before any of that milestone's own checklist/labour content) rendered
+    at the BOTTOM of the section instead, right before the labour table.
+    `exclude_marker_type` is the type already doing active grouping
+    (MILESTONE) -- its own marker line is the group's heading, not a
+    childless annotation within it."""
+    items    = []
     in_fence = False
     for line in text.split('\n'):
         if line.strip().startswith('```'):
@@ -5235,10 +5248,14 @@ def _other_markers_in_text(text: str, exclude_type: str) -> list:
             continue
         if in_fence:
             continue
+        m = re.match(r'^\s*-\s*\[([ xX])\]\s*(.+)$', line)
+        if m:
+            items.append({'kind': 'checklist', 'checked': m.group(1).lower() == 'x', 'text': m.group(2).strip()})
+            continue
         m = re.match(r'^> ([A-Z][A-Z0-9_]+):[ \t]*(.*)$', line)
-        if m and m.group(1) != exclude_type:
-            markers.append({'type': m.group(1), 'ref': m.group(2).strip()})
-    return markers
+        if m and m.group(1) != exclude_marker_type:
+            items.append({'kind': 'marker', 'type': m.group(1), 'ref': m.group(2).strip()})
+    return items
 
 
 def _csv_tokens_in_text(text: str) -> list:
@@ -5379,11 +5396,12 @@ def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit
     scope='future' projection).
 
     include_other_markers=True (quote generation only — invoice leaves this
-    off) renders every OTHER marker type (see _other_markers_in_text)
-    falling within a group's own slice as a childless heading alongside its
-    checklist items: a bare `> TYPE: ref` line with no grouped content of
-    its own, e.g. `> TODAY:` or `> INVOICED: ...` landing inside a
-    milestone gives a fuller picture of what's happening in that timeframe
+    off) renders every OTHER marker type (see _slice_annotations_in_order)
+    falling within a group's own slice as a childless heading, interleaved
+    with checklist items in true diary document order: a bare
+    `> TYPE: ref` line with no grouped content of its own, e.g. `> TODAY:`
+    or `> INVOICED: ...` landing inside a milestone gives a fuller and
+    accurately-positioned picture of what's happening in that timeframe,
     without pretending it's a second grouping axis."""
     totals = _marker_group_totals(groups, lines, rate, rate_unit_abbrev, btype, default_date, hst_rate)
     header = _labour_table_header(show_date)
@@ -5423,17 +5441,23 @@ def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit
         section = f"### {g['title']}\n"
         if g['summary']:
             section += f"\n{g['summary']}\n"
-        if t['checklist']:
-            section += '\n' + '\n'.join(
-                f"- [{'x' if c['checked'] else ' '}] {c['text']}" for c in t['checklist']
-            ) + '\n'
+        # Checklist items and other-type markers render together, in true
+        # diary document order (_slice_annotations_in_order) rather than as
+        # two separately-bucketed blocks -- see that function's docstring
+        # for the real placement bug this fixes. include_other_markers=False
+        # (invoice) keeps using the already-computed t['checklist'] as-is,
+        # since there are no markers to interleave it with there.
         if include_other_markers:
-            slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
-            others = _other_markers_in_text(slice_text, marker_type)
-            if others:
-                section += '\n' + '\n'.join(
-                    f"> {o['type']}:" + (f" {o['ref']}" if o['ref'] else '') for o in others
-                ) + '\n'
+            slice_text  = '\n'.join(lines[g['line_start']:g['line_end']])
+            annotations = _slice_annotations_in_order(slice_text, marker_type)
+        else:
+            annotations = [{'kind': 'checklist', **c} for c in t['checklist']]
+        if annotations:
+            section += '\n' + '\n'.join(
+                (f"- [{'x' if a['checked'] else ' '}] {a['text']}" if a['kind'] == 'checklist'
+                 else f"> {a['type']}:" + (f" {a['ref']}" if a['ref'] else ''))
+                for a in annotations
+            ) + '\n'
         # A milestone with no real cost data yet (not started) gets no
         # synthesized "Labour | 0.0 | ... | $0.00" row or "$0.00" subtotal
         # line -- those were fabricated placeholders, not real numbers;
@@ -5932,8 +5956,8 @@ invoice_num: {invoice_num}
     diary_path = jpath.parent.parent / f'{jpath.stem}.md'
     extra_files = []
     if diary_path.exists():
-        with open(diary_path, 'a') as f:
-            f.write(f'\n> INVOICED: {invoice_num}  {inv_date}  ${ar_total:.2f} {btype}\n')
+        inv_line = f'> INVOICED: {invoice_num}  {inv_date}  ${ar_total:.2f} {btype}'
+        diary_path.write_text(_insert_before_today(diary_path.read_text(errors='replace'), inv_line))
         extra_files.append(str(diary_path.relative_to(nb_root)))
 
     rel_in_nb  = inv_path.relative_to(nb_root)
@@ -12337,6 +12361,24 @@ def api_check_batch():
     return jsonify(results)
 
 
+def _insert_before_today(text: str, line: str) -> str:
+    """Insert `line` immediately before the literal '> TODAY:' marker line
+    -- not calendar today, the marker's own literal text -- or append at
+    the end if no TODAY marker exists in `text`. Shared by
+    api_write_marker's own 'before_today' position and
+    api_t_invoice_generate's INVOICED marker append, which used to
+    hand-roll a plain end-of-file append instead: new diary content is
+    always inserted before TODAY (NbMain.insertBeforeToday, invariant 42),
+    so an append-to-end INVOICED marker landed structurally after all
+    future work, permanently mis-scoping the very cutoff it defines. See
+    nb-web CLAUDE.md invariant 54's "deferred consistency gap" callout,
+    closed by this extraction. `line` is the complete '> TYPE: ref' text,
+    with no leading/trailing newline."""
+    if '> TODAY:' in text:
+        return text.replace('> TODAY:', f'{line}\n\n> TODAY:', 1)
+    return text.rstrip('\n') + f'\n\n{line}\n'
+
+
 @app.route('/api/project/write-marker', methods=['POST'])
 def api_write_marker():
     """Insert a state-transition marker into a project note.
@@ -12374,10 +12416,7 @@ def api_write_marker():
     line      = f'> {marker}: {ref}' if ref else f'> {marker}:'
 
     if position == 'before_today':
-        if '> TODAY:' in text:
-            text = text.replace('> TODAY:', f'{line}\n\n> TODAY:', 1)
-        else:
-            text = text.rstrip('\n') + f'\n\n{line}\n'
+        text = _insert_before_today(text, line)
     elif position == 'today_section':
         today   = datetime.now().strftime('%Y-%m-%d')
         heading = f'## {today}'
