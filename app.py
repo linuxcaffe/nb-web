@@ -4828,7 +4828,20 @@ def _milestone_summary(lines: list, start: int, end: int) -> str:
     return '\n'.join(out).strip()
 
 
-def _marker_groups(body: str, scope: str, marker_type: str = 'MILESTONE') -> 'list | None':
+# Shared scope vocabulary for quote/invoice preflight+generate — kept in
+# one place so the four endpoints validating a `scope` request param can
+# never drift out of sync with each other or with _marker_groups' own
+# branches.
+_VALID_BILLING_SCOPES = ('future', 'all', 'since_invoice', 'since_marker', 'until_marker')
+# Invoice is a real, one-way billing action -- 'future' (not-yet-done
+# work) and 'all' (re-billing already-invoiced work) are real business-
+# logic errors there, not just unusual choices, so its own two endpoints
+# validate against this narrower set instead of the full vocabulary quote
+# gets to offer as a non-binding preview.
+_VALID_INVOICE_SCOPES = ('since_invoice', 'since_marker', 'until_marker')
+
+
+def _marker_groups(body: str, scope: str, marker_type: str = 'MILESTONE', boundary: str = '') -> 'list | None':
     """Return None if no marker of `marker_type` falls inside the resolved
     scope, else a list of {title, summary, line_start, line_end} in document
     order. ACHIEVEMENT-style (backward) attribution: a marker's own range
@@ -4854,7 +4867,18 @@ def _marker_groups(body: str, scope: str, marker_type: str = 'MILESTONE') -> 'li
     sequencing is driven purely by diary line position.
 
     scope: 'since_invoice' (mirrors _last_invoice_cutoff, but by marker LINE
-    not date) | 'future' (after TODAY) | 'all' (whole body)."""
+    not date) | 'future' (after TODAY) | 'all' (whole body) | 'since_marker'/
+    'until_marker' (relative to a named marker, identified by `boundary` —
+    the exact "TYPE: ref" string the timeline codeblock's own timeframe
+    dropdown already uses as its option value, see _timelineScope in
+    nbweb-codeblocks.js; no separate identifier scheme invented).
+    'until_marker' includes the named marker's own group (everything from
+    the body's start up to and including its line — achievement-style, the
+    named milestone's own work counts as part of "up to and including
+    it"). 'since_marker' excludes it (everything strictly after its line,
+    matching since_invoice's own "strictly after" semantics — the named
+    milestone is considered already accounted for). Returns None if
+    `boundary` doesn't match any real marker in the body."""
     lines   = body.split('\n')
     markers = _diary_markers(body)
 
@@ -4865,6 +4889,14 @@ def _marker_groups(body: str, scope: str, marker_type: str = 'MILESTONE') -> 'li
         scope_start, scope_end = today_m['line'] + 1, len(lines)
     elif scope == 'all':
         scope_start, scope_end = 0, len(lines)
+    elif scope in ('since_marker', 'until_marker'):
+        boundary_m = next((m for m in markers if f"{m['type']}: {m['ref']}" == boundary), None)
+        if not boundary_m:
+            return None
+        if scope == 'since_marker':
+            scope_start, scope_end = boundary_m['line'] + 1, len(lines)
+        else:
+            scope_start, scope_end = 0, boundary_m['line'] + 1
     else:  # since_invoice
         billing = [m for m in markers if m['type'] in ('INVOICED', 'CLOSED')]
         cutoff_date = ''
@@ -4941,7 +4973,8 @@ def _resolve_diary_source(note_path: Path, meta: dict, body: str) -> tuple:
 
 def _billing_summary_for_scope(diary_body: str, journal_key: str, scope: str,
                                 rate: float, rate_unit_abbrev: str, btype: str,
-                                default_date: str, marker_type: str = 'MILESTONE') -> dict:
+                                default_date: str, marker_type: str = 'MILESTONE',
+                                boundary: str = '') -> dict:
     """Labour/materials summary totals for a given scope — prefers the
     achievement-style marker-grouped computation (invariant 45) when the
     diary has real markers of `marker_type` in scope, falling back to the
@@ -4958,9 +4991,18 @@ def _billing_summary_for_scope(diary_body: str, journal_key: str, scope: str,
     named scope. A 'future' preflight showed $0.00/empty for a project
     with real logged milestone work, while generating that same scope
     produced $1319.10. Returns {labour_total, labour_hours,
-    materials_sub, materials_gross, has_milestones}."""
+    materials_sub, materials_gross, has_milestones}.
+
+    'since_marker'/'until_marker' (added 2026-09-02, see _marker_groups'
+    own docstring) have no meaningful flat-path fallback at all — the flat
+    path's own _scope_predicate doesn't recognize either name and would
+    silently treat them as an unfiltered since_invoice (i.e. "everything",
+    a wrong answer for a scope that's supposed to be bounded by a specific
+    marker) rather than erroring. Guarded explicitly: a missing/unmatched
+    boundary for these two scopes returns an honest zero rather than
+    falling through to that wrong computation."""
     lines = diary_body.split('\n')
-    milestones = _marker_groups(diary_body, scope, marker_type)
+    milestones = _marker_groups(diary_body, scope, marker_type, boundary)
     if milestones:
         totals = _marker_group_totals(milestones, lines, rate, rate_unit_abbrev, btype, default_date)
         return {
@@ -4969,6 +5011,12 @@ def _billing_summary_for_scope(diary_body: str, journal_key: str, scope: str,
             'materials_sub':   round(sum(t['materials_sub'] for t in totals), 2),
             'materials_gross': round(sum(t['materials_gross'] for t in totals), 2),
             'has_milestones':  True,
+        }
+    if scope in ('since_marker', 'until_marker'):
+        return {
+            'labour_total': 0.0, 'labour_hours': 0.0,
+            'materials_sub': 0.0, 'materials_gross': 0.0,
+            'has_milestones': False,
         }
     labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
     entries, _ = _parse_labour_entries(journal_key, scope)
@@ -5480,7 +5528,20 @@ def api_t_marker_groups():
 @app.route('/api/t/invoice/preflight')
 def api_t_invoice_preflight():
     import datetime as _dt
-    selector = request.args.get('selector', '').strip()
+    selector   = request.args.get('selector', '').strip()
+    # Invoice defaults to (and, for current/future/all Timeline states,
+    # always stays pinned to) since_invoice -- a real, one-way billing
+    # action shouldn't silently inherit whatever the Timeline happens to
+    # be showing for browsing. A specific since_marker/until_marker choice
+    # is a deliberate, unambiguous act (not passive inheritance), so those
+    # two ARE honored when explicitly requested -- see nbweb-hledger.js's
+    # own _reportsGenInvoice for which of the two cases applies.
+    scope      = request.args.get('scope', 'since_invoice').strip()
+    marker_ref = request.args.get('marker_ref', '').strip()
+    if scope not in _VALID_INVOICE_SCOPES:
+        return jsonify({'error': f"scope must be one of: {', '.join(_VALID_INVOICE_SCOPES)}"}), 400
+    if scope in ('since_marker', 'until_marker') and not marker_ref:
+        return jsonify({'error': 'marker_ref required for since_marker/until_marker scope'}), 400
     if not selector:
         return jsonify({'error': 'selector required'}), 400
     note_path = _resolve_to_nb_path(selector)
@@ -5506,7 +5567,8 @@ def api_t_invoice_preflight():
     # own docstring for why this must match generate exactly, not just
     # approximate it via the older flat/journal-only computation.
     summary = _billing_summary_for_scope(
-        diary_body, journal_key, 'since_invoice', rate, rate_unit_abbrev, btype, default_date)
+        diary_body, journal_key, scope, rate, rate_unit_abbrev, btype, default_date,
+        boundary=marker_ref)
     labour_total = summary['labour_total']
     labour_hours = summary['labour_hours']
     mat_sub      = summary['materials_sub']
@@ -5514,6 +5576,13 @@ def api_t_invoice_preflight():
     # Blended, not the note's flat rate scalar — so hours × rate always equals
     # the total shown here, even when a > RATE: marker changed the rate mid-period.
     display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
+    # Surfaced so the dialog can show an unambiguous label for a scope
+    # that's about to become a real, one-way ledger entry -- e.g. "Billing:
+    # everything since 2026-09-01" rather than leaving the cutoff implicit.
+    # Empty string means never invoiced (since project start). Only
+    # meaningful for scope=since_invoice -- a marker-relative scope's own
+    # label is built from marker_ref instead (see the dialog's own JS).
+    since_date = _last_invoice_cutoff(journal_key) if scope == 'since_invoice' else ''
 
     today = _dt.date.today()
     year  = today.year
@@ -5536,6 +5605,8 @@ def api_t_invoice_preflight():
         'suggested_num':     f'INV-{year}-{next_num:03d}',
         'date':              str(today),
         'due':               'on receipt' if btype == 'cash' else 'net 30',
+        'scope':             scope,
+        'marker_ref':        marker_ref,
         'billing_type':      btype,
         'project':           project,
         'client':            client,
@@ -5543,6 +5614,7 @@ def api_t_invoice_preflight():
         'rate':              display_rate,
         'labour_hours':      labour_hours,
         'labour_total':      labour_total,
+        'since_date':        since_date,
         # Per-token breakdown isn't naturally available from the aggregated
         # milestone-grouped summary, and no frontend code reads this field
         # anyway (grepped) -- kept as an empty dict rather than removed, to
@@ -5564,7 +5636,17 @@ def api_t_invoice_generate():
     inv_date    = data.get('date', str(_dt.date.today()))
     due         = data.get('due', 'on receipt')
     notes       = data.get('notes', '').strip()
+    # Defaults to since_invoice (unchanged real-world behavior) -- a
+    # since_marker/until_marker choice must be explicit, deliberate, and
+    # is the one case invoice DOES follow a Timeline selection for (see
+    # api_t_invoice_preflight's own comment on this same split).
+    scope       = data.get('scope', 'since_invoice').strip()
+    marker_ref  = data.get('marker_ref', '').strip()
 
+    if scope not in _VALID_INVOICE_SCOPES:
+        return jsonify({'error': f"scope must be one of: {', '.join(_VALID_INVOICE_SCOPES)}"}), 400
+    if scope in ('since_marker', 'until_marker') and not marker_ref:
+        return jsonify({'error': 'marker_ref required for since_marker/until_marker scope'}), 400
     if not selector or not invoice_num:
         return jsonify({'error': 'selector and invoice_num required'}), 400
 
@@ -5589,7 +5671,7 @@ def api_t_invoice_generate():
     rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
         str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
     default_date = str(meta.get('started') or _dt.date.today())
-    _milestones  = _milestone_groups(diary_body, 'since_invoice')
+    _milestones  = _marker_groups(diary_body, scope, 'MILESTONE', marker_ref)
 
     if _milestones:
         # Milestone markers inside the invoiced period are rare in practice
@@ -5599,9 +5681,17 @@ def api_t_invoice_generate():
         milestone_md, labour_total, mat_sub, mat_gross = _render_milestone_sections(
             _milestones, diary_body.split('\n'), rate, rate_unit_abbrev, btype, default_date)
         entries, labour_hours = None, None
+    elif scope in ('since_marker', 'until_marker'):
+        # No meaningful flat-path fallback for a marker-relative scope --
+        # see _billing_summary_for_scope's own docstring for why falling
+        # through to _invoice_journal_totals's date-based computation here
+        # would silently give a WRONG answer rather than an honest empty
+        # result (its own scope handling doesn't recognize either name).
+        milestone_md, labour_total, mat_sub, mat_gross = '', 0.0, 0.0, 0.0
+        entries, labour_hours, expense_dict = [], 0.0, {}
     else:
-        labour_total, expense_dict = _invoice_journal_totals(journal_key)
-        entries, _ = _parse_labour_entries(journal_key)
+        labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
+        entries, _ = _parse_labour_entries(journal_key, scope)
         mat_sub   = sum(v[0] for v in expense_dict.values())
         mat_gross = sum(v[1] for v in expense_dict.values())
         labour_hours = round(sum(e['hours'] for e in entries), 2)
@@ -5839,13 +5929,19 @@ def api_t_quote_preflight():
     marker, no accounting implications — just a projection over guesstimated
     future/all-time diary content, calculated with the same tools as invoicing."""
     import datetime as _dt
-    selector = request.args.get('selector', '').strip()
-    scope    = request.args.get('scope', 'future').strip()
-    # 'since_invoice' added 2026-09-02 so a quote can preview "what would I
-    # bill right now" -- the same scope invoice always uses -- for someone
-    # who wants that number without actually generating a real invoice.
-    if scope not in ('future', 'all', 'since_invoice'):
-        return jsonify({'error': "scope must be 'future', 'all', or 'since_invoice'"}), 400
+    selector   = request.args.get('selector', '').strip()
+    scope      = request.args.get('scope', 'future').strip()
+    # since_marker/until_marker (2026-09-02): a real, named-marker-relative
+    # boundary, identified by the exact "TYPE: ref" string the Timeline
+    # codeblock's own timeframe dropdown already uses as its option value —
+    # see _marker_groups' own docstring. 'since_invoice' (2026-09-01) lets
+    # a quote preview "what would I bill right now" without generating a
+    # real invoice.
+    marker_ref = request.args.get('marker_ref', '').strip()
+    if scope not in _VALID_BILLING_SCOPES:
+        return jsonify({'error': f"scope must be one of: {', '.join(_VALID_BILLING_SCOPES)}"}), 400
+    if scope in ('since_marker', 'until_marker') and not marker_ref:
+        return jsonify({'error': 'marker_ref required for since_marker/until_marker scope'}), 400
     if not selector:
         return jsonify({'error': 'selector required'}), 400
     note_path = _resolve_to_nb_path(selector)
@@ -5870,7 +5966,8 @@ def api_t_quote_preflight():
     # when building the real document -- see _billing_summary_for_scope's own
     # docstring for why this must match generate exactly.
     summary = _billing_summary_for_scope(
-        diary_body, journal_key, scope, rate, rate_unit_abbrev, btype, default_date)
+        diary_body, journal_key, scope, rate, rate_unit_abbrev, btype, default_date,
+        boundary=marker_ref)
     labour_total = summary['labour_total']
     labour_hours = summary['labour_hours']
     mat_sub      = summary['materials_sub']
@@ -5899,6 +5996,7 @@ def api_t_quote_preflight():
         'suggested_num':     f'QUO-{year}-{next_num:03d}',
         'date':              str(today),
         'scope':             scope,
+        'marker_ref':        marker_ref,
         'billing_type':      btype,
         'project':           project,
         'client':            client,
@@ -5935,12 +6033,15 @@ def api_t_quote_generate():
     # active use), but the grouping engine itself is generic — see
     # _marker_groups, invariant 45 — so the endpoint shouldn't hardcode it.
     marker_type = (data.get('marker_type', 'MILESTONE').strip() or 'MILESTONE').upper()
+    # since_marker/until_marker (2026-09-02) -- see _marker_groups' own
+    # docstring; identified by the exact "TYPE: ref" string the Timeline
+    # codeblock's own timeframe dropdown already uses as its option value.
+    marker_ref  = data.get('marker_ref', '').strip()
 
-    # 'since_invoice' added 2026-09-02 so a quote can preview "what would I
-    # bill right now" -- previously only invoice generation could express
-    # this scope at all.
-    if scope not in ('future', 'all', 'since_invoice'):
-        return jsonify({'error': "scope must be 'future', 'all', or 'since_invoice'"}), 400
+    if scope not in _VALID_BILLING_SCOPES:
+        return jsonify({'error': f"scope must be one of: {', '.join(_VALID_BILLING_SCOPES)}"}), 400
+    if scope in ('since_marker', 'until_marker') and not marker_ref:
+        return jsonify({'error': 'marker_ref required for since_marker/until_marker scope'}), 400
     if not selector or not quote_num:
         return jsonify({'error': 'selector and quote_num required'}), 400
 
@@ -5965,15 +6066,14 @@ def api_t_quote_generate():
     rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
         str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
     default_date = str(meta.get('started') or _date.today())
-    # scope is 'future' | 'all' | 'since_invoice' -- _marker_groups accepts
-    # the same three scope strings the invoice path uses.
-    _milestones = _marker_groups(diary_body, scope, marker_type)
+    _milestones = _marker_groups(diary_body, scope, marker_type, marker_ref)
     # A scope='future' quote is a projection of not-yet-done work -- an
     # entry's "date" there is really just whichever diary heading it
     # happened to be typed under, not a real committed schedule. Dropped
     # entirely rather than shown and risk implying false precision; a real,
-    # already-logged scope ('all', or invoice's own 'since_invoice') keeps
-    # dates since those are genuine history. See _build_labour_table.
+    # already-logged scope ('all', invoice's own 'since_invoice', or a
+    # marker-relative scope) keeps dates since those are genuine history.
+    # See _build_labour_table.
     show_date = scope != 'future'
 
     if _milestones:
@@ -5981,6 +6081,14 @@ def api_t_quote_generate():
             _milestones, diary_body.split('\n'), rate, rate_unit_abbrev, btype, default_date,
             show_date=show_date)
         entries, labour_hours = None, None
+    elif scope in ('since_marker', 'until_marker'):
+        # No meaningful flat-path fallback for a marker-relative scope --
+        # see _billing_summary_for_scope's own docstring for why falling
+        # through to the date-based flat computation here would silently
+        # give a WRONG answer (an unfiltered since_invoice) rather than an
+        # honest empty result.
+        milestone_md, labour_total, mat_sub, mat_gross = '', 0.0, 0.0, 0.0
+        entries, labour_hours, expense_dict = [], 0.0, {}
     else:
         labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
         entries, _ = _parse_labour_entries(journal_key, scope)
@@ -6025,6 +6133,8 @@ def api_t_quote_generate():
     scope_label = {
         'future':        'remaining work (from tomorrow on)',
         'since_invoice': 'work since your last invoice',
+        'since_marker':  f'work since {marker_ref}' if marker_ref else 'work since a named marker',
+        'until_marker':  f'everything up to and including {marker_ref}' if marker_ref else 'a named marker',
     }.get(scope, 'the whole job, start to finish')
     valid_line  = f' · **Valid until:** {valid_until}' if valid_until else ''
     notes_md    = f'\n**Notes:** {notes}\n' if notes else ''
