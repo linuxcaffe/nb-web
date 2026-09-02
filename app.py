@@ -4939,6 +4939,48 @@ def _resolve_diary_source(note_path: Path, meta: dict, body: str) -> tuple:
     return candidate, diary_body, {**diary_meta, **meta}
 
 
+def _billing_summary_for_scope(diary_body: str, journal_key: str, scope: str,
+                                rate: float, rate_unit_abbrev: str, btype: str,
+                                default_date: str, marker_type: str = 'MILESTONE') -> dict:
+    """Labour/materials summary totals for a given scope — prefers the
+    achievement-style marker-grouped computation (invariant 45) when the
+    diary has real markers of `marker_type` in scope, falling back to the
+    older flat/journal-based computation otherwise. This is exactly the
+    decision api_t_quote_generate/api_t_invoice_generate already make
+    inline when building the real document; used here by their preflight
+    siblings so a dialog's preview total can never disagree with what
+    generating will actually produce.
+
+    Confirmed live 2026-09-02 that it previously did: preflight always
+    used the flat path's real-wall-clock-date filtering only, while
+    generate preferred marker-relative line-position grouping for
+    'future'/'since_invoice' — two different definitions of the same
+    named scope. A 'future' preflight showed $0.00/empty for a project
+    with real logged milestone work, while generating that same scope
+    produced $1319.10. Returns {labour_total, labour_hours,
+    materials_sub, materials_gross, has_milestones}."""
+    lines = diary_body.split('\n')
+    milestones = _marker_groups(diary_body, scope, marker_type)
+    if milestones:
+        totals = _marker_group_totals(milestones, lines, rate, rate_unit_abbrev, btype, default_date)
+        return {
+            'labour_total':    round(sum(t['labour_total'] for t in totals), 2),
+            'labour_hours':    round(sum(t['hours'] for t in totals), 2),
+            'materials_sub':   round(sum(t['materials_sub'] for t in totals), 2),
+            'materials_gross': round(sum(t['materials_gross'] for t in totals), 2),
+            'has_milestones':  True,
+        }
+    labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
+    entries, _ = _parse_labour_entries(journal_key, scope)
+    return {
+        'labour_total':    labour_total,
+        'labour_hours':    round(sum(e['hours'] for e in entries), 2),
+        'materials_sub':   round(sum(v[0] for v in expense_dict.values()), 2),
+        'materials_gross': round(sum(v[1] for v in expense_dict.values()), 2),
+        'has_milestones':  False,
+    }
+
+
 def _parse_timedot(text: str, fallback_date: str) -> list:
     """Return [(date, hours, comment), ...] from raw timedot block content.
     Ported verbatim from djp:.tools/gen-project-journal.py's _parse_timedot —
@@ -5445,25 +5487,30 @@ def api_t_invoice_preflight():
     if not note_path or not note_path.exists():
         return jsonify({'error': 'note not found'}), 404
 
-    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
-    project    = str(meta.get('project', note_path.stem))
-    rate       = float(meta.get('rate', 0) or 0)
-    btype      = str(meta.get('billing_type', 't&m')).strip()
-    client_raw = str(meta.get('client', '')).strip()
+    meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
+    _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
+    notebook   = _notebook_for_path(note_path)
+    _fcfg      = _folder_config(notebook, str(note_path))
+    project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
+    rate       = float(meta.get('rate') or _fcfg.get('rate') or 0)
+    btype      = str(meta.get('billing_type') or _fcfg.get('billing_type') or 't&m').strip()
+    client_raw = str(meta.get('client') or _fcfg.get('client') or '').strip()
     client     = client_raw.replace('contacts:', '').replace('.md', '')
-    journal_key = str(meta.get('journal', '')).strip()
-    if not journal_key:
-        journal_key = str(_folder_config(_notebook_for_path(note_path), str(note_path)).get('journal', '')).strip()
+    journal_key = str(meta.get('journal') or _fcfg.get('journal') or '').strip()
+    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
+        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
+    default_date = str(meta.get('started') or _dt.date.today())
 
-    labour_total, expense_dict = _invoice_journal_totals(journal_key)
-    entries, _ = _parse_labour_entries(journal_key)
-    mat_sub   = sum(v[0] for v in expense_dict.values())
-    mat_gross = sum(v[1] for v in expense_dict.values())
-    # Real hours summed from entries, never back-computed from labour_total/rate —
-    # those can disagree whenever the note's current rate differs from whatever
-    # rate was actually baked into historical entries (see rate-drift finding,
-    # claude:nbweb-hledger_plugin_design.md).
-    labour_hours = round(sum(e['hours'] for e in entries), 2)
+    # Same milestone-grouped-first decision api_t_invoice_generate itself
+    # makes when building the real document -- see _billing_summary_for_scope's
+    # own docstring for why this must match generate exactly, not just
+    # approximate it via the older flat/journal-only computation.
+    summary = _billing_summary_for_scope(
+        diary_body, journal_key, 'since_invoice', rate, rate_unit_abbrev, btype, default_date)
+    labour_total = summary['labour_total']
+    labour_hours = summary['labour_hours']
+    mat_sub      = summary['materials_sub']
+    mat_gross    = summary['materials_gross']
     # Blended, not the note's flat rate scalar — so hours × rate always equals
     # the total shown here, even when a > RATE: marker changed the rate mid-period.
     display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
@@ -5496,7 +5543,11 @@ def api_t_invoice_preflight():
         'rate':              display_rate,
         'labour_hours':      labour_hours,
         'labour_total':      labour_total,
-        'expense_totals':    {t: {'subtotal': s, 'gross': g} for t, (s, g) in expense_dict.items()},
+        # Per-token breakdown isn't naturally available from the aggregated
+        # milestone-grouped summary, and no frontend code reads this field
+        # anyway (grepped) -- kept as an empty dict rather than removed, to
+        # not silently drop a key any external consumer might expect.
+        'expense_totals':    {},
         'materials_subtotal': mat_sub,
         'materials_gross':   mat_gross,
     })
@@ -5790,15 +5841,19 @@ def api_t_quote_preflight():
     import datetime as _dt
     selector = request.args.get('selector', '').strip()
     scope    = request.args.get('scope', 'future').strip()
-    if scope not in ('future', 'all'):
-        return jsonify({'error': "scope must be 'future' or 'all'"}), 400
+    # 'since_invoice' added 2026-09-02 so a quote can preview "what would I
+    # bill right now" -- the same scope invoice always uses -- for someone
+    # who wants that number without actually generating a real invoice.
+    if scope not in ('future', 'all', 'since_invoice'):
+        return jsonify({'error': "scope must be 'future', 'all', or 'since_invoice'"}), 400
     if not selector:
         return jsonify({'error': 'selector required'}), 400
     note_path = _resolve_to_nb_path(selector)
     if not note_path or not note_path.exists():
         return jsonify({'error': 'note not found'}), 404
 
-    meta, _    = parse_frontmatter(note_path.read_text(errors='replace'))
+    meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
+    _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
     notebook   = _notebook_for_path(note_path)
     _fcfg      = _folder_config(notebook, str(note_path))
     project    = str(meta.get('project') or _fcfg.get('project') or note_path.stem)
@@ -5807,12 +5862,19 @@ def api_t_quote_preflight():
     client_raw = str(meta.get('client') or _fcfg.get('client') or '').strip()
     client     = client_raw.replace('contacts:', '').replace('.md', '')
     journal_key = str(meta.get('journal') or _fcfg.get('journal') or '').strip()
+    rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
+        str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
+    default_date = str(meta.get('started') or _dt.date.today())
 
-    labour_total, expense_dict = _invoice_journal_totals(journal_key, scope)
-    entries, _ = _parse_labour_entries(journal_key, scope)
-    mat_sub   = sum(v[0] for v in expense_dict.values())
-    mat_gross = sum(v[1] for v in expense_dict.values())
-    labour_hours = round(sum(e['hours'] for e in entries), 2)
+    # Same milestone-grouped-first decision api_t_quote_generate itself makes
+    # when building the real document -- see _billing_summary_for_scope's own
+    # docstring for why this must match generate exactly.
+    summary = _billing_summary_for_scope(
+        diary_body, journal_key, scope, rate, rate_unit_abbrev, btype, default_date)
+    labour_total = summary['labour_total']
+    labour_hours = summary['labour_hours']
+    mat_sub      = summary['materials_sub']
+    mat_gross    = summary['materials_gross']
     # Blended, not the note's flat rate scalar — see the same fix in invoice preflight.
     display_rate = round(labour_total / labour_hours, 2) if labour_hours else rate
 
@@ -5844,7 +5906,9 @@ def api_t_quote_preflight():
         'rate':              display_rate,
         'labour_hours':      labour_hours,
         'labour_total':      labour_total,
-        'expense_totals':    {t: {'subtotal': s, 'gross': g} for t, (s, g) in expense_dict.items()},
+        # See the same comment in api_t_invoice_preflight -- unused by any
+        # frontend code, kept as an empty dict rather than dropped.
+        'expense_totals':    {},
         'materials_subtotal': mat_sub,
         'materials_gross':   mat_gross,
         'empty':             labour_hours == 0 and mat_sub == 0,
@@ -5872,8 +5936,11 @@ def api_t_quote_generate():
     # _marker_groups, invariant 45 — so the endpoint shouldn't hardcode it.
     marker_type = (data.get('marker_type', 'MILESTONE').strip() or 'MILESTONE').upper()
 
-    if scope not in ('future', 'all'):
-        return jsonify({'error': "scope must be 'future' or 'all'"}), 400
+    # 'since_invoice' added 2026-09-02 so a quote can preview "what would I
+    # bill right now" -- previously only invoice generation could express
+    # this scope at all.
+    if scope not in ('future', 'all', 'since_invoice'):
+        return jsonify({'error': "scope must be 'future', 'all', or 'since_invoice'"}), 400
     if not selector or not quote_num:
         return jsonify({'error': 'selector and quote_num required'}), 400
 
@@ -5898,9 +5965,8 @@ def api_t_quote_generate():
     rate_unit_abbrev = {'hour': 'hr', 'day': 'day'}.get(
         str(meta.get('rate_unit') or _fcfg.get('rate_unit') or 'hour').strip().lower(), 'hr')
     default_date = str(meta.get('started') or _date.today())
-    # scope is already resolved to 'future' | 'all' above (never 'since_invoice'
-    # here — quotes are never scoped to since-last-invoice) — _marker_groups
-    # accepts the same three scope strings the invoice path uses.
+    # scope is 'future' | 'all' | 'since_invoice' -- _marker_groups accepts
+    # the same three scope strings the invoice path uses.
     _milestones = _marker_groups(diary_body, scope, marker_type)
     # A scope='future' quote is a projection of not-yet-done work -- an
     # entry's "date" there is really just whichever diary heading it
@@ -5956,7 +6022,10 @@ def api_t_quote_generate():
             f"| — | {token.capitalize()} | — | cost | ${gross:.2f} |"
             for token, (_, gross) in expense_dict.items()
         )
-    scope_label = 'remaining work (from tomorrow on)' if scope == 'future' else 'the whole job, start to finish'
+    scope_label = {
+        'future':        'remaining work (from tomorrow on)',
+        'since_invoice': 'work since your last invoice',
+    }.get(scope, 'the whole job, start to finish')
     valid_line  = f' · **Valid until:** {valid_until}' if valid_until else ''
     notes_md    = f'\n**Notes:** {notes}\n' if notes else ''
 
