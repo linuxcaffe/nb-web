@@ -5217,6 +5217,30 @@ def _checklist_items_in_text(text: str) -> list:
     return items
 
 
+def _other_markers_in_text(text: str, exclude_type: str) -> list:
+    """Every `> TYPE: ref` marker line within `text` whose TYPE is not
+    `exclude_type` (the type already doing active grouping), in document
+    order, skipping any line inside a fenced code block — same guard
+    _checklist_items_in_text already uses, for the same reason (a csv/
+    timedot block's own content can never be mistaken for a real marker).
+    Returns [{'type': str, 'ref': str}, ...]. Quote generation renders
+    these as childless headings within a milestone's own section — a
+    landmark (TODAY, INVOICED, CLOSED, ...) with no grouped content of
+    its own, alongside the checklist items already extracted there."""
+    markers  = []
+    in_fence = False
+    for line in text.split('\n'):
+        if line.strip().startswith('```'):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = re.match(r'^> ([A-Z][A-Z0-9_]+):[ \t]*(.*)$', line)
+        if m and m.group(1) != exclude_type:
+            markers.append({'type': m.group(1), 'ref': m.group(2).strip()})
+    return markers
+
+
 def _csv_tokens_in_text(text: str) -> list:
     """Distinct csv <token> fence names appearing in text, in first-seen order."""
     seen, tokens = set(), []
@@ -5340,7 +5364,8 @@ def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbre
 
 def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit_abbrev: str,
                                 btype: str, default_date: str, hst_rate: float = 0.13,
-                                show_date: bool = True) -> tuple:
+                                show_date: bool = True, marker_type: str = 'MILESTONE',
+                                include_other_markers: bool = False) -> tuple:
     """Build markdown for each milestone's own section (heading, summary,
     itemized labour rows, itemized materials table(s), per-milestone
     subtotal). Returns (markdown, labour_total, mat_sub, mat_gross) — the
@@ -5351,7 +5376,15 @@ def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit
 
     show_date=False drops the labour table's Date column — see
     _build_labour_table's own docstring for why (meaningless on a
-    scope='future' projection)."""
+    scope='future' projection).
+
+    include_other_markers=True (quote generation only — invoice leaves this
+    off) renders every OTHER marker type (see _other_markers_in_text)
+    falling within a group's own slice as a childless heading alongside its
+    checklist items: a bare `> TYPE: ref` line with no grouped content of
+    its own, e.g. `> TODAY:` or `> INVOICED: ...` landing inside a
+    milestone gives a fuller picture of what's happening in that timeframe
+    without pretending it's a second grouping axis."""
     totals = _marker_group_totals(groups, lines, rate, rate_unit_abbrev, btype, default_date, hst_rate)
     header = _labour_table_header(show_date)
     sections = []
@@ -5394,6 +5427,13 @@ def _render_milestone_sections(groups: list, lines: list, rate: float, rate_unit
             section += '\n' + '\n'.join(
                 f"- [{'x' if c['checked'] else ' '}] {c['text']}" for c in t['checklist']
             ) + '\n'
+        if include_other_markers:
+            slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
+            others = _other_markers_in_text(slice_text, marker_type)
+            if others:
+                section += '\n' + '\n'.join(
+                    f"> {o['type']}:" + (f" {o['ref']}" if o['ref'] else '') for o in others
+                ) + '\n'
         # A milestone with no real cost data yet (not started) gets no
         # synthesized "Labour | 0.0 | ... | $0.00" row or "$0.00" subtotal
         # line -- those were fabricated placeholders, not real numbers;
@@ -6079,7 +6119,7 @@ def api_t_quote_generate():
     if _milestones:
         milestone_md, labour_total, mat_sub, mat_gross = _render_milestone_sections(
             _milestones, diary_body.split('\n'), rate, rate_unit_abbrev, btype, default_date,
-            show_date=show_date)
+            show_date=show_date, marker_type=marker_type, include_other_markers=True)
         entries, labour_hours = None, None
     elif scope in ('since_marker', 'until_marker'):
         # No meaningful flat-path fallback for a marker-relative scope --
