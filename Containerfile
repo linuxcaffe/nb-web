@@ -275,7 +275,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # layer, which is exactly what the bind-mounted-secrets design avoids.
 # See claude:nb-web_phase2_docker_and_permissions_2026-07-18.md.
 RUN python3 -c "import yaml, markdown" || \
-    (echo "FATAL: a dependency app.py silently degrades without (not crashes without) failed to import -- see the comment above this RUN step" && exit 1)
+    (echo "FATAL: a dependency app.py silently degrades without (rather than crashing on) failed to import -- see the comment above this RUN step" && exit 1)
 
 # Which commit this image actually is -- read by nbweb-tui's Process tab
 # (process.nb_web_commit()) so a stale, un-rebuilt image reports its real,
