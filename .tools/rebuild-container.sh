@@ -40,9 +40,31 @@ fi
 
 for p in nbweb-cine nbweb-claude nbweb-hledger; do
     repo="$(dirname "$PWD")/$p"
-    [ -d "$repo/.git" ] || continue
-    branch=$(git -C "$repo" branch --show-current 2>/dev/null) || continue
-    remote_head=$(git -C "$repo" rev-parse --short "origin/$branch" 2>/dev/null) || continue
+    if [ ! -d "$repo/.git" ]; then
+        echo "SKIP: $p -- no local checkout at $repo to compare against."
+        continue
+    fi
+    # The image always clones the repo's own default branch (Containerfile's
+    # plain `git clone`, no -b) -- never whatever branch happens to be checked
+    # out locally. Deriving the comparison branch from `git branch
+    # --show-current` used to silently produce ZERO output for a plugin
+    # whenever its local checkout was on a feature branch (confirmed live
+    # 2026-09-03: nbweb-cine on org-directive-scaffolding --
+    # origin/org-directive-scaffolding doesn't exist, both old `|| continue`s
+    # fired, and the whole plugin's verification line vanished with no
+    # warning at all -- a real rebuild's output had "OK" lines for claude and
+    # hledger and nothing whatsoever for cine). Ask the remote which branch
+    # is actually default instead of trusting local checkout state.
+    branch=$(git -C "$repo" remote show origin 2>/dev/null | sed -n 's/^ *HEAD branch: //p')
+    if [ -z "$branch" ]; then
+        echo "WARN: $p -- couldn't determine origin's default branch (offline? remote misconfigured?)."
+        continue
+    fi
+    remote_head=$(git -C "$repo" rev-parse --short "origin/$branch" 2>/dev/null)
+    if [ -z "$remote_head" ]; then
+        echo "WARN: $p -- no local origin/$branch ref; try 'git -C $repo fetch'."
+        continue
+    fi
     image_commit=$(podman exec nb-web cat "/app/plugins/.$p.commit" 2>/dev/null | tr -d '[:space:]')
     if [ "$image_commit" = "$remote_head" ]; then
         echo "OK: $p @ ${image_commit}, matches origin/$branch."
