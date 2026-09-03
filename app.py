@@ -8744,7 +8744,10 @@ def api_create_note():
 
     if not nb_ok(r):
         return jsonify({'success': False, 'error': r['stderr']}), 400
-    m = re.search(r'\[([^\]]+)\]', r['stdout'])
+    # nb colorizes this summary line (e.g. `todo add`/`bookmark add`) and
+    # never suppresses it (invariant 46) -- strip ANSI before parsing, not
+    # just before display, or the extracted selector carries escape codes.
+    m = re.search(r'\[([^\]]+)\]', strip_ansi(r['stdout']))
     selector = m.group(1) if m else None
     if selector and ':' not in selector:
         selector = f'{notebook}:{selector}'
