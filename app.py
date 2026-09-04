@@ -8149,6 +8149,8 @@ def api_note():
     locked      = lk is not None
     lock_reason = lk.read_text(errors='replace').strip() or None if locked else None
 
+    edit_session = _edit_session_get(selector)
+
     parent_meta = {}
     parent_meta_sources = {}
 
@@ -8171,6 +8173,9 @@ def api_note():
         'mtime':    datetime.fromtimestamp(Path(fpath).stat().st_mtime).strftime('%Y-%m-%d'),
         'locked':   locked,
         'lock_reason': lock_reason,
+        'editing_by':           edit_session['username'] if edit_session else None,
+        'editing_display_name': edit_session['name'] if edit_session else None,
+        'editing_since':        edit_session['started_at'] if edit_session else None,
         'effective_access': _effective_access(meta, nb_meta),
         'effective_claude': _effective_claude(meta, nb_meta),
         'effective_checks':     nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
@@ -8753,6 +8758,103 @@ def api_create_note():
         selector = f'{notebook}:{selector}'
     return jsonify({'success': True, 'output': strip_ansi(r['stdout']),
                     'selector': selector})
+
+
+# ---------------------------------------------------------------------------
+# Edit-session tracking (advisory "in use" indicator, not a real lock)
+# ---------------------------------------------------------------------------
+#
+# In-memory only -- correct and sufficient for this app's current single-
+# process gunicorn model (one worker, gthread; see Containerfile's own CMD
+# comment on why module-level state already assumes this everywhere else).
+# Would NOT be visible across processes if this ever moves to multiple
+# workers -- a non-issue today, worth revisiting if that ever changes.
+#
+# Deliberately advisory, not a real lock: registering/renewing always wins
+# (a deliberate "Edit anyway" click is expected to just take over the slot,
+# never be refused), and a missed release (crashed tab, closed browser, lost
+# network) self-heals via _EDIT_SESSION_TTL rather than sticking forever.
+# This does NOT prevent two people from actually saving over each other --
+# it only reduces the odds by surfacing the collision before it happens. See
+# CLAUDE.md's concurrency discussion for the fuller design rationale.
+_EDIT_SESSION_TTL = 90  # seconds since last heartbeat before an entry expires
+_active_edits = {}          # selector -> {'username', 'name', 'started_at', 'last_seen'}
+_active_edits_lock = threading.Lock()
+
+
+def _edit_session_get(selector):
+    """Live editing-session info for selector, or None. Lazily purges a
+    stale (no heartbeat within _EDIT_SESSION_TTL) entry on read."""
+    with _active_edits_lock:
+        entry = _active_edits.get(selector)
+        if entry is None:
+            return None
+        if time.time() - entry['last_seen'] > _EDIT_SESSION_TTL:
+            del _active_edits[selector]
+            return None
+        return dict(entry)
+
+
+def _edit_session_touch(selector, user):
+    """Register/renew `user` as the active editor of `selector`."""
+    username = user.get('username', '')
+    now = time.time()
+    with _active_edits_lock:
+        existing = _active_edits.get(selector)
+        same_live_holder = (existing and existing.get('username') == username
+                             and now - existing['last_seen'] <= _EDIT_SESSION_TTL)
+        _active_edits[selector] = {
+            'username':   username,
+            'name':       user.get('name') or username,
+            'started_at': existing['started_at'] if same_live_holder else now,
+            'last_seen':  now,
+        }
+        return dict(_active_edits[selector])
+
+
+def _edit_session_release(selector, user):
+    """Release `user`'s own editing-session claim on `selector`, if held."""
+    with _active_edits_lock:
+        entry = _active_edits.get(selector)
+        if entry and entry.get('username') == user.get('username', ''):
+            del _active_edits[selector]
+
+
+@app.route('/api/note/edit-session', methods=['POST'])
+def api_note_edit_session_start():
+    """Advisory "someone is editing this" signal -- called once when the
+    editor opens, then periodically (heartbeat) while it stays open.
+    Body: {"selector": "..."}
+    """
+    data     = request.get_json(silent=True) or {}
+    selector = data.get('selector', '')
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    user = session.get('user', {})
+    if not _can_write(user, selector):
+        return jsonify({'error': 'forbidden'}), 403
+    entry = _edit_session_touch(selector, user)
+    return jsonify({
+        'editing_by':           entry['username'],
+        'editing_display_name': entry['name'],
+        'editing_since':        entry['started_at'],
+    })
+
+
+@app.route('/api/note/edit-session', methods=['DELETE'])
+def api_note_edit_session_end():
+    """Release the caller's own edit-session claim on `selector`, if held.
+    Best-effort -- called on Save/Cancel/navigate-away; a missed call just
+    expires naturally via _EDIT_SESSION_TTL."""
+    data     = request.get_json(silent=True) or {}
+    selector = data.get('selector', '')
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+    user = session.get('user', {})
+    if not user:
+        return jsonify({'error': 'forbidden'}), 403
+    _edit_session_release(selector, user)
+    return jsonify({'success': True})
 
 
 # ---------------------------------------------------------------------------
