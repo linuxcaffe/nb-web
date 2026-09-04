@@ -4284,6 +4284,24 @@ const NbMain = (() => {
         _mkdModal.addEventListener('click', e => { if (e.target === _mkdModal) _mkdModal.hidden = true; });
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && !_mkdModal.hidden) _mkdModal.hidden = true; });
 
+        // Image embed: camera-icon button + Ctrl+Shift+1, Edit mode only.
+        // Core feature (not plugin-scoped), so it's wired directly here rather
+        // than through NbWeb.getEditorKeybindings, which only sources plugin
+        // editorKeybindings entries -- see nb-web CLAUDE.md's image-embed notes.
+        document.getElementById('nb-img-embed-btn').addEventListener('click', () => {
+            const ta = document.getElementById('nb-editor');
+            _openImageEmbedModal(ta, ta._editingNote);
+        });
+        document.getElementById('nb-editor').addEventListener('keydown', e => {
+            // e.code (physical key), not e.key, so this fires from Ctrl+Shift+1
+            // regardless of keyboard layout -- Shift+1 only produces the "!"
+            // character on a US layout.
+            if (e.ctrlKey && e.shiftKey && e.code === 'Digit1') {
+                e.preventDefault();
+                _openImageEmbedModal(e.target, e.target._editingNote);
+            }
+        });
+
         // Line number toggle
         const _lnBtn    = document.getElementById('nb-ln-btn');
         const _lnGutter = document.getElementById('nb-ln-gutter');
@@ -4341,6 +4359,7 @@ const NbMain = (() => {
         _undoBuffer[sel] = raw;
         const ta = document.getElementById('nb-editor');
         ta.value = raw;
+        ta._editingNote = note;
         document.getElementById('nb-save-btn').onclick = saveFn;
 
         // Install plugin keybindings for this note; remove any previous handler
@@ -4364,6 +4383,150 @@ const NbMain = (() => {
         }
 
         ta.focus();
+    }
+
+    // ── Image embed modal (camera button / Ctrl+Shift+1) ─────────────────
+
+    function _openImageEmbedModal(ta, note) {
+        if (!note || !note.selector) return;
+        const savedPos = ta.selectionStart;
+        const overlay = document.createElement('div');
+        overlay.className = 'nb-img-embed-overlay';
+        overlay.innerHTML = `
+            <div class="nb-img-embed-card">
+                <h4>Embed Image</h4>
+                <div class="nb-img-embed-sources">
+                    <button type="button" class="nb-tool-btn nb-img-embed-src" data-src="camera" disabled title="Coming soon">📷 Camera</button>
+                    <button type="button" class="nb-tool-btn nb-img-embed-src" data-src="images">🖼 Images</button>
+                    <button type="button" class="nb-tool-btn nb-img-embed-src" data-src="browse">📂 Browse…</button>
+                </div>
+                <div class="nb-img-embed-body"></div>
+                <div class="nb-img-embed-btns">
+                    <button type="button" class="nb-tool-btn nb-img-embed-cancel">Cancel</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        // Move focus into the modal immediately, same as nbweb-cine.js's
+        // _showInsertShotOverlay. Without this, the editor textarea (outside
+        // the overlay's DOM subtree entirely) keeps focus, so an Escape
+        // pressed before clicking any source button never reaches this
+        // overlay's own keydown listener at all -- it bubbles through the
+        // textarea's own ancestry straight to ui-chrome.js's document-level
+        // handler instead, which closes the whole editor.
+        overlay.querySelector('.nb-img-embed-src:not(:disabled)').focus();
+
+        const body = overlay.querySelector('.nb-img-embed-body');
+        const cancel = () => {
+            overlay.remove();
+            ta.focus();
+            ta.setSelectionRange(savedPos, savedPos);
+        };
+        overlay.querySelector('.nb-img-embed-cancel').addEventListener('click', cancel);
+        overlay.addEventListener('click', e => { if (e.target === overlay) cancel(); });
+        overlay.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                // stopPropagation matters here: cancel() refocuses the editor
+                // textarea synchronously, and if this Escape keeps bubbling to
+                // ui-chrome.js's document-level "Escape from inputs" handler
+                // afterward, it sees a focused <textarea> and clicks the real
+                // Cancel button, closing the whole editor out from under this
+                // modal instead of just this modal.
+                e.stopPropagation();
+                cancel();
+            }
+        });
+
+        // Splice `![caption](selector)` at the saved cursor position -- same
+        // pattern as nbweb-cine.js's _insertShotAction.
+        const finish = (imgSelector, defaultName) => {
+            _promptImageCaption(body, defaultName, caption => {
+                const ins = `![${caption}](${imgSelector})`;
+                ta.value = ta.value.slice(0, savedPos) + ins + ta.value.slice(savedPos);
+                const newPos = savedPos + ins.length;
+                overlay.remove();
+                ta.focus();
+                ta.setSelectionRange(newPos, newPos);
+            });
+        };
+
+        overlay.querySelectorAll('.nb-img-embed-src').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const src = btn.dataset.src;
+                if (src === 'images') _renderImagePicker(body, note, finish);
+                else if (src === 'browse') _renderImageBrowse(body, note, finish);
+                // 'camera' is a disabled stub -- no handler needed.
+            });
+        });
+    }
+
+    async function _renderImagePicker(body, note, finish) {
+        body.innerHTML = '<div class="nb-img-embed-loading">Loading…</div>';
+        try {
+            const r = await fetch(`/api/gallery?selector=${encodeURIComponent(note.selector)}`);
+            const d = await r.json();
+            const images = d.images || [];
+            if (!images.length) {
+                body.innerHTML = '<div class="nb-gallery-empty">No existing images found here — try Browse instead.</div>';
+                return;
+            }
+            body.innerHTML = `<div class="nb-gallery-grid nb-img-embed-grid">` +
+                images.map(img => `
+                    <div class="nb-gallery-cell nb-img-embed-pick" data-selector="${_esc(img.selector)}" data-name="${_esc(img.name)}">
+                        <img class="nb-gallery-img" src="${_esc(img.url)}" alt="${_esc(img.name)}">
+                        <div class="nb-gallery-cap">${_esc(img.name)}</div>
+                    </div>`).join('') +
+                `</div>`;
+            body.querySelectorAll('.nb-img-embed-pick').forEach(cell => {
+                cell.addEventListener('click', () => finish(cell.dataset.selector, cell.dataset.name));
+            });
+        } catch (e) {
+            body.innerHTML = `<div class="nb-gallery-empty">Failed to load images: ${_esc(String(e))}</div>`;
+        }
+    }
+
+    function _renderImageBrowse(body, note, finish) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.addEventListener('change', async () => {
+            const file = input.files[0];
+            input.remove();
+            if (!file) return;
+            body.innerHTML = '<div class="nb-img-embed-loading">Uploading…</div>';
+            const fd = new FormData();
+            fd.append('selector', note.selector);
+            fd.append('file', file);
+            try {
+                const r = await fetch('/api/note/image-embed', { method: 'POST', body: fd });
+                const d = await r.json();
+                if (!r.ok || d.error) {
+                    body.innerHTML = `<div class="nb-gallery-empty">${_esc(d.error || 'upload failed')}</div>`;
+                    return;
+                }
+                finish(d.selector, d.name);
+            } catch (e) {
+                body.innerHTML = `<div class="nb-gallery-empty">Upload failed: ${_esc(String(e))}</div>`;
+            }
+        });
+        input.click();
+    }
+
+    function _promptImageCaption(body, defaultName, onConfirm) {
+        body.innerHTML = `
+            <label>Caption <span style="font-weight:normal;opacity:.6">(alt text)</span></label>
+            <input id="nb-img-embed-caption" type="text" value="${_esc(defaultName || '')}" autocomplete="off">
+            <div class="nb-img-embed-btns">
+                <button type="button" id="nb-img-embed-insert" class="nb-tool-btn nb-btn-primary">Insert</button>
+            </div>`;
+        const input = body.querySelector('#nb-img-embed-caption');
+        input.focus();
+        input.select();
+        const confirm = () => onConfirm(input.value.trim());
+        body.querySelector('#nb-img-embed-insert').addEventListener('click', confirm);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } });
     }
 
     function _foldableImpliesDates(foldable) {

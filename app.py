@@ -2340,6 +2340,29 @@ def api_file():
 
 
 _GALLERY_IMAGE_EXTS = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp'})
+_IMAGE_EMBED_MAX_MB = 15
+
+
+def _nearest_image_dir(note_dir: Path, create_if_missing: bool = False) -> Path | None:
+    """Walk up from note_dir looking for the nearest images/ folder, stopping
+    at the NB_DIR boundary -- same walk-up /api/gallery's no-path-arg branch
+    already used inline. With create_if_missing, falls back to creating
+    note_dir/images when nothing was found anywhere in the chain, rather than
+    returning None."""
+    for d in [note_dir, *note_dir.parents]:
+        try:
+            d.relative_to(NB_DIR)
+        except ValueError:
+            break
+        candidate = d / 'images'
+        if candidate.is_dir():
+            return candidate
+    if create_if_missing:
+        new_dir = note_dir / 'images'
+        new_dir.mkdir(exist_ok=True)
+        return new_dir
+    return None
+
 
 @app.route('/api/gallery')
 def api_gallery():
@@ -2367,7 +2390,7 @@ def api_gallery():
             except ValueError:
                 continue
             out.append({'name': f.stem, 'filename': f.name,
-                        'url': f'/api/file?selector={sel}'})
+                        'url': f'/api/file?selector={sel}', 'selector': sel})
         return out
 
     note_dir: Path | None = None
@@ -2397,15 +2420,90 @@ def api_gallery():
     # Walk up from note_dir; stop at NB_DIR boundary
     if note_dir is None:
         return jsonify({'images': []})
-    for d in [note_dir, *note_dir.parents]:
-        try:
-            d.relative_to(NB_DIR)
-        except ValueError:
-            break
-        candidate = d / 'images'
-        if candidate.is_dir():
-            return jsonify({'images': list_images(candidate)})
-    return jsonify({'images': []})
+    found = _nearest_image_dir(note_dir, create_if_missing=False)
+    return jsonify({'images': list_images(found) if found else []})
+
+
+@app.route('/api/note/image-embed', methods=['POST'])
+def api_note_image_embed():
+    """Save an uploaded image into a note's nearest images/ folder (creating
+    one next to the note if none exists anywhere in the walk-up chain) and
+    return its selector -- backend for the Edit-mode camera-button /
+    Ctrl+Shift+1 image-embed flow (main.js's _openImageEmbedModal). Mirrors
+    api_item_new's direct-write-plus-manual-git-commit pattern (app.py,
+    /api/item/new) rather than shelling out to `nb import`, since both the
+    target folder and final filename are resolved here."""
+    selector = request.form.get('selector', '').strip()
+    if not selector:
+        return jsonify({'error': 'selector required'}), 400
+
+    note_path = _resolve_to_nb_path(selector)
+    if not note_path or not note_path.exists() or not note_path.is_file():
+        return jsonify({'error': 'note not found'}), 404
+
+    notebook = _notebook_for_path(note_path)
+    meta, _  = parse_frontmatter(note_path.read_text(errors='replace'))
+    nb_meta  = _folder_config(notebook, str(note_path))
+    user     = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user') or not _can_access(user, meta, nb_meta):
+        return jsonify({'error': 'forbidden'}), 403
+
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': 'file required'}), 400
+
+    ext = Path(f.filename).suffix.lower()
+    if ext not in _GALLERY_IMAGE_EXTS:
+        return jsonify({'error': f'unsupported image type: {ext or "(none)"}'}), 400
+
+    max_bytes = _IMAGE_EMBED_MAX_MB * 1024 * 1024
+    chunk = f.read(max_bytes + 1)
+    if len(chunk) > max_bytes:
+        return jsonify({'error': f'exceeds {_IMAGE_EMBED_MAX_MB} MB limit'}), 400
+
+    note_dir = note_path.parent
+    images_dir = _nearest_image_dir(note_dir, create_if_missing=False)
+    newly_created = images_dir is None
+    if newly_created:
+        images_dir = note_dir / 'images'
+        images_dir.mkdir(exist_ok=True)
+
+    safe_name = Path(f.filename).name.replace('/', '_').replace('..', '_')
+    stem, suffix = Path(safe_name).stem, Path(safe_name).suffix
+    candidate_name = safe_name
+    n = 1
+    while (images_dir / candidate_name).exists():
+        candidate_name = f'{stem}-{n}{suffix}'
+        n += 1
+
+    try:
+        (images_dir / candidate_name).write_bytes(chunk)
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
+
+    nb_path = NB_DIR / notebook
+    rel_images_dir = images_dir.relative_to(nb_path)
+    git_add_paths = [str(rel_images_dir / candidate_name), str(rel_images_dir / '.index')]
+
+    _nb_index_reconcile(images_dir)
+    if newly_created:
+        _nb_index_reconcile(images_dir.parent)
+        git_add_paths.append(str(images_dir.parent.relative_to(nb_path) / '.index'))
+
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add'] + git_add_paths, cwd=str(nb_path), capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m', f'[nb] Embed image: {candidate_name}'],
+                   cwd=str(nb_path), capture_output=True, env=env)
+
+    rel = (images_dir / candidate_name).relative_to(NB_DIR)
+    parts = rel.parts
+    sel = f'{parts[0]}:{"/".join(parts[1:])}'
+
+    return jsonify({
+        'selector': sel,
+        'name': Path(candidate_name).stem,
+        'url': f'/api/file?selector={sel}',
+    })
 
 
 @app.route('/api/preview')
