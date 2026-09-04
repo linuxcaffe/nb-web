@@ -859,6 +859,29 @@ const NbMain = (() => {
         setTimeout(() => document.addEventListener('click', outside, true), 0);
     }
 
+    const _UNEDITABLE_TYPES = ['sheet','image','audio','video','pdf','ebook','document','archive'];
+
+    // Single source of truth for whether #nb-edit-btn is editable right now, and
+    // why not if it isn't -- see renderPreview's "── Edit gate ──" section for
+    // the four scattered blocks this replaced.
+    //
+    // Precedence is deliberate, not file-order-accidental: a directory/notebook
+    // lock (note.locked, an administrative, coarser-grained lock) outranks a
+    // note's own content lock (isLocked, the note's own lock: FM field). Before
+    // this consolidation, a note that was BOTH dir-locked and content-locked
+    // showed an Unlock button (inserted by the content-lock block) *and* a lock
+    // badge (inserted by the directory-lock block) at the same time, purely
+    // because the directory-lock block happened to run later in the function
+    // and never cleaned up what the content-lock block had already inserted --
+    // not a considered choice, just accidental ordering. This is the one real
+    // behavior difference from the old scattered version.
+    function _computeEditGate(note, isLocked) {
+        if (_UNEDITABLE_TYPES.includes(note.type)) return { state: 'unsupported' };
+        if (note.locked) return { state: 'dir-locked', reason: note.lock_reason };
+        if (isLocked) return { state: 'content-locked' };
+        return { state: 'editable', hasSoftLock: note.meta != null && 'lock' in note.meta };
+    }
+
     async function renderPreview(note) {
         _activeNote     = note;
         _activeType     = note.type;
@@ -883,11 +906,12 @@ const NbMain = (() => {
         const _isLocked = /^(yes|on|true|1)$/i.test(String(note.meta?.lock ?? ''));
 
         const doneBtn    = document.getElementById('nb-done-btn');
-        const editBtn    = document.getElementById('nb-edit-btn');
         const changesBtn = document.getElementById('nb-changes-btn');
         const openExtBtn = document.getElementById('nb-open-ext-btn');
         if (doneBtn) doneBtn.hidden = !(note.type === 'todo' && note.status === 'open');
-        if (editBtn) editBtn.hidden = ['sheet','image','audio','video','pdf','ebook','document','archive'].includes(note.type);
+        // Edit button's own hidden/sibling-button state is decided in one place,
+        // "── Edit gate ──" below, alongside the other three conditions that used
+        // to each independently fetch and mutate #nb-edit-btn.
         if (changesBtn) {
             const hasMeta = note.meta && Object.keys(note.meta).length > 0;
             changesBtn.hidden   = !hasMeta || !!note.locked || _isLocked;
@@ -995,14 +1019,27 @@ const NbMain = (() => {
         const _checkPrefix = _virtualTestPrefix(note);
         const _checkHtml   = _checkPrefix ? _renderMarkdown(_checkPrefix, note.selector) : '';
 
-        // ── Lock / Unlock UI ───────────────────────────────────────────────
-        document.getElementById('nb-unlock-btn')?.remove();
         // Stamp lock state on the content pane so codeblock renderers can read it
         const _contentPane = document.getElementById('nb-preview-content');
         if (_contentPane) _contentPane.dataset.noteLocked = _isLocked ? 'true' : '';
-        const _editBtn  = document.getElementById('nb-edit-btn');
-        if (_isLocked && _editBtn) {
-            _editBtn.hidden = true;
+
+        // ── Edit gate ────────────────────────────────────────────────────
+        // Single source of truth for #nb-edit-btn's state -- replaces four
+        // independently-scattered blocks (type gate, content lock/_isLocked,
+        // soft-lock, directory lock/note.locked) that each re-fetched the
+        // button and decided hidden/sibling-button on their own, with no
+        // explicit precedence between them. See _computeEditGate's own
+        // comment for the one real behavior difference this introduces.
+        ['nb-unlock-btn', 'nb-relock-btn', 'nb-dir-lock-indicator'].forEach(id => document.getElementById(id)?.remove());
+
+        const _gate      = _computeEditGate(note, _isLocked);
+        const _editBtn   = document.getElementById('nb-edit-btn');
+        const _deleteBtn = document.getElementById('nb-delete-btn');
+
+        if (_editBtn)   _editBtn.hidden   = ['unsupported', 'dir-locked', 'content-locked'].includes(_gate.state);
+        if (_deleteBtn) _deleteBtn.hidden = _gate.state === 'dir-locked';
+
+        if (_gate.state === 'content-locked' && _editBtn) {
             const unlockBtn = document.createElement('button');
             unlockBtn.id        = 'nb-unlock-btn';
             unlockBtn.className = 'nb-tool-btn';
@@ -1023,12 +1060,8 @@ const NbMain = (() => {
                 }
             });
             _editBtn.insertAdjacentElement('afterend', unlockBtn);
-        }
-
-        // Re-lock button — shown when lock: key exists in meta but value is cleared
-        document.getElementById('nb-relock-btn')?.remove();
-        const _hasSoftLock = !_isLocked && note.meta != null && 'lock' in note.meta;
-        if (_hasSoftLock && _editBtn) {
+        } else if (_gate.state === 'editable' && _gate.hasSoftLock && _editBtn) {
+            // Re-lock button — shown when lock: key exists in meta but value is cleared
             const relockBtn = document.createElement('button');
             relockBtn.id        = 'nb-relock-btn';
             relockBtn.className = 'nb-tool-btn';
@@ -1049,22 +1082,12 @@ const NbMain = (() => {
                 }
             });
             _editBtn.insertAdjacentElement('beforebegin', relockBtn);
-        }
-
-        // ── Directory lock (.nb-unlock file in folder or notebook) ───────────────
-        document.getElementById('nb-dir-lock-indicator')?.remove();
-        if (note.locked) {
-            const editBtn   = document.getElementById('nb-edit-btn');
-            const deleteBtn = document.getElementById('nb-delete-btn');
-            if (editBtn)   editBtn.hidden   = true;
-            if (deleteBtn) deleteBtn.hidden = true;
+        } else if (_gate.state === 'dir-locked') {
             const lockInd = document.createElement('span');
             lockInd.id = 'nb-dir-lock-indicator';
             lockInd.textContent = '🔒';
             lockInd.style.cssText = 'font-size:13px;cursor:default;opacity:0.75;user-select:none';
-            lockInd.title = note.lock_reason
-                ? `Locked: ${note.lock_reason}`
-                : 'Read-only — locked by folder or notebook lock';
+            lockInd.title = _gate.reason ? `Locked: ${_gate.reason}` : 'Read-only — locked by folder or notebook lock';
             const pinInd = document.getElementById('nb-pin-indicator');
             if (pinInd) pinInd.insertAdjacentElement('beforebegin', lockInd);
             else document.getElementById('nb-preview-actions')?.prepend(lockInd);
