@@ -225,6 +225,23 @@ every time even though the navigation had genuinely happened. The reliable signa
 not the URL: `#nb-preview-title`'s `textContent`, via
 `page.wait_for_function("document.getElementById('nb-preview-title').textContent.includes('...')")`.
 
+## Gotcha: `page.goto()` to the hash the page is already on is a no-op, even post-`081932a`
+
+A narrower case than the fixed gotcha just above — that fix covers navigating *between two
+different* notes (`page.goto(f"{BASE}/#Other:note.md")` from an already-loaded page does
+reliably navigate now). Navigating to the exact **same** hash the page is already sitting on is
+still a no-op: no browser navigation event fires, no `hashchange`, nothing re-renders, because
+the URL genuinely hasn't changed. Confirmed live 2026-09-03 building the advisory "in-use"
+edit-session indicator (`edit-session.spec.js`): a two-browser-context test had user A open a
+note, click Edit, then re-checked A's own view later in the test via
+`page.goto(f"{BASE}/#{SEL}")` (the same selector A was already on) expecting to see updated
+server-side state — it silently kept showing A's stale, pre-click DOM forever, which read as a
+real feature bug (a whole debugging pass, including a direct server-side `requests`-based check
+that proved the backend was correct all along) before the actual cause — a no-op navigation, not
+a broken feature — was found. Fix: use `page.reload()` (Python) / `page.reload()` (JS) for a
+genuine re-check of a note the page is already displaying, reserving `page.goto(f"...#{sel}")`
+for an actual navigation to a *different* note or the note's first load in that page.
+
 ## Gotcha: `page.inner_html()` proves markup exists, not that it's visible
 
 Confirmed live 2026-08-12 chasing the annotation-frontmatter-rendering feature (CLAUDE.md
