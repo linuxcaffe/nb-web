@@ -4387,6 +4387,15 @@ const NbMain = (() => {
 
     // ── Image embed modal (camera button / Ctrl+Shift+1) ─────────────────
 
+    // Same size vocabulary and pixel values as the gallery codeblock's own
+    // _GALLERY_SIZES (plugins/nbweb-codeblocks.js) -- kept as a separate
+    // constant here rather than shared, since the two files are independent
+    // IIFEs, but deliberately matching values so "small"/"med"/etc. mean the
+    // same thing whether an image reached the note via a gallery block or a
+    // single embedded link. `full` (no width attribute) keeps the existing
+    // bare-markdown `![caption](selector)` output unchanged.
+    const _IMG_EMBED_SIZES = { full: null, large: 320, med: 220, small: 140, thumb: 80 };
+
     function _openImageEmbedModal(ta, note) {
         if (!note || !note.selector) return;
         const savedPos = ta.selectionStart;
@@ -4437,11 +4446,22 @@ const NbMain = (() => {
             }
         });
 
-        // Splice `![caption](selector)` at the saved cursor position -- same
-        // pattern as nbweb-cine.js's _insertShotAction.
+        // Splice the image markup at the saved cursor position -- same
+        // pattern as nbweb-cine.js's _insertShotAction. "Full size" keeps the
+        // plain `![caption](selector)` markdown form; any other size emits a
+        // raw <img width="..."> tag instead -- bare markdown has no sizing
+        // syntax, but marked.js here has no sanitizer configured, so raw
+        // inline HTML already passes straight through, and _renderMarkdown's
+        // img-src rewrite (main.js) runs as a regex pass over the rendered
+        // HTML string, matching any <img src="..."> regardless of whether it
+        // came from markdown syntax or was typed as raw HTML -- so this needs
+        // no rendering-pipeline changes to resolve correctly.
         const finish = (imgSelector, defaultName) => {
-            _promptImageCaption(body, defaultName, caption => {
-                const ins = `![${caption}](${imgSelector})`;
+            _promptImageCaption(body, defaultName, (caption, sizeKey) => {
+                const px  = _IMG_EMBED_SIZES[sizeKey];
+                const ins = px
+                    ? `<img src="${imgSelector}" alt="${_esc(caption)}" width="${px}">`
+                    : `![${caption}](${imgSelector})`;
                 ta.value = ta.value.slice(0, savedPos) + ins + ta.value.slice(savedPos);
                 const newPos = savedPos + ins.length;
                 overlay.remove();
@@ -4518,13 +4538,22 @@ const NbMain = (() => {
         body.innerHTML = `
             <label>Caption <span style="font-weight:normal;opacity:.6">(alt text)</span></label>
             <input id="nb-img-embed-caption" type="text" value="${_esc(defaultName || '')}" autocomplete="off">
+            <label>Size</label>
+            <select id="nb-img-embed-size">
+                <option value="full">Full size</option>
+                <option value="large">Large (320px)</option>
+                <option value="med">Medium (220px)</option>
+                <option value="small">Small (140px)</option>
+                <option value="thumb">Thumbnail (80px)</option>
+            </select>
             <div class="nb-img-embed-btns">
                 <button type="button" id="nb-img-embed-insert" class="nb-tool-btn nb-btn-primary">Insert</button>
             </div>`;
-        const input = body.querySelector('#nb-img-embed-caption');
+        const input   = body.querySelector('#nb-img-embed-caption');
+        const sizeSel = body.querySelector('#nb-img-embed-size');
         input.focus();
         input.select();
-        const confirm = () => onConfirm(input.value.trim());
+        const confirm = () => onConfirm(input.value.trim(), sizeSel.value);
         body.querySelector('#nb-img-embed-insert').addEventListener('click', confirm);
         input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } });
     }
