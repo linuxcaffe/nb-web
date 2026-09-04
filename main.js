@@ -867,19 +867,78 @@ const NbMain = (() => {
     //
     // Precedence is deliberate, not file-order-accidental: a directory/notebook
     // lock (note.locked, an administrative, coarser-grained lock) outranks a
-    // note's own content lock (isLocked, the note's own lock: FM field). Before
-    // this consolidation, a note that was BOTH dir-locked and content-locked
-    // showed an Unlock button (inserted by the content-lock block) *and* a lock
-    // badge (inserted by the directory-lock block) at the same time, purely
-    // because the directory-lock block happened to run later in the function
-    // and never cleaned up what the content-lock block had already inserted --
-    // not a considered choice, just accidental ordering. This is the one real
-    // behavior difference from the old scattered version.
+    // note's own content lock (isLocked, the note's own lock: FM field), which
+    // in turn outranks 'in-use' (someone else's active edit session -- see
+    // _startEditSession/_stopEditSession). Before this consolidation, a note
+    // that was BOTH dir-locked and content-locked showed an Unlock button
+    // (inserted by the content-lock block) *and* a lock badge (inserted by the
+    // directory-lock block) at the same time, purely because the directory-lock
+    // block happened to run later in the function and never cleaned up what the
+    // content-lock block had already inserted -- not a considered choice, just
+    // accidental ordering. This is the one real behavior difference from the
+    // old scattered version.
+    //
+    // 'in-use' is advisory only, never a hard block -- it disables Edit with an
+    // explanation, but always pairs with an "Edit anyway" escape hatch (see the
+    // 'in-use' render branch below). A bare disable-with-no-recourse would
+    // recreate exactly the stuck-lock problem this design was chosen to avoid:
+    // a crashed tab's session outlives the tab for up to _EDIT_SESSION_TTL
+    // (server-side) with no way for anyone else to work around it in the
+    // meantime.
     function _computeEditGate(note, isLocked) {
         if (_UNEDITABLE_TYPES.includes(note.type)) return { state: 'unsupported' };
         if (note.locked) return { state: 'dir-locked', reason: note.lock_reason };
         if (isLocked) return { state: 'content-locked' };
+        const _me = window.NbUser?.username;
+        if (note.editing_by && note.editing_by !== _me) {
+            return { state: 'in-use', by: note.editing_by, displayName: note.editing_display_name || note.editing_by, since: note.editing_since };
+        }
         return { state: 'editable', hasSoftLock: note.meta != null && 'lock' in note.meta };
+    }
+
+    // ── Edit-session heartbeat ──────────────────────────────────────────
+    // Registers/renews the caller as the active editor of `sel` on the server
+    // (advisory only -- see _computeEditGate's 'in-use' comment above) so
+    // other viewers see a live "in use" state while an editor is genuinely
+    // open. A missed _stopEditSession (crashed tab, closed browser) is fine
+    // -- the server-side TTL expires it on its own; no unload handler needed.
+    const _EDIT_HEARTBEAT_MS = 30000;
+    let _editSessionTimer = null;
+
+    function _startEditSession(sel) {
+        _stopEditSession();  // never run two heartbeats at once
+        const beat = () => fetch('/api/note/edit-session', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ selector: sel }),
+        }).catch(() => {});
+        beat();
+        _editSessionTimer = setInterval(beat, _EDIT_HEARTBEAT_MS);
+    }
+
+    function _stopEditSession(sel) {
+        if (_editSessionTimer) { clearInterval(_editSessionTimer); _editSessionTimer = null; }
+        if (sel) {
+            fetch('/api/note/edit-session', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ selector: sel }),
+            }).catch(() => {});
+        }
+    }
+
+    // " (started 4 min ago)" -- suffix form so a caller can splice it straight
+    // onto a sentence; empty string (not "just now") when there's nothing
+    // sensible to report, so a missing/invalid timestamp degrades to no
+    // parenthetical rather than a bogus one.
+    function _relTimeAgo(unixSeconds) {
+        if (!unixSeconds) return '';
+        const mins = Math.round((Date.now() / 1000 - unixSeconds) / 60);
+        if (mins < 1)  return ' (started just now)';
+        if (mins === 1) return ' (started 1 min ago)';
+        if (mins < 60) return ` (started ${mins} min ago)`;
+        const hrs = Math.round(mins / 60);
+        return hrs === 1 ? ' (started 1 hour ago)' : ` (started ${hrs} hours ago)`;
     }
 
     async function renderPreview(note) {
@@ -1030,13 +1089,19 @@ const NbMain = (() => {
         // button and decided hidden/sibling-button on their own, with no
         // explicit precedence between them. See _computeEditGate's own
         // comment for the one real behavior difference this introduces.
-        ['nb-unlock-btn', 'nb-relock-btn', 'nb-dir-lock-indicator'].forEach(id => document.getElementById(id)?.remove());
+        ['nb-unlock-btn', 'nb-relock-btn', 'nb-dir-lock-indicator', 'nb-edit-anyway-btn'].forEach(id => document.getElementById(id)?.remove());
 
         const _gate      = _computeEditGate(note, _isLocked);
         const _editBtn   = document.getElementById('nb-edit-btn');
         const _deleteBtn = document.getElementById('nb-delete-btn');
 
-        if (_editBtn)   _editBtn.hidden   = ['unsupported', 'dir-locked', 'content-locked'].includes(_gate.state);
+        if (_editBtn) {
+            _editBtn.hidden   = ['unsupported', 'dir-locked', 'content-locked'].includes(_gate.state);
+            _editBtn.disabled = _gate.state === 'in-use';
+            _editBtn.title    = _gate.state === 'in-use'
+                ? `${_gate.displayName} is editing this note${_relTimeAgo(_gate.since)}`
+                : '';
+        }
         if (_deleteBtn) _deleteBtn.hidden = _gate.state === 'dir-locked';
 
         if (_gate.state === 'content-locked' && _editBtn) {
@@ -1091,6 +1156,20 @@ const NbMain = (() => {
             const pinInd = document.getElementById('nb-pin-indicator');
             if (pinInd) pinInd.insertAdjacentElement('beforebegin', lockInd);
             else document.getElementById('nb-preview-actions')?.prepend(lockInd);
+        } else if (_gate.state === 'in-use' && _editBtn) {
+            // Advisory only -- always paired with an escape hatch. Disabling
+            // Edit outright with no way through would recreate the stuck-lock
+            // problem a real checkout lock has (crashed tab, forgotten-open
+            // tab); "Edit anyway" just opens the editor normally, which
+            // registers the clicker as the new active editor (see
+            // _startEditSession) -- same as if nobody had it open at all.
+            const anywayBtn = document.createElement('button');
+            anywayBtn.id        = 'nb-edit-anyway-btn';
+            anywayBtn.className = 'nb-tool-btn nb-edit-anyway';
+            anywayBtn.textContent = _t('btn_edit_anyway');
+            anywayBtn.title     = _editBtn.title;
+            anywayBtn.addEventListener('click', () => _openEditor(note.selector));
+            _editBtn.insertAdjacentElement('afterend', anywayBtn);
         }
 
         if (note.type === 'image') {
@@ -2419,6 +2498,7 @@ const NbMain = (() => {
         if (_encPendingEdit) {
             _encPendingEdit = false;
             _editing = true;
+            _startEditSession(_activeSelector);
             _setPaneMode('edit');
             _populateEditor(_activeSelector, decryptedContent, _saveEncryptedNote);
             return;
@@ -4339,6 +4419,7 @@ const NbMain = (() => {
                 return;
             }
             _editing = true;
+            _startEditSession(sel);
             _setPaneMode('edit');
             fetch('/api/note/decrypt', {
                 method: 'POST',
@@ -4356,6 +4437,7 @@ const NbMain = (() => {
         }
 
         _editing = true;
+        _startEditSession(sel);
         _setPaneMode('edit');
         const _saveBtn = document.getElementById('nb-save-btn');
         if (_saveBtn) _saveBtn.disabled = true;
@@ -4429,6 +4511,7 @@ const NbMain = (() => {
     }
 
     function _closeEditor() {
+        _stopEditSession(_activeSelector);
         _editing = false;
         _setPaneMode('preview');
         document.getElementById('nb-editor').value = '';  // never let stale content survive into next edit session
