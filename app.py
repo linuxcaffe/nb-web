@@ -2470,6 +2470,18 @@ def api_note_image_embed():
 
     safe_name = Path(f.filename).name.replace('/', '_').replace('..', '_')
     stem, suffix = Path(safe_name).stem, Path(safe_name).suffix
+    # Optional caller-supplied rename (main.js's Browse-upload flow only --
+    # never offered for an already-existing image picked via the Images
+    # source, since renaming a file other notes might already reference is a
+    # different, riskier operation). Extension always comes from the real
+    # uploaded file, never from this field, so a user can't mismatch content
+    # and extension by typing one in.
+    desired = request.form.get('filename', '').strip()
+    if desired:
+        desired_stem = re.sub(r'[^A-Za-z0-9_-]', '_', Path(desired).stem)
+        if desired_stem:
+            stem = desired_stem
+            safe_name = f'{stem}{suffix}'
     candidate_name = safe_name
     n = 1
     while (images_dir / candidate_name).exists():

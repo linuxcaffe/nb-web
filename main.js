@@ -4448,20 +4448,23 @@ const NbMain = (() => {
 
         // Splice the image markup at the saved cursor position -- same
         // pattern as nbweb-cine.js's _insertShotAction. "Full size" keeps the
-        // plain `![caption](selector)` markdown form; any other size emits a
-        // raw <img width="..."> tag instead -- bare markdown has no sizing
-        // syntax, but marked.js here has no sanitizer configured, so raw
-        // inline HTML already passes straight through, and _renderMarkdown's
-        // img-src rewrite (main.js) runs as a regex pass over the rendered
-        // HTML string, matching any <img src="..."> regardless of whether it
-        // came from markdown syntax or was typed as raw HTML -- so this needs
-        // no rendering-pipeline changes to resolve correctly.
-        const finish = (imgSelector, defaultName) => {
-            _promptImageCaption(body, defaultName, (caption, sizeKey) => {
+        // plain `![name](selector)` markdown form; any other size emits a raw
+        // <img width="..."> tag instead -- bare markdown has no sizing syntax,
+        // but marked.js here has no sanitizer configured, so raw inline HTML
+        // already passes straight through, and _renderMarkdown's img-src
+        // rewrite (main.js) runs as a regex pass over the rendered HTML
+        // string, matching any <img src="..."> regardless of whether it came
+        // from markdown syntax or was typed as raw HTML -- so this needs no
+        // rendering-pipeline changes to resolve correctly. `name` (the real
+        // or Browse-renamed filename stem) doubles as alt text -- no separate
+        // caption field, matching the gallery block's own convention of
+        // labeling images by filename rather than tracking caption metadata.
+        const finish = (imgSelector, name) => {
+            _promptImageSize(body, sizeKey => {
                 const px  = _IMG_EMBED_SIZES[sizeKey];
                 const ins = px
-                    ? `<img src="${imgSelector}" alt="${_esc(caption)}" width="${px}">`
-                    : `![${caption}](${imgSelector})`;
+                    ? `<img src="${imgSelector}" alt="${_esc(name)}" width="${px}">`
+                    : `![${name}](${imgSelector})`;
                 ta.value = ta.value.slice(0, savedPos) + ins + ta.value.slice(savedPos);
                 const newPos = savedPos + ins.length;
                 overlay.remove();
@@ -4511,33 +4514,56 @@ const NbMain = (() => {
         input.accept = 'image/*';
         input.style.display = 'none';
         document.body.appendChild(input);
-        input.addEventListener('change', async () => {
+        input.addEventListener('change', () => {
             const file = input.files[0];
             input.remove();
             if (!file) return;
-            body.innerHTML = '<div class="nb-img-embed-loading">Uploading…</div>';
-            const fd = new FormData();
-            fd.append('selector', note.selector);
-            fd.append('file', file);
-            try {
-                const r = await fetch('/api/note/image-embed', { method: 'POST', body: fd });
-                const d = await r.json();
-                if (!r.ok || d.error) {
-                    body.innerHTML = `<div class="nb-gallery-empty">${_esc(d.error || 'upload failed')}</div>`;
-                    return;
+            // Offer a rename before uploading -- this is a brand-new file
+            // nothing else references yet, so unlike an already-existing
+            // image (picked via the Images source, no rename step at all)
+            // there's no risk of orphaning another note's link. Camera-roll
+            // filenames (IMG_20260904_143201.jpg) are exactly the case this
+            // is for.
+            const stem = file.name.replace(/\.[^./]+$/, '');
+            _promptImageFilename(body, stem, async desiredName => {
+                body.innerHTML = '<div class="nb-img-embed-loading">Uploading…</div>';
+                const fd = new FormData();
+                fd.append('selector', note.selector);
+                fd.append('file', file);
+                if (desiredName) fd.append('filename', desiredName);
+                try {
+                    const r = await fetch('/api/note/image-embed', { method: 'POST', body: fd });
+                    const d = await r.json();
+                    if (!r.ok || d.error) {
+                        body.innerHTML = `<div class="nb-gallery-empty">${_esc(d.error || 'upload failed')}</div>`;
+                        return;
+                    }
+                    finish(d.selector, d.name);
+                } catch (e) {
+                    body.innerHTML = `<div class="nb-gallery-empty">Upload failed: ${_esc(String(e))}</div>`;
                 }
-                finish(d.selector, d.name);
-            } catch (e) {
-                body.innerHTML = `<div class="nb-gallery-empty">Upload failed: ${_esc(String(e))}</div>`;
-            }
+            });
         });
         input.click();
     }
 
-    function _promptImageCaption(body, defaultName, onConfirm) {
+    function _promptImageFilename(body, defaultStem, onConfirm) {
         body.innerHTML = `
-            <label>Caption <span style="font-weight:normal;opacity:.6">(alt text)</span></label>
-            <input id="nb-img-embed-caption" type="text" value="${_esc(defaultName || '')}" autocomplete="off">
+            <label>Filename <span style="font-weight:normal;opacity:.6">(rename before saving; extension kept as-is)</span></label>
+            <input id="nb-img-embed-filename" type="text" value="${_esc(defaultStem || '')}" autocomplete="off">
+            <div class="nb-img-embed-btns">
+                <button type="button" id="nb-img-embed-upload" class="nb-tool-btn nb-btn-primary">Upload</button>
+            </div>`;
+        const input = body.querySelector('#nb-img-embed-filename');
+        input.focus();
+        input.select();
+        const confirm = () => onConfirm(input.value.trim());
+        body.querySelector('#nb-img-embed-upload').addEventListener('click', confirm);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } });
+    }
+
+    function _promptImageSize(body, onConfirm) {
+        body.innerHTML = `
             <label>Size</label>
             <select id="nb-img-embed-size">
                 <option value="full">Full size</option>
@@ -4549,13 +4575,11 @@ const NbMain = (() => {
             <div class="nb-img-embed-btns">
                 <button type="button" id="nb-img-embed-insert" class="nb-tool-btn nb-btn-primary">Insert</button>
             </div>`;
-        const input   = body.querySelector('#nb-img-embed-caption');
         const sizeSel = body.querySelector('#nb-img-embed-size');
-        input.focus();
-        input.select();
-        const confirm = () => onConfirm(input.value.trim(), sizeSel.value);
+        sizeSel.focus();
+        const confirm = () => onConfirm(sizeSel.value);
         body.querySelector('#nb-img-embed-insert').addEventListener('click', confirm);
-        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } });
+        sizeSel.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } });
     }
 
     function _foldableImpliesDates(foldable) {
