@@ -4010,6 +4010,19 @@ const NbMain = (() => {
                 // and still falls through to the existing text-node/span path unchanged.
                 .replace(/^[ \t]*\{\{inline:\s*([^}]+)\}\}[ \t]*$/gm, (_, arg) =>
                     `<div class="nb-inline-pending" data-query="${_esc(arg.trim())}"></div>`);
+        // A raw <img ...> tag alone on its own line is a valid CommonMark "HTML
+        // block", which keeps consuming every following line verbatim until the
+        // next blank line -- including a ```fenced code block``` or `## heading`
+        // directly below it with no blank-line separator. The image-embed feature
+        // (Ctrl+Shift+1 / camera button) splices exactly this shape at the cursor
+        // with no separation guarantee, so embedding an image right above a
+        // timedot/csv block (or anything else) silently turns everything up to
+        // the next blank line into inert literal text instead of a live widget.
+        // Confirmed live 2026-09-08 on djp:projects/Seaman/nathan/nathan.md: a
+        // stacked second <img> line swallowed a ```timedot block and the ##
+        // heading after it. Force a blank line after any standalone <img> line
+        // so marked's HTML block always terminates right there.
+        body = body.replace(/^([ \t]*<img\b[^>\n]*>[ \t]*)\n(?!\n)/gm, '$1\n\n');
         // Pre-process csv template blocks (```csv token) into placeholder divs before
         // marked sees them — marked drops all but the first word of the info string.
         body = body.replace(/```csv ([\w-]+)\n([\s\S]*?)```/g, (_, token, content) =>
