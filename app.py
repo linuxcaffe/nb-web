@@ -5432,6 +5432,31 @@ def _csv_token_items(text: str, token: str, default_date: str) -> list:
     return items
 
 
+def _rate_in_effect(lines: list, before_line: int, fallback_rate: float) -> float:
+    """The `> RATE:` value actually in effect at document line `before_line`
+    -- the last RATE marker anywhere EARLIER in the full diary (not just
+    within whatever slice/scope the caller is currently bounded to), or
+    `fallback_rate` (the note's own frontmatter `rate:`) if none exists yet.
+
+    A RATE marker is forward-looking and has no expiry -- it stays in effect
+    until the next one, however far away that is, and is completely
+    independent of where a since_invoice/since_marker scope's own slice
+    happens to start. Real bug, found live 2026-09-09
+    (djp:projects/Seaman/nathan/nathan.md): once a MILESTONE marker existed
+    inside a since_invoice scope, _marker_group_totals started calling
+    _parse_timedot_slice per-group with the note's raw base rate as
+    start_rate, blind to a `> RATE:` marker that changed the rate weeks
+    earlier and was never repeated -- silently under-billing every
+    milestone-grouped invoice/quote after that point. See
+    test_rate_marker_before_scope_start_still_applies."""
+    cur = fallback_rate
+    for line in lines[:before_line]:
+        m = re.match(r'^>\s*RATE:\s*([\d.]+)', line)
+        if m:
+            cur = float(m.group(1))
+    return cur
+
+
 def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbrev: str,
                           btype: str, default_date: str, hst_rate: float = 0.13) -> list:
     """Per-group numeric computation shared by _render_milestone_sections
@@ -5451,7 +5476,8 @@ def _marker_group_totals(groups: list, lines: list, rate: float, rate_unit_abbre
     results = []
     for g in groups:
         slice_text = '\n'.join(lines[g['line_start']:g['line_end']])
-        entries   = _parse_timedot_slice(slice_text, default_date, rate)
+        group_rate = _rate_in_effect(lines, g['line_start'], rate)
+        entries   = _parse_timedot_slice(slice_text, default_date, group_rate)
         checklist = _checklist_items_in_text(slice_text)
         hours    = round(sum(e['hours'] for e in entries), 2)
         m_labour = round(sum(e['amount'] for e in entries), 2)
