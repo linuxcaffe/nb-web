@@ -5014,7 +5014,15 @@ def _marker_groups(body: str, scope: str, marker_type: str = 'MILESTONE', bounda
             _cutoff_m = re.search(r'(\d{4}-\d{2}-\d{2})', billing[-1]['ref'])
             cutoff_date = _cutoff_m.group(1) if _cutoff_m else ''
         scope_start = _line_for_date_after(lines, cutoff_date)
-        scope_end   = len(lines)
+        # Bounded at TODAY when one exists -- "since_invoice" means
+        # already-logged work since the last billing event, for either
+        # quote or invoice; a MILESTONE marker sitting in the future/
+        # not-yet-done section after TODAY (e.g. under an unchecked
+        # checklist item) must never bleed into that computation. Falls
+        # back to len(lines) (previous behavior, unchanged) for a diary
+        # with no TODAY marker at all.
+        today_m     = next((m for m in markers if m['type'] == 'TODAY'), None)
+        scope_end   = today_m['line'] if today_m else len(lines)
 
     typed = [m for m in markers
              if m['type'] == marker_type and scope_start <= m['line'] < scope_end]
