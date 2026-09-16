@@ -12475,8 +12475,8 @@ def api_check_run():
         if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
             return jsonify(entry['result'])
 
-    notebook  = selector.split(':')[0] if ':' in selector else ''
     note_path = _resolve_to_nb_path(selector) if selector else None
+    notebook  = _notebook_for_path(note_path) if note_path else ''
 
     fm_lines = 0
     if note_path:
@@ -12564,8 +12564,8 @@ def api_check_batch():
         return jsonify({})
 
     # Resolve note context once — shared across all script invocations
-    notebook  = selector.split(':')[0] if ':' in selector else ''
     note_path = _resolve_to_nb_path(selector) if selector else None
+    notebook  = _notebook_for_path(note_path) if note_path else ''
     env = {
         **os.environ,
         'NB_DIR':           str(NB_DIR),
@@ -15626,7 +15626,8 @@ def _stream_claude_ask(user, selector, question, context, resume):
     # itself never has that codebase's own CLAUDE.md in it. Confirmed real
     # 2026-07-12 (claude:87): an ask session cwd'd into ~/.nb/claude/ had
     # no way to discover nb-web existed at all.
-    notebook = selector.split(':')[0] if ':' in selector else ''
+    note_path = _resolve_to_nb_path(selector) if selector else None
+    notebook = _notebook_for_path(note_path) if note_path else ''
     cwd = NB_DIR
     if notebook:
         candidate = NB_DIR / notebook
