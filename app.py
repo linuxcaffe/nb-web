@@ -932,6 +932,55 @@ def _can_access(user, note_meta, nb_meta):
     return _level_gte(user.get('level', ''), access)
 
 
+def _effective_annotation_access(note_meta, ann_meta, nb_meta):
+    """Access level required to read or write a note's annotation sidecar --
+    independent of the note's own effective access. Before this existed,
+    POST/DELETE /api/note/annotate had no access check of any kind, and
+    annotation *read* rode along inside GET /api/note with no tier of its
+    own stricter than the note's own access -- a real gap since the sidecar
+    is the documented home for data more sensitive than the note itself
+    (e.g. cast/location financial fields). See nb-web CLAUDE.md invariant 17's
+    ninth instance and claude:nb-web_isolation_hardening_design.md.
+
+    Resolution order:
+      annotation's own access:  -> explicit override set in the sidecar's own
+                                    frontmatter, always wins
+      annotation_access:        -> cascading config key (folder -> notebook ->
+                                    global, via nb_meta/_folder_config), same
+                                    shape as codeblock_access/weather_location
+      unset                     -> falls back to the note's own effective
+                                    access (today's de facto parity default,
+                                    unchanged for any notebook that never
+                                    configures this)
+    """
+    if ann_meta and ann_meta.get('access'):
+        return str(ann_meta['access'])
+    if nb_meta.get('annotation_access'):
+        return str(nb_meta['annotation_access'])
+    return _effective_access(note_meta, nb_meta)
+
+
+def _can_access_annotation(user, note_meta, ann_meta, nb_meta):
+    """Read gate for a note's annotation sidecar -- same username/level
+    semantics as _can_access, gated on the annotation's own effective access
+    level instead of the note's."""
+    access = _effective_annotation_access(note_meta, ann_meta, nb_meta)
+    if access not in LEVELS:
+        return user.get('level') == 'tech' or user.get('username') == access
+    return _level_gte(user.get('level', ''), access)
+
+
+def _can_write_annotation(user, note_meta, ann_meta, nb_meta):
+    """Write gate for a note's annotation sidecar -- same 'guests never
+    write' floor _can_write applies to note content, extended here so a
+    permissively-configured annotation_access (e.g. 'guest', for read) can
+    never be used to let a guest-level session write or delete an
+    annotation."""
+    if not _level_gte(user.get('level', ''), 'user'):
+        return False
+    return _can_access_annotation(user, note_meta, ann_meta, nb_meta)
+
+
 def _lib_file_accessible(user, filename):
     """`.lib` files encode their required access level in a `-<level>` filename
     suffix (e.g. `user-mgmt-admin.html`, `open-block-hl-admin.sh`) instead of
@@ -8242,12 +8291,27 @@ def api_note():
     filename = Path(fpath).name
     itype = classify(filename, note_notebook)
 
-    # Annotation sidecar: .filename.annotations.md in same directory
+    full_meta = _folder_config(note_notebook, fpath) if note_notebook else {}
+    nb_meta   = full_meta  # includes global → notebook → folder walk-up
+    user = session.get('user', {})
+
+    # Annotation sidecar: .filename.annotations.md in same directory. Gated
+    # independently of the note's own access — see _can_access_annotation —
+    # since the sidecar is the documented home for data more sensitive than
+    # the note itself; redact rather than error so the note fetch itself
+    # still succeeds for a user who can read the note but not its annotation.
     annotation_text = _read_annotation(fpath)
+    ann_meta = {}
+    if annotation_text:
+        try:
+            ann_meta, _ = parse_frontmatter(annotation_text)
+        except Exception:
+            ann_meta = {}
 
     # Don't read binary files as text — frontend fetches /api/file for those
     if itype in BINARY_TYPES:
-        bin_meta  = _merged_meta(fpath, {})
+        can_see_annotation = _can_access_annotation(user, {}, ann_meta, nb_meta)
+        bin_meta  = _merged_meta(fpath, {}) if can_see_annotation else {}
         bin_itype = _apply_meta_type(itype, bin_meta)
         bin_title = bin_meta.get('title') or bin_meta.get('name') or note_title(filename, '')
         return jsonify({
@@ -8256,7 +8320,7 @@ def api_note():
             'title': bin_title,
             'type': bin_itype, 'binary': True,
             'raw': '', 'body': '', 'tags': [], 'meta': bin_meta,
-            'annotation': annotation_text,
+            'annotation': annotation_text if can_see_annotation else None,
             'path': fpath,
         })
 
@@ -8266,16 +8330,18 @@ def api_note():
         return jsonify({'error': 'could not read file'}), 404
 
     meta, body = parse_frontmatter(raw)
-    meta  = _merged_meta(fpath, meta)
+    can_see_annotation = _can_access_annotation(user, meta, ann_meta, nb_meta)
+    if can_see_annotation:
+        meta = _merged_meta(fpath, meta)   # annotation FM fills gaps only when visible
     itype = _apply_meta_type(itype, meta)
 
-    full_meta = _folder_config(note_notebook, fpath) if note_notebook else {}
-    nb_meta   = full_meta  # includes global → notebook → folder walk-up
-    user = session.get('user', {})
     if not _can_access(user, meta, nb_meta):
         if request.args.get('inline'):
             return jsonify({'body': '', 'meta': {}, 'selector': selector, 'title': ''})
         return jsonify({'error': 'Access denied'}), 403
+
+    if not can_see_annotation:
+        annotation_text = None
 
     title = meta.get('title') or meta.get('name') or note_title(filename, body)
 
@@ -8620,6 +8686,23 @@ def api_note_annotate():
         return jsonify({'error': 'not found'}), 404
     fpath = path_r['stdout'].strip()
     ap    = _annotation_path(fpath)
+
+    note_notebook = _notebook_for_path(Path(fpath))
+    nb_meta = _folder_config(note_notebook, fpath) if note_notebook else {}
+    try:
+        note_meta, _ = parse_frontmatter(Path(fpath).read_text(errors='replace'))
+    except OSError:
+        note_meta = {}
+    ann_meta = {}
+    if ap.exists():
+        try:
+            ann_meta, _ = parse_frontmatter(ap.read_text(errors='replace'))
+        except Exception:
+            ann_meta = {}
+
+    user = session.get('user', {})
+    if not _can_write_annotation(user, note_meta, ann_meta, nb_meta):
+        return jsonify({'error': 'forbidden'}), 403
 
     def _bust_sidecar_cache():
         _sidecar_scan_cache.clear()
