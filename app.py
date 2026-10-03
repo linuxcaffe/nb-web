@@ -12696,7 +12696,8 @@ def _run_check_script(script_path, env, demo=False):
                            timeout=_CHECK_SCRIPT_TIMEOUT)
         return {'stdout': r.stdout, 'stderr': r.stderr, 'exit_code': r.returncode}
     except subprocess.TimeoutExpired:
-        return {'error': f'script timed out ({_CHECK_SCRIPT_TIMEOUT}s)', 'exit_code': 1, 'stdout': ''}
+        return {'error': f'script timed out ({_CHECK_SCRIPT_TIMEOUT}s)', 'exit_code': 1, 'stdout': '',
+                'timed_out': True}
     except Exception as e:
         return {'error': str(e), 'exit_code': 1, 'stdout': ''}
 
@@ -12817,6 +12818,306 @@ def api_check_batch():
             results[name] = result
 
     return jsonify(results)
+
+
+# ---------------------------------------------------------------------------
+# Check sweep -- every applicable check across a notebook, server-side
+# (check sweep v2, step 3: claude:check_sweep_v2_design_2026-10-02).
+#
+# Never runs `nb`: notes come from a file walk and paths are known, so there's
+# no selector resolution and no .index race (the 2026-10-02 churn incident,
+# claude:check_sweep_index_churn_2026-10-02). "changed" mode re-checks only
+# notes changed since the last sweep and merges into the stored result.
+# ---------------------------------------------------------------------------
+
+_sweep_locks: dict = {}
+_sweep_locks_guard = threading.Lock()
+_script_scope_cache: dict = {}
+
+# A script can only vary per note through these. One that never mentions them
+# (and sources nothing) gives the same answer for every note in a notebook.
+_PER_NOTE_CHECK_RE = re.compile(r'NB_NOTE_|NB_FM_LINES|^\s*(source|\.)\s', re.MULTILINE)
+
+
+def _sweep_lock_for(notebook):
+    """One sweep per notebook at a time (single-process gunicorn, invariant 60)."""
+    with _sweep_locks_guard:
+        return _sweep_locks.setdefault(notebook, threading.Lock())
+
+
+def _sweep_result_path(notebook):
+    # ~/.nb/.logs/ is gitignored by the root repo and outside every notebook
+    # repo -- writing here can't move a notebook's HEAD (the churn loop's cause).
+    return NB_DIR / '.logs' / 'sweep' / f'{notebook}.json'
+
+
+def _load_sweep_result(notebook):
+    try:
+        return json.loads(_sweep_result_path(notebook).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _check_script_scope(script_path):
+    """'note' if the script can depend on which note it runs for, else 'notebook'.
+
+    Decided from the script's text: any per-note variable (NB_NOTE_*,
+    NB_FM_LINES) or any `source`/`.` include makes it per-note. Errs toward
+    'note' -- a mention in a comment counts too -- so a check is never wrongly
+    run only once. Replaces check-sweep.py's sampling shortcut, which treated
+    two identical *passing* results as notebook-wide and then skipped per-note
+    checks for every later note."""
+    try:
+        st = script_path.stat()
+    except OSError:
+        return 'note'
+    key = (str(script_path), st.st_mtime_ns, st.st_size)
+    if key not in _script_scope_cache:
+        text = script_path.read_text(errors='replace')
+        _script_scope_cache[key] = 'note' if _PER_NOTE_CHECK_RE.search(text) else 'notebook'
+    return _script_scope_cache[key]
+
+
+def _sweep_fingerprint():
+    """Changes whenever a check script or the global .nb.md changes -- either
+    can change any note's result, so the next sweep must be full."""
+    import hashlib
+    h = hashlib.sha256()
+    files = sorted(CHECK_DIR.glob('*.sh')) if CHECK_DIR.is_dir() else []
+    for f in files + [NB_DIR / '.nb.md']:
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        h.update(f'{f.name}:{st.st_size}:{st.st_mtime_ns}\n'.encode())
+    return h.hexdigest()
+
+
+def _sweep_notes(nb_root):
+    """Every note in a notebook, as posix paths relative to its root: all files
+    except dotfiles and anything under a dot-directory (invariant 24)."""
+    notes = []
+    for root, dirs, files in os.walk(nb_root):
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+        for f in sorted(files):
+            if not f.startswith('.'):
+                notes.append((Path(root) / f).relative_to(nb_root).as_posix())
+    return notes
+
+
+def _git_out(nb_root, *args):
+    """(returncode, stdout) of a git command in a notebook; (1, '') if git fails."""
+    try:
+        r = subprocess.run(['git', '-C', str(nb_root), *args],
+                           capture_output=True, text=True, timeout=30)
+        return r.returncode, r.stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1, ''
+
+
+def _sweep_changed_paths(nb_root, since):
+    """Paths changed since commit `since`, committed or not (incl. untracked,
+    deleted and both sides of a rename). None if `since` isn't in history."""
+    rc, out = _git_out(nb_root, 'diff', '--name-only', '-z', since, 'HEAD')
+    if rc:
+        return None
+    paths = {p for p in out.split('\0') if p}
+    rc, out = _git_out(nb_root, 'status', '--porcelain=v1', '-z', '-uall')
+    entries = out.split('\0') if rc == 0 else []
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
+        if len(entry) > 3:
+            paths.add(entry[3:])
+            if entry[0] in 'RC':          # rename/copy: the old path follows
+                i += 1
+                if i < len(entries) and entries[i]:
+                    paths.add(entries[i])
+        i += 1
+    return paths
+
+
+def _sweep_scope(notebook, nb_root, previous):
+    """What a "changed" sweep must re-check.
+
+    Returns (None, reason) for a full sweep, else ((notes, folder_prefixes),
+    reason): notes changed directly, plus every note under a folder whose
+    config changed (config cascades). An annotation sidecar's change re-checks
+    its note (annotation FM feeds the note's meta, invariant 39)."""
+    if previous is None:
+        return None, 'no previous sweep'
+    if previous.get('fingerprint') != _sweep_fingerprint():
+        return None, 'check scripts or global config changed'
+    rc, _ = _git_out(nb_root, 'rev-parse', 'HEAD')
+    if rc:
+        return None, 'not a git repository'
+    since = previous.get('commit')
+    paths = _sweep_changed_paths(nb_root, since) if since else None
+    if paths is None:
+        return None, 'previous commit not found in history'
+
+    notes, prefixes = set(), set()
+    for path in paths:
+        parts = path.split('/')
+        name = parts[-1]
+        if len(parts) == 1 and name == f'.{notebook}.md':
+            return None, 'notebook config changed'
+        if len(parts) >= 2 and name == f'.{parts[-2]}.md':
+            prefixes.add('/'.join(parts[:-1]) + '/')
+        elif name.startswith('.') and name.endswith('.annotations.md'):
+            notes.add('/'.join(parts[:-1] + [name[1:-len('.annotations.md')]]))
+        elif not any(part.startswith('.') for part in parts):
+            notes.add(path)
+    return (notes, prefixes), 'changes since the last sweep'
+
+
+def _sweep_run_one(script_name, env):
+    script_path, err = _check_script_path(script_name)
+    if err:
+        return {'error': err[0], 'exit_code': 1, 'stdout': ''}
+    return _run_check_script(script_path, env)
+
+
+def _sweep_finding(result):
+    """{'level', 'message'} for a failing result, None for a pass. A timeout is
+    'skipped' -- it says nothing about the note (decided 2026-10-02)."""
+    if result.get('timed_out'):
+        return {'level': 'skipped', 'message': result['error']}
+    if 'error' in result:
+        return {'level': 'error', 'message': result['error']}
+    code = result.get('exit_code', 0)
+    if code == 0:
+        return None
+    lines = [l.strip() for l in (result.get('stdout') or '').splitlines() if l.strip()]
+    return {'level': 'warn' if code == 2 else 'error', 'message': lines[0] if lines else '(no output)'}
+
+
+def _run_sweep(notebook, mode):
+    """Sweep one notebook and store the result. Caller holds _sweep_lock_for."""
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import timezone
+
+    nb_root = NB_DIR / notebook
+    previous = _load_sweep_result(notebook)
+    all_notes = _sweep_notes(nb_root)
+
+    scope, reason = (None, 'full sweep requested') if mode == 'full' else _sweep_scope(notebook, nb_root, previous)
+    if scope is None:
+        mode_used, recheck = 'full', set(all_notes)
+    else:
+        changed, prefixes = scope
+        mode_used = 'changed'
+        recheck = {n for n in all_notes if n in changed or any(n.startswith(px) for px in prefixes)}
+
+    # Resolve every note's scripts (cheap: config reads, no script runs) -- a
+    # notebook-wide script runs once and needs to know how many notes it covers.
+    per_note, wide_notes, chain_by_dir = {}, {}, {}
+    for rel in all_notes:
+        path = nb_root / rel
+        own = {}
+        if path.suffix.lower() in ('.md', '.markdown'):
+            try:
+                own, _ = parse_frontmatter(path.read_text(errors='replace'))
+            except Exception:
+                own = {}
+        meta = _merged_meta(path, own or {})
+        if path.parent not in chain_by_dir:
+            chain_by_dir[path.parent] = _folder_config(notebook, path)
+        tokens = _effective_check_tokens(notebook, path, meta, chain_by_dir[path.parent])
+        for script in _expand_check_tokens(tokens):
+            script_path, _err = _check_script_path(script)
+            if script_path and _check_script_scope(script_path) == 'notebook':
+                wide_notes.setdefault(script, []).append(rel)
+            else:
+                per_note.setdefault(rel, []).append(script)
+
+    new_findings = []
+    checked = 0
+    for rel in sorted(recheck):
+        scripts = per_note.get(rel)
+        if not scripts:
+            continue
+        checked += 1
+        env = _check_env(nb_root / rel, f'{notebook}:{rel}')
+        with ThreadPoolExecutor(max_workers=min(len(scripts), 8)) as pool:
+            results = list(pool.map(lambda s: _sweep_run_one(s, env), scripts))
+        for script, result in zip(scripts, results):
+            finding = _sweep_finding(result)
+            if finding:
+                new_findings.append({'path': rel, 'script': script, **finding})
+
+    notebook_findings = []
+    for script in sorted(wide_notes):
+        rels = wide_notes[script]
+        env = _check_env(nb_root / rels[0], f'{notebook}:{rels[0]}')
+        finding = _sweep_finding(_sweep_run_one(script, env))
+        if finding:
+            notebook_findings.append({'script': script, **finding, 'notes': len(rels)})
+
+    if mode_used == 'full' or previous is None:
+        kept = []
+    else:
+        existing = set(all_notes)
+        kept = [f for f in previous.get('note_findings', [])
+                if f['path'] in existing and f['path'] not in recheck]
+
+    rc, head = _git_out(nb_root, 'rev-parse', 'HEAD')
+    result = {
+        'notebook':          notebook,
+        'commit':            head.strip() if rc == 0 else None,
+        'date':              datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'mode_used':         mode_used,
+        'reason':            reason,
+        'checked':           checked,
+        'fingerprint':       _sweep_fingerprint(),
+        'note_findings':     sorted(kept + new_findings, key=lambda f: (f['path'], f['script'])),
+        'notebook_findings': notebook_findings,
+    }
+    out = _sweep_result_path(notebook)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix('.json.tmp')
+    tmp.write_text(json.dumps(result, indent=2) + '\n')
+    tmp.replace(out)
+    return result
+
+
+@app.route('/api/check/sweep', methods=['GET', 'POST'])
+def api_check_sweep():
+    """Sweep a notebook's checks (POST {notebook, mode: "changed"|"full"}), or
+    fetch the last stored result (GET ?notebook=).
+
+    'user' floor plus the notebook's own access (invariant 17). A second POST
+    for a notebook already being swept gets 409 and the last stored result.
+    """
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'error': 'forbidden'}), 403
+    data = (request.get_json(silent=True) or {}) if request.method == 'POST' else request.args
+    notebook = (data.get('notebook') or '').strip()
+    try:
+        _check_notebook(notebook)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if notebook.startswith('.') or not (NB_DIR / notebook).is_dir():
+        return jsonify({'error': f'no notebook named {notebook!r}'}), 404
+    if not _can_access(user, {}, _notebook_config(notebook)):
+        return jsonify({'error': f'notebook {notebook!r} is access-restricted'}), 403
+
+    if request.method == 'GET':
+        stored = _load_sweep_result(notebook)
+        return (jsonify(stored), 200) if stored else (jsonify({'error': 'never swept'}), 404)
+
+    mode = data.get('mode') or 'changed'
+    if mode not in ('changed', 'full'):
+        return jsonify({'error': f'mode must be "changed" or "full", not {mode!r}'}), 400
+    lock = _sweep_lock_for(notebook)
+    if not lock.acquire(blocking=False):
+        return jsonify({'error': 'a sweep of this notebook is already running',
+                        'result': _load_sweep_result(notebook)}), 409
+    try:
+        return jsonify(_run_sweep(notebook, mode))
+    finally:
+        lock.release()
 
 
 def _insert_before_today(text: str, line: str) -> str:
