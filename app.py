@@ -642,6 +642,113 @@ def _collect_check_skip(notebook, note_path):
     return _collect_cascading_tokens('check_skip', notebook, note_path)
 
 
+# ---------------------------------------------------------------------------
+# Which check scripts apply to a note -- server-side, so the sweep can run
+# without a browser (check sweep v2, step 2: claude:check_sweep_v2_design_2026-10-02).
+# _note_check_tokens is a deliberate line-for-line twin of main.js's
+# _virtualTestPrefix, down to JavaScript's String() conversions; nb-web-tests
+# test_check_resolution.py runs the real JS in Node on the same inputs and
+# fails on any difference. Change both together, or neither.
+# ---------------------------------------------------------------------------
+
+def _js_str(v):
+    """String(v) as JavaScript renders it (true -> 'true', null -> 'null',
+    arrays comma-joined with null elements empty, 5.0 -> '5')."""
+    if v is None:
+        return 'null'
+    if v is True:
+        return 'true'
+    if v is False:
+        return 'false'
+    if isinstance(v, list):
+        return ','.join('' if x is None else _js_str(x) for x in v)
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v)
+
+
+def _js_truthy(v):
+    """JavaScript truthiness for config values ([] and {} are truthy there)."""
+    if v is None or v is False or v == '':
+        return False
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and v == 0:
+        return False
+    return True
+
+
+def _split_check_tokens(text):
+    return [t for t in re.split(r'[\s,]+', text.strip()) if t]
+
+
+def _note_check_tokens(meta, effective_checks, effective_check_add, effective_check_skip):
+    """The check tokens (script names and/or 'family-' prefixes) for a note.
+
+    A note's own check: wins outright -- even when null or empty, which
+    suppresses the inherited set; otherwise the config chain's value applies.
+    check_add: (note + every config level) is unioned in; check_skip: (same)
+    is subtracted, a skip ending in '-' removing that family token and every
+    token that starts with it. Order preserved, duplicates dropped.
+    """
+    raw = meta['check'] if 'check' in meta else effective_checks
+    if raw is None or raw == '' or raw is False:
+        base = []
+    elif isinstance(raw, list):
+        base = [t for t in (_js_str(x).strip() for x in raw) if t]
+    else:
+        base = _split_check_tokens(_js_str(raw))
+
+    add_raw = ' '.join(_js_str(x) for x in (meta.get('check_add'), effective_check_add) if _js_truthy(x))
+    tokens = list(dict.fromkeys(base + _split_check_tokens(add_raw)))
+    if not tokens:
+        return []
+
+    skip_raw = ' '.join(_js_str(x) for x in (meta.get('check_skip'), effective_check_skip) if _js_truthy(x))
+    skips = _split_check_tokens(skip_raw)
+
+    def skipped(tok):
+        return any((tok == sk or tok.startswith(sk)) if sk.endswith('-') else tok == sk for sk in skips)
+
+    return [t for t in tokens if not skipped(t)]
+
+
+def _effective_check_inputs(notebook, note_path, chain=None):
+    """(effective_checks, effective_check_add, effective_check_skip) for a note
+    -- exactly what /api/note returns to the browser. `chain` is the note's
+    merged _folder_config if the caller already has it."""
+    if chain is None:
+        chain = _folder_config(notebook, note_path) if notebook else {}
+    checks = chain.get('check') if chain.get('check') is not None else chain.get('checks')
+    if not notebook:
+        return checks, '', ''
+    return checks, _collect_check_add(notebook, note_path), _collect_check_skip(notebook, note_path)
+
+
+def _effective_check_tokens(notebook, note_path, meta, chain=None):
+    """Check tokens for one note from its own frontmatter plus the config chain."""
+    return _note_check_tokens(meta, *_effective_check_inputs(notebook, note_path, chain))
+
+
+def _check_family_scripts(prefix):
+    """Sorted script names in CHECK_DIR for a 'family-' prefix ([] if the
+    prefix is unsafe or there's no CHECK_DIR)."""
+    if '/' in prefix or '\\' in prefix or prefix.startswith('.') or not CHECK_DIR.is_dir():
+        return []
+    return sorted(p.name for p in CHECK_DIR.glob(f'{prefix}*.sh'))
+
+
+def _expand_check_tokens(tokens):
+    """Tokens -> script file names. A family ('nb-') becomes its scripts, sorted,
+    at its own position; an exact name is normalised to .sh and kept even if
+    the file is missing (running it reports that). Duplicates appear once."""
+    scripts = []
+    for tok in tokens:
+        if tok.endswith('-'):
+            scripts.extend(_check_family_scripts(tok))
+        else:
+            scripts.append(tok if tok.endswith('.sh') else f'{tok}.sh')
+    return list(dict.fromkeys(scripts))
+
+
 def _collect_cfg_attr_add(notebook, note_path):
     """Union all cfg_attr_add: values from global → notebook → folder configs.
 
@@ -8388,9 +8495,8 @@ def api_note():
         'editing_since':        edit_session['started_at'] if edit_session else None,
         'effective_access': _effective_access(meta, nb_meta),
         'effective_claude': _effective_claude(meta, nb_meta),
-        'effective_checks':     nb_meta.get('check') if nb_meta.get('check') is not None else nb_meta.get('checks'),
-        'effective_check_add':  _collect_check_add(note_notebook, fpath) if note_notebook else '',
-        'effective_check_skip': _collect_check_skip(note_notebook, fpath) if note_notebook else '',
+        **dict(zip(('effective_checks', 'effective_check_add', 'effective_check_skip'),
+                   _effective_check_inputs(note_notebook, fpath, nb_meta))),
         'effective_cfg_attr_add':  _collect_cfg_attr_add(note_notebook, fpath) if note_notebook else '',
         'effective_cfg_attr_skip': _collect_cfg_attr_skip(note_notebook, fpath) if note_notebook else '',
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
@@ -12656,10 +12762,7 @@ def api_check_glob():
         return jsonify({'error': 'prefix must end with -'}), 400
     if '/' in prefix or '\\' in prefix or prefix.startswith('.'):
         return jsonify({'error': 'invalid prefix'}), 400
-    if not CHECK_DIR.is_dir():
-        return jsonify([])
-    matches = sorted(p.name for p in CHECK_DIR.glob(f'{prefix}*.sh'))
-    return jsonify(matches)
+    return jsonify(_check_family_scripts(prefix))
 
 
 @app.route('/api/check/batch', methods=['POST'])
