@@ -12444,40 +12444,36 @@ def api_run():
 # API: Check codeblock runner
 # ---------------------------------------------------------------------------
 
-@app.route('/api/check/run', methods=['POST'])
-def api_check_run():
-    """Run a script from ~/.nb/.checks/ with note context env vars."""
-    user = session.get('user', {})
-    if not _level_gte(user.get('level', ''), 'user'):
-        return jsonify({'error': 'forbidden', 'exit_code': 1}), 403
-    data        = request.get_json(force=True) or {}
-    script_name = (data.get('script') or '').strip()
-    selector    = (data.get('selector') or '').strip()
-    force       = bool(data.get('force', False))
-    demo        = bool(data.get('demo', False))
+_CHECK_SCRIPT_TIMEOUT = 30   # seconds, per script run
 
+
+def _check_script_path(script_name):
+    """Validate a check script name and resolve it under CHECK_DIR.
+
+    Returns (path, None) on success, or (None, (message, http_status)).
+    A bare name ('nb-dirty') resolves to 'nb-dirty.sh' when only that exists.
+    """
     if not script_name:
-        return jsonify({'error': 'no script name', 'exit_code': 1}), 400
+        return None, ('no script name', 400)
     if '/' in script_name or script_name.startswith('.'):
-        return jsonify({'error': 'invalid script name', 'exit_code': 1}), 400
+        return None, ('invalid script name', 400)
+    path = CHECK_DIR / script_name
+    if not path.exists() and not script_name.endswith('.sh'):
+        path = CHECK_DIR / (script_name + '.sh')
+    if not path.exists():
+        return None, (f'script not found: {script_name} (looked in {CHECK_DIR})', 404)
+    return path, None
 
-    script_path = CHECK_DIR / script_name
-    if not script_path.exists() and not script_name.endswith('.sh'):
-        script_path = CHECK_DIR / (script_name + '.sh')
-    if not script_path.exists():
-        return jsonify({'error': f'script not found: {script_name} (looked in {CHECK_DIR})', 'exit_code': 1}), 404
 
-    # Return cached result for auto-runs (force=False) within TTL
-    cache_key = (script_name, selector)
-    now = time.time()
-    if not force:
-        entry = _check_cache.get(cache_key)
-        if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
-            return jsonify(entry['result'])
+def _check_env(note_path, selector=''):
+    """Environment a check script runs with, for one note (or none).
 
-    note_path = _resolve_to_nb_path(selector) if selector else None
-    notebook  = _notebook_for_path(note_path) if note_path else ''
-
+    The single definition of the check-script contract -- /api/check/run,
+    /api/check/batch and the server-side sweep all build it here, so the
+    variables a script can rely on can't drift between callers again (batch
+    used to omit NB_FM_LINES, 2026-10-02).
+    """
+    notebook = _notebook_for_path(note_path) if note_path else ''
     fm_lines = 0
     if note_path:
         try:
@@ -12488,8 +12484,7 @@ def api_check_run():
                     fm_lines = len(('---' + parts[1] + '---').splitlines())
         except OSError:
             pass
-
-    env = {
+    return {
         **os.environ,
         'NB_DIR':           str(NB_DIR),
         'NB_APP_DIR':       str(Path(__file__).parent),
@@ -12499,26 +12494,70 @@ def api_check_run():
         'NB_FM_LINES':      str(fm_lines),
         'NO_COLOR':         '1',
     }
+
+
+def _run_check_script(script_path, env, demo=False):
+    """Run one check script. Returns {'stdout', 'stderr', 'exit_code'}, or
+    {'error', 'exit_code': 1, 'stdout': ''} if it couldn't run or timed out."""
+    cmd = ['bash', str(script_path)]
+    if demo:
+        cmd.append('--demo')
     try:
-        cmd = ['bash', str(script_path)]
-        if demo:
-            cmd.append('--demo')
-        result = subprocess.run(
-            cmd,
-            capture_output=True, text=True,
-            env=env, timeout=30,
-        )
-        result_data = {
-            'stdout':    result.stdout,
-            'stderr':    result.stderr,
-            'exit_code': result.returncode,
-        }
-        _check_cache[cache_key] = {'result': result_data, 'ts': now}
-        return jsonify(result_data)
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env,
+                           timeout=_CHECK_SCRIPT_TIMEOUT)
+        return {'stdout': r.stdout, 'stderr': r.stderr, 'exit_code': r.returncode}
     except subprocess.TimeoutExpired:
-        return jsonify({'error': 'script timed out (30s)', 'exit_code': 1})
+        return {'error': f'script timed out ({_CHECK_SCRIPT_TIMEOUT}s)', 'exit_code': 1, 'stdout': ''}
     except Exception as e:
-        return jsonify({'error': str(e), 'exit_code': 1})
+        return {'error': str(e), 'exit_code': 1, 'stdout': ''}
+
+
+def _run_check_cached(script_name, selector, env, force=False, demo=False):
+    """Resolve, cache-check and run one script for a note.
+
+    `env` is a dict, or a zero-argument function returning one -- called only
+    on a cache miss, so a cached result never pays for resolving the note
+    (which runs `nb show`). Returns (result, http_status). Results are cached per (script, selector)
+    for _CHECK_CACHE_TTL; force bypasses the cache. Demo runs are never read
+    from or written to the cache -- their output is fake by design, and used to
+    be served to the note's real automatic check within the TTL (2026-10-02).
+    """
+    script_path, err = _check_script_path(script_name)
+    if err:
+        message, status = err
+        return {'error': message, 'exit_code': 1, 'stdout': ''}, status
+    cache_key = (script_name, selector)
+    now = time.time()
+    if not force and not demo:
+        entry = _check_cache.get(cache_key)
+        if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
+            return entry['result'], 200
+    if callable(env):
+        env = env()
+    result = _run_check_script(script_path, env, demo=demo)
+    if not demo and 'error' not in result:
+        _check_cache[cache_key] = {'result': result, 'ts': now}
+    return result, 200
+
+
+@app.route('/api/check/run', methods=['POST'])
+def api_check_run():
+    """Run a script from ~/.nb/.checks/ with note context env vars."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'error': 'forbidden', 'exit_code': 1}), 403
+    data        = request.get_json(force=True) or {}
+    script_name = (data.get('script') or '').strip()
+    selector    = (data.get('selector') or '').strip()
+
+    def env():   # only on a cache miss -- resolving runs `nb show`
+        note_path = _resolve_to_nb_path(selector) if selector else None
+        return _check_env(note_path, selector)
+
+    result, status = _run_check_cached(script_name, selector, env,
+                                       force=bool(data.get('force', False)),
+                                       demo=bool(data.get('demo', False)))
+    return jsonify(result), status
 
 
 @app.route('/api/check/glob')
@@ -12547,13 +12586,20 @@ def api_check_batch():
     Request:  { "scripts": ["hl-ok", "nb-dirty", ...], "selector": "accts:review.md", "force": false }
     Response: { "hl-ok": { "stdout": "", "exit_code": 0 }, ... }
 
-    Scripts are deduplicated before running.  Cache is checked per-script
-    using the same key/TTL as /api/check/run so results are shared -- and,
-    same as /api/check/run, "force": true bypasses it for a guaranteed-fresh
-    run (a sweep/cron caller checking current state shouldn't silently get a
-    stale pass from an unrelated UI view within the last 30s).
+    Scripts are deduplicated before running. Each script goes through the same
+    _run_check_cached as /api/check/run: same env, same cache (shared, so a
+    result from either endpoint serves the other), and "force": true bypasses
+    it for a guaranteed-fresh run (a sweep/cron caller checking current state
+    shouldn't silently get a stale pass from an unrelated UI view within the
+    last 30s). A missing or invalid script name gets an error entry, not a
+    failed request. Same 'user' floor as /api/check/run (invariant 17) --
+    batch had none until 2026-10-02.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
+
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'error': 'forbidden', 'exit_code': 1}), 403
 
     data     = request.get_json(force=True) or {}
     scripts  = [s for s in (data.get('scripts') or []) if isinstance(s, str)]
@@ -12563,43 +12609,20 @@ def api_check_batch():
     if not scripts:
         return jsonify({})
 
-    # Resolve note context once — shared across all script invocations
-    note_path = _resolve_to_nb_path(selector) if selector else None
-    notebook  = _notebook_for_path(note_path) if note_path else ''
-    env = {
-        **os.environ,
-        'NB_DIR':           str(NB_DIR),
-        'NB_APP_DIR':       str(Path(__file__).parent),
-        'NB_NOTE_SELECTOR': selector,
-        'NB_NOTEBOOK':      notebook,
-        'NB_NOTE_PATH':     str(note_path) if note_path else '',
-        'NO_COLOR':         '1',
-    }
+    # Resolve the note at most once, and only if some script misses the cache
+    # (resolving runs `nb show`). Shared by the worker threads below.
+    env_lock, env_box = threading.Lock(), []
+
+    def env():
+        with env_lock:
+            if not env_box:
+                note_path = _resolve_to_nb_path(selector) if selector else None
+                env_box.append(_check_env(note_path, selector))
+            return env_box[0]
 
     def run_one(script_name):
-        if '/' in script_name or script_name.startswith('.'):
-            return script_name, {'error': 'invalid script name', 'exit_code': 1, 'stdout': ''}
-        cache_key = (script_name, selector)
-        now = time.time()
-        if not force:
-            entry = _check_cache.get(cache_key)
-            if entry and (now - entry['ts']) < _CHECK_CACHE_TTL:
-                return script_name, entry['result']
-        script_path = CHECK_DIR / script_name
-        if not script_path.exists() and not script_name.endswith('.sh'):
-            script_path = CHECK_DIR / (script_name + '.sh')
-        if not script_path.exists():
-            return script_name, {'error': f'not found: {script_name}', 'exit_code': 1, 'stdout': ''}
-        try:
-            r = subprocess.run(['bash', str(script_path)],
-                               capture_output=True, text=True, env=env, timeout=30)
-            result = {'stdout': r.stdout, 'stderr': r.stderr, 'exit_code': r.returncode}
-            _check_cache[cache_key] = {'result': result, 'ts': now}
-            return script_name, result
-        except subprocess.TimeoutExpired:
-            return script_name, {'error': 'timed out (30s)', 'exit_code': 1, 'stdout': ''}
-        except Exception as e:
-            return script_name, {'error': str(e), 'exit_code': 1, 'stdout': ''}
+        result, _status = _run_check_cached(script_name, selector, env, force=force)
+        return script_name, result
 
     unique = list(dict.fromkeys(scripts))   # deduplicate, preserve order
     results = {}
