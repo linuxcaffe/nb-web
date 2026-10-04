@@ -6896,15 +6896,35 @@ def api_notebooks():
             current_nb = cur_path.read_text().strip() or 'home'
     except Exception:
         pass
-    notebook_prefs = _load_settings().get('notebook_prefs', {})
     user = session.get('user', {})
     user_level = user.get('level', '')
     names = [n for n in names
              if _can_access(user, {}, _notebook_config(n)) and _notebook_in_scope(user, n)]
+    notebook_prefs = _effective_notebook_prefs(names, _load_settings().get('notebook_prefs', {}))
     if _level_gte(user_level, 'admin'):
         names += [d for d in DOTFOLDERS if (NB_DIR / d).is_dir() and _notebook_in_scope(user, d)]
     return jsonify({'notebooks': names, 'current_notebook': current_nb,
                     'notebook_prefs': notebook_prefs})
+
+
+_LIST_SORTS = ('default', 'az', 'za', 'newest', 'oldest')   # main.js _getSortedNotes
+
+
+def _effective_notebook_prefs(names, stored):
+    """Per-notebook list prefs: this machine's saved prefs, plus each notebook's own
+    dotfile `sort:` as its default sort, so the default travels with the notebook.
+    A saved sort wins, except 'default' (the Notebooks page saves the field on every
+    save, so it isn't a real choice). `sort: title` means 'az'."""
+    prefs = {nb: dict(p) for nb, p in stored.items()}
+    for nb in names:
+        sort = str(_notebook_config(nb).get('sort') or '').strip().lower()
+        sort = {'title': 'az'}.get(sort, sort)
+        if sort not in _LIST_SORTS:
+            continue
+        p = prefs.setdefault(nb, {})
+        if p.get('default_sort', 'default') == 'default':
+            p['default_sort'] = sort
+    return prefs
 
 
 def _list_folders_recursive(base, rel=''):
@@ -11517,7 +11537,7 @@ def api_nb_notebook_detail():
                 git_info['last_commit'] = {'hash': parts[0], 'subject': parts[1], 'age': parts[2]}
 
     cfg = _load_settings()
-    nb_prefs = cfg.get('notebook_prefs', {}).get(notebook, {})
+    nb_prefs = _effective_notebook_prefs([notebook], cfg.get('notebook_prefs', {})).get(notebook, {})
     default_remote = (_effective_setting('default_git_remote') or '').strip()
 
     lk_path = nb_path / '.nb-lock'
