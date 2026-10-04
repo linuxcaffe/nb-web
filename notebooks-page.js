@@ -35,6 +35,16 @@
 
 const NbNotebooksPage = (() => {
     const _t = key => NbWeb.t(key);
+    // "2h ago" for an ISO date -- sweep timestamps on this page.
+    function _ago(iso) {
+        const secs = (Date.now() - Date.parse(iso)) / 1000;
+        if (!(secs >= 0)) return '';
+        if (secs < 60)        return 'just now';
+        if (secs < 3600)      return `${Math.floor(secs / 60)}m ago`;
+        if (secs < 48 * 3600) return `${Math.floor(secs / 3600)}h ago`;
+        return `${Math.floor(secs / 86400)}d ago`;
+    }
+
     function _esc(s) {
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -163,6 +173,18 @@ const NbNotebooksPage = (() => {
             countBadge.textContent = nb.count;
             countBadge.title = `${nb.count} note${nb.count !== 1 ? 's' : ''}`;
             titleRow.appendChild(countBadge);
+
+            // Last check sweep (check sweep v2, step 5): only when it found
+            // something -- checks are silent on pass.
+            const sw = nb.sweep;
+            if (sw && (sw.errors || sw.warnings)) {
+                const n = sw.errors + sw.warnings;
+                const swBadge = document.createElement('span');
+                swBadge.className = 'nb-sweep-badge ' + (sw.errors ? 'error' : 'warn');
+                swBadge.textContent = `⚠ ${n}`;
+                swBadge.title = `${n} issue${n !== 1 ? 's' : ''} · swept ${_ago(sw.date)}`;
+                titleRow.appendChild(swBadge);
+            }
 
             if (nb.locked) {
                 const lockBadge = document.createElement('span');
@@ -309,6 +331,89 @@ const NbNotebooksPage = (() => {
         }
 
         return wrap;
+    }
+
+    // Checks section of a notebook's detail panel: the last sweep's findings
+    // (same renderer as the publish dialog) and "Sweep now" (a full sweep).
+    async function _renderChecksSection(name, sec, result, notice) {
+        if (result === undefined) {
+            try {
+                const r = await fetch('/api/check/sweep?notebook=' + encodeURIComponent(name));
+                result = r.ok ? await r.json() : null;
+            } catch (_) {
+                result = null;
+            }
+        }
+        sec.innerHTML = '';
+        const head = document.createElement('div');
+        head.className = 'nb-nb-checks-head';
+        const title = document.createElement('strong');
+        title.textContent = 'Checks';
+        const when = document.createElement('span');
+        when.className = 'nb-nb-checks-when';
+        when.textContent = result ? `Last sweep ${_ago(result.date)}` : 'Never swept';
+        const btn = document.createElement('button');
+        btn.id = 'nb-nb-sweep';
+        btn.className = 'nb-tool-btn';
+        btn.textContent = 'Sweep now';
+        btn.title = 'Run every applicable check on every note in this notebook';
+        head.append(title, when, btn);
+        sec.appendChild(head);
+
+        if (notice) {
+            const n = document.createElement('p');
+            n.className = 'nb-nb-checks-notice';
+            n.textContent = notice;
+            sec.appendChild(n);
+        }
+        if (result) {
+            const found = NbWeb.renderCheckFindings(name, result, sel => NbMain.openNote(sel));
+            if (found.errors || found.warnings) {
+                sec.appendChild(found.el);
+            } else {
+                const ok = document.createElement('p');
+                ok.className = 'nb-nb-checks-ok';
+                ok.textContent = 'No problems found.';
+                sec.appendChild(ok);
+            }
+            if (found.skipped) {
+                const sk = document.createElement('p');
+                sk.className = 'nb-publish-gate-note';
+                sk.textContent = `${found.skipped} check${found.skipped !== 1 ? 's' : ''} timed out.`;
+                sec.appendChild(sk);
+            }
+        }
+
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = 'Sweeping…';
+            let next = result, msg = '';
+            try {
+                const r = await fetch('/api/check/sweep', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ notebook: name, mode: 'full' }),
+                });
+                const d = await r.json();
+                if (r.ok)                 next = d;
+                else if (r.status === 409) msg = 'A sweep of this notebook is already running; showing the last result.';
+                else                       msg = `Sweep failed: ${d.error || r.status}`;
+            } catch (e) {
+                msg = `Sweep failed: ${e.message}`;
+            }
+            await _renderChecksSection(name, sec, next, msg);
+            if (next && next !== result) _updateSweepBadge(name, next);
+        });
+    }
+
+    // After a sweep from the detail panel, refresh that notebook's row badge.
+    function _updateSweepBadge(name, result) {
+        const all = [...(result.note_findings || []), ...(result.notebook_findings || [])];
+        const count = lvl => all.filter(f => f.level === lvl).length;
+        const nb = _lastNbList.find(n => n.name === name);
+        if (!nb) return;
+        nb.sweep = { date: result.date, errors: count('error'), warnings: count('warn'), skipped: count('skipped') };
+        _renderNbList();
     }
 
     async function _openNbNotebook(name) {
@@ -556,6 +661,12 @@ const NbNotebooksPage = (() => {
             }
 
             // Sync button
+            const checksSec = document.createElement('div');
+            checksSec.id = 'nb-nb-checks';
+            checksSec.className = 'nb-nb-checks';
+            document.getElementById('nb-nb-wire-area').after(checksSec);
+            _renderChecksSection(name, checksSec);
+
             const syncBtn = document.getElementById('nb-nb-sync');
             if (syncBtn) {
                 syncBtn.addEventListener('click', async () => {

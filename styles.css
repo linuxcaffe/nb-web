@@ -1105,6 +1105,15 @@ body {
 .nb-publish-gate-more, .nb-publish-gate-note { color: var(--text-dim); font-size: 0.88em; }
 .nb-publish-gate-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
+/* Notebooks page: last check sweep (notebooks-page.js) */
+.nb-sweep-badge { font-size: 10px; padding: 0 4px; border-radius: 3px; margin-left: 4px; }
+.nb-sweep-badge.error { color: var(--red); }
+.nb-sweep-badge.warn  { color: var(--yellow); }
+.nb-nb-checks { padding: 12px 28px 14px; border-top: 1px solid var(--border); font-size: 12px; }
+.nb-nb-checks-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.nb-nb-checks-when { color: var(--text-dim); flex: 1; }
+.nb-nb-checks-ok, .nb-nb-checks-notice { margin: 4px 0; color: var(--text-muted); }
+
 /* Image embed dialog (Edit mode camera button / Ctrl+Shift+1) */
 .nb-img-embed-overlay {
     position: fixed; inset: 0;

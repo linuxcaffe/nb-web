@@ -564,23 +564,62 @@ const NbWeb = (() => {
         return String(msg || '').replace(/^#+\s*/, '').replace(/^⚠\s*/, '').replace(/\*\*/g, '').trim();
     }
 
-    function _publishGate(notebook, result) {
+    // Shared by the publish dialog and the Notebooks page's Checks section.
+    // Returns { el: <ul>, errors, warnings, skipped }; el lists errors then
+    // warnings (notebook-wide findings with their note count; each note a link
+    // that calls onNoteOpen(selector) -- the caller decides what else happens).
+    function renderCheckFindings(notebook, result, onNoteOpen) {
         const LEVEL_ORDER = { error: 0, warn: 1 };
-        const items = [
-            ...(result.notebook_findings || []).map(f => ({ ...f, path: null })),
-            ...(result.note_findings || []),
-        ].filter(f => f.level in LEVEL_ORDER)
-         .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
-        if (!items.length) return Promise.resolve(true);
-
-        const skipped = (result.note_findings || []).filter(f => f.level === 'skipped').length
-                      + (result.notebook_findings || []).filter(f => f.level === 'skipped').length;
-        const nErr  = items.filter(f => f.level === 'error').length;
-        const nWarn = items.length - nErr;
+        const all = [
+            ...(result?.notebook_findings || []).map(f => ({ ...f, path: null })),
+            ...(result?.note_findings || []),
+        ];
+        const items = all.filter(f => f.level in LEVEL_ORDER)
+                         .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
         const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
         const MAX_ROWS = 25;
 
+        const list = document.createElement('ul');
+        list.className = 'nb-publish-gate-list';
+        for (const f of items.slice(0, MAX_ROWS)) {
+            const li = document.createElement('li');
+            li.className = `nb-publish-gate-item ${f.level}`;
+            if (f.path) {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.textContent = f.path;
+                a.addEventListener('click', e => {
+                    e.preventDefault();
+                    onNoteOpen(`${notebook}:${f.path}`);
+                });
+                li.appendChild(a);
+                li.append(` — ${_plainCheckMessage(f.message)}`);
+            } else {
+                li.textContent = `${_plainCheckMessage(f.message)} (${f.script}, ${plural(f.notes, 'note')})`;
+            }
+            list.appendChild(li);
+        }
+        if (items.length > MAX_ROWS) {
+            const more = document.createElement('li');
+            more.className = 'nb-publish-gate-more';
+            more.textContent = `…and ${items.length - MAX_ROWS} more`;
+            list.appendChild(more);
+        }
+        const errors = items.filter(f => f.level === 'error').length;
+        return { el: list, errors, warnings: items.length - errors,
+                 skipped: all.filter(f => f.level === 'skipped').length };
+    }
+
+    function _publishGate(notebook, result) {
+        const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
         return new Promise(resolve => {
+            const found = renderCheckFindings(notebook, result, sel => {
+                close(false);
+                NbMain.openNote(sel);
+            });
+            if (!found.errors && !found.warnings) { resolve(true); return; }
+            const { el: list, errors: nErr, warnings: nWarn, skipped } = found;
+
             const overlay = document.createElement('div');
             overlay.className = 'nb-publish-gate-overlay';
             const card = document.createElement('div');
@@ -594,34 +633,6 @@ const NbWeb = (() => {
             summary.className = 'nb-publish-gate-summary';
             summary.textContent = [nErr && plural(nErr, 'error'), nWarn && plural(nWarn, 'warning')]
                 .filter(Boolean).join(', ') + '.';
-
-            const list = document.createElement('ul');
-            list.className = 'nb-publish-gate-list';
-            for (const f of items.slice(0, MAX_ROWS)) {
-                const li = document.createElement('li');
-                li.className = `nb-publish-gate-item ${f.level}`;
-                if (f.path) {
-                    const a = document.createElement('a');
-                    a.href = '#';
-                    a.textContent = f.path;
-                    a.addEventListener('click', e => {
-                        e.preventDefault();
-                        close(false);
-                        NbMain.openNote(`${notebook}:${f.path}`);
-                    });
-                    li.appendChild(a);
-                    li.append(` — ${_plainCheckMessage(f.message)}`);
-                } else {
-                    li.textContent = `${_plainCheckMessage(f.message)} (${f.script}, ${plural(f.notes, 'note')})`;
-                }
-                list.appendChild(li);
-            }
-            if (items.length > MAX_ROWS) {
-                const more = document.createElement('li');
-                more.className = 'nb-publish-gate-more';
-                more.textContent = `…and ${items.length - MAX_ROWS} more`;
-                list.appendChild(more);
-            }
 
             card.append(h, summary, list);
             if (skipped) {
@@ -791,6 +802,7 @@ const NbWeb = (() => {
         registerModule,
         registerRenderer,
         publishWebsite,
+        renderCheckFindings,
         notebooks,
         _loadPlugins,
         _init,

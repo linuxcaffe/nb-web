@@ -11054,6 +11054,7 @@ def api_nb_notebooks():
                 'cine': cine,
                 'hledger': hledger,
                 'locked': (entry / '.nb-lock').exists(),
+                'sweep': _sweep_summary(entry.name),
             })
     except Exception as e:
         return jsonify({'error': str(e), 'notebooks': []})
@@ -13079,6 +13080,19 @@ def _run_sweep(notebook, mode):
     tmp.write_text(json.dumps(result, indent=2) + '\n')
     tmp.replace(out)
     return result
+
+
+def _sweep_summary(notebook):
+    """{date, errors, warnings, skipped} for a notebook's last sweep, or None if
+    never swept -- the Notebooks page row badge. A notebook-wide finding counts
+    once, however many notes it covers."""
+    stored = _load_sweep_result(notebook)
+    if not stored:
+        return None
+    findings = stored.get('note_findings', []) + stored.get('notebook_findings', [])
+    count = lambda level: sum(1 for f in findings if f.get('level') == level)
+    return {'date': stored.get('date'), 'errors': count('error'),
+            'warnings': count('warn'), 'skipped': count('skipped')}
 
 
 @app.route('/api/check/sweep', methods=['GET', 'POST'])
