@@ -3,6 +3,7 @@
 
 import fnmatch
 import json
+import errno
 import os
 import re
 import signal
@@ -159,12 +160,25 @@ def _save_settings(patch):
     except Exception:
         pass
     existing.update(patch)
-    fd, tmp = tempfile.mkstemp(dir=_SETTINGS_PATH.parent, prefix='.nb-settings.')
+    text = json.dumps(existing, indent=2) + '\n'
+    # Atomic temp-file + rename where possible. In the container the file is a
+    # single-file bind mount inside read-only /app: mkstemp there fails (EROFS)
+    # and renaming over a mount point fails (EBUSY), so write in place instead.
+    try:
+        fd, tmp = tempfile.mkstemp(dir=_SETTINGS_PATH.parent, prefix='.nb-settings.')
+    except OSError:
+        _SETTINGS_PATH.write_text(text)
+        return
     try:
         with os.fdopen(fd, 'w') as f:
-            json.dump(existing, f, indent=2)
-            f.write('\n')
+            f.write(text)
         os.rename(tmp, str(_SETTINGS_PATH))
+    except OSError as e:
+        try: os.unlink(tmp)
+        except Exception: pass
+        if e.errno not in (errno.EBUSY, errno.EXDEV, errno.EROFS, errno.EPERM, errno.EACCES):
+            raise
+        _SETTINGS_PATH.write_text(text)
     except Exception:
         try: os.unlink(tmp)
         except Exception: pass
