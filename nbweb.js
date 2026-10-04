@@ -537,6 +537,136 @@ const NbWeb = (() => {
         });
     }
 
+    // ── Publish check gate (check sweep v2, step 4) ─────────────────────────────
+    // Before publishing, sweep the notebook's changed notes. Clean -> carry on.
+    // Errors/warnings -> a dialog: "Fix first" (default, also Escape) or "Publish
+    // anyway". A soft gate: if the sweep itself can't run, publishing goes ahead
+    // -- a broken check system must never block a publish. Resolves true to publish.
+    // Design: claude:check_sweep_v2_design_2026-10-02.
+
+    async function _sweepBeforePublish(notebook) {
+        try {
+            const r = await fetch('/api/check/sweep', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ notebook, mode: 'changed' }),
+            });
+            const d = await r.json();
+            if (r.status === 409) return d.result || null;   // already running: last stored result
+            return r.ok ? d : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    // "### ⚠ Broken thing" / "**Broken** thing" -> "Broken thing" for display.
+    function _plainCheckMessage(msg) {
+        return String(msg || '').replace(/^#+\s*/, '').replace(/^⚠\s*/, '').replace(/\*\*/g, '').trim();
+    }
+
+    function _publishGate(notebook, result) {
+        const LEVEL_ORDER = { error: 0, warn: 1 };
+        const items = [
+            ...(result.notebook_findings || []).map(f => ({ ...f, path: null })),
+            ...(result.note_findings || []),
+        ].filter(f => f.level in LEVEL_ORDER)
+         .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
+        if (!items.length) return Promise.resolve(true);
+
+        const skipped = (result.note_findings || []).filter(f => f.level === 'skipped').length
+                      + (result.notebook_findings || []).filter(f => f.level === 'skipped').length;
+        const nErr  = items.filter(f => f.level === 'error').length;
+        const nWarn = items.length - nErr;
+        const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+        const MAX_ROWS = 25;
+
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'nb-publish-gate-overlay';
+            const card = document.createElement('div');
+            card.className = 'nb-publish-gate-card';
+            card.setAttribute('role', 'dialog');
+            card.setAttribute('aria-modal', 'true');
+
+            const h = document.createElement('h4');
+            h.textContent = `Checks found problems in ${notebook}`;
+            const summary = document.createElement('p');
+            summary.className = 'nb-publish-gate-summary';
+            summary.textContent = [nErr && plural(nErr, 'error'), nWarn && plural(nWarn, 'warning')]
+                .filter(Boolean).join(', ') + '.';
+
+            const list = document.createElement('ul');
+            list.className = 'nb-publish-gate-list';
+            for (const f of items.slice(0, MAX_ROWS)) {
+                const li = document.createElement('li');
+                li.className = `nb-publish-gate-item ${f.level}`;
+                if (f.path) {
+                    const a = document.createElement('a');
+                    a.href = '#';
+                    a.textContent = f.path;
+                    a.addEventListener('click', e => {
+                        e.preventDefault();
+                        close(false);
+                        NbMain.openNote(`${notebook}:${f.path}`);
+                    });
+                    li.appendChild(a);
+                    li.append(` — ${_plainCheckMessage(f.message)}`);
+                } else {
+                    li.textContent = `${_plainCheckMessage(f.message)} (${f.script}, ${plural(f.notes, 'note')})`;
+                }
+                list.appendChild(li);
+            }
+            if (items.length > MAX_ROWS) {
+                const more = document.createElement('li');
+                more.className = 'nb-publish-gate-more';
+                more.textContent = `…and ${items.length - MAX_ROWS} more`;
+                list.appendChild(more);
+            }
+
+            card.append(h, summary, list);
+            if (skipped) {
+                const note = document.createElement('p');
+                note.className = 'nb-publish-gate-note';
+                note.textContent = `${plural(skipped, 'check')} timed out; ${skipped === 1 ? 'it' : 'they'} will run in the nightly sweep.`;
+                card.appendChild(note);
+            }
+
+            const btns = document.createElement('div');
+            btns.className = 'nb-publish-gate-btns';
+            const fix = document.createElement('button');
+            fix.type = 'button';
+            fix.className = 'nb-tool-btn nb-publish-gate-fix';
+            fix.textContent = 'Fix first';
+            const anyway = document.createElement('button');
+            anyway.type = 'button';
+            anyway.className = 'nb-tool-btn nb-publish-gate-anyway';
+            anyway.textContent = 'Publish anyway';
+            btns.append(fix, anyway);
+            card.appendChild(btns);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+
+            function close(proceed) {
+                overlay.remove();
+                resolve(proceed);
+            }
+            fix.addEventListener('click', () => close(false));
+            anyway.addEventListener('click', () => close(true));
+            overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
+            overlay.addEventListener('keydown', e => {
+                if (e.key === 'Escape') {
+                    // Don't let Escape reach ui-chrome.js's document-level handler
+                    // (invariant 60).
+                    e.stopPropagation();
+                    close(false);
+                }
+            });
+            // Focus inside the dialog at once, so Escape lands here (invariant 60);
+            // the safe choice is the default.
+            fix.focus();
+        });
+    }
+
     // ── Shared publish helper (used by toolbar buttons + settings panel) ──────────
 
     async function publishWebsite(notebook, btn) {
@@ -544,12 +674,23 @@ const NbWeb = (() => {
         const origTitle  = btn.title;
         btn.disabled     = true;
         btn.textContent  = '⏳';
-        btn.title        = 'Publishing…';
+        btn.title        = 'Checking…';
 
         const chip = document.createElement('span');
         chip.className   = 'nbweb-publish-chip';
-        chip.textContent = 'pushing…';
+        chip.textContent = 'checking…';
         btn.insertAdjacentElement('afterend', chip);
+
+        const sweep = await _sweepBeforePublish(notebook);
+        if (sweep && !(await _publishGate(notebook, sweep))) {
+            chip.remove();
+            btn.textContent = origText;
+            btn.title       = origTitle;
+            btn.disabled    = false;
+            return;
+        }
+        btn.title        = 'Publishing…';
+        chip.textContent = 'pushing…';
 
         const finish = (text, ms = 5000) => {
             chip.textContent = text;
