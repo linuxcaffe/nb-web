@@ -489,3 +489,37 @@ with sync_playwright() as p:
 
 Then actually `Read` the PNG — don't just check `is_visible()`/`bounding_box()` and call it
 done when the question is specifically about legibility/contrast, not presence.
+
+## Recipe: a throwaway bare server on a scratch world (added 2026-10-04)
+
+For testing an endpoint or an API client end to end **without** touching real `~/.nb` and
+without running a second `nb`-using process against it (that's the `.index` race,
+invariant 63's incident). Build the e2e fixture world into a scratch dir, start `app.py` on a
+spare port, talk to it with the API token, then kill it:
+
+```bash
+S=<scratchpad>/world
+python3 ~/dev/nb-web-tests/e2e/fixtures/build_fixture.py $S/nb      # same world the e2e suite uses
+# ...adjust it (e.g. add `check_sweep: true` to a dotfile, a script in $S/nb/.checks/), git-commit it
+(NB_DIR=$S/nb NB_WEB_PORT=5097 NB_WEB_API_USER=e2etester setsid python3 app.py > $S/server.log 2>&1 & echo $! > $S/server.pid)
+curl -s -H "X-Nbweb-Api-Token: $(cat ~/dev/nb-web/.api_token)" http://127.0.0.1:5097/api/...
+kill -- -$(cat $S/server.pid)
+```
+
+`NB_WEB_API_USER` picks which fixture user the token logs in as (default `djp`, who doesn't exist
+in the fixture). Used 2026-10-03 to test `.tools/check-sweep.py` against `/api/check/sweep`.
+
+**The fixture world has no `.checks/` scripts and no `.themes/`.** A real sweep there finds
+nothing (intercept `/api/check/sweep` in e2e specs instead, as `publish-gate.spec.js` and
+`notebooks-sweep.spec.js` do), and `NbTheme.apply(..., 'light')` silently does nothing
+(`apply()` returns early when it can't load the theme file), so light mode can't be
+screenshotted in the fixture. For a light-mode look, use the real container on `:5001`
+with the `claude` login, read-only.
+
+**Shell gotcha: `$?` after a command substitution.** In `echo "$(basename $f): exit $?"` the
+`$(basename …)` runs first, so `$?` is basename's status (0), not the check's. Capture first:
+`cmd; rc=$?; echo "$(basename $f): exit $rc"`. Cost two false "the check passes" readings on
+2026-10-04.
+
+**Known flaky:** `edit-session.spec.js` ("Edit anyway takes over the slot" / "second viewer")
+fails about 1 run in 7, on unchanged `main` too. Re-run before suspecting your change.
