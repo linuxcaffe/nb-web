@@ -480,7 +480,7 @@ const NbMain = (() => {
         // later. See conversation 2026-07-10: richer values need a real
         // agent lifecycle behind them, not just a word in frontmatter.
         const _CLAUDE_STATUS_COLOR = {
-            working: 'var(--orange, #e07b39)',
+            working: 'var(--yellow)',
             waiting: 'var(--red, #ef4444)',
             done:    'var(--green, #4ade80)',
         };
@@ -5230,11 +5230,11 @@ const NbMain = (() => {
                     NbNav.reexecute();
                 } else {
                     status.textContent = `✗ ${d.error}`;
-                    status.style.color = 'var(--accent-neg, #e5534b)';
+                    status.style.color = 'var(--red)';
                 }
             } catch(e) {
                 status.textContent = `✗ ${e.message}`;
-                status.style.color = 'var(--accent-neg, #e5534b)';
+                status.style.color = 'var(--red)';
             }
         }
 
@@ -5365,7 +5365,7 @@ const NbMain = (() => {
     <h3 style="font-size:13px;font-weight:600;margin:0 0 10px">Edit name</h3>
     <div style="display:flex;gap:8px;align-items:center">
       <input id="nb-acct-name" type="text" value="${_esc(me.name || me.username)}"
-             style="flex:1;padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+             style="flex:1;padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
       <button id="nb-acct-name-save" class="nb-btn" style="font-size:12px">Save</button>
     </div>
     <div id="nb-acct-name-msg" style="font-size:11px;margin-top:4px;min-height:14px"></div>
@@ -5375,11 +5375,11 @@ const NbMain = (() => {
     <h3 style="font-size:13px;font-weight:600;margin:0 0 10px">Change password</h3>
     <div style="display:grid;gap:6px">
       <input id="nb-acct-pw-cur"  type="password" placeholder="Current password" autocomplete="current-password"
-             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
       <input id="nb-acct-pw-new"  type="password" placeholder="New password" autocomplete="new-password"
-             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
       <input id="nb-acct-pw-new2" type="password" placeholder="Confirm new password" autocomplete="new-password"
-             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,var(--bg));color:var(--text)">
+             style="padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
       <button id="nb-acct-pw-save" class="nb-btn" style="font-size:12px;width:max-content">Change password</button>
     </div>
     <div id="nb-acct-pw-msg" style="font-size:11px;margin-top:4px;min-height:14px"></div>
@@ -5396,7 +5396,7 @@ const NbMain = (() => {
             content.querySelector('#nb-acct-name-save').addEventListener('click', async () => {
                 const name = content.querySelector('#nb-acct-name').value.trim();
                 const msg  = content.querySelector('#nb-acct-name-msg');
-                if (!name) { msg.textContent = 'Name cannot be empty.'; msg.style.color = 'var(--error,red)'; return; }
+                if (!name) { msg.textContent = 'Name cannot be empty.'; msg.style.color = 'var(--red)'; return; }
                 const r = await fetch('/api/me', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -5405,12 +5405,12 @@ const NbMain = (() => {
                 const d = await r.json();
                 if (d.success) {
                     msg.textContent = 'Saved.';
-                    msg.style.color = 'var(--success,green)';
+                    msg.style.color = 'var(--green)';
                     content.querySelector('#nb-acct-name-display').textContent = name;
                     NbAuth?.bust?.();
                 } else {
                     msg.textContent = d.error || 'Error.';
-                    msg.style.color = 'var(--error,red)';
+                    msg.style.color = 'var(--red)';
                 }
             });
 
@@ -5420,8 +5420,8 @@ const NbMain = (() => {
                 const pw1  = content.querySelector('#nb-acct-pw-new').value;
                 const pw2  = content.querySelector('#nb-acct-pw-new2').value;
                 const msg  = content.querySelector('#nb-acct-pw-msg');
-                if (!cur || !pw1) { msg.textContent = 'Fill in current and new password.'; msg.style.color = 'var(--error,red)'; return; }
-                if (pw1 !== pw2)  { msg.textContent = 'New passwords do not match.';       msg.style.color = 'var(--error,red)'; return; }
+                if (!cur || !pw1) { msg.textContent = 'Fill in current and new password.'; msg.style.color = 'var(--red)'; return; }
+                if (pw1 !== pw2)  { msg.textContent = 'New passwords do not match.';       msg.style.color = 'var(--red)'; return; }
                 const r = await fetch('/api/me', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -5430,13 +5430,13 @@ const NbMain = (() => {
                 const d = await r.json();
                 if (d.success) {
                     msg.textContent = 'Password changed.';
-                    msg.style.color = 'var(--success,green)';
+                    msg.style.color = 'var(--green)';
                     content.querySelector('#nb-acct-pw-cur').value  = '';
                     content.querySelector('#nb-acct-pw-new').value  = '';
                     content.querySelector('#nb-acct-pw-new2').value = '';
                 } else {
                     msg.textContent = d.error || 'Error.';
-                    msg.style.color = 'var(--error,red)';
+                    msg.style.color = 'var(--red)';
                 }
             });
 
@@ -5449,7 +5449,7 @@ const NbMain = (() => {
             });
 
         } catch(e) {
-            content.innerHTML = `<div style="padding:40px;color:var(--error,red)">Failed to load account: ${_esc(String(e))}</div>`;
+            content.innerHTML = `<div style="padding:40px;color:var(--red)">Failed to load account: ${_esc(String(e))}</div>`;
         }
     }
 

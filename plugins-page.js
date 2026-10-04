@@ -397,7 +397,7 @@ const NbPluginsPage = (() => {
                                placeholder="https://... or ~/dev/myplugin/myplugin.js"
                                style="flex:1;min-width:200px;padding:5px 8px;font-size:12px;
                                       border:1px solid var(--border);border-radius:4px;
-                                      background:var(--bg-input,var(--bg));color:var(--text)">
+                                      background:var(--bg);color:var(--text)">
                         <button id="nbplug-install-go" class="nb-tool-btn nb-btn-primary">Install</button>
                     </div>
                     <div style="margin-top:8px;display:flex;gap:6px;align-items:center">

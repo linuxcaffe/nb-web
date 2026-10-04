@@ -31,7 +31,7 @@
             `<div id="nbarch-pw-wrap" hidden style="display:flex;flex-direction:column;gap:4px">` +
                 `<input id="nbarch-pw1"  type="password" class="nb-opt-input" placeholder="Password">` +
                 `<input id="nbarch-pw2"  type="password" class="nb-opt-input" placeholder="Confirm password">` +
-                `<div id="nbarch-pw-err" style="color:var(--text-danger,#e74c3c);font-size:11px;display:none">Passwords don't match — try again.</div>` +
+                `<div id="nbarch-pw-err" style="color:var(--red);font-size:11px;display:none">Passwords don't match — try again.</div>` +
             `</div>` +
             `<div style="display:flex;gap:6px">` +
                 `<button id="nbarch-go" class="nb-tool-btn nb-btn-primary">↓ Create archive</button>` +
@@ -87,7 +87,7 @@
                 });
                 if (!r.ok) {
                     const d = await r.json().catch(() => ({}));
-                    stat.style.color = 'var(--text-danger,#e74c3c)';
+                    stat.style.color = 'var(--red)';
                     stat.textContent = '✗ ' + (d.error || 'Archive failed.');
                     btn.disabled = false; btn.textContent = '↓ Create archive';
                     return;
@@ -104,7 +104,7 @@
                 stat.textContent = '✓ ' + fname + (skipped ? ` (${skipped.split(',').length} file(s) skipped — too large)` : '');
                 btn.textContent = '↓ Create archive'; btn.disabled = false;
             } catch(e) {
-                stat.style.color = 'var(--text-danger,#e74c3c)';
+                stat.style.color = 'var(--red)';
                 stat.textContent = '✗ ' + e.message;
                 btn.disabled = false; btn.textContent = '↓ Create archive';
             }
@@ -138,7 +138,7 @@
                 `<button id="nbarch-rm-ok" class="nb-tool-btn nb-btn-danger">Delete</button>` +
                 `<button id="nbarch-rm-cancel" class="nb-tool-btn">Cancel</button>` +
             `</div>` +
-            `<div id="nbarch-rm-status" style="margin-top:6px;color:var(--text-danger,#e74c3c)"></div>`;
+            `<div id="nbarch-rm-status" style="margin-top:6px;color:var(--red)"></div>`;
         wrap.appendChild(form);
 
         document.getElementById('nbarch-rm-cancel').onclick = () => {
@@ -151,7 +151,7 @@
 
         ok.onclick = async () => {
             if (input.value.trim() !== nb.name) {
-                input.style.outline = '2px solid var(--text-danger,#e74c3c)';
+                input.style.outline = '2px solid var(--red)';
                 setTimeout(() => { input.style.outline = ''; }, 800);
                 return;
             }

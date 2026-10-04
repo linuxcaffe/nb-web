@@ -424,7 +424,7 @@ const NbNotebooksPage = (() => {
         try {
             const r = await fetch('/api/nb/notebook-detail?notebook=' + encodeURIComponent(name));
             const d = await r.json();
-            if (d.error) { content.innerHTML = `<div style="padding:40px;color:var(--text-danger)">${_esc(d.error)}</div>`; return; }
+            if (d.error) { content.innerHTML = `<div style="padding:40px;color:var(--red)">${_esc(d.error)}</div>`; return; }
 
             const g = d.git;
             const syncStatus = !g.has_git ? 'no git'
@@ -911,7 +911,7 @@ const NbNotebooksPage = (() => {
             dangerSection.style.cssText = 'margin-top:4px;border-top:1px solid var(--border)';
             dangerSection.innerHTML = `
                 <summary style="padding:10px 28px;font-size:11px;font-weight:600;letter-spacing:0.05em;
-                                text-transform:uppercase;color:var(--text-danger,#e74c3c);cursor:pointer;
+                                text-transform:uppercase;color:var(--red);cursor:pointer;
                                 user-select:none">Danger Zone</summary>
                 <div id="nb-nb-danger-body" style="padding:4px 28px 16px;display:flex;gap:8px;flex-wrap:wrap">
                     <button class="nb-tool-btn nb-btn-danger" id="nb-nb-del-local">Delete local notebook</button>
@@ -924,7 +924,7 @@ const NbNotebooksPage = (() => {
                 const orig = body.innerHTML;
                 body.innerHTML = `
                     <div style="width:100%">
-                        <p style="font-size:12px;color:var(--text-danger,#e74c3c);margin:0 0 8px">${warning}</p>
+                        <p style="font-size:12px;color:var(--red);margin:0 0 8px">${warning}</p>
                         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                             <input id="nb-nb-danger-input" class="nb-opt-input" style="flex:1;min-width:120px"
                                    placeholder='type "${_esc(name)}" to confirm'>
@@ -940,7 +940,7 @@ const NbNotebooksPage = (() => {
                 const okBtn = document.getElementById('nb-nb-danger-ok');
                 okBtn.onclick = async () => {
                     if (input.value.trim() !== name) {
-                        input.style.outline = '2px solid var(--text-danger,#e74c3c)';
+                        input.style.outline = '2px solid var(--red)';
                         setTimeout(() => { input.style.outline = ''; }, 800);
                         return;
                     }
@@ -958,7 +958,7 @@ const NbNotebooksPage = (() => {
                         } else if (rd.success) {
                             setTimeout(() => _openNbNotebook(name), 800);
                         } else {
-                            body.innerHTML = `<p style="color:var(--text-danger,#e74c3c);font-size:12px">${_esc(rd.output || 'Failed.')}</p>`;
+                            body.innerHTML = `<p style="color:var(--red);font-size:12px">${_esc(rd.output || 'Failed.')}</p>`;
                             setTimeout(() => { body.innerHTML = orig; _wireDanger(); }, 3000);
                         }
                     } catch(e) {
@@ -979,7 +979,7 @@ const NbNotebooksPage = (() => {
             _wireDanger();
 
         } catch(e) {
-            content.innerHTML = `<div style="padding:40px;color:var(--text-danger)">Error: ${_esc(String(e))}</div>`;
+            content.innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${_esc(String(e))}</div>`;
         }
     }
 

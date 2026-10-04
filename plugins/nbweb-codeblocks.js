@@ -229,7 +229,7 @@
                 const body = d.body || '';
                 pop.innerHTML = body
                     ? (typeof marked !== 'undefined' ? marked.parse(body) : `<pre>${_esc(body)}</pre>`)
-                    : '<em style="padding:8px;display:block;color:var(--muted)">No content</em>';
+                    : '<em style="padding:8px;display:block;color:var(--text-muted)">No content</em>';
                 const pr = pop.getBoundingClientRect();
                 if (pr.right > window.innerWidth - 8)
                     pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
@@ -1371,7 +1371,7 @@
         _tuiInjectStyle();
         await _loadXterm();
         if (!window.Terminal) {
-            el.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load — cannot render terminal</div>`;
+            el.innerHTML = `<div style="padding:8px;color:var(--yellow);font-size:12px">⚠ xterm.js failed to load — cannot render terminal</div>`;
             return;
         }
         const outer = el.querySelector('.nb-tui-outer');
@@ -1741,14 +1741,14 @@
                 const d = await r.json();
                 if (d.error) {
                     status.textContent = '✗ ' + d.error;
-                    status.style.color = 'var(--accent-neg, #e74c3c)';
+                    status.style.color = 'var(--red)';
                 } else {
                     dismiss();
                     await _loadHledgerBlock(el);
                 }
             } catch(e) {
                 status.textContent = '✗ ' + e.message;
-                status.style.color = 'var(--accent-neg, #e74c3c)';
+                status.style.color = 'var(--red)';
             }
         });
 
@@ -7487,7 +7487,7 @@
                     await _loadXterm();
                     if (!window.Terminal) {
                         outers.forEach(outer => {
-                            outer.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load</div>`;
+                            outer.innerHTML = `<div style="padding:8px;color:var(--yellow);font-size:12px">⚠ xterm.js failed to load</div>`;
                             NbWeb.statusPill?.tick();
                         });
                         return;
@@ -7541,7 +7541,7 @@
                     await _loadXterm();
                     if (!window.Terminal) {
                         outers.forEach(outer => {
-                            outer.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load</div>`;
+                            outer.innerHTML = `<div style="padding:8px;color:var(--yellow);font-size:12px">⚠ xterm.js failed to load</div>`;
                             NbWeb.statusPill?.tick();
                         });
                         return;
@@ -7595,7 +7595,7 @@
                     await _loadXterm();
                     if (!window.Terminal) {
                         outers.forEach(outer => {
-                            outer.innerHTML = `<div style="padding:8px;color:var(--orange,#e07b39);font-size:12px">⚠ xterm.js failed to load</div>`;
+                            outer.innerHTML = `<div style="padding:8px;color:var(--yellow);font-size:12px">⚠ xterm.js failed to load</div>`;
                             NbWeb.statusPill?.tick();
                         });
                         return;
