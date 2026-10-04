@@ -1623,7 +1623,11 @@ const NbMain = (() => {
     // Depth-guarded: included content is not processed for further {{inline:}} to
     // prevent recursion.
     async function _resolveInlineInclude(span, rawPath, note, signal) {
-        if (span.closest('.nb-inline-content')) { span.remove(); return; }
+        // Two levels deep at most (a book chapter may include a section: features:
+        // dashboard -> page -> docs:#Summary); a third is dropped, which also stops loops.
+        let depth = 0;
+        for (let el = span.closest('.nb-inline-content'); el; el = el.parentElement?.closest('.nb-inline-content')) depth++;
+        if (depth >= 2) { span.remove(); return; }
         const rendered  = span.closest('.nb-rendered');
         const wantCard  = /^card\s+/i.test(rawPath.trim());
         let targetRaw   = wantCard ? rawPath.trim().replace(/^card\s+/i, '') : rawPath.trim();
@@ -2172,7 +2176,11 @@ const NbMain = (() => {
         function _resolveTabEntry(entry) {
             if (entry.includes(':')) return entry;  // already a full selector
             const nb  = note.notebook || NbNav.notebook;
-            const rel = note.filename ? note.filename.split('/').slice(0, -1).join('/') : '';
+            // A note's own tabs: are relative to its folder (from its selector path;
+            // note.filename is the bare name). Inherited ones (notebook/folder config) stay
+            // relative to the notebook root, which existing configs rely on.
+            const path = (note.selector || '').includes(':') ? note.selector.slice(note.selector.indexOf(':') + 1) : '';
+            const rel = note?.meta?.tabs != null ? path.split('/').slice(0, -1).join('/') : '';
             // Normalise ../  paths relative to note's folder
             const parts = (rel ? rel + '/' : '') + entry;
             const resolved = parts.split('/').reduce((acc, seg) => {
