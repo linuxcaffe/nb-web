@@ -192,6 +192,8 @@ not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
 
 64. **Colours come only from the 15 theme keys** (`docs:THEMES.md`: `bg`, `bg2`, `bg3`, `border`, `text`, `text-muted`, `text-dim`, `accent`, `accent-dim`, `green`, `red`, `yellow`, `alert`, `alert-bg`, `alert-border`), each with a default in `styles.css` `:root`. Pick by meaning (`red` = error/danger, `yellow` = warning/in progress, `green` = success, `accent` = links), with **no hex fallback**. By 2026-10-04 about 20 undefined names had crept in (`--text-danger`, `--link`, `--success`, `--border-dim`, …): with a hex fallback they ignored the theme, and without one the property silently inherited. `nb-web-tests` `test_theme_vars.py` fails on any CSS variable nothing defines, including in the symlinked plugins. A genuinely new key goes in `THEMES.md`, `:root` and every theme file at once.
 
+65. **Files bind-mounted one at a time into the container (`nb-settings.json`, `.flask_secret`, `.api_token`, all under read-only `/app`) can't be replaced atomically.** A temp file next to them fails (EROFS) and a rename over them fails (EBUSY), so the usual temp-file-then-rename write breaks on the container only. `_save_settings` falls back to writing in place (fixed 2026-10-04: until then every Notebooks-page list-defaults save failed in production). Any new code that writes one of these files needs the same fallback. Test: `nb-web-tests/test_settings_save.py`.
+
 ## nb notebook layout
 
 `~/.nb/` — one subdirectory per notebook, each its own git repo. Key notebooks: `home`, `docs`, `claude`, `accts`, `contacts`, `pfinds`, `Takeout`, `hledger`, `tw`, `tasks`, `work`, `friends`, `exp`, `bkmk`, `openfilmmaker`, `preciousfinds.ca`, `tutorial`, `nb`.
