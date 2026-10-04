@@ -5667,9 +5667,13 @@
         }
     }
 
+    // Called again by main.js's TOC rebuild once {{inline:}} chapters land; a block that
+    // has already rendered keeps its header (and its collapse wiring) and just swaps the
+    // count and the list.
     function _loadTocBlock(el) {
         if (!_cbCan(el, 'toc', 'read')) { _cbDenyRead(el); return; }
-        el.innerHTML = '';
+        const refresh = el.dataset.tocRendered === '1' && el.querySelector(':scope > .nb-toc-header');
+        if (!refresh) el.innerHTML = '';
         const pane = document.getElementById('nb-preview-content');
         const headings = pane ? [...pane.querySelectorAll('h1,h2,h3,h4,h5,h6')] : [];
 
@@ -5686,7 +5690,14 @@
             }
         }
 
-        const { hdr, meta } = _buildBarHeader(el, { lang: 'toc', collapseZone: true });
+        let hdr, meta;
+        if (refresh) {
+            hdr  = el.querySelector(':scope > .nb-toc-header');
+            meta = hdr.querySelector('.nb-toc-meta');
+            el.querySelector(':scope > .nb-toc-body')?.remove();
+        } else {
+            ({ hdr, meta } = _buildBarHeader(el, { lang: 'toc', collapseZone: true }));
+        }
         const sel = NbMain.activeSelector() || '';
         const notePath = (() => {
             const raw = sel.includes(':') ? sel.slice(sel.indexOf(':') + 1) : sel;
@@ -5697,9 +5708,12 @@
             return parent ? `~/..${parent}/${file}` : `~/${file}`;
         })();
         const countPart = headings.length ? ` · ${headings.length} ↑` : '';
-        meta.textContent = notePath ? `${notePath}${countPart}` : (headings.length ? `${headings.length}` : 'empty');
-        el.appendChild(hdr);
-        _initCollapseToggle(el);
+        if (meta) meta.textContent = notePath ? `${notePath}${countPart}` : (headings.length ? `${headings.length}` : 'empty');
+        if (!refresh) {
+            el.appendChild(hdr);
+            _initCollapseToggle(el);
+            el.dataset.tocRendered = '1';
+        }
 
         if (!headings.length) return;
 

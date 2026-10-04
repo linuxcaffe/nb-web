@@ -7,6 +7,9 @@ const NbMain = (() => {
     let _activeType     = null;   // classify() type of current note
     let _activeFilename = null;   // original filename for raw export
     let _editing        = false;
+    // Every {{inline:}} include not yet resolved: a mid-sentence span, or a block placeholder
+    // for one alone on its own line (_renderMarkdown). Both are replaced once resolved.
+    const _INLINE_PENDING = '.nb-inline-query[data-provider="inline"], .nb-inline-pending[data-query]';
     const _undoBuffer   = {};     // selector → raw content before last edit (level-1 undo)
     let _searchTimer    = null;
     let _lastNotes      = [];       // original load order, for client-side sort
@@ -1436,6 +1439,7 @@ const NbMain = (() => {
     // Enrich a rendered container: wikilinks, codeblocks, links, uuids, todos.
     // Does NOT append the annotation footnote — call _finishRendered for that.
     function _resolveInlineQueries(container, note) {
+        container._inlinesSettled = false;
         const IQ_RE = /\{\{(\w+):\s*([^}]*?)\}\}/g;
         // Walk text nodes, skipping PRE/CODE so backtick examples aren't processed.
         const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
@@ -1573,11 +1577,23 @@ const NbMain = (() => {
                     }
                 }
                 if (!signal.aborted) {
+                    container._inlinesSettled = true;
                     container.dispatchEvent(new CustomEvent('nb-inlines-settled', { bubbles: false }));
                     _RenderBar.done();
                 }
             })();
+        } else {
+            container._inlinesSettled = true;
         }
+    }
+
+    // Resolves once the eager {{inline:}} includes have settled. Sticky: if every include
+    // was deferred, nb-inlines-settled fires synchronously inside _resolveInlineQueries,
+    // before a later caller could attach a listener.
+    function _whenInlinesSettled(container) {
+        if (container._inlinesSettled) return Promise.resolve();
+        return new Promise(resolve =>
+            container.addEventListener('nb-inlines-settled', resolve, { once: true }));
     }
 
     // Resolve a relative path or bare filename to an nb selector.
@@ -1708,7 +1724,7 @@ const NbMain = (() => {
         if (rendered.closest('.nb-inline-content')) return;
         if (rendered.querySelector('.nb-rendering-notice')) return;
         const n = rendered.querySelectorAll(
-            '.nb-inline-query[data-provider="inline"]').length;
+            _INLINE_PENDING).length;
         const bodyKb = Math.round((note?.body?.length || 0) / 1024);
         if (n < 5 && bodyKb < 50) return;
         const el = document.createElement('div');
@@ -1857,10 +1873,9 @@ const NbMain = (() => {
         // the event fires immediately, so non-book notes see no delay.
         (async () => {
             const signal  = _renderAbort.signal;
-            const inlines = container.querySelectorAll('.nb-inline-query[data-provider="inline"]');
+            const inlines = container.querySelectorAll(_INLINE_PENDING);
             if (inlines.length) {
-                await new Promise(resolve =>
-                    container.addEventListener('nb-inlines-settled', resolve, { once: true }));
+                await _whenInlinesSettled(container);
             }
             if (signal.aborted) return;
             await NbWeb.renderCodeblocks(container);
@@ -2091,9 +2106,10 @@ const NbMain = (() => {
                 if (tocBar) tocBar.hidden = true;
             } else {
                 _markTocPartial(container);
-                _watchInlineTocRebuild(container, note);
             }
         }
+        if (note?.meta?.toc || note?.effective_fm?.toc || container.querySelector('.nb-toc-block'))
+            _watchInlineTocRebuild(container, note);
         _buildTabs(note);
         _buildFmBlocks(note);
         _appendAnnotation(container, note);
@@ -2433,7 +2449,7 @@ const NbMain = (() => {
     function _markTocPartial(container) {
         const toc = document.getElementById('nb-toc-bar');
         if (!toc) return;
-        const pending = container.querySelectorAll('.nb-inline-query[data-provider="inline"]').length;
+        const pending = container.querySelectorAll(_INLINE_PENDING).length;
         toc.classList.toggle('nb-toc-partial', pending > 0);
     }
 
@@ -2443,6 +2459,18 @@ const NbMain = (() => {
         clearTimeout(container._tocRebuildTimer);
         container._tocRebuildTimer = setTimeout(() => {
             if (!container.querySelector('.nb-rendered')) return;
+            // The toc codeblock (FM strip or body fence) snapshots headings when it
+            // renders, so refresh it once chapters land. Only blocks that have rendered
+            // (a collapsed lazy FM block renders fresh on expand), not ones inside a chapter.
+            const tocRenderer = NbWeb.getCodeblockRenderer?.('toc');
+            if (tocRenderer?.renderOne) {
+                for (const el of document.querySelectorAll(
+                        '#nb-fm-blocks .nb-toc-block[data-toc-rendered], #nb-preview-content .nb-toc-block[data-toc-rendered]')) {
+                    if (el.closest('.nb-inline-content')) continue;
+                    tocRenderer.renderOne(el);
+                }
+                return;
+            }
             _buildToc(container, note);
             _markTocPartial(container);
         }, 400);
@@ -2460,10 +2488,8 @@ const NbMain = (() => {
     function _watchInlineTocRebuild(container, note) {
         if (!container.querySelector('.nb-rendered')) return;
 
-        if (container.querySelector('.nb-inline-query[data-provider="inline"]')) {
-            container.addEventListener('nb-inlines-settled', () => {
-                _scheduleTocRebuild(container, note);
-            }, { once: true });
+        if (container.querySelector(_INLINE_PENDING)) {
+            _whenInlinesSettled(container).then(() => _scheduleTocRebuild(container, note));
         } else {
             container.addEventListener('nb-tests-settled', () => {
                 _scheduleTocRebuild(container, note);
@@ -3859,10 +3885,9 @@ const NbMain = (() => {
         // Inline includes (book chapters, {{inline:}}) load asynchronously.
         // Wait for eager inlines (nb-inlines-settled), then force any deferred ones and
         // wait for all of them (nb-inlines-complete) so every chapter's headings are in the DOM.
-        if (rendered.querySelector('.nb-inline-query[data-provider="inline"]')) {
-            await new Promise(resolve =>
-                container.addEventListener('nb-inlines-settled', resolve, { once: true }));
-            if (rendered.querySelector('.nb-inline-query[data-provider="inline"]')) {
+        if (rendered.querySelector(_INLINE_PENDING)) {
+            await _whenInlinesSettled(container);
+            if (rendered.querySelector(_INLINE_PENDING)) {
                 // Deferred inlines remain — force them all, then wait for complete
                 _StatusPill.forceAll();
                 await new Promise(resolve =>
