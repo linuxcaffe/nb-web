@@ -1626,7 +1626,11 @@ const NbMain = (() => {
         if (span.closest('.nb-inline-content')) { span.remove(); return; }
         const rendered  = span.closest('.nb-rendered');
         const wantCard  = /^card\s+/i.test(rawPath.trim());
-        const targetRaw = wantCard ? rawPath.trim().replace(/^card\s+/i, '') : rawPath.trim();
+        let targetRaw   = wantCard ? rawPath.trim().replace(/^card\s+/i, '') : rawPath.trim();
+        // note.md#Heading -- just that section (the help system's single-source docs)
+        let section = null;
+        const hashAt = targetRaw.indexOf('#');
+        if (hashAt > 0) { section = targetRaw.slice(hashAt + 1).trim(); targetRaw = targetRaw.slice(0, hashAt).trim(); }
         const selector  = _resolveRelPath(targetRaw, note?.selector || '');
         try {
             const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}&inline=1`, { signal });
@@ -1643,7 +1647,14 @@ const NbMain = (() => {
                 }
             }
             const gotCard = wantCard && html != null;
-            if (html == null) html = _renderMarkdown(d.body || '', d.selector || selector);
+            if (html == null) {
+                let body = d.body || '';
+                if (section) {
+                    body = _sliceSection(body, section);
+                    if (body == null) throw new Error(`no section "${section}" in ${selector}`);
+                }
+                html = _renderMarkdown(body, d.selector || selector);
+            }
             const wrap = document.createElement('div');
             wrap.className = gotCard ? 'nb-inline-content nb-inline-card' : 'nb-inline-content';
             wrap.innerHTML = `<div class="nb-rendered">${html}</div>`;
@@ -1680,6 +1691,32 @@ const NbMain = (() => {
             _RenderBar.tick();
             _StatusPill.tick();
         }
+    }
+
+    // The body of the section under a heading matching `heading` (case-insensitive), up to
+    // the next heading of the same or higher level, without the heading line itself.
+    // '#' lines inside fenced code don't count as headings. null if there's no such heading.
+    function _sliceSection(body, heading) {
+        const want = heading.trim().toLowerCase();
+        const lines = body.split('\n');
+        let fence = null, start = -1, level = 0;
+        for (let i = 0; i < lines.length; i++) {
+            const f = lines[i].match(/^\s*(`{3,}|~{3,})/);
+            if (f) {
+                if (!fence) fence = f[1][0];
+                else if (f[1][0] === fence) fence = null;
+                continue;
+            }
+            if (fence) continue;
+            const h = lines[i].match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+            if (!h) continue;
+            if (start < 0) {
+                if (h[2].toLowerCase() === want) { start = i + 1; level = h[1].length; }
+            } else if (h[1].length <= level) {
+                return lines.slice(start, i).join('\n');
+            }
+        }
+        return start < 0 ? null : lines.slice(start).join('\n');
     }
 
     // Returns true if el is within 500px below the visible bottom of scrollRoot
