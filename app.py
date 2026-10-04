@@ -7805,7 +7805,9 @@ def _list_notes(notebook, folder, limit):
                 continue
             items.append({
                 'type': 'folder', 'indicator': '📂',
-                'id': '', 'filename': fname, 'title': fname,
+                # .index position, same as notes: lets the "Oldest" sort follow a
+                # hand-ordered .index for folders too. Never a selector (invariant 23).
+                'id': item_id, 'filename': fname, 'title': fname,
                 'selector': f"{notebook}:{folder + '/' if folder else ''}{fname}/",
                 'excerpt': '', 'updated': '',
                 'locked': (fpath / '.nb-lock').exists(),

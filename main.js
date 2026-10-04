@@ -557,7 +557,7 @@ const NbMain = (() => {
                 titleRow.appendChild(annBadge);
             }
 
-            if (note.id) {
+            if (note.id && note.type !== 'folder') {
                 const idEl = document.createElement('span');
                 idEl.className = 'nb-list-id';
                 idEl.textContent = note.id;
