@@ -823,6 +823,7 @@ const NbMain = (() => {
             // enough that a few sequential round-trips cost nothing noticeable.
             const entries = Array.isArray(topic) ? topic : [topic];
             const parts = [];
+            let firstTopic = true;
             for (const entry of entries) {
                 try {
                     let d = null;
@@ -832,6 +833,36 @@ const NbMain = (() => {
                         if (j.body) { d = j; break; }
                     }
                     if (!d) continue;
+                    // A topic note (topic: + ## Summary, the single-source docs layout) is a
+                    // collapsible entry: the first one open at its Summary, the rest just
+                    // title + caption. More opens the whole note; Try it, its features: page.
+                    const summary = d.meta?.topic ? _sliceSection(d.body, 'Summary') : null;
+                    if (summary != null) {
+                        const det = document.createElement('details');
+                        det.className = 'nb-help-topic';
+                        det.open = firstTopic;
+                        firstTopic = false;
+                        const sum = document.createElement('summary');
+                        sum.innerHTML = `<strong>${_esc(d.title || d.meta.topic)}</strong>`
+                            + (d.meta.caption ? ` <span class="nb-help-caption">${_esc(d.meta.caption)}</span>` : '');
+                        const body = document.createElement('div');
+                        body.className = 'nb-help-part';
+                        body.innerHTML = _renderMarkdown(summary, d.selector || '');
+                        const links = document.createElement('div');
+                        links.className = 'nb-help-links';
+                        const link = (cls, text, sel) => {
+                            const a = Object.assign(document.createElement('a'), { className: cls, textContent: text, href: '#' });
+                            a.dataset.selector = sel;
+                            a.addEventListener('click', e => { e.preventDefault(); dismiss(); openNote(sel); });
+                            links.appendChild(a);
+                        };
+                        link('nb-help-more', 'More', d.selector);
+                        if (d.meta.category) link('nb-help-try', 'Try it', `features:${d.meta.category}/${d.meta.topic}.md`);
+                        det.append(sum, body, links);
+                        _enrichRendered(body, d);
+                        parts.push(det);
+                        continue;
+                    }
                     const wrap = document.createElement('div');
                     wrap.className = 'nb-help-part';
                     wrap.innerHTML = _renderMarkdown(d.body, d.selector || '');

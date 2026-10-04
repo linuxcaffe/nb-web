@@ -800,7 +800,89 @@ def _collect_help_add(notebook, note_path):
     return _collect_cascading_tokens('help_add', notebook, note_path)
 
 
-def _resolve_help_list(meta, nb_meta, notebook, note_path, itype):
+_help_topic_cache = {'sig': None, 'topics': []}
+_FENCE_LANG_RE = re.compile(r'^\s*(`{3,}|~{3,})\s*([\w-]+)?')
+
+
+def _help_topic_notebook():
+    """Where help topic notes live: .nb.md's help_topics:, default docs."""
+    return str(_effective_setting('help_topics') or 'docs').strip().rstrip(':')
+
+
+def _help_topics():
+    """Every topic-notebook note that declares help_for: -- [(selector, meta, contexts)],
+    sorted by selector. Re-read only when one of its .md files changes (a stat walk per call)."""
+    nb = _help_topic_notebook()
+    root = NB_DIR / nb
+    if not root.is_dir():
+        return []
+    files = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
+        for fn in filenames:
+            if fn.endswith('.md') and not fn.startswith('.'):
+                p = Path(dirpath) / fn
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                files.append((str(p), st.st_mtime_ns, st.st_size))
+    sig = (nb, tuple(sorted(files)))
+    if _help_topic_cache['sig'] == sig:
+        return _help_topic_cache['topics']
+    topics = []
+    for path, _, _ in sig[1]:
+        try:
+            meta, _ = parse_frontmatter(Path(path).read_text(errors='replace'))
+        except Exception:
+            continue
+        raw = meta.get('help_for')
+        if not raw:
+            continue
+        ctxs = raw if isinstance(raw, list) else str(raw).split(',')
+        ctxs = {str(c).strip().lower() for c in ctxs if str(c).strip()}
+        rel = Path(path).relative_to(root).as_posix()
+        topics.append((f'{nb}:{rel}', meta, ctxs))
+    topics.sort(key=lambda t: t[0])
+    _help_topic_cache.update(sig=sig, topics=topics)
+    return topics
+
+
+def _help_for_matches(meta, body, notebook, itype):
+    """Selectors of docs: topics whose help_for: names one of this note's contexts, in
+    context order: type, codeblock langs (body order), frontmatter keys (FM order),
+    notebook. Topics the current user can't access are left out."""
+    topics = _help_topics()
+    if not topics:
+        return []
+    contexts = []
+    if itype:
+        contexts.append(f'type:{itype}')
+    fence = None
+    for line in (body or '').splitlines():
+        m = _FENCE_LANG_RE.match(line)
+        if not m:
+            continue
+        if fence is None:
+            fence = m.group(1)[0]
+            if m.group(2):
+                contexts.append(f'block:{m.group(2).lower()}')
+        elif m.group(1)[0] == fence and not m.group(2):
+            fence = None
+    contexts += [f'key:{str(k).lower()}' for k in meta]
+    if notebook:
+        contexts.append(f'notebook:{notebook.lower()}')
+    user = session.get('user', {}) if request else {}
+    docs_meta = _notebook_config(_help_topic_notebook())
+    out = []
+    for ctx in dict.fromkeys(contexts):
+        for sel, tmeta, tctx in topics:
+            if ctx in tctx and _can_access(user, tmeta, docs_meta):
+                out.append(sel)
+    return out
+
+
+def _resolve_help_list(meta, nb_meta, notebook, note_path, itype, body=None):
     """Combine the three help: sources into the final popover entry list.
 
     Order: auto type-derived entry (only if a matching .lib/help-type-<type>.md
@@ -818,6 +900,8 @@ def _resolve_help_list(meta, nb_meta, notebook, note_path, itype):
     parts = []
     if itype and (NB_DIR / '.lib' / f'help-type-{itype}.md').exists():
         parts.append(itype)
+    if body is not None:
+        parts.extend(_help_for_matches(meta, body, notebook, itype))
     if notebook:
         parts.extend(_collect_help_add(notebook, note_path).split())
     explicit = _effective_help(meta, nb_meta)
@@ -8538,7 +8622,7 @@ def api_note():
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
-        'effective_help': _resolve_help_list(meta, nb_meta, note_notebook, fpath, itype),
+        'effective_help': _resolve_help_list(meta, nb_meta, note_notebook, fpath, itype, body),
         'effective_add_org': _resolve_add_org_list(meta, nb_meta, note_notebook, fpath, itype) if note_notebook else '',
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
