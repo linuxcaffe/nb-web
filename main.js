@@ -823,7 +823,6 @@ const NbMain = (() => {
             // enough that a few sequential round-trips cost nothing noticeable.
             const entries = Array.isArray(topic) ? topic : [topic];
             const parts = [];
-            let firstTopic = true;
             for (const entry of entries) {
                 try {
                     let d = null;
@@ -834,14 +833,12 @@ const NbMain = (() => {
                     }
                     if (!d) continue;
                     // A topic note (topic: + ## Summary, the single-source docs layout) is a
-                    // collapsible entry: the first one open at its Summary, the rest just
-                    // title + caption. More opens the whole note; Try it, its features: page.
+                    // collapsible entry, folded to title + caption (djp: start with all folded);
+                    // open, it shows its Summary. More opens the whole note; Try it, its features: page.
                     const summary = d.meta?.topic ? _sliceSection(d.body, 'Summary') : null;
                     if (summary != null) {
                         const det = document.createElement('details');
                         det.className = 'nb-help-topic';
-                        det.open = firstTopic;
-                        firstTopic = false;
                         const sum = document.createElement('summary');
                         sum.innerHTML = `<strong>${_esc(d.title || d.meta.topic)}</strong>`
                             + (d.meta.caption ? ` <span class="nb-help-caption">${_esc(d.meta.caption)}</span>` : '');
