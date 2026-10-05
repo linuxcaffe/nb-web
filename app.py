@@ -882,6 +882,49 @@ def _help_for_matches(meta, body, notebook, itype):
     return out
 
 
+def _features_notebook():
+    """The live feature tour's notebook: .nb.md's features_notebook:, default features."""
+    return str(_effective_setting('features_notebook') or 'features').strip().rstrip(':')
+
+
+_CHAPTER_RE = re.compile(r'^\s*\{\{inline:\s*[^:}\s]+:([\w-]+)/([\w-]+)\.md\s*\}\}\s*$', re.M)
+
+
+@app.route('/api/help/category')
+def api_help_category():
+    """Topics of one features: category in its dashboard's chapter order, for the line of
+    links at the top of the ? popover: [{topic, label, selector}]. label is the features
+    page's title; selector is the topic note in the help_topics notebook."""
+    name = request.args.get('name', '').strip()
+    if not re.fullmatch(r'[a-z0-9-]+', name):
+        return jsonify({'error': 'invalid category'}), 400
+    fnb = _features_notebook()
+    out = {'features_notebook': fnb, 'topics': []}
+    user = session.get('user', {})
+    dash = NB_DIR / fnb / name / f'{name}.md'
+    if (not _safe_notebook(fnb) or not dash.is_file() or not _notebook_in_scope(user, fnb)
+            or not _can_access(user, {}, _notebook_config(fnb))):
+        return jsonify(out)
+    by_topic = {}
+    docs_meta = _notebook_config(_help_topic_notebook())
+    for sel, tmeta, _ in _help_topics():
+        t = str(tmeta.get('topic') or '').strip()
+        if t and t not in by_topic and _can_access(user, tmeta, docs_meta):
+            by_topic[t] = sel
+    for cat, page in _CHAPTER_RE.findall(dash.read_text(errors='replace')):
+        if cat != name:
+            continue
+        try:
+            pmeta, _ = parse_frontmatter((NB_DIR / fnb / cat / f'{page}.md').read_text(errors='replace'))
+        except OSError:
+            continue
+        topic = str(pmeta.get('topic') or page).strip()
+        if topic in by_topic:
+            out['topics'].append({'topic': topic, 'label': str(pmeta.get('title') or topic),
+                                  'selector': by_topic[topic]})
+    return jsonify(out)
+
+
 def _resolve_help_list(meta, nb_meta, notebook, note_path, itype, body=None):
     """Combine the three help: sources into the final popover entry list.
 

@@ -821,9 +821,48 @@ const NbMain = (() => {
             // Sequential, not Promise.all — the bare dev server stalls on bursts of
             // concurrent fetches (see nb-web's verify skill); a help popover is rare
             // enough that a few sequential round-trips cost nothing noticeable.
+            // The tour's notebook and the Basics topics, for the line of links on top
+            // (djp: Basics at the top of every ? popover).
+            let basics = [], featuresNb = 'features';
+            try {
+                const r = await fetch('/api/help/category?name=basics');
+                if (r.ok) { const j = await r.json(); basics = j.topics || []; featuresNb = j.features_notebook || featuresNb; }
+            } catch (e) { /* no Basics line */ }
+
+            // A topic note (topic: + ## Summary, the single-source docs layout) is a
+            // collapsible entry, folded to title + caption (djp: start with all folded);
+            // open, it shows its Summary. More opens the whole note; Try it, its features: page.
+            const topicEntry = d => {
+                const summary = d.meta?.topic ? _sliceSection(d.body, 'Summary') : null;
+                if (summary == null) return null;
+                const det = document.createElement('details');
+                det.className = 'nb-help-topic';
+                det.dataset.selector = d.selector || '';
+                const sum = document.createElement('summary');
+                sum.innerHTML = `<strong>${_esc(d.title || d.meta.topic)}</strong>`
+                    + (d.meta.caption ? ` <span class="nb-help-caption">${_esc(d.meta.caption)}</span>` : '');
+                const body = document.createElement('div');
+                body.className = 'nb-help-part';
+                body.innerHTML = _renderMarkdown(summary, d.selector || '');
+                const links = document.createElement('div');
+                links.className = 'nb-help-links';
+                const link = (cls, text, sel) => {
+                    const a = Object.assign(document.createElement('a'), { className: cls, textContent: text, href: '#' });
+                    a.dataset.selector = sel;
+                    a.addEventListener('click', e => { e.preventDefault(); dismiss(); openNote(sel); });
+                    links.appendChild(a);
+                };
+                link('nb-help-more', 'More', d.selector);
+                if (d.meta.category) link('nb-help-try', 'Try it', `${featuresNb}:${d.meta.category}/${d.meta.topic}.md`);
+                det.append(sum, body, links);
+                _enrichRendered(body, d);
+                return det;
+            };
+
             const entries = Array.isArray(topic) ? topic : [topic];
             const parts = [];
             for (const entry of entries) {
+                if (!entry) continue;
                 try {
                     let d = null;
                     for (const sel of _helpCandidatesFor(entry)) {
@@ -832,34 +871,8 @@ const NbMain = (() => {
                         if (j.body) { d = j; break; }
                     }
                     if (!d) continue;
-                    // A topic note (topic: + ## Summary, the single-source docs layout) is a
-                    // collapsible entry, folded to title + caption (djp: start with all folded);
-                    // open, it shows its Summary. More opens the whole note; Try it, its features: page.
-                    const summary = d.meta?.topic ? _sliceSection(d.body, 'Summary') : null;
-                    if (summary != null) {
-                        const det = document.createElement('details');
-                        det.className = 'nb-help-topic';
-                        const sum = document.createElement('summary');
-                        sum.innerHTML = `<strong>${_esc(d.title || d.meta.topic)}</strong>`
-                            + (d.meta.caption ? ` <span class="nb-help-caption">${_esc(d.meta.caption)}</span>` : '');
-                        const body = document.createElement('div');
-                        body.className = 'nb-help-part';
-                        body.innerHTML = _renderMarkdown(summary, d.selector || '');
-                        const links = document.createElement('div');
-                        links.className = 'nb-help-links';
-                        const link = (cls, text, sel) => {
-                            const a = Object.assign(document.createElement('a'), { className: cls, textContent: text, href: '#' });
-                            a.dataset.selector = sel;
-                            a.addEventListener('click', e => { e.preventDefault(); dismiss(); openNote(sel); });
-                            links.appendChild(a);
-                        };
-                        link('nb-help-more', 'More', d.selector);
-                        if (d.meta.category) link('nb-help-try', 'Try it', `features:${d.meta.category}/${d.meta.topic}.md`);
-                        det.append(sum, body, links);
-                        _enrichRendered(body, d);
-                        parts.push(det);
-                        continue;
-                    }
+                    const det = topicEntry(d);
+                    if (det) { parts.push(det); continue; }
                     const wrap = document.createElement('div');
                     wrap.className = 'nb-help-part';
                     wrap.innerHTML = _renderMarkdown(d.body, d.selector || '');
@@ -868,8 +881,37 @@ const NbMain = (() => {
                 } catch (e) { /* skip this entry, try the rest */ }
             }
             pop.innerHTML = '';
+            let line = null;
+            if (basics.length) {
+                line = document.createElement('div');
+                line.className = 'nb-help-basics';
+                line.appendChild(Object.assign(document.createElement('span'), { className: 'nb-help-basics-label', textContent: 'Basics:' }));
+                basics.forEach((t, i) => {
+                    if (i) line.append(' · ');
+                    const a = Object.assign(document.createElement('a'), { href: '#', textContent: t.label });
+                    a.dataset.selector = t.selector;
+                    a.addEventListener('click', async e => {
+                        e.preventDefault();
+                        let det = [...pop.querySelectorAll('details.nb-help-topic')].find(x => x.dataset.selector === t.selector);
+                        if (!det) {
+                            try {
+                                const r = await fetch(`/api/note?selector=${encodeURIComponent(t.selector)}`);
+                                det = topicEntry(await r.json());
+                            } catch (err) { det = null; }
+                            if (!det) return;
+                            pop.querySelector('.nb-help-empty')?.remove();
+                            line.after(det);
+                        }
+                        det.open = true;
+                        det.scrollIntoView({ block: 'nearest' });
+                        reposition();
+                    });
+                    line.appendChild(a);
+                });
+                pop.appendChild(line);
+            }
             if (!parts.length) {
-                pop.innerHTML = '<em style="padding:8px;display:block;color:var(--text-muted)">No help available</em>';
+                pop.insertAdjacentHTML('beforeend', '<em class="nb-help-empty" style="padding:8px;display:block;color:var(--text-muted)">No help available</em>');
             } else {
                 parts.forEach((wrap, i) => {
                     if (i > 0) pop.appendChild(Object.assign(document.createElement('hr'), { className: 'nb-help-divider' }));
