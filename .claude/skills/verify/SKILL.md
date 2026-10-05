@@ -67,6 +67,16 @@ things per render against this dev server. The real container (gunicorn, `--work
 almost certainly doesn't have this ceiling — not yet confirmed either way, but don't assume the
 bare dev server's concurrency behavior generalizes to production.
 
+**Refined 2026-10-05: much of that "stall" was request cost plus the browser's six-connection
+limit.** Each `/api/note` cost ~0.3 s on the server (YAML re-parsing, an `nb` subprocess), and
+quick tab hopping fired 6–10 label requests per page; they filled Chrome's six connections per
+host and the next page's own requests queued behind them. `/api/note` is ~6 ms warm now
+(invariant 68) and tab labels are cached, but the rule stands: fetch one at a time. To tell
+"slow" from "stuck", log pending requests in Playwright (`page.on('request'/'requestfinished'/
+'requestfailed')` with a dict keyed on the request) and time the endpoint directly. A
+`cProfile` run of `app.api_note()` inside `app.test_request_context(...)` with a session user
+shows where server time goes; benchmark before and after any change.
+
 **The bare dev server does not hot-reload (`use_reloader=False`) — an `app.py` edit needs the
 process actually killed and restarted, not just re-launched over a still-running old one.**
 Confirmed live 2026-08-08 building the `help:` list/selector extension: `pkill -f
@@ -522,4 +532,5 @@ with the `claude` login, read-only.
 2026-10-04.
 
 **Known flaky:** `edit-session.spec.js` ("Edit anyway takes over the slot" / "second viewer")
-fails about 1 run in 7, on unchanged `main` too. Re-run before suspecting your change.
+fails about 1 run in 7, on unchanged `main` too (closer to 1 in 3 full runs on 2026-10-05, when
+the machine was busy). Re-run that spec alone before suspecting your change.

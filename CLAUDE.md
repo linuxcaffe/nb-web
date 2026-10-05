@@ -289,14 +289,14 @@ types:
 
 Access levels: `guest` / `user` / `office` / `admin` / empty (inherit notebook default).
 
-FM types recognised by `app.py` (`_FM_TYPES`): `strip`, `shot`, `scene`, `storyline`, `plotline`, `story`, `milestone`, `actor`, `location`, `character` (cine); add new types here + `INDICATORS` dict.
+FM types recognised by `app.py`: see `_FM_TYPES` and the registration checklist above it (cine's types, the business types, `dashboard`/`dotfile`/`help`, and `topic`/`feature` for the help system); add new types there + `INDICATORS` (invariant 36).
 
 ## Specialty headers
 
 `plugins/nbweb-specialty.js` — the typed header bar (`<div class="nb-specialty-header">`)
 rendered above the body for any note whose `type:` is registered in `_cfg` (`project`,
 `report`/`reports`, `dashboard`, `dotfile`, `invoice`, `quote`, `budget`, `tools`, `materials`,
-`transport`, plus whatever other plugins `register()` in — cine's `storyline` registers with
+`transport`, `topic`/`feature` (the help system's docs topics and tour pages, invariant 66), plus whatever other plugins `register()` in — cine's `storyline` registers with
 `noRender: true` purely to get into the nav popup, not to get a header of its own). Grown
 feature-rich enough on its own — pills, pair-chips, a nav popup, an extensible actions slot,
 and now the `[+]` add:org button — that it's worth documenting as its own subsystem rather than
