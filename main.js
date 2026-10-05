@@ -1905,6 +1905,21 @@ const NbMain = (() => {
             el.addEventListener('click', async () => {
                 const sel  = el.dataset.selector;
                 const frag = el.dataset.fragment || '';
+                // [[notebook:folder/]] -- open the folder in the list, and its own
+                // folder/<folder>.md (its dashboard) if it has one, like a folder tab.
+                const ft = (sel || '').trim();
+                if (ft.endsWith('/')) {
+                    const i  = ft.indexOf(':');
+                    const nb = i > 0 ? ft.slice(0, i) : (note?.notebook || NbNav.notebook);
+                    const folder = (i > 0 ? ft.slice(i + 1) : ft).replace(/\/+$/, '');
+                    NbNav.showFolder?.(nb, folder);
+                    const dash = `${nb}:${folder}/${folder.split('/').pop()}.md`;
+                    try {
+                        const r = await fetch(`/api/note?selector=${encodeURIComponent(dash)}`);
+                        if (r.ok) await openNote(dash);
+                    } catch (e) { /* folder only */ }
+                    return;
+                }
                 if (sel) await openNote(await _resolveWikilinkSelector(sel));
                 if (frag) {
                     const pane   = document.getElementById('nb-preview-content');

@@ -46,11 +46,14 @@ const NbNav = (() => {
 
     // ── Notebooks ─────────────────────────────────────────────────
 
-    // The notebook named by the URL hash (#notebook:path/note.md), or null.
-    function _hashNotebook() {
+    // The notebook and folder of the note named by the URL hash (#notebook:path/note.md),
+    // or null.
+    function _hashLocation() {
         const sel = location.hash ? decodeURIComponent(location.hash.slice(1)) : '';
         const i = sel.indexOf(':');
-        return i > 0 ? sel.slice(0, i) : null;
+        if (i <= 0) return null;
+        const path = sel.slice(i + 1);
+        return { nb: sel.slice(0, i), folder: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '' };
     }
 
     async function _loadNotebooks() {
@@ -62,13 +65,15 @@ const NbNav = (() => {
             // Seed scope from nb's actual current notebook on first load -- unless the URL
             // names a note (a refresh, bookmark or shared link): then list that note's
             // notebook, so the list and the preview agree.
-            const urlNb = _hashNotebook();
-            if (urlNb && _notebooks.includes(urlNb)) {
-                _scope = urlNb;
+            const loc = _hashLocation();
+            if (loc && _notebooks.includes(loc.nb)) {
+                _scope = loc.nb;
+                _folder.list = loc.folder;
             } else if (d.current_notebook && _notebooks.includes(d.current_notebook)) {
                 _scope = d.current_notebook;
             }
             renderOptsBar();
+            if (_folder.list) updateBreadcrumb(_folder.list.split('/'));
             // Apply per-notebook defaults now that scope is known, then
             // poll sync status against the correct notebook
             _applyNotebookDefaults(_scope);
@@ -1709,10 +1714,25 @@ const NbNav = (() => {
         drillFolder,
         drillFolderInNotebook,
         goUpFolder,
-        // The address bar changed to another notebook's note: follow it with the list.
+        // The address bar changed to a note elsewhere: show its folder in the list (not when
+        // the list shows all notebooks, which already includes it).
         followHashNotebook() {
-            const nb = _hashNotebook();
-            if (nb && _scope !== '_all' && nb !== _scope && _notebooks.includes(nb)) this.switchNotebook(nb);
+            const loc = _hashLocation();
+            if (!loc || _scope === '_all' || !_notebooks.includes(loc.nb)) return;
+            if (loc.nb !== _scope || loc.folder !== (_folder[_activeCmd] || '')) this.showFolder(loc.nb, loc.folder);
+        },
+        // Show notebook:folder in the list (folder '' = the notebook's top level).
+        showFolder(nb, folder = '') {
+            if (!nb) return;
+            const changed = nb !== _scope;
+            _scope = nb;
+            document.querySelectorAll('.nb-scope-select').forEach(sel => { sel.value = nb; });
+            if (_activeCmd !== 'list') activateCmd('list');
+            _folder[_activeCmd] = folder;
+            if (changed) _applyNotebookDefaults(nb);
+            _updateOutputBar();
+            NbMain.loadNotes();
+            updateBreadcrumb(folder ? folder.split('/') : []);
         },
         switchNotebook(nb) {
             if (!nb || nb === _scope) return;
