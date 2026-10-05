@@ -197,7 +197,10 @@ const NbMain = (() => {
         // this event, so there's no feedback loop with our own navigation.
         window.addEventListener('hashchange', () => {
             const sel = location.hash ? decodeURIComponent(location.hash.slice(1)) : null;
-            if (sel && sel.includes(':') && sel !== _activeSelector) openNote(sel);
+            if (sel && sel.includes(':') && sel !== _activeSelector) {
+                NbNav.followHashNotebook?.();
+                openNote(sel);
+            }
         });
     }
 

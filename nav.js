@@ -46,14 +46,26 @@ const NbNav = (() => {
 
     // ── Notebooks ─────────────────────────────────────────────────
 
+    // The notebook named by the URL hash (#notebook:path/note.md), or null.
+    function _hashNotebook() {
+        const sel = location.hash ? decodeURIComponent(location.hash.slice(1)) : '';
+        const i = sel.indexOf(':');
+        return i > 0 ? sel.slice(0, i) : null;
+    }
+
     async function _loadNotebooks() {
         try {
             const r = await fetch('/api/notebooks');
             const d = await r.json();
             _notebooks     = d.notebooks || [];
             _nbStoredPrefs = d.notebook_prefs || {};
-            // Seed scope from nb's actual current notebook on first load
-            if (d.current_notebook && _notebooks.includes(d.current_notebook)) {
+            // Seed scope from nb's actual current notebook on first load -- unless the URL
+            // names a note (a refresh, bookmark or shared link): then list that note's
+            // notebook, so the list and the preview agree.
+            const urlNb = _hashNotebook();
+            if (urlNb && _notebooks.includes(urlNb)) {
+                _scope = urlNb;
+            } else if (d.current_notebook && _notebooks.includes(d.current_notebook)) {
                 _scope = d.current_notebook;
             }
             renderOptsBar();
@@ -1697,6 +1709,11 @@ const NbNav = (() => {
         drillFolder,
         drillFolderInNotebook,
         goUpFolder,
+        // The address bar changed to another notebook's note: follow it with the list.
+        followHashNotebook() {
+            const nb = _hashNotebook();
+            if (nb && _scope !== '_all' && nb !== _scope && _notebooks.includes(nb)) this.switchNotebook(nb);
+        },
         switchNotebook(nb) {
             if (!nb || nb === _scope) return;
             _scope = nb;
