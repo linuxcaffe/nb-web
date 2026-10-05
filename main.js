@@ -2248,9 +2248,19 @@ const NbMain = (() => {
         NbUiChrome.refreshExtrasState(note);
     }
 
+    // Tab labels (alias -> title -> filename), cached per target for the session. They used to
+    // be fetched fresh on every navigation, all at once; quick tab hopping then filled the
+    // browser's six connections and stalled page loads. Fetched one at a time now, and a
+    // rebuilt strip stops the old one's fetches (_tabsGen).
+    const _tabLabelCache = new Map();
+    let _tabsGen = 0;
+
     async function _buildTabs(note) {
         const bar = document.getElementById('nb-tabs-bar');
         if (!bar) return;
+        const gen = ++_tabsGen;
+        if (note?.selector) _tabLabelCache.set(note.selector, note.meta?.alias || note.title || note.filename || note.selector);
+        const pendingLabels = [];
         bar.innerHTML = '';
         bar.hidden = true;
 
@@ -2290,6 +2300,7 @@ const NbMain = (() => {
             const active = sel === note.selector;
             const btn = document.createElement('button');
             btn.className = 'nb-tab' + (active ? ' nb-tab--active' : '');
+            btn.dataset.selector = sel;   // the resolved target, for debugging and tests
             if (active && note.tag_color) {
                 const tc = _matchTagColor(note.tag_color, note.tags);
                 if (tc) btn.style.setProperty('--tab-active-color', tc);
@@ -2304,14 +2315,23 @@ const NbMain = (() => {
                     NbNav.showFolder(nb, rest.join(':').replace(/\/+$/, ''));   // '' = notebook root
                 });
             } else {
-                btn.textContent = sel.split(':').pop().replace(/\.md$/, '');  // interim label
+                const cached = _tabLabelCache.get(sel);
+                btn.textContent = cached || sel.split(':').pop().replace(/\.md$/, '');  // interim label
                 if (!active) btn.addEventListener('click', () => openNote(sel));
-                fetch('/api/note?selector=' + encodeURIComponent(sel))
-                    .then(r => r.ok ? r.json() : null)
-                    .then(d => { if (d) btn.textContent = d.meta?.alias || d.title || d.filename || sel; })
-                    .catch(() => {});
+                if (!cached) pendingLabels.push([sel, btn]);
             }
             bar.appendChild(btn);
+        }
+        for (const [sel, btn] of pendingLabels) {
+            if (gen !== _tabsGen) return;   // the strip was rebuilt; its own pass takes over
+            try {
+                const r = await fetch('/api/note?selector=' + encodeURIComponent(sel));
+                const d = r.ok ? await r.json() : null;
+                if (d) {
+                    _tabLabelCache.set(sel, d.meta?.alias || d.title || d.filename || sel);
+                    btn.textContent = _tabLabelCache.get(sel);
+                }
+            } catch (e) { /* keep the interim label */ }
         }
     }
 
