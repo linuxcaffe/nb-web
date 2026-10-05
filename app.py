@@ -2124,7 +2124,9 @@ def _indicator(itype, todo_status=None, fpath=None):
     return INDICATORS.get(itype, '')
 
 
-ANSI_RE = re.compile(r'\x1b\[[0-9;]*m|\x1b\([A-Za-z0-9]')
+# Any CSI sequence (ESC [ params letter: colours, and nb search's ESC[?7l / ESC[?7h line-wrap
+# toggles around every result line), plus the ESC ( B charset escape. Invariant 46.
+ANSI_RE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]|\x1b\([A-Za-z0-9]')
 
 
 def strip_ansi(s):
@@ -8035,36 +8037,48 @@ def _read_excerpt(nb_name, raw_id_or_sel):
     return ''
 
 
+def _note_tag_set(path):
+    """A note's tags as the note list counts them: frontmatter tags: plus #hashtags, lowercased."""
+    try:
+        meta, body = parse_frontmatter(Path(path).read_text(errors='replace'))
+    except Exception:
+        return set()
+    raw = meta.get('tags', '') if isinstance(meta, dict) else ''
+    fm = raw if isinstance(raw, list) else str(raw or '').replace(',', ' ').split()
+    tags = {str(t).strip().lstrip('#') for t in fm if str(t).strip()}
+    tags.update(re.findall(r'#([\w/-]+)', body or ''))
+    return {t.lower() for t in tags}
+
+
 def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
-    """Fast tag filter via grep — AND logic for positive tags, exclusion for -tag."""
+    """Tag filter -- AND logic for positive tags, exclusion for -tag. A tag counts if it's in the
+    note's frontmatter tags: or a #hashtag in its text (_note_tag_set). grep only narrows the
+    candidates (files containing the word at all); each candidate's real tags decide."""
     pos_tags, neg_tags = [], []
     for raw in re.split(r'[\s,]+', tag_query):
         raw = raw.strip()
         if not raw:
             continue
         if raw.startswith('-'):
-            t = raw[1:]
-            neg_tags.append(t if t.startswith('#') else '#' + t)
-        else:
-            pos_tags.append(raw if raw.startswith('#') else '#' + raw)
-
-    if not pos_tags and not neg_tags:
-        pos_tags = ['#' + tag_query.strip().lstrip('#')]
+            if raw[1:].lstrip('#'):
+                neg_tags.append(raw[1:].lstrip('#').lower())
+        elif raw.lstrip('#'):
+            pos_tags.append(raw.lstrip('#').lower())
 
     search_root = NB_DIR / notebook if notebook else NB_DIR
+
+    def _files_with_word(word):
+        r = subprocess.run(['grep', '-rliwF', '--exclude-dir=.git', '--', word, str(search_root)],
+                           capture_output=True, text=True, timeout=15)
+        return {p for p in r.stdout.splitlines() if not Path(p).name.startswith('.')}
+
     try:
-        # Positive tags: intersect (file must contain ALL)
         if pos_tags:
-            path_sets = []
-            for tag in pos_tags:
-                r = subprocess.run(
-                    ['grep', '-rl', tag, str(search_root)],
-                    capture_output=True, text=True, timeout=15
-                )
-                path_sets.append(set(r.stdout.splitlines()))
-            matched_set = path_sets[0].intersection(*path_sets[1:])
+            cands = _files_with_word(pos_tags[0])
+            for t in pos_tags[1:]:
+                cands &= _files_with_word(t)
+            matched_set = {p for p in cands if set(pos_tags) <= _note_tag_set(p)}
         else:
-            # Negative-only: start from all non-hidden files in the notebook
             r_all = subprocess.run(
                 ['find', str(search_root), '-type', 'f',
                  '!', '-path', '*/.git/*', '!', '-name', '.*'],
@@ -8072,13 +8086,8 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
             )
             matched_set = set(r_all.stdout.splitlines())
 
-        # Negative tags: subtract (file must contain NONE)
-        for tag in neg_tags:
-            r = subprocess.run(
-                ['grep', '-rl', tag, str(search_root)],
-                capture_output=True, text=True, timeout=15
-            )
-            matched_set -= set(r.stdout.splitlines())
+        for t in neg_tags:
+            matched_set -= {p for p in _files_with_word(t) if t in _note_tag_set(p)}
 
         matched = list(matched_set)
     except Exception:
