@@ -925,6 +925,34 @@ def api_help_category():
     return jsonify(out)
 
 
+def _topic_links(meta):
+    """For a note with topic: -- its topic note (help_topics notebook) and its tour page
+    (<features_notebook>:<category>/<topic>.md), each only if it exists and the user may open
+    it. The topic: and category: come from the note itself (a topic note) or, for a tour page,
+    from its topic note."""
+    topic = str(meta.get('topic') or '').strip()
+    out = {}
+    if not topic:
+        return out
+    user = session.get('user', {})
+    docs_meta = _notebook_config(_help_topic_notebook())
+    doc_sel, doc_meta = None, None
+    for sel, tmeta, _ in _help_topics():
+        if str(tmeta.get('topic') or '').strip() == topic:
+            doc_sel, doc_meta = sel, tmeta
+            break
+    is_topic_note = str(meta.get('type') or '') == 'topic'
+    if doc_sel and not is_topic_note and _can_access(user, doc_meta, docs_meta):
+        out['doc'] = doc_sel
+    category = str(meta.get('category') or (doc_meta or {}).get('category') or '').strip()
+    fnb = _features_notebook()
+    if is_topic_note and category and re.fullmatch(r'[a-z0-9-]+', category) and re.fullmatch(r'[\w-]+', topic):
+        page = NB_DIR / fnb / category / f'{topic}.md'
+        if page.is_file() and _notebook_in_scope(user, fnb) and _can_access(user, {}, _notebook_config(fnb)):
+            out['feature'] = f'{fnb}:{category}/{topic}.md'
+    return out
+
+
 def _resolve_help_list(meta, nb_meta, notebook, note_path, itype, body=None):
     """Combine the three help: sources into the final popover entry list.
 
@@ -2065,6 +2093,8 @@ INDICATORS = {
     'dashboard':   '🗂️',
     'production':  '🎥',
     'help':        '❓',
+    'topic':       '📘',
+    'feature':     '🎯',
     'note':        '',
     'dotfile':     '⚙',
     'code':        '📋',
@@ -2099,8 +2129,11 @@ INDICATORS = {
 #   resource  — BTL line-item resource (rate, unit)  🎁  (NbWeb-cine plugin)
 #   production — one per notebook, company/ATL admin source 🎥  (NbWeb-cine plugin)
 #   help      — a .lib/help-*.md help-popover source note  ❓  (core, so fm queries can list them)
+#   topic     — a docs: topic note (help_for:, ## Summary layers) 📘  (core, help system)
+#   feature   — a features: tour page, scratchpad in its sidecar  🎯  (core, help system)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'character', 'location', 'day', 'resource', 'dotfile', 'journal',
-                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production'})
+                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production',
+                       'topic', 'feature'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
@@ -8643,7 +8676,7 @@ def api_note():
     parent_meta = {}
     parent_meta_sources = {}
 
-    return jsonify({
+    resp = {
         'selector': selector,
         'notebook': note_notebook or '',
         'id':       note_id,
@@ -8678,7 +8711,10 @@ def api_note():
         'effective_add_org': _resolve_add_org_list(meta, nb_meta, note_notebook, fpath, itype) if note_notebook else '',
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
-    })
+    }
+    if meta.get('topic'):
+        resp['topic_links'] = _topic_links(meta)
+    return jsonify(resp)
 
 
 # ---------------------------------------------------------------------------

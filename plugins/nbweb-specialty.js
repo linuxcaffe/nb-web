@@ -103,6 +103,8 @@
         invoice:   { icon: '🧾', label: 'Invoice' },
         dashboard: { icon: '🗂️', label: 'Dashboard' },
         dotfile:   { icon: '⚙️', label: 'Config'    },
+        topic:     { icon: '📘', label: 'Topic'     },   // a docs: topic note (help system)
+        feature:   { icon: '🎯', label: 'Feature'   },   // a features: tour page
     };
 
     // Type help popover moved to main.js (NbMain's internal _showTypeHelp) as part of
@@ -301,6 +303,20 @@
             if (note.meta?.invoice_num) pills.push(`<span class="nb-specialty-pill">${_esc(note.meta.invoice_num)}</span>`);
             if (note.meta?.due)         pills.push(`<span class="nb-specialty-pill">due: ${_esc(note.meta.due)}</span>`);
             if (note.meta?.status)      pills.push(`<span class="nb-specialty-pill${statusCls}">${_esc(note.meta.status)}</span>`);
+            pillsHtml = pills.join('');
+        } else if (note.type === 'topic') {
+            // category, then the contexts it's help for (help_for:)
+            const ctx = Array.isArray(note.meta?.help_for) ? note.meta.help_for
+                : String(note.meta?.help_for || '').split(',').map(c => c.trim()).filter(Boolean);
+            if (note.meta?.category) pills.push(`<span class="nb-specialty-pill">${_esc(note.meta.category)}</span>`);
+            ctx.forEach(c => pills.push(`<span class="nb-specialty-pill nb-topic-ctx">${_esc(c)}</span>`));
+            if (note.topic_links?.feature)
+                pills.push(`<a class="nb-specialty-link" href="#" data-open="${_esc(note.topic_links.feature)}">Try it</a>`);
+            pillsHtml = pills.join('');
+        } else if (note.type === 'feature') {
+            if (note.topic_links?.doc)
+                pills.push(`<a class="nb-specialty-link" href="#" data-open="${_esc(note.topic_links.doc)}">Read the docs</a>`);
+            pills.push(`<button class="nb-specialty-action nb-feature-try" title="Jump to this page's scratchpad">Try it ↓</button>`);
             pillsHtml = pills.join('');
         } else {
             if (note.meta?.status)       pills.push(note.meta.status);
@@ -642,6 +658,14 @@
         document.dispatchEvent(new CustomEvent('nb-timeframe-changed', {
             detail: { timeframe, selector: reportsSel },
         }));
+    });
+
+    // Feature page header: Try it ↓ jumps to the scratchpad (the page's annotation).
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.nb-feature-try')) return;
+        e.preventDefault();
+        document.querySelector('#nb-preview-content .nb-annotation-foot')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
     // ── Specialty nav popup — click wiring ───────────────────────────────────
