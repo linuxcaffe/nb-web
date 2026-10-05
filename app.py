@@ -8714,6 +8714,14 @@ def api_note():
     }
     if meta.get('topic'):
         resp['topic_links'] = _topic_links(meta)
+    # Inherited tabs: resolve bare names from the folder whose config set them.
+    if 'tabs' in resp['effective_fm'] and note_notebook:
+        try:
+            _, srcs = _folder_config_sources(note_notebook, fpath)
+            src = srcs.get('tabs', '')
+            resp['tabs_base'] = src.rsplit('/', 1)[0] if '/' in src else ''
+        except Exception:
+            resp['tabs_base'] = ''
     return jsonify(resp)
 
 

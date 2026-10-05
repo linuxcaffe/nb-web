@@ -2265,17 +2265,20 @@ const NbMain = (() => {
             if (entry.includes(':')) return entry;  // already a full selector
             const nb  = note.notebook || NbNav.notebook;
             // A note's own tabs: are relative to its folder (from its selector path;
-            // note.filename is the bare name). Inherited ones (notebook/folder config) stay
-            // relative to the notebook root, which existing configs rely on.
+            // note.filename is the bare name). Inherited ones are relative to the folder whose
+            // config set them (tabs_base from /api/note; '' = the notebook root).
             const path = (note.selector || '').includes(':') ? note.selector.slice(note.selector.indexOf(':') + 1) : '';
-            const rel = note?.meta?.tabs != null ? path.split('/').slice(0, -1).join('/') : '';
+            const rel = note?.meta?.tabs != null ? path.split('/').slice(0, -1).join('/') : (note.tabs_base || '');
             // Normalise ../  paths relative to note's folder
             const parts = (rel ? rel + '/' : '') + entry;
             const resolved = parts.split('/').reduce((acc, seg) => {
                 if (seg === '..') { acc.pop(); } else if (seg && seg !== '.') { acc.push(seg); }
                 return acc;
             }, []);
-            return nb + ':' + resolved.join('/');
+            // A bare name with no extension means a note: `note-list` -> note-list.md
+            const last = resolved[resolved.length - 1] || '';
+            if (!entry.endsWith('/') && last && !last.includes('.')) resolved[resolved.length - 1] = last + '.md';
+            return nb + ':' + resolved.join('/') + (entry.endsWith('/') ? '/' : '');
         }
 
         bar.hidden = false;
@@ -2298,7 +2301,7 @@ const NbMain = (() => {
                 btn.textContent = segments.filter(Boolean).pop() || raw;
                 if (!active) btn.addEventListener('click', () => {
                     const [nb, ...rest] = sel.split(':');
-                    NbNav.drillFolderInNotebook(nb, rest.join(':').replace(/\/$/, ''));
+                    NbNav.showFolder(nb, rest.join(':').replace(/\/+$/, ''));   // '' = notebook root
                 });
             } else {
                 btn.textContent = sel.split(':').pop().replace(/\.md$/, '');  // interim label
