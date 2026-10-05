@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """nb-web — Flask backend for nb note-taking web interface."""
 
+import collections
+import copy
 import fnmatch
 import json
 import errno
@@ -437,6 +439,31 @@ def read_index(notebook, folder=''):
         return []
 
 
+# Parsed YAML frontmatter, keyed by the frontmatter text itself: an edited file is just a new
+# key, so nothing needs invalidating. One /api/note re-parsed the same config files ~30 times
+# (docs:dev/dev-render-pipeline.md bottleneck 7). Callers get deep copies, because many merge
+# into the dicts they're given.
+_FM_CACHE = collections.OrderedDict()
+_FM_CACHE_MAX = 2048
+_FM_CACHE_LOCK = threading.Lock()
+
+
+def _yaml_frontmatter(block):
+    with _FM_CACHE_LOCK:
+        hit = _FM_CACHE.get(block)
+        if hit is not None:
+            _FM_CACHE.move_to_end(block)
+    if hit is not None:
+        return copy.deepcopy(hit)
+    parsed = _yaml.safe_load(block)
+    if isinstance(parsed, dict):
+        with _FM_CACHE_LOCK:
+            _FM_CACHE[block] = copy.deepcopy(parsed)
+            while len(_FM_CACHE) > _FM_CACHE_MAX:
+                _FM_CACHE.popitem(last=False)
+    return parsed
+
+
 def parse_frontmatter(text):
     """Return (meta_dict, body_str) from a markdown file.
 
@@ -459,7 +486,7 @@ def parse_frontmatter(text):
             block = fm_text[3:end].strip()
             if _YAML_OK:
                 try:
-                    parsed = _yaml.safe_load(block)
+                    parsed = _yaml_frontmatter(block)
                     if isinstance(parsed, dict):
                         meta = parsed
                 except Exception:
@@ -2599,6 +2626,49 @@ def api_create_export_template():
 # API: Serve raw file (images, audio, video, PDF …)
 # ---------------------------------------------------------------------------
 
+def _selector_disk_path(selector):
+    """notebook:path -> the Path it names on disk, or None. The path must stay inside the
+    notebook it names: 'home:../.users/x.md' is None (found 2026-10-05, it used to resolve
+    anywhere inside NB_DIR, so any user could read password hashes). Dotfolder selectors
+    ('.users:x.md') resolve inside that dotfolder; their callers check admin access."""
+    if ':' not in selector:
+        return None
+    nb_name, rel = selector.split(':', 1)
+    if not nb_name or '/' in nb_name or nb_name in ('.', '..') or not rel:
+        return None
+    # Lexical, not resolve(): a symlink inside a notebook (nb:README.md -> ~/dev/...) is the
+    # author's choice; what must not happen is '../' in the selector walking out.
+    base = Path(os.path.normpath(NB_DIR / nb_name))
+    p = Path(os.path.normpath(base / rel))
+    try:
+        p.relative_to(base)
+    except ValueError:
+        return None
+    return p if p.exists() else None
+
+
+def _confined_to_selector(selector, path):
+    """Path, resolved, if it lies in the notebook the selector names (or, for a selector with no
+    notebook, in a regular non-dot notebook); else None. Applied to `nb show` results too: nb
+    itself follows '../' (`nb show home:../.users/x.md --path` prints .../home/../.users/x.md)."""
+    try:
+        p = Path(os.path.normpath(path))   # lexical: symlinks inside a notebook are fine
+        top = p.relative_to(os.path.normpath(NB_DIR)).parts[0]
+    except (ValueError, OSError, IndexError):
+        return None
+    if ':' in selector:
+        return p if top == selector.split(':', 1)[0] else None
+    return None if top.startswith('.') else p
+
+
+def _is_plain_path_selector(selector):
+    """notebook:folder/file.ext -- names a file directly, so `nb show` isn't needed (ids and
+    titles like home:1 still are)."""
+    rel = selector.split(':', 1)[1] if ':' in selector else ''
+    last = rel.rsplit('/', 1)[-1]
+    return '.' in last.lstrip('.') or (last.startswith('.') and last.endswith('.md'))
+
+
 def _resolve_to_nb_path(selector):
     """Return Path within NB_DIR for selector, or None on error/traversal.
 
@@ -2617,25 +2687,20 @@ def _resolve_to_nb_path(selector):
             return None
         return p if p.exists() else None
 
+    # A plain notebook:path.ext names its file: no `nb` subprocess (~0.14 s) needed.
+    if _is_plain_path_selector(selector):
+        p = _selector_disk_path(selector)
+        if p is not None:
+            return p
+        if '..' in selector.split(':', 1)[-1].split('/'):
+            return None   # escapes its notebook; don't let `nb show` follow it
+
     path_r = run_nb('show', selector, '--path')
     if nb_ok(path_r):
-        p = Path(path_r['stdout'].strip())
-        try:
-            p.relative_to(NB_DIR)
-        except ValueError:
-            return None
-        return p
+        return _confined_to_selector(selector, path_r['stdout'].strip())
     # Fallback for non-indexed files (images, attachments) via direct path construction.
     # nb show won't find them but the file exists at NB_DIR/notebook/rel_path.
-    if ':' in selector:
-        nb_name, rel = selector.split(':', 1)
-        try:
-            p = (NB_DIR / nb_name / rel).resolve()
-            p.relative_to(NB_DIR)  # must stay within NB_DIR
-            return p if p.exists() else None
-        except (ValueError, OSError):
-            pass
-    return None
+    return _selector_disk_path(selector)
 
 
 def _notebook_for_path(note_path: Path) -> str:
@@ -2739,8 +2804,10 @@ def api_gallery():
 
     if path_arg:
         if ':' in path_arg:
-            nb_name, rel = path_arg.split(':', 1)
-            p = (NB_DIR / nb_name / rel.strip('/')).resolve()
+            # confined to the named notebook ('home:../.users' is refused)
+            p = _selector_disk_path(path_arg.rstrip('/'))
+            if p is None:
+                return jsonify({'error': 'path outside its notebook'}), 400
         else:
             p = Path(path_arg).expanduser().resolve()
         try:
@@ -8558,26 +8625,24 @@ def api_note():
             if not Path(fpath).exists():
                 return jsonify({'error': 'not found'}), 404
         else:
-            # Resolve selector to a real path first (handles both filename and id selectors)
-            path_r = run_nb('show', selector, '--path')
-            if not nb_ok(path_r):
-                # Fallback: direct filesystem lookup for dotfiles not indexed by nb.
-                # Handles Takeout:.Takeout.md, Takeout:shots/.shots.md, etc.
-                if ':' in selector:
-                    _nb, _, _rel = selector.partition(':')
-                    try:
-                        _p = (NB_DIR / _nb / _rel).resolve()
-                        _p.relative_to(NB_DIR)  # must stay within NB_DIR
-                        if _p.is_file():
-                            fpath = str(_p)
-                        else:
-                            return jsonify({'error': 'not found'}), 404
-                    except (ValueError, OSError):
-                        return jsonify({'error': 'not found'}), 404
-                else:
-                    return jsonify({'error': 'not found'}), 404
+            # A plain notebook:path.ext names its file directly; ids and titles need `nb show`.
+            # Either way the path must stay inside the notebook it names (_selector_disk_path).
+            _p = _selector_disk_path(selector) if _is_plain_path_selector(selector) else None
+            if _p is not None and _p.is_file():
+                fpath = str(_p)
+            elif '..' in selector.split(':', 1)[-1].split('/'):
+                return jsonify({'error': 'not found'}), 404   # escapes its notebook
             else:
-                fpath = path_r['stdout'].strip()
+                path_r = run_nb('show', selector, '--path')
+                _shown = _confined_to_selector(selector, path_r['stdout'].strip()) if nb_ok(path_r) else None
+                if _shown is not None:
+                    fpath = str(_shown)
+                else:
+                    # Dotfiles not indexed by nb (Takeout:.Takeout.md, Takeout:shots/.shots.md).
+                    _p = _selector_disk_path(selector)
+                    if _p is None or not _p.is_file():
+                        return jsonify({'error': 'not found'}), 404
+                    fpath = str(_p)
 
     # Determine notebook name and numeric id from filesystem path
     p = Path(fpath)
@@ -8791,9 +8856,12 @@ def _folder_selector_to_dir(selector: str) -> 'Path | None':
     if not _safe_notebook(nb_name):
         return None
     rel = rel.strip('/')
-    p = NB_DIR / nb_name / rel if rel else NB_DIR / nb_name
+    # Normalised and confined to the named notebook: 'home:../.users' must not reach .users
+    # (folder move / copy / lock use this; found 2026-10-05).
+    base = Path(os.path.normpath(NB_DIR / nb_name))
+    p = Path(os.path.normpath(base / rel)) if rel else base
     try:
-        p.relative_to(NB_DIR)
+        p.relative_to(base)
     except ValueError:
         return None
     return p if p.is_dir() else None
