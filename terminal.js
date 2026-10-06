@@ -70,6 +70,8 @@ const NbTerminal = (() => {
                 <div id="nb-pty-titlebar" style="display:flex;align-items:center;justify-content:space-between;
                      padding:4px 12px;background:#111;color:#aaa;font-size:12px;flex-shrink:0">
                     <span>terminal</span>
+                    <span style="flex:1"></span>
+                    <button id="nb-pty-help-btn" title="Help for the terminal" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1em;padding:2px 6px">?</button>
                     <button id="nb-pty-close" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:1.1em;padding:2px 6px">×</button>
                 </div>
                 <div id="nb-pty-container" style="flex:1;overflow:hidden;padding:4px 6px"></div>
@@ -77,6 +79,7 @@ const NbTerminal = (() => {
             </div>`;
 
         document.getElementById('nb-pty-close').addEventListener('click', close);
+        document.getElementById('nb-pty-help-btn').addEventListener('click', e => NbMain.showPageHelp(e.currentTarget, 'terminal'));
 
         const wrap      = document.getElementById('nb-pty-wrap');
         const container = document.getElementById('nb-pty-container');

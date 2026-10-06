@@ -948,6 +948,19 @@ const NbMain = (() => {
         setTimeout(() => document.addEventListener('click', outside, true), 0);
     }
 
+    // A page's own ? (editor, note list, terminal, Notebooks page): the topics whose help_for:
+    // names page:<page>, under the current notebook's help_header line. A second click closes.
+    async function showPageHelp(trigger, page) {
+        if (trigger._helpPop) { _showTypeHelp(trigger, [], null); return; }
+        let topics = [], header = '';
+        try {
+            const nb = NbNav.notebook && NbNav.notebook !== '_all' ? NbNav.notebook : '';
+            const r = await fetch(`/api/help/page?name=${encodeURIComponent(page)}${nb ? '&notebook=' + encodeURIComponent(nb) : ''}`);
+            if (r.ok) { const j = await r.json(); topics = j.topics || []; header = j.help_header || ''; }
+        } catch (e) { /* show what we have */ }
+        _showTypeHelp(trigger, topics, { ...(_activeNote || {}), type: 'page', effective_help_header: header });
+    }
+
     const _UNEDITABLE_TYPES = ['sheet','image','audio','video','pdf','ebook','document','archive'];
 
     // Single source of truth for whether #nb-edit-btn is editable right now, and
@@ -4487,6 +4500,8 @@ const NbMain = (() => {
         const _mkdModal = document.getElementById('nb-mkd-modal');
         function _toggleMkdModal() { _mkdModal.hidden = !_mkdModal.hidden; }
         document.getElementById('nb-mkd-ref-btn').addEventListener('click', _toggleMkdModal);
+        document.getElementById('nb-editor-help-btn')?.addEventListener('click', e => showPageHelp(e.currentTarget, 'editor'));
+        document.getElementById('nb-list-help-btn')?.addEventListener('click', e => showPageHelp(e.currentTarget, 'list'));
         document.getElementById('nb-mkd-modal-close').addEventListener('click', () => { _mkdModal.hidden = true; });
         document.querySelectorAll('.nb-mkd-ref-trigger').forEach(b => b.addEventListener('click', _toggleMkdModal));
         _mkdModal.addEventListener('click', e => { if (e.target === _mkdModal) _mkdModal.hidden = true; });
@@ -5800,6 +5815,7 @@ const NbMain = (() => {
              clearNote,
              activeSelector: () => _activeSelector,
              activeNote:     () => _activeNote,
+             showPageHelp,
              activeType:     () => _activeType,
              activeFilename: () => _activeFilename,
              selectedSelectors: () => NbUiChrome.selectedSelectors(),

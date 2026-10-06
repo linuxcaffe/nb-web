@@ -449,6 +449,7 @@ const NbNotebooksPage = (() => {
                     <span style="font-size:15px">📒</span>
                     <strong style="font-size:13px;color:var(--text)">${_esc(name)}</strong>
                     <span style="color:${syncColor}">${_esc(syncStatus)}</span>
+                    <button id="nb-nb-help-btn" class="nb-tool-btn" style="margin-left:auto" title="Help for the Notebooks page">?</button>
                 </div>
                 <div style="padding:18px 28px 0;display:grid;gap:6px;font-size:12px;
                             grid-template-columns:max-content 1fr;align-items:baseline;
@@ -555,6 +556,7 @@ const NbNotebooksPage = (() => {
                         <span id="nb-nb-prefs-status" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
                     </div>
                 </div>`;
+            content.querySelector('#nb-nb-help-btn')?.addEventListener('click', e => NbMain.showPageHelp(e.currentTarget, 'notebooks'));
 
             // Plugin sections — one per active NbWeb module for this notebook
             const nbObj = NbWeb.notebooks().find(nb => nb.name === name);

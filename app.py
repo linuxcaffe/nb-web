@@ -924,6 +924,24 @@ def _features_notebook():
 _CHAPTER_RE = re.compile(r'^\s*\{\{inline:\s*[^:}\s]+:([\w-]+)/([\w-]+)\.md\s*\}\}\s*$', re.M)
 
 
+@app.route('/api/help/page')
+def api_help_page():
+    """Topics whose help_for: names page:<name> -- for the ? buttons on the editor, the note
+    list, the terminal and the Notebooks page -- and the help_header to show above them (for
+    ?notebook=, else the global one). Topics the user can't open are left out."""
+    name = request.args.get('name', '').strip().lower()
+    if not re.fullmatch(r'[a-z0-9-]+', name):
+        return jsonify({'error': 'invalid page'}), 400
+    user = session.get('user', {})
+    docs_meta = _notebook_config(_help_topic_notebook())
+    ctx = f'page:{name}'
+    topics = [sel for sel, tmeta, tctx in _help_topics()
+              if ctx in tctx and _can_access(user, tmeta, docs_meta)]
+    nb = request.args.get('notebook', '').strip()
+    cfg = _notebook_config(nb) if nb and _safe_notebook(nb) else _global_config()
+    return jsonify({'topics': topics, 'help_header': str(cfg.get('help_header') or '')})
+
+
 @app.route('/api/help/category')
 def api_help_category():
     """Topics of one features: category in its dashboard's chapter order, for the line of
