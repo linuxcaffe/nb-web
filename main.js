@@ -366,11 +366,16 @@ const NbMain = (() => {
             const pluginSort = NbWeb.getSortOptions(NbNav.notebook).find(s => s.id === _sortMode);
             if (pluginSort) result = pluginSort.sort(result);
         }
-        // Group: folders → pinned → rest (stable within each group via prior sort)
-        const folders = result.filter(n => n.type === 'folder');
-        const pinned  = result.filter(n => n.type !== 'folder' && _pinnedSelectors.has(n.selector));
-        const rest    = result.filter(n => n.type !== 'folder' && !_pinnedSelectors.has(n.selector));
-        result = _foldersFirst ? [...folders, ...pinned, ...rest] : [...pinned, ...folders, ...rest];
+        // Group: folders → frontmatter-pinned → menu-pinned → rest (stable within each group).
+        // A frontmatter pin (pinned: true, or the folder config's pinned: <name>; the server's
+        // `pinned` field) lives in the note and is the same in every browser; a menu pin
+        // (_pinnedSelectors, localStorage) is per browser. Dashboards are just frontmatter-pinned
+        // notes, so a folder's auto-select lands on its dashboard (djp, 2026-10-06).
+        const folders  = result.filter(n => n.type === 'folder');
+        const fmPinned = result.filter(n => n.type !== 'folder' && n.pinned);
+        const pinned   = result.filter(n => n.type !== 'folder' && !n.pinned && _pinnedSelectors.has(n.selector));
+        const rest     = result.filter(n => n.type !== 'folder' && !n.pinned && !_pinnedSelectors.has(n.selector));
+        result = _foldersFirst ? [...folders, ...fmPinned, ...pinned, ...rest] : [...fmPinned, ...pinned, ...folders, ...rest];
         return result;
     }
 
@@ -513,7 +518,7 @@ const NbMain = (() => {
 
             const icon = document.createElement('span');
             icon.className = 'nb-list-icon';
-            const _isPinned = _pinnedSelectors.has(note.selector);
+            const _isPinned = !!note.pinned || _pinnedSelectors.has(note.selector);
             const _iconTip = { '📌': 'Pinned to top', '📝': 'Note',
                                '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Closed todo',
                                '🔖': 'Bookmark', '🔗': 'Linked file', '🔒': 'Encrypted', '📂': 'Folder',
@@ -779,12 +784,9 @@ const NbMain = (() => {
                     // else: large-note still loading — leave dataset for its render handler
                 });
             }
-            if (d.meta?.pinned && !_pinnedSelectors.has(selector)) {
-                _pinnedSelectors.add(selector);
-                localStorage.setItem('nb-pinned', JSON.stringify([..._pinnedSelectors]));
-                document.getElementById('nb-pin-indicator').hidden = false;
-                renderList(_getSortedNotes(_lastNotes), true);
-            }
+            // A frontmatter pin shows as pinned but is no longer copied into the menu pins
+            // (that copy outlived a later unpin in the frontmatter).
+            if (d.meta?.pinned) document.getElementById('nb-pin-indicator').hidden = false;
             if (NbDialog.isOpen()) NbDialog.refresh();
         } catch (e) {
             if (e.name === 'AbortError' || _navSignal.aborted) return;   // superseded

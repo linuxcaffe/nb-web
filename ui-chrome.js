@@ -253,21 +253,33 @@ const NbUiChrome = (() => {
     // pin/unpin (group 'pin'), save-as-template (group 'template'), undo/
     // history restore (group 'edit'). No server-side enforcement yet.
 
+    // A frontmatter pin (pinned: true in the note) -- its own kind since 2026-10-06, sorted
+    // before menu pins and not copied into them.
+    function _fmPinned(note) {
+        return String(note?.meta?.pinned ?? '').trim().toLowerCase() === 'true';   // same rule as the server
+    }
+
+    // Menu pin/unpin. A menu pin is per browser (localStorage). Unpinning a frontmatter-pinned
+    // note blanks its value (`pinned:`) rather than deleting the line: a clue that it was
+    // pinned, still findable with an fm query (djp, 2026-10-06).
     function _togglePin() {
         const sel = NbMain.activeSelector();
         if (!sel) return;
         const pinned = NbMain.pinnedSelectors();
-        if (pinned.has(sel)) {
+        const note = NbMain.activeNote();
+        const fm = _fmPinned(note);
+        if (pinned.has(sel) || fm) {
             pinned.delete(sel);
-            const note = NbMain.activeNote();
-            if (note?.meta?.pinned) {
-                const newRaw = note.raw.replace(/^pinned:[ \t]*\S.*\n?/m, '');
-                fetch('/api/note', { method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({selector: sel, content: newRaw}) });
+            if (fm) {
+                const newRaw = note.raw.replace(/^pinned:[ \t]*\S.*$/m, 'pinned:');
                 // Bypasses NbMain.saveNote entirely -- flagged design smell, not
                 // fixed this pass (see claude:mainjs-split-design.md § Tier 4).
-                NbMain.setActiveNote({...note, meta: {...note.meta, pinned: undefined}});
+                fetch('/api/note', { method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({selector: sel, content: newRaw}) })
+                    .then(() => { NbMain.bustNoteCache(sel); NbMain.loadNotes(); })
+                    .catch(() => {});
+                NbMain.setActiveNote({...note, raw: newRaw, meta: {...note.meta, pinned: null}});
             }
         } else {
             pinned.add(sel);
@@ -322,7 +334,7 @@ const NbUiChrome = (() => {
             const sel     = NbMain.activeSelector();
             const hasNote = !!sel;
             _showDropdown(btn, [
-                { label: NbMain.pinnedSelectors().has(sel) ? '📌 Unpin from list' : '📌 Pin to list top',
+                { label: (NbMain.pinnedSelectors().has(sel) || _fmPinned(NbMain.activeNote())) ? '📌 Unpin from list' : '📌 Pin to list top',
                   disabled: !hasNote || !NbUiAccess.can(btn, 'pin', 'use'),
                   action: _togglePin },
                 { label: _isFullscreen ? '⛶ Exit full screen' : '⛶ Full screen',
