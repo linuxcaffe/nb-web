@@ -882,6 +882,16 @@ def _help_for_matches(meta, body, notebook, itype):
     topics = _help_topics()
     if not topics:
         return []
+    user = session.get('user', {}) if request else {}
+    docs_meta = _notebook_config(_help_topic_notebook())
+    out = []
+    # A page about a topic (a features: tour page) leads with that topic's own note.
+    own = str(meta.get('topic') or '').strip()
+    if own and itype != 'topic':
+        for sel, tmeta, _ in topics:
+            if str(tmeta.get('topic') or '').strip() == own and _can_access(user, tmeta, docs_meta):
+                out.append(sel)
+                break
     contexts = []
     if itype:
         contexts.append(f'type:{itype}')
@@ -899,9 +909,6 @@ def _help_for_matches(meta, body, notebook, itype):
     contexts += [f'key:{str(k).lower()}' for k in meta]
     if notebook:
         contexts.append(f'notebook:{notebook.lower()}')
-    user = session.get('user', {}) if request else {}
-    docs_meta = _notebook_config(_help_topic_notebook())
-    out = []
     for ctx in dict.fromkeys(contexts):
         for sel, tmeta, tctx in topics:
             if ctx in tctx and _can_access(user, tmeta, docs_meta):
@@ -8773,6 +8780,9 @@ def api_note():
         'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
         'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
         'effective_help': _resolve_help_list(meta, nb_meta, note_notebook, fpath, itype, body),
+        # One line of Markdown on top of every ? popover; nearest wins (note -> folder ->
+        # notebook -> global .nb.md).
+        'effective_help_header': str(meta.get('help_header') if 'help_header' in meta else (nb_meta.get('help_header') or '')),
         'effective_add_org': _resolve_add_org_list(meta, nb_meta, note_notebook, fpath, itype) if note_notebook else '',
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,

@@ -3646,6 +3646,8 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-help-topic > .nb-help-part { padding-left: 14px; }
 .nb-help-links { display: flex; gap: 12px; padding: 2px 0 4px 14px; font-size: 0.9em; }
 .nb-help-links a { color: var(--accent); }
+.nb-help-header { font-size: 0.9em; padding: 0 0 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
+.nb-help-header p { margin: 0; }
 .nb-help-basics { font-size: 0.9em; padding: 0 0 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
 .nb-help-basics a { color: var(--accent); }
 .nb-help-basics-label { color: var(--text-muted); margin-right: 6px; }

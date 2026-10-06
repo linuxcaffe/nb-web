@@ -796,7 +796,7 @@ const NbMain = (() => {
     // than one. Moved here from nbweb-specialty.js ("Help Everywhere",
     // claude:nb-web_help-system_design.md) so every note gets a help button via the
     // toolbar's #nb-help-btn, not just specialty-header note types.
-    function _showTypeHelp(trigger, topic) {
+    function _showTypeHelp(trigger, topic, note = null) {
         if (trigger._helpPop) {
             trigger._helpPop.remove();
             trigger._helpPop = null;
@@ -824,12 +824,13 @@ const NbMain = (() => {
             // Sequential, not Promise.all — the bare dev server stalls on bursts of
             // concurrent fetches (see nb-web's verify skill); a help popover is rare
             // enough that a few sequential round-trips cost nothing noticeable.
-            // The tour's notebook and the Basics topics, for the line of links on top
-            // (djp: Basics at the top of every ? popover).
+            // The Basics line: only on topic notes and tour pages, where someone is learning
+            // their way around (djp). The features notebook name is needed for Try it anyway.
+            const wantBasics = ['topic', 'feature'].includes(note?.type);
             let basics = [], featuresNb = 'features';
             try {
                 const r = await fetch('/api/help/category?name=basics');
-                if (r.ok) { const j = await r.json(); basics = j.topics || []; featuresNb = j.features_notebook || featuresNb; }
+                if (r.ok) { const j = await r.json(); basics = wantBasics ? (j.topics || []) : []; featuresNb = j.features_notebook || featuresNb; }
             } catch (e) { /* no Basics line */ }
 
             // A topic note (topic: + ## Summary, the single-source docs layout) is a
@@ -884,6 +885,18 @@ const NbMain = (() => {
                 } catch (e) { /* skip this entry, try the rest */ }
             }
             pop.innerHTML = '';
+            // help_header: one line of Markdown (wikilinks live) on top of every popover;
+            // following one of its links closes the popover.
+            if (note?.effective_help_header) {
+                const head = document.createElement('div');
+                head.className = 'nb-help-header';
+                head.innerHTML = _renderMarkdown(note.effective_help_header, note.selector || '');
+                _enrichRendered(head, note);
+                head.addEventListener('click', e => {
+                    if (e.target.closest('a, .nb-wiki-link')) setTimeout(dismiss, 0);
+                });
+                pop.appendChild(head);
+            }
             let line = null;
             if (basics.length) {
                 line = document.createElement('div');
@@ -913,7 +926,7 @@ const NbMain = (() => {
                 });
                 pop.appendChild(line);
             }
-            if (!parts.length) {
+            if (!parts.length && !note?.effective_help_header) {
                 pop.insertAdjacentHTML('beforeend', '<em class="nb-help-empty" style="padding:8px;display:block;color:var(--text-muted)">No help available</em>');
             } else {
                 parts.forEach((wrap, i) => {
@@ -1078,9 +1091,10 @@ const NbMain = (() => {
         if (helpBtn) {
             const helpTopic = note.effective_help || '';
             const hasHelp   = Array.isArray(helpTopic) ? helpTopic.length > 0 : !!helpTopic;
-            helpBtn.hidden = !hasHelp;
+            // A help_header: line alone is enough: every note then has a ? to fall back on.
+            helpBtn.hidden = !hasHelp && !note.effective_help_header;
             helpBtn.dataset.helpTopic = Array.isArray(helpTopic) ? helpTopic.join(', ') : helpTopic;
-            helpBtn.onclick = () => _showTypeHelp(helpBtn, helpTopic);
+            helpBtn.onclick = () => _showTypeHelp(helpBtn, helpTopic, note);
         }
 
         // Hide embedded-block Save button on every navigation
