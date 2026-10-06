@@ -831,34 +831,51 @@ _help_topic_cache = {'sig': None, 'topics': []}
 _FENCE_LANG_RE = re.compile(r'^\s*(`{3,}|~{3,})\s*([\w-]+)?')
 
 
-def _help_topic_notebook():
-    """Where help topic notes live: .nb.md's help_topics:, default docs."""
-    return str(_effective_setting('help_topics') or 'docs').strip().rstrip(':')
+def _help_topic_notebooks():
+    """The notebooks whose notes can declare help_for:: .nb.md's help_topics: (a name or a
+    list), default docs plus the tour notebook (so its category dashboards, e.g. Basics, take
+    part). Topic notes live in docs; a dashboard with help_for: is a category (2026-10-06)."""
+    raw = _effective_setting('help_topics')
+    if raw is None or raw == '':
+        names = ['docs', _features_notebook()]
+    else:
+        names = raw if isinstance(raw, list) else str(raw).split(',')
+    out = []
+    for n in names:
+        n = str(n).strip().rstrip(':')
+        if n and _safe_notebook(n) and n not in out:
+            out.append(n)
+    return out
+
+
+def _help_topic_ok(user, sel, tmeta):
+    """May this user see this help note? Its own access:, under its own notebook's config."""
+    return _can_access(user, tmeta, _notebook_config(sel.split(':', 1)[0]))
 
 
 def _help_topics():
-    """Every topic-notebook note that declares help_for: -- [(selector, meta, contexts)],
-    sorted by selector. Re-read only when one of its .md files changes (a stat walk per call)."""
-    nb = _help_topic_notebook()
-    root = NB_DIR / nb
-    if not root.is_dir():
-        return []
+    """Every help-notebook note that declares help_for: -- [(selector, meta, contexts)],
+    sorted by selector. Re-read only when one of their .md files changes (a stat walk per call)."""
     files = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
-        for fn in filenames:
-            if fn.endswith('.md') and not fn.startswith('.'):
-                p = Path(dirpath) / fn
-                try:
-                    st = p.stat()
-                except OSError:
-                    continue
-                files.append((str(p), st.st_mtime_ns, st.st_size))
-    sig = (nb, tuple(sorted(files)))
+    for nb in _help_topic_notebooks():
+        root = NB_DIR / nb
+        if not root.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
+            for fn in filenames:
+                if fn.endswith('.md') and not fn.startswith('.'):
+                    p = Path(dirpath) / fn
+                    try:
+                        st = p.stat()
+                    except OSError:
+                        continue
+                    files.append((nb, str(p), st.st_mtime_ns, st.st_size))
+    sig = tuple(sorted(files))
     if _help_topic_cache['sig'] == sig:
         return _help_topic_cache['topics']
     topics = []
-    for path, _, _ in sig[1]:
+    for nb, path, _, _ in sig:
         try:
             meta, _ = parse_frontmatter(Path(path).read_text(errors='replace'))
         except Exception:
@@ -868,7 +885,7 @@ def _help_topics():
             continue
         ctxs = raw if isinstance(raw, list) else str(raw).split(',')
         ctxs = {str(c).strip().lower() for c in ctxs if str(c).strip()}
-        rel = Path(path).relative_to(root).as_posix()
+        rel = Path(path).relative_to(NB_DIR / nb).as_posix()
         topics.append((f'{nb}:{rel}', meta, ctxs))
     topics.sort(key=lambda t: t[0])
     _help_topic_cache.update(sig=sig, topics=topics)
@@ -883,13 +900,12 @@ def _help_for_matches(meta, body, notebook, itype, inherited_keys=()):
     if not topics:
         return []
     user = session.get('user', {}) if request else {}
-    docs_meta = _notebook_config(_help_topic_notebook())
     out = []
     # A page about a topic (a features: tour page) leads with that topic's own note.
     own = str(meta.get('topic') or '').strip()
     if own and itype != 'topic':
         for sel, tmeta, _ in topics:
-            if str(tmeta.get('topic') or '').strip() == own and _can_access(user, tmeta, docs_meta):
+            if str(tmeta.get('topic') or '').strip() == own and _help_topic_ok(user, sel, tmeta):
                 out.append(sel)
                 break
     contexts = []
@@ -913,9 +929,11 @@ def _help_for_matches(meta, body, notebook, itype, inherited_keys=()):
         contexts.append(f'notebook:{notebook.lower()}')
     for ctx in dict.fromkeys(contexts):
         for sel, tmeta, tctx in topics:
-            if ctx in tctx and _can_access(user, tmeta, docs_meta):
+            if ctx in tctx and _help_topic_ok(user, sel, tmeta):
                 out.append(sel)
-    return out
+    # Specific topics first, then categories (dashboards with help_for:, e.g. Basics).
+    kinds = {sel: str(tmeta.get('type') or '') for sel, tmeta, _ in topics}
+    return [x for x in out if kinds.get(x) != 'dashboard'] + [x for x in out if kinds.get(x) == 'dashboard']
 
 
 def _features_notebook():
@@ -935,10 +953,9 @@ def api_help_page():
     if not re.fullmatch(r'[a-z0-9-]+', name):
         return jsonify({'error': 'invalid page'}), 400
     user = session.get('user', {})
-    docs_meta = _notebook_config(_help_topic_notebook())
     ctx = f'page:{name}'
     topics = [sel for sel, tmeta, tctx in _help_topics()
-              if ctx in tctx and _can_access(user, tmeta, docs_meta)]
+              if ctx in tctx and _help_topic_ok(user, sel, tmeta)]
     nb = request.args.get('notebook', '').strip()
     cfg = _notebook_config(nb) if nb and _safe_notebook(nb) else _global_config()
     return jsonify({'topics': topics, 'help_header': str(cfg.get('help_header') or '')})
@@ -946,30 +963,44 @@ def api_help_page():
 
 @app.route('/api/help/category')
 def api_help_category():
-    """Topics of one features: category in its dashboard's chapter order, for the line of
-    links at the top of the ? popover: [{topic, label, selector}]. label is the features
-    page's title; selector is the topic note in the help_topics notebook."""
-    name = request.args.get('name', '').strip()
-    if not re.fullmatch(r'[a-z0-9-]+', name):
-        return jsonify({'error': 'invalid category'}), 400
-    fnb = _features_notebook()
-    out = {'features_notebook': fnb, 'topics': []}
+    """A category: a dashboard's topics in its chapter order, for a category line in the ?
+    popover: {title, caption, selector, topics: [{topic, label, selector}]}. label is each
+    chapter page's title; selector is that topic's note. Name the dashboard with ?selector=
+    (any dashboard with help_for:, 2026-10-06) or ?name= (<features_notebook>:<name>/<name>.md)."""
     user = session.get('user', {})
-    dash = NB_DIR / fnb / name / f'{name}.md'
-    if (not _safe_notebook(fnb) or not dash.is_file() or not _notebook_in_scope(user, fnb)
-            or not _can_access(user, {}, _notebook_config(fnb))):
+    fnb = _features_notebook()
+    sel = request.args.get('selector', '').strip()
+    if sel:
+        nb = sel.split(':', 1)[0]
+        dash = _selector_disk_path(sel)
+        if dash is None or not dash.is_file() or not _safe_notebook(nb):
+            return jsonify({'error': 'not found'}), 404
+    else:
+        name = request.args.get('name', '').strip()
+        if not re.fullmatch(r'[a-z0-9-]+', name):
+            return jsonify({'error': 'invalid category'}), 400
+        nb, dash, sel = fnb, NB_DIR / fnb / name / f'{name}.md', f'{fnb}:{name}/{name}.md'
+    out = {'features_notebook': fnb, 'selector': sel, 'title': '', 'caption': '', 'topics': []}
+    if (not _safe_notebook(nb) or not dash.is_file() or not _notebook_in_scope(user, nb)
+            or not _can_access(user, {}, _notebook_config(nb))):
         return jsonify(out)
+    text = dash.read_text(errors='replace')
+    dmeta, _ = parse_frontmatter(text)
+    if not _can_access(user, dmeta, _notebook_config(nb)):
+        return jsonify(out)
+    out['title'] = str(dmeta.get('title') or dash.stem)
+    out['caption'] = str(dmeta.get('caption') or '')
     by_topic = {}
-    docs_meta = _notebook_config(_help_topic_notebook())
-    for sel, tmeta, _ in _help_topics():
+    for tsel, tmeta, _ in _help_topics():
         t = str(tmeta.get('topic') or '').strip()
-        if t and t not in by_topic and _can_access(user, tmeta, docs_meta):
-            by_topic[t] = sel
-    for cat, page in _CHAPTER_RE.findall(dash.read_text(errors='replace')):
-        if cat != name:
+        if t and t not in by_topic and str(tmeta.get('type') or '') != 'dashboard' and _help_topic_ok(user, tsel, tmeta):
+            by_topic[t] = tsel
+    folder = dash.parent
+    for cat, page in _CHAPTER_RE.findall(text):
+        if cat != folder.name:
             continue
         try:
-            pmeta, _ = parse_frontmatter((NB_DIR / fnb / cat / f'{page}.md').read_text(errors='replace'))
+            pmeta, _ = parse_frontmatter((folder / f'{page}.md').read_text(errors='replace'))
         except OSError:
             continue
         topic = str(pmeta.get('topic') or page).strip()
@@ -989,14 +1020,13 @@ def _topic_links(meta):
     if not topic:
         return out
     user = session.get('user', {})
-    docs_meta = _notebook_config(_help_topic_notebook())
     doc_sel, doc_meta = None, None
     for sel, tmeta, _ in _help_topics():
         if str(tmeta.get('topic') or '').strip() == topic:
             doc_sel, doc_meta = sel, tmeta
             break
     is_topic_note = str(meta.get('type') or '') == 'topic'
-    if doc_sel and not is_topic_note and _can_access(user, doc_meta, docs_meta):
+    if doc_sel and not is_topic_note and _help_topic_ok(user, doc_sel, doc_meta):
         out['doc'] = doc_sel
     category = str(meta.get('category') or (doc_meta or {}).get('category') or '').strip()
     fnb = _features_notebook()

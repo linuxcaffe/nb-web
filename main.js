@@ -841,15 +841,6 @@ const NbMain = (() => {
             // Sequential, not Promise.all — the bare dev server stalls on bursts of
             // concurrent fetches (see nb-web's verify skill); a help popover is rare
             // enough that a few sequential round-trips cost nothing noticeable.
-            // The Basics line: only on topic notes and tour pages, where someone is learning
-            // their way around (djp). The features notebook name is needed for Try it anyway.
-            const wantBasics = ['topic', 'feature'].includes(note?.type);
-            let basics = [], featuresNb = 'features';
-            try {
-                const r = await fetch('/api/help/category?name=basics');
-                if (r.ok) { const j = await r.json(); basics = wantBasics ? (j.topics || []) : []; featuresNb = j.features_notebook || featuresNb; }
-            } catch (e) { /* no Basics line */ }
-
             // A topic note (topic: + ## Summary, the single-source docs layout) is a
             // collapsible entry, folded to title + caption (djp: start with all folded);
             // open, it shows its Summary. More opens the whole note; Try it, its features: page.
@@ -874,7 +865,7 @@ const NbMain = (() => {
                     links.appendChild(a);
                 };
                 link('nb-help-more', 'More', d.selector);
-                if (d.meta.category) link('nb-help-try', 'Try it', `${featuresNb}:${d.meta.category}/${d.meta.topic}.md`);
+                if (d.topic_links?.feature) link('nb-help-try', 'Try it', d.topic_links.feature);
                 det.append(sum, body, links);
                 _enrichRendered(body, d);
                 return det;
@@ -882,6 +873,10 @@ const NbMain = (() => {
 
             const entries = Array.isArray(topic) ? topic : [topic];
             const parts = [];
+            // A dashboard with help_for: is a category (2026-10-06, djp): shown as a line of its
+            // topics under the header, not as an entry. Basics is one (help_for: type:topic,
+            // type:feature in features:basics/basics.md).
+            const cats = [];
             for (const entry of entries) {
                 if (!entry) continue;
                 try {
@@ -892,6 +887,12 @@ const NbMain = (() => {
                         if (j.body) { d = j; break; }
                     }
                     if (!d) continue;
+                    if (d.type === 'dashboard' && d.meta?.help_for) {
+                        const r = await fetch(`/api/help/category?selector=${encodeURIComponent(d.selector)}`);
+                        const c = r.ok ? await r.json() : null;
+                        if (c?.topics?.length) cats.push(c);
+                        continue;
+                    }
                     const det = topicEntry(d);
                     if (det) { parts.push(det); continue; }
                     const wrap = document.createElement('div');
@@ -914,14 +915,19 @@ const NbMain = (() => {
                 });
                 pop.appendChild(head);
             }
-            let line = null;
-            if (basics.length) {
-                line = document.createElement('div');
-                line.className = 'nb-help-basics';
-                line.appendChild(Object.assign(document.createElement('span'), { className: 'nb-help-basics-label', textContent: 'Basics:' }));
-                basics.forEach((t, i) => {
+            // Category lines: "Title: topic · topic · …". The title opens the dashboard; a topic
+            // opens in place (or adds its entry below the lines).
+            let lastLine = null;
+            for (const c of cats) {
+                const line = document.createElement('div');
+                line.className = 'nb-help-category';
+                const title = Object.assign(document.createElement('a'), { href: '#', className: 'nb-help-cat-title', textContent: c.title });
+                title.title = c.caption || '';
+                title.addEventListener('click', e => { e.preventDefault(); dismiss(); openNote(c.selector); });
+                line.append(title, ': ');
+                c.topics.forEach((t, i) => {
                     if (i) line.append(' · ');
-                    const a = Object.assign(document.createElement('a'), { href: '#', textContent: t.label });
+                    const a = Object.assign(document.createElement('a'), { href: '#', className: 'nb-help-cat-topic', textContent: t.label });
                     a.dataset.selector = t.selector;
                     a.addEventListener('click', async e => {
                         e.preventDefault();
@@ -933,7 +939,7 @@ const NbMain = (() => {
                             } catch (err) { det = null; }
                             if (!det) return;
                             pop.querySelector('.nb-help-empty')?.remove();
-                            line.after(det);
+                            (lastLine || line).after(det);
                         }
                         det.open = true;
                         det.scrollIntoView({ block: 'nearest' });
@@ -942,8 +948,9 @@ const NbMain = (() => {
                     line.appendChild(a);
                 });
                 pop.appendChild(line);
+                lastLine = line;
             }
-            if (!parts.length && !note?.effective_help_header) {
+            if (!parts.length && !cats.length && !note?.effective_help_header) {
                 pop.insertAdjacentHTML('beforeend', '<em class="nb-help-empty" style="padding:8px;display:block;color:var(--text-muted)">No help available</em>');
             } else {
                 parts.forEach((wrap, i) => {
