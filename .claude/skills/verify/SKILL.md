@@ -534,3 +534,20 @@ with the `claude` login, read-only.
 **Known flaky:** `edit-session.spec.js` ("Edit anyway takes over the slot" / "second viewer")
 fails about 1 run in 7, on unchanged `main` too (closer to 1 in 3 full runs on 2026-10-05, when
 the machine was busy). Re-run that spec alone before suspecting your change.
+
+## Recipe: make an intermittent navigation failure deterministic (added 2026-10-06)
+
+A test that fails "1 run in 5" in a full run is usually two async things finishing in either
+order, not flakiness to retry. Read the failure's call log for the *sequence* of values
+(`#nb-preview-title` went Folder Links → helpsecond → basics → Second Page told the story: the
+older request answered last). Then force the losing order:
+
+- **A slow response**: `page.route(u => u.href.includes('/api/note?selector=' + enc) &&
+  !u.href.includes('inline=1'), async r => { await new Promise(x => setTimeout(x, 1500));
+  await r.continue(); })`. Delay the request that *should lose* (the superseded one), not the
+  whole list: delaying `/api/notes` didn't reproduce the bug at all.
+- **A URL change whose `hashchange` hasn't run yet**: `history.replaceState(null, '', '#…')`
+  changes the URL without the event, which is exactly the gap a real address-bar change sits in.
+
+Both shapes are in `e2e/tests/deep-link-scope.spec.js`; the fixes are invariant 69. Run the spec
+several times in a row afterwards (`for i in 1 2 3 4 5; do npx playwright test …; done`).
