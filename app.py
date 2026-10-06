@@ -875,7 +875,7 @@ def _help_topics():
     return topics
 
 
-def _help_for_matches(meta, body, notebook, itype):
+def _help_for_matches(meta, body, notebook, itype, inherited_keys=()):
     """Selectors of docs: topics whose help_for: names one of this note's contexts, in
     context order: type, codeblock langs (body order), frontmatter keys (FM order),
     notebook. Topics the current user can't access are left out."""
@@ -906,7 +906,9 @@ def _help_for_matches(meta, body, notebook, itype):
                 contexts.append(f'block:{m.group(2).lower()}')
         elif m.group(1)[0] == fence and not m.group(2):
             fence = None
-    contexts += [f'key:{str(k).lower()}' for k in meta]
+    # The note's own keys, then the frontmatter blocks it inherits and shows (a tab strip from
+    # its folder config is as much "this note" as its own tabs:).
+    contexts += [f'key:{str(k).lower()}' for k in list(meta) + [k for k in inherited_keys if k not in meta]]
     if notebook:
         contexts.append(f'notebook:{notebook.lower()}')
     for ctx in dict.fromkeys(contexts):
@@ -1024,7 +1026,8 @@ def _resolve_help_list(meta, nb_meta, notebook, note_path, itype, body=None):
     if itype and (NB_DIR / '.lib' / f'help-type-{itype}.md').exists():
         parts.append(itype)
     if body is not None:
-        parts.extend(_help_for_matches(meta, body, notebook, itype))
+        inherited = sorted(k for k in _FM_BLOCK_KEYS if k in (nb_meta or {}) and k not in meta)
+        parts.extend(_help_for_matches(meta, body, notebook, itype, inherited))
     if notebook:
         parts.extend(_collect_help_add(notebook, note_path).split())
     explicit = _effective_help(meta, nb_meta)

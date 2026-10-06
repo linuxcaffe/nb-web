@@ -29,6 +29,7 @@ const NbMain = (() => {
     const _wikilinkCache = new Map(); // selector → resolved title
     const _noteCache     = new Map(); // selector → cached note API response (cache: true frontmatter)
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
+    let _hashWeWrote    = location.hash;   // the URL hash openNote last set (or the one we loaded with)
     let _listDisplayMode = 'title';  // 'title' | 'filename' — resets on every new fetch
     let _kbPane         = 'list';   // 'list' | 'preview'
     const _pendingDeletes = new Set(); // selectors deleted but possibly not yet gone from server
@@ -200,6 +201,8 @@ const NbMain = (() => {
             if (sel && sel.includes(':') && sel !== _activeSelector) {
                 NbNav.followHashNotebook?.();
                 openNote(sel);
+            } else {
+                _hashWeWrote = location.hash;   // nothing to open; not a pending navigation
             }
         });
     }
@@ -646,8 +649,11 @@ const NbMain = (() => {
             ul.appendChild(li);
         });
 
-        // Auto-select first non-folder when current selection left the list
-        if (!fromSort && !_noAutoSelect) {
+        // Auto-select first non-folder when current selection left the list -- unless the URL
+        // names a different note: that navigation is pending (its hashchange hasn't run yet)
+        // and auto-selecting would open over it and rewrite the URL (found 2026-10-06).
+        const _urlPending = location.hash !== _hashWeWrote && decodeURIComponent(location.hash.slice(1)).includes(':');
+        if (!fromSort && !_noAutoSelect && !_urlPending) {
             const stillPresent = _activeSelector && notes.some(n => n.selector === _activeSelector);
             if (!stillPresent) {
                 const first = notes.find(n => n.type !== 'folder');
@@ -714,6 +720,7 @@ const NbMain = (() => {
         // backed); native browser back/forward stays out of that model's way entirely.
         const _hash = '#' + encodeURI(selector);
         if (location.hash !== _hash) history.replaceState(null, '', _hash);
+        _hashWeWrote = location.hash;
         document.getElementById('nb-pin-indicator').hidden = !_pinnedSelectors.has(selector);
 
         // Show toolbar, reset TOC bar until note is rendered
@@ -726,6 +733,10 @@ const NbMain = (() => {
         // AbortController for this navigation so new fetches can be cancelled later.
         _renderAbort.abort();
         _renderAbort = new AbortController();
+        // A newer openNote aborts this signal; nothing below may draw after that (found
+        // 2026-10-06: a slow, superseded open -- e.g. the list's auto-select -- drew its note
+        // over the one opened after it).
+        const _navSignal = _renderAbort.signal;
         _StatusPill.reset();
         _RenderBar.reset();
 
@@ -737,9 +748,11 @@ const NbMain = (() => {
         try {
             let d = _cached;
             if (!d) {
-                const r = await fetch('/api/note?selector=' + encodeURIComponent(selector));
+                const r = await fetch('/api/note?selector=' + encodeURIComponent(selector), { signal: _navSignal });
+                if (_navSignal.aborted) return;
                 if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
                 d = await r.json();
+                if (_navSignal.aborted) return;
                 if (d.meta?.cache) _noteCache.set(selector, d);
             }
             // reload: true — run all regen blocks before rendering so blocks show fresh data
@@ -752,6 +765,7 @@ const NbMain = (() => {
                         body: JSON.stringify({notebook: NbNav.notebook, script: m[1]})
                     }).catch(() => null);
                 }
+                if (_navSignal.aborted) return;
             }
             renderPreview(d);
             if (opts.restoreScrollTop) {
@@ -773,6 +787,7 @@ const NbMain = (() => {
             }
             if (NbDialog.isOpen()) NbDialog.refresh();
         } catch (e) {
+            if (e.name === 'AbortError' || _navSignal.aborted) return;   // superseded
             content.innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${_esc(String(e))}</div>`;
         }
     }
@@ -948,7 +963,7 @@ const NbMain = (() => {
         setTimeout(() => document.addEventListener('click', outside, true), 0);
     }
 
-    // A page's own ? (editor, note list, terminal, Notebooks page): the topics whose help_for:
+    // A page's own ? (editor, terminal, Notebooks page): the topics whose help_for:
     // names page:<page>, under the current notebook's help_header line. A second click closes.
     async function showPageHelp(trigger, page) {
         if (trigger._helpPop) { _showTypeHelp(trigger, [], null); return; }
@@ -4501,7 +4516,6 @@ const NbMain = (() => {
         function _toggleMkdModal() { _mkdModal.hidden = !_mkdModal.hidden; }
         document.getElementById('nb-mkd-ref-btn').addEventListener('click', _toggleMkdModal);
         document.getElementById('nb-editor-help-btn')?.addEventListener('click', e => showPageHelp(e.currentTarget, 'editor'));
-        document.getElementById('nb-list-help-btn')?.addEventListener('click', e => showPageHelp(e.currentTarget, 'list'));
         document.getElementById('nb-mkd-modal-close').addEventListener('click', () => { _mkdModal.hidden = true; });
         document.querySelectorAll('.nb-mkd-ref-trigger').forEach(b => b.addEventListener('click', _toggleMkdModal));
         _mkdModal.addEventListener('click', e => { if (e.target === _mkdModal) _mkdModal.hidden = true; });
