@@ -2242,6 +2242,7 @@ INDICATORS = {
     'topic':       '📘',
     'feature':     '🎯',
     'doc':         '📃',
+    'book':        '📚',
     'note':        '',
     'dotfile':     '⚙',
     'code':        '📋',
@@ -2278,10 +2279,11 @@ INDICATORS = {
 #   help      — a .lib/help-*.md help-popover source note  ❓  (core, so fm queries can list them)
 #   topic     — a docs: topic note (help_for:, ## Summary layers) 📘  (core, help system)
 #   feature   — a features: tour page, scratchpad in its sidecar  🎯  (core, help system)
+#   book      — chapters stitched with {{inline:}}; turns the TOC on  📚  (core)
 #   doc       — a docs: page checked against the code, not a help topic (dev docs, More pages);
 #               untyped docs are the unreviewed backlog  📃  (core)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'character', 'location', 'day', 'resource', 'dotfile', 'journal',
-                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production', 'report',
+                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production', 'report', 'book',
                        'topic', 'feature', 'doc'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
@@ -8949,7 +8951,10 @@ def api_note():
         'effective_cfg_attr_add':  _collect_cfg_attr_add(note_notebook, fpath) if note_notebook else '',
         'effective_cfg_attr_skip': _collect_cfg_attr_skip(note_notebook, fpath) if note_notebook else '',
         'effective_xref':    (nb_meta['xref'] or '') if 'xref' in nb_meta else None,
-        'effective_fm':      {k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta},
+        # type: book turns the TOC on unless the note says otherwise (djp, 2026-10-07), the same way
+        # an inherited toc: does
+        'effective_fm':      {**({'toc': True} if itype == 'book' and 'toc' not in meta else {}),
+                              **{k: nb_meta[k] for k in _FM_BLOCK_KEYS if k in nb_meta and k not in meta}},
         'effective_ui_hide': _effective_ui_hide(meta, nb_meta),
         'effective_help': _resolve_help_list(meta, nb_meta, note_notebook, fpath, itype, body),
         # One line of Markdown on top of every ? popover; nearest wins (note -> folder ->

@@ -28,6 +28,19 @@ const NbMain = (() => {
     const _HISTORY_MAX  = 200;      // cap per stack so a long session doesn't grow this unbounded
     const _wikilinkCache = new Map(); // selector → resolved title
     const _noteCache     = new Map(); // selector → cached note API response (cache: true frontmatter)
+    // Clear a note's cached render and every cached note that {{inline:}}s it: a book is mostly
+    // its chapters, so a chapter edit must clear the book too (2026-10-07, books.spec.js; it used
+    // to show the old chapter until a page reload). Over-clears on a name match, never under.
+    function _bustCache(sel) {
+        if (!sel) return;
+        _noteCache.delete(sel);
+        const rel  = String(sel).split(':').pop();
+        const stem = rel.split('/').pop().replace(/\.md$/, '');
+        for (const [k, n] of _noteCache) {
+            const body = (n && (n.raw || n.body)) || '';
+            if (body.includes('{{inline') && (body.includes(rel) || body.includes(stem))) _noteCache.delete(k);
+        }
+    }
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
     let _hashWeWrote    = location.hash;   // the URL hash openNote last set (or the one we loaded with)
     let _listDisplayMode = 'title';  // 'title' | 'filename' — resets on every new fetch
@@ -458,7 +471,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯', doc:'📃', report:'📊'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯', doc:'📃', report:'📊', book:'📚'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -523,7 +536,7 @@ const NbMain = (() => {
                                '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Closed todo',
                                '🔖': 'Bookmark', '🔗': 'Linked file', '🔒': 'Encrypted', '📂': 'Folder',
                                '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
-                               '📖': 'Ebook', '📄': 'Document', '📃': 'Doc', '🗃️': 'Sheet', '🪪': 'Contact' };
+                               '📖': 'Ebook', '📄': 'Document', '📃': 'Doc', '📚': 'Book', '🗃️': 'Sheet', '🪪': 'Contact' };
             const _extIcon = { md:'📝', txt:'📝', markdown:'📝',
                                 pdf:'📄', doc:'📄', docx:'📄', odt:'📄', rtf:'📄',
                                 png:'🌄', jpg:'🌄', jpeg:'🌄', gif:'🌄', webp:'🌄', svg:'🌄', avif:'🌄',
@@ -1260,7 +1273,7 @@ const NbMain = (() => {
                         headers: {'Content-Type': 'application/json'},
                         body:    JSON.stringify({ selector: note.selector, locked: false }),
                     });
-                    _noteCache.delete(note.selector);
+                    _bustCache(note.selector);
                     await openNote(note.selector);
                 } finally {
                     unlockBtn.disabled = false;
@@ -1282,7 +1295,7 @@ const NbMain = (() => {
                         headers: {'Content-Type': 'application/json'},
                         body:    JSON.stringify({ selector: note.selector, locked: true }),
                     });
-                    _noteCache.delete(note.selector);
+                    _bustCache(note.selector);
                     await openNote(note.selector);
                 } finally {
                     relockBtn.disabled = false;
@@ -2896,7 +2909,7 @@ const NbMain = (() => {
                     body: JSON.stringify({ content: body }),
                 });
                 const d = await r.json();
-                if (d.ok) { _noteCache.delete(note.selector); _setExtrasAnnotationHint(!!d.annotation); _close(d.annotation); }
+                if (d.ok) { _bustCache(note.selector); _setExtrasAnnotationHint(!!d.annotation); _close(d.annotation); }
                 else { sb.textContent = _t('btn_save'); alert('✗ ' + (d.error || 'failed')); }
             } catch(e) { sb.textContent = _t('btn_save'); alert('✗ ' + e.message); }
         };
@@ -2907,7 +2920,7 @@ const NbMain = (() => {
         try {
             await fetch(`/api/note/annotate?selector=${encodeURIComponent(note.selector)}`,
                 { method: 'DELETE' });
-            _noteCache.delete(note.selector);
+            _bustCache(note.selector);
             _setExtrasAnnotationHint(false);
             _renderAnnotationFoot(foot, note, null);
         } catch(e) { /* silent */ }
@@ -3698,7 +3711,7 @@ const NbMain = (() => {
             });
             const wd = await wr.json();
             if (wd.success) {
-                _noteCache.delete(_activeSelector);
+                _bustCache(_activeSelector);
                 // Sync domain journals — one call per unique token (note may have multiple blocks)
                 const tokenHosts = [...document.querySelectorAll('.nb-csv-block[data-csv-token]')];
                 const uniqueTokens = [...new Set(tokenHosts.map(h => h.dataset.csvToken))];
@@ -3852,7 +3865,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
-                _noteCache.delete(_activeSelector);
+                _bustCache(_activeSelector);
                 _sheetDirty = false;
                 btn.textContent = _t('status_saved');
                 setTimeout(() => { btn.textContent = _t('btn_save'); }, 1200);
@@ -4831,7 +4844,7 @@ const NbMain = (() => {
             body: JSON.stringify({ selector: sel, content: updated }),
         });
         const wd = await r.json();
-        if (wd.success) { d.raw = updated; d.body = updated; _noteCache.delete(sel); }
+        if (wd.success) { d.raw = updated; d.body = updated; _bustCache(sel); }
     }
 
     function _openEditor(targetSelector) {
@@ -4892,7 +4905,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
-                _noteCache.delete(_activeSelector);
+                _bustCache(_activeSelector);
                 const savedSel = _activeSelector;
                 _closeEditor();
                 _noAutoSelect = true;
@@ -4920,7 +4933,7 @@ const NbMain = (() => {
             });
             const d = await r.json();
             if (d.success) {
-                _noteCache.delete(_activeSelector);
+                _bustCache(_activeSelector);
                 const savedSel = _activeSelector;
                 delete _toolbarCache[NbNav.notebook];  // bust so toolbar: changes show immediately
                 // Config dotfiles (.{name}.md) affect notebook config — bust so changes take effect immediately.
@@ -5815,7 +5828,7 @@ const NbMain = (() => {
              enrichRendered:  (container, note) => _enrichRendered(container, note),
              wireContainer:   (container, note) => _wireContainer(container, note),
              fetchContainer:  (container, note) => _fetchContainer(container, note),
-             bustNoteCache:   sel => { if (sel) _noteCache.delete(sel); else _noteCache.clear(); },
+             bustNoteCache:   sel => { if (sel) _bustCache(sel); else _noteCache.clear(); },
              matchTagColor:   _matchTagColor,
              matchTagColors:  _matchTagColors };
 })();
