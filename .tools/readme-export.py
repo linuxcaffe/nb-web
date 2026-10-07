@@ -275,6 +275,11 @@ def _build(nb_root, features='features'):
     if s != -1 and e > s:
         labels = set()
         tour = build_tour(Path(nb_root), docs, features, warnings=warnings, labels=labels)
+        if not tour:
+            # never publish a README without its tour: an empty one means the features notebook
+            # (or its pristine tag) is broken, e.g. an emptied .index (2026-10-07)
+            raise SystemExit(f'readme-export: the {features} tour came out empty (check '
+                             f'{features}/.index at its pristine tag); nothing written')
         tour = '\n\n---\n\n'.join([t for t in [tour] if t] + keep_hand_sections(body[s:e], labels))
         body = (body[:s] + START + ' (generated from the features notebook) -->\n\n' + tour + '\n\n'
                 + body[e:])
