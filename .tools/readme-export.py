@@ -56,14 +56,16 @@ def github_slug(heading):
     return s.replace(' ', '-')
 
 
-def split_fm(text):
+def split_fm(text, errors=None, name=''):
     m = _FM_RE.match(text)
     if not m:
         return {}, text
     try:
         meta = yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
+    except yaml.YAMLError as e:
         meta = {}
+        if errors is not None:   # say so: a broken block silently loses caption:, help_for:, ...
+            errors.append(f'{name}: frontmatter does not parse ({str(e).splitlines()[0]})')
     return (meta if isinstance(meta, dict) else {}), text[m.end():]
 
 
@@ -82,12 +84,14 @@ class Docs:
 
     def __init__(self, root):
         self.root = root
+        self.errors = []  # frontmatter that doesn't parse
         self.notes = {}   # rel path -> (meta, body)
         for p in sorted(root.rglob('*.md')):
             rel = p.relative_to(root)
             if any(part.startswith('.') for part in rel.parts):
                 continue
-            self.notes[rel.as_posix()] = split_fm(p.read_text(errors='replace'))
+            self.notes[rel.as_posix()] = split_fm(p.read_text(errors='replace'), self.errors,
+                                                  f'docs:{rel.as_posix()}')
         # export: false in a note's frontmatter keeps it out of the repo (private details)
         self.private = {k for k, (meta, _) in self.notes.items() if meta.get('export') is False}
 
@@ -266,7 +270,7 @@ def keep_hand_sections(hand, labels):
 def _build(nb_root, features='features'):
     """(outputs {path: text}, assets {docs-relative path}, docs, warnings), writing nothing."""
     docs = Docs(Path(nb_root) / 'docs')
-    warnings = []
+    warnings = list(docs.errors)
     if 'README.md' not in docs.notes:
         raise SystemExit('docs:README.md not found')
 

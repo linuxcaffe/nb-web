@@ -934,10 +934,10 @@ def _help_topics():
     return topics
 
 
-def _help_for_matches(meta, body, notebook, itype, inherited_keys=()):
+def _help_for_matches(meta, body, notebook, itype, inherited_keys=(), note_path=None):
     """Selectors of docs: topics whose help_for: names one of this note's contexts, in
-    context order: type, codeblock langs (body order), frontmatter keys (FM order),
-    notebook. Topics the current user can't access are left out."""
+    context order: file (globs on its filename), type, codeblock langs (body order),
+    frontmatter keys (FM order), notebook. Topics the current user can't access are left out."""
     topics = _help_topics()
     if not topics:
         return []
@@ -950,6 +950,24 @@ def _help_for_matches(meta, body, notebook, itype, inherited_keys=()):
             if str(tmeta.get('topic') or '').strip() == own and _help_topic_ok(user, sel, tmeta):
                 out.append(sel)
                 break
+    # file:<glob> (2026-10-07): filename conventions type: doesn't capture (.x-org.md wizards,
+    # -reports pages, sys-*.sh checks). A glob with '/' matches the path in the notebook,
+    # otherwise the filename; case-insensitive (contexts are lowercased).
+    if note_path is not None:
+        p = Path(note_path)
+        name = p.name.lower()
+        try:
+            rel = p.relative_to(NB_DIR / notebook).as_posix().lower() if notebook else name
+        except ValueError:
+            rel = name
+        for sel, tmeta, tctx in topics:
+            if sel in out:
+                continue
+            for c in tctx:
+                if c.startswith('file:') and fnmatch.fnmatchcase(rel if '/' in c else name, c[5:]):
+                    if _help_topic_ok(user, sel, tmeta):
+                        out.append(sel)
+                    break
     contexts = []
     if itype:
         contexts.append(f'type:{itype}')
@@ -1099,7 +1117,7 @@ def _resolve_help_list(meta, nb_meta, notebook, note_path, itype, body=None):
         parts.append(itype)
     if body is not None:
         inherited = sorted(k for k in _FM_BLOCK_KEYS if k in (nb_meta or {}) and k not in meta)
-        parts.extend(_help_for_matches(meta, body, notebook, itype, inherited))
+        parts.extend(_help_for_matches(meta, body, notebook, itype, inherited, note_path))
     if notebook:
         parts.extend(_collect_help_add(notebook, note_path).split())
     explicit = _effective_help(meta, nb_meta)

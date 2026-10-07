@@ -152,6 +152,14 @@ live in a `.templates` folder: `~/.nb/.templates/` for every notebook, a noteboo
 notebook, or a folder's own for that folder. If a folder (or notebook) has exactly one template,
 **Add** uses it without asking.
 
+**[Typed notes](docs/TYPED-NOTES.md)** — a type: in frontmatter, and the header bar some types get
+
+`type:` in a note's frontmatter says what kind of note it is: `project`, `dashboard`, `invoice`
+and so on. The list shows its icon, and many types get a **header bar** above the note: the
+icon, the type's name, details taken from the note's frontmatter (status, client, due date) and
+links to related notes, such as a folder's dashboard and its config. A type nb-web doesn't
+know is simply shown as a plain note.
+
 **[Foldable headings](docs/foldable.md)** — headings that fold away the section under them
 
 `foldable: [Notes, Ideas]` in a note's frontmatter puts a ▾ before every heading containing

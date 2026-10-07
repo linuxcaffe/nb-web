@@ -37,13 +37,15 @@ Each topic note in `docs:` lists the places it explains:
 help_for: [type:project, block:timedot, key:timeframe, notebook:accts]
 ```
 
+Matching topics are listed most specific first: filename, type, codeblocks, keys, notebook.
+
 | Context | Matches a note that… |
 |---|---|
+| `file:<glob>` | has a filename matching the glob: `file:*-org.md`, `file:sys-*.sh`; with a `/`, the path in its notebook: `file:projects/*/*-reports.md`. Case doesn't matter. (The `file:` also keeps YAML happy: a list item can't start with `*`.) |
 | `type:<type>` | has that `type:` |
 | `block:<lang>` | contains a fenced codeblock in that language |
 | `key:<key>` | has that frontmatter key, its own or inherited from a config (a folder's `tabs:` counts) |
 | `notebook:<name>` | is in that notebook |
-
 | `page:<page>` | is shown on that page's own **?**: `editor` (the editor toolbar), `terminal` (the terminal's title bar), `notebooks` (a notebook's details on the Notebooks page) |
 
 `check:` and `plugin:` contexts are for help on check findings and plugins (not built yet).
