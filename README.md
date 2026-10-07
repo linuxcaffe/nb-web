@@ -19,7 +19,7 @@ If you already enjoy working with nb, or with text files as your primary way of 
 
 ## TL;DR
 
-- Browse, search, and edit all your nb notebooks in a split-pane, mardkown rendering web UI
+- Browse, search, and edit all your nb notebooks in a split-pane, Markdown-rendering web UI
 - Full CRUD: add notes, bookmarks, todos, and contacts with per-notebook templates
 - **Wikilinks** — `[[Note Title]]` links between notes, resolved live on click
 - **Terminal links** — `[label](term:command)` in any note runs a shell command in the built-in terminal pane
@@ -342,10 +342,8 @@ nb-web is active and stable at v2.x. The core note-browsing, editing, sync, and 
 
 ## Further reading
 
-The full documentation lives in the `docs` notebook — importable as `docs.nbz` (planned) or browsable at [linuxcaffe.github.io/docs-site](https://linuxcaffe.github.io/docs-site/).
+The full documentation lives in nb-web's own `docs` notebook; the pages linked here are copies of it in [docs/](docs/), also browsable at [linuxcaffe.github.io/docs-site](https://linuxcaffe.github.io/docs-site/).
 
-| Doc | Contents |
-|-----|---------|
 | Doc | Contents |
 |-----|---------|
 | [INSTALL](docs/Install.md) | Dependencies, launch script, Epiphany setup |

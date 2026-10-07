@@ -3,6 +3,7 @@
 
     python3 .tools/readme-export.py              # write README.md + docs/ in this repo
     python3 .tools/readme-export.py --dry-run    # list what would be written, and the warnings
+    python3 .tools/readme-export.py --check      # what's out of date; exit 1 if anything (sys-readme-stale)
 
 The source is always the docs notebook; everything this writes carries a "generated from" header
 and is overwritten on the next run. What it does (plan: claude:readme_github_export_plan_2026-10-02.md):
@@ -262,10 +263,9 @@ def keep_hand_sections(hand, labels):
     return keep
 
 
-def export(nb_root, out_root, dry_run=False, features='features'):
-    """Returns (written file list relative to out_root, warnings)."""
-    nb_root, out_root = Path(nb_root), Path(out_root)
-    docs = Docs(nb_root / 'docs')
+def _build(nb_root, features='features'):
+    """(outputs {path: text}, assets {docs-relative path}, docs, warnings), writing nothing."""
+    docs = Docs(Path(nb_root) / 'docs')
     warnings = []
     if 'README.md' not in docs.notes:
         raise SystemExit('docs:README.md not found')
@@ -274,7 +274,7 @@ def export(nb_root, out_root, dry_run=False, features='features'):
     s, e = body.find(START), body.find(END)
     if s != -1 and e > s:
         labels = set()
-        tour = build_tour(nb_root, docs, features, warnings=warnings, labels=labels)
+        tour = build_tour(Path(nb_root), docs, features, warnings=warnings, labels=labels)
         tour = '\n\n---\n\n'.join([t for t in [tour] if t] + keep_hand_sections(body[s:e], labels))
         body = (body[:s] + START + ' (generated from the features notebook) -->\n\n' + tour + '\n\n'
                 + body[e:])
@@ -292,17 +292,49 @@ def export(nb_root, out_root, dry_run=False, features='features'):
         text = translate(docs.notes[rel][1].lstrip('\n'), rel, docs, warnings, linked, assets)
         outputs[out_path(rel)] = HEADER.format(src=rel) + text.rstrip() + '\n'
         todo.extend(sorted(linked - done))
+    return outputs, assets, docs, warnings
 
+
+def _stale_generated(out_root, outputs):
+    """Generated docs/ copies nothing links to any more."""
+    gen_docs = out_root / 'docs'
+    if not gen_docs.is_dir():
+        return []
+    return sorted(p for p in gen_docs.rglob('*.md')
+                  if p.relative_to(out_root).as_posix() not in outputs
+                  and GEN_MARK in p.read_text(errors='replace')[:300])
+
+
+def check(nb_root, out_root, features='features'):
+    """What an export would change in out_root, as 'path (changed|missing|no longer linked)'."""
+    out_root = Path(out_root)
+    outputs, assets, docs, _ = _build(nb_root, features)
+    found = []
+    for rel, text in outputs.items():
+        p = out_root / rel
+        if not p.exists():
+            found.append(f'{rel} (missing)')
+        elif p.read_text(errors='replace') != text:
+            found.append(f'{rel} (changed)')
+    for a in assets:
+        p = out_root / 'docs' / a
+        if not p.exists() or p.read_bytes() != (docs.root / a).read_bytes():
+            found.append(f'docs/{a} (' + ('changed' if p.exists() else 'missing') + ')')
+    found += [f'{p.relative_to(out_root).as_posix()} (no longer linked)'
+              for p in _stale_generated(out_root, outputs)]
+    return sorted(found)
+
+
+def export(nb_root, out_root, dry_run=False, features='features'):
+    """Returns (written file list relative to out_root, warnings)."""
+    out_root = Path(out_root)
+    outputs, assets, docs, warnings = _build(nb_root, features)
     files = sorted(outputs) + sorted('docs/' + a for a in assets)
     if dry_run:
         return files, warnings
 
-    gen_docs = out_root / 'docs'
-    if gen_docs.is_dir():                     # drop generated copies nothing links to now
-        for p in gen_docs.rglob('*.md'):
-            rel = p.relative_to(out_root).as_posix()
-            if rel not in outputs and GEN_MARK in p.read_text(errors='replace')[:300]:
-                p.unlink()
+    for p in _stale_generated(out_root, outputs):   # drop copies nothing links to now
+        p.unlink()
     for rel, text in outputs.items():
         p = out_root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -321,7 +353,14 @@ def main():
                     help='output root (default: this repo)')
     ap.add_argument('--features', default='features', help='features notebook name')
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--check', action='store_true',
+                    help='list what an export would change and exit 1 if anything; write nothing')
     a = ap.parse_args()
+    if a.check:
+        found = check(a.nb, a.out, a.features)
+        for f in found:
+            print(f)
+        sys.exit(1 if found else 0)
     files, warnings = export(a.nb, a.out, a.dry_run, a.features)
     print(('would write' if a.dry_run else 'wrote') + f' {len(files)} files:')
     for f in files:
