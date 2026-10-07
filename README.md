@@ -1,14 +1,9 @@
----
-draft: true
-toc: true
-xref: "docs:"
-processed: true
----
+<!-- Generated from docs:README.md by .tools/readme-export.py. Edit the source, not this file. -->
 
 - Project: https://github.com/linuxcaffe/nb-web
 - Issues:  https://github.com/linuxcaffe/nb-web/issues
 
-# nb-web
+# nb-web README
 
 A browser-based interface for [nb](https://github.com/xwmx/nb) — the plain-text, git-backed, CLI note-taking tool.
 
@@ -55,23 +50,85 @@ Your notes are always a browser tab away — searchable, readable, and editable 
 
 ## Feature Tour
 
-### Note list and preview
+<!-- readme:categories (generated from the features notebook) -->
 
-[screenshot: split-pane note list with rendered preview]
+### Basics
 
-The left pane lists notes with title and excerpt. The right pane renders the selected note as Markdown. Switch notebooks, filter by type, sort, and search — all without leaving the page. Keyboard shortcuts (`/` to search, `#` to filter by tag, arrow keys to navigate) keep your hands off the mouse.
+_Your nb notes, in a browser_
 
-→ [[KEYBOARD]] · [[SEARCH_TAGS]]
+**[Notebooks](docs/NOTEBOOKS.md)** — separate collections of notes, each its own folder and git repo
+
+A notebook is a folder of notes under `~/.nb/` with its own git history: `home`, `work`,
+`recipes`… Pick one from the notebook selector at the top left to list and add notes there, or
+choose **all** to see every notebook at once. **Menu → Notebooks** shows each one's size and sync
+state, and is where you set its defaults, connect it to a remote, or delete it.
+
+**[Note list and preview](docs/note-list.md)** — the list of notes on the left, and the preview on the right
+
+The left pane lists the notes in the current notebook or folder; click one (or move with the
+arrow keys) to show it on the right. Folders come first, then pinned notes, then the rest. The
+row above the list filters by type (notes, bookmarks, todos, contacts, folders, images), the
+**⇅** button changes the sort, and Ctrl-click selects several notes to move, export or delete
+together. Notes pinned in their frontmatter (dashboards, usually) come first, then ones you pin
+from the menu.
+
+**[Search and tags](docs/SEARCH_TAGS.md)** — find notes by their text, by their tags, or both
+
+Type in the **search** bar (or start search with `/`) to narrow the list to notes containing those words, or in the **tags** field (use `#yourtag` to jump there) to show only notes with those tags. Both work together and update the list as you type. Put `-` before a tag to leave notes with it out (`recipes -tested`), and switch the notebook selector to **all** to search every notebook.
+
+**[Editor](docs/editor.md)** — editing a note's Markdown right in the browser
+
+Click **Edit** (or press `e`) to edit the open note: its whole text, frontmatter included,
+appears in a plain Markdown editor. `Ctrl+Enter` saves and `Escape` cancels. The toolbar adds
+line numbers, a Markdown cheat sheet and image embedding (`Ctrl+Shift+1`). Every save is a git
+commit, so an earlier version is always in the notebook's history.
+
+**[Keyboard](docs/KEYBOARD.md)** — keyboard shortcuts for moving around, finding and editing notes
+
+Most of nb-web works without the mouse. `↑`/`↓` move through the list and `→` steps into the
+preview; `/` searches, `#` filters by tag, `a` adds a note and `e` edits the open one. `Escape`
+always backs you out to somewhere safe. Shortcuts are single keys, so they only work when you're
+not typing in a field.
+
+**[Help](docs/help.md)** — the ? button, and how help finds what to show
+
+The **?** at the far right of the toolbar opens help for whatever you're looking at: the note's
+type, the live blocks in it, its frontmatter keys, its notebook. Each topic shows a short summary,
+with **More** for the full page and **Try it** for a live example you can edit. The help comes
+from the same docs you can read in the `docs:` notebook, so there's one copy of everything.
 
 ---
 
-### Editor
+### Linking
 
-[screenshot: inline editor with toolbar]
+_Connect notes to each other_
 
-Click **Edit** or press `e` to edit any note inline. A lightweight formatting toolbar handles bold, italic, headings, links, and lists. `Ctrl+Enter` saves; `Escape` cancels. Encrypted notes are supported with per-note password protection.
+**[Wikilinks](docs/wikilinks.md)** — making connections across paragraphs, files and notebooks
 
-→ [[KEYBOARD]]
+Write `[[Note Title]]` in a note to link to another note; click it to open the target. Links
+find notes by title or filename, in the current notebook or another one (`[[docs:THEMES.md]]`),
+and can jump straight to a heading (`[[Page#Heading]]`). The label shown is the target's `alias:`,
+then its `title:`, so renaming a note's display never breaks a link.
+
+**[Terminal links](docs/terminal-links.md)** — links that run a command in the built-in terminal
+
+A Markdown link whose URL starts with `term:` runs a shell command in nb-web's terminal pane
+when clicked: `[Today's tasks](term:task%20due:today)`. Write spaces in the command as `%20`.
+Commands can name the current note with `{file}`, `{dir}`, `{notebook}` and friends, so one link
+in a template gives every note a "run this" button.
+
+**[Inline includes](docs/inline-includes.md)** — show another note, or one section of it, inside this one
+
+`{{inline: notebook:path/note.md}}` on its own line shows another note's body right there, as if
+it were part of this note. Add `#Heading` to include just one section
+(`{{inline: docs:wikilinks.md#Summary}}`), or `card` to show the note's card instead of its text.
+Several includes plus `toc: true` make one long, navigable document out of separate notes.
+
+**[Tab strip](docs/tabs.md)** — a row of tabs linking a set of related notes
+
+A `tabs:` list in a note's frontmatter shows a row of tabs above the note, one per listed note or
+folder; the current note's tab is highlighted, and clicking another opens it. Put `tabs:` in a
+notebook or folder config and every note there gets the same strip.
 
 ---
 
@@ -81,44 +138,7 @@ Click **Edit** or press `e` to edit any note inline. A lightweight formatting to
 
 Templates are plain Markdown files with `{{placeholder}}` substitution — title, date, time, tags, weather, or any shell expression. Store them globally or per-notebook. A single local template becomes the notebook's default, pre-applied every time you add a note.
 
-→ [[TEMPLATES]]
-
----
-
-### Wikilinks
-
-[screenshot: rendered note with clickable wikilink]
-
-Write `[[Note Title]]` anywhere in a note body to link to another note. Links resolve on click — nb-web finds the note by title, case-insensitively, within the current notebook. Anchor to a heading with `[[Note Title#Section]]`. A `backlinks` codeblock shows every note that links to the current one.
-
-→ [[WIKILINKS]]
-
----
-
-### Terminal links
-
-[screenshot: rendered note with ▶ terminal link clicked, terminal pane open below]
-
-Write `[label](term:command)` anywhere in a note to create a clickable link that runs a shell command in the built-in terminal pane. The `▶` prefix and monospace yellow styling make terminal links visually distinct.
-
-```markdown
-[Preview site](term:cd ~/dev/mysite && npx quartz build --serve)
-[Sync notes](term:nb sync)
-[Today's tasks](term:task due:today)
-```
-
-Commands can reference the **current note** using `{variable}` placeholders resolved at click time — `{file}` (full path), `{dir}` (directory), `{name}` (basename), `{selector}`, `{notebook}`, `{title}`:
-
-```markdown
-[Open in vim](term:vim {file})
-[Run as script](term:bash {file})
-[→ PDF](term:pandoc {file} -o {dir}/{name}.pdf)
-[Encrypt](term:nb encrypt {selector})
-```
-
-Put a `[Run](term:bash {file})` link in a notebook template and every note in that notebook gets a run button. The note *is* the script. Click once — the terminal opens and the command runs immediately. If the terminal is already open, the command is sent to the running session. Works in note bodies, templates, and wikilinked docs.
-
-→ [[WIKILINKS#Terminal Links]]
+→ [TEMPLATES](docs/TEMPLATES.md)
 
 ---
 
@@ -141,7 +161,7 @@ Fenced code blocks with recognised language tags render as live, interactive wid
 | ` ```chart ` | Financial charts from hledger data |
 | ` ```gallery ` | Image gallery from a folder |
 
-→ [[CODEBLOCKS]]
+→ [CODEBLOCKS](docs/CODEBLOCKS.md)
 
 ---
 
@@ -157,17 +177,7 @@ The two notes are a pair. The project note accumulates; the reports note present
 
 Your project notes are always plain Markdown. The reports are assembled on demand — no separate database, no import step.
 
-→ [[PROJECT-REPORTS]]
-
----
-
-### Notebooks
-
-[screenshot: notebooks panel showing list and detail]
-
-Each nb notebook is its own git repo under `~/.nb/`. The Notebooks panel shows note count, sync status, git branch, remote URL, and last commit for every notebook. Wire a remote, sync, set per-notebook defaults (sort order, list type, default template), and manage the Danger Zone — all from one place. Create a new notebook from the Add bar.
-
-→ [[NOTEBOOKS]]
+→ [Project Diaries and Reports](docs/PROJECT-REPORTS.md)
 
 ---
 
@@ -181,7 +191,7 @@ The **☀/☾** toggle in the top nav bar switches dark and light mode globally.
 
 `theme:` is a config chain key — set it in `.nb.md` for a global default, in a notebook manifest for a per-notebook look, or in a folder config to theme a subtree. Opening a note auto-applies its resolved theme.
 
-→ [[THEMES]] · [[docs:FOLDER-CONFIG]]
+→ [Themes](docs/THEMES.md) · [FOLDER CONFIG](docs/FOLDER-CONFIG.md)
 
 ---
 
@@ -193,7 +203,7 @@ The **`cfg: org`** codeblock renders the entire notebook's config topology as an
 
 The **`dotfile.md`** global template pre-wires `cfg: org` into every new folder config so the sysadmin view is available from day one.
 
-→ [[SYSADMIN]] · [[CODEBLOCKS#cfg]]
+→ [SYSADMIN](docs/SYSADMIN.md) · [CODEBLOCKS](docs/CODEBLOCKS.md#cfg)
 
 ---
 
@@ -230,17 +240,7 @@ mv ~/.nb/home/tutorial/.nb-unlock ~/.nb/home/tutorial/.nb-lock
 
 nb-web uses a **one-repo, branch-per-notebook** model: all notebooks live as branches of a single remote repository (typically `nb-notes` on Codeberg or GitHub). Wire once, sync per notebook. The sync dialog shows exactly what is pending before you push.
 
-→ [[SYNC]]
-
----
-
-### Search and tags
-
-[screenshot: search bar active with tag filter showing]
-
-Full-text search and tag filtering work simultaneously and update the list live. Press `/` to jump to search, `#` to jump to the tags field. Tag queries support AND logic (`recipes dinner`) and exclusion (`recipes -draft`). Switch scope to **all** to search every notebook at once.
-
-→ [[SEARCH_TAGS]]
+→ [SYNC](docs/SYNC.md)
 
 ---
 
@@ -250,7 +250,7 @@ Full-text search and tag filtering work simultaneously and update the list live.
 
 Add a notebook named `contacts` and nb-web renders its notes as structured contact cards — email, phone, address, and URL fields all clickable. Import contacts from a `.vcf` file via the 📇 browser. Sort by last name. Filter by tag.
 
-→ [[CONTACTS]]
+→ [CONTACTS](docs/CONTACTS.md)
 
 ---
 
@@ -260,7 +260,7 @@ Add a notebook named `contacts` and nb-web renders its notes as structured conta
 
 Export any notebook as a self-contained `.nbz` file (a standard ZIP with a metadata manifest). Optionally include full git history. Import a `.nbz` on any machine — nb-web extracts, reconciles, and makes notes available immediately. A planned `docs.nbz` will ship with nb-web so new users can import the reference documentation as a local notebook.
 
-→ [[Import / Export]]
+→ [IMPORT/EXPORT](docs/import-export.md)
 
 ---
 
@@ -282,7 +282,9 @@ Four plugins ship with nb-web; additional plugins are loaded from `nb-settings.j
 | **NbWeb-cine** | Film production — shot lists, stripboard, screenplay, cast/location index (external) |
 | **NbWeb-hledger** | Accounting journals, invoice generation, contact lookup (external) |
 
-→ [[PLUGINS]]
+→ [PLUGINS](docs/PLUGINS.md)
+
+<!-- readme:categories-end -->
 
 ---
 
@@ -313,7 +315,7 @@ Open `http://localhost:5001` — your existing nb notebooks appear immediately.
 
 nb-web is a full PWA. In Epiphany, open `http://localhost:5001`, then **⋮ → Install as Web Application**. It launches in its own window with no browser chrome, indistinguishable from a native app.
 
-A launcher script (`nb-web-launch`) is included that starts the Flask server, opens Epiphany, and cleans up on exit. See [[Install]] for setup details.
+A launcher script (`nb-web-launch`) is included that starts the Flask server, opens Epiphany, and cleans up on exit. See [INSTALL](docs/Install.md) for setup details.
 
 ### Settings
 
@@ -328,7 +330,7 @@ Copy `nb-settings.json.example` to `nb-settings.json` and edit:
 }
 ```
 
-→ [[Install]]
+→ [INSTALL](docs/Install.md)
 
 ---
 
@@ -346,25 +348,25 @@ The full documentation lives in the `docs` notebook — importable as `docs.nbz`
 |-----|---------|
 | Doc | Contents |
 |-----|---------|
-| [[Install]] | Dependencies, launch script, Epiphany setup |
-| [[QUICKSTART]] | Five-minute orientation |
-| [[NOTEBOOKS]] | Notebook management, wiring, defaults |
-| [[SYNC]] | Git model, sync dialog, troubleshooting |
-| [[TEMPLATES]] | Placeholder syntax, `typename.md` convention, per-notebook defaults |
-| [[THEMES]] | Theme files, config chain key, picker, dark/light, custom themes |
-| [[SYSADMIN]] | Dotfile vs dashboard split, `cfg: org`, admin templates |
-| [[WIKILINKS]] | Syntax, anchor links, backlinks |
-| [[CODEBLOCKS]] | All live block types and configuration |
-| [[PROJECT-REPORTS]] | Project diary pattern, timeframe selector, invoice generation |
-| [[SEARCH_TAGS]] | Search, tag filter, cross-notebook search |
-| [[CONTACTS]] | Contact notes, VCF import |
-| [[Import / Export]] | .nbz archive format, import workflow |
-| [[PLUGINS]] | Plugin architecture and development |
-| [[KEYBOARD]] | All keyboard shortcuts |
+| [INSTALL](docs/Install.md) | Dependencies, launch script, Epiphany setup |
+| [QUICKSTART](docs/QUICKSTART.md) | Five-minute orientation |
+| [NOTEBOOKS](docs/NOTEBOOKS.md) | Notebook management, wiring, defaults |
+| [SYNC](docs/SYNC.md) | Git model, sync dialog, troubleshooting |
+| [TEMPLATES](docs/TEMPLATES.md) | Placeholder syntax, `typename.md` convention, per-notebook defaults |
+| [Themes](docs/THEMES.md) | Theme files, config chain key, picker, dark/light, custom themes |
+| [SYSADMIN](docs/SYSADMIN.md) | Dotfile vs dashboard split, `cfg: org`, admin templates |
+| [WIKILINKS](docs/wikilinks.md) | Syntax, anchor links, backlinks |
+| [CODEBLOCKS](docs/CODEBLOCKS.md) | All live block types and configuration |
+| [Project Diaries and Reports](docs/PROJECT-REPORTS.md) | Project diary pattern, timeframe selector, invoice generation |
+| [SEARCH_TAGS](docs/SEARCH_TAGS.md) | Search, tag filter, cross-notebook search |
+| [CONTACTS](docs/CONTACTS.md) | Contact notes, VCF import |
+| [IMPORT/EXPORT](docs/import-export.md) | .nbz archive format, import workflow |
+| [PLUGINS](docs/PLUGINS.md) | Plugin architecture and development |
+| [KEYBOARD](docs/KEYBOARD.md) | All keyboard shortcuts |
 
 ### Security
 
-nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with YAML frontmatter (`name`, `level`, `password_hash`, `notebooks`). Four access levels: `user`, `office`, `admin`, `tech`. Admin and tech users see five dotfolder notebooks (`.users`, `.tools`, `.changes`, `.images`, `.rules`) in the notebook selector. See [[dev/SECURITY]] for full details.
+nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with YAML frontmatter (`name`, `level`, `password_hash`, `notebooks`). Five access levels: `guest`, `user`, `office`, `admin`, `tech`. Admin and tech users see five dotfolder notebooks (`.users`, `.tools`, `.changes`, `.images`, `.rules`) in the notebook selector. See [security](docs/dev/dev-security.md) for full details.
 
 ---
 
