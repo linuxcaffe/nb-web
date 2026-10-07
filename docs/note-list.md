@@ -68,7 +68,7 @@ selection.
 - **Keyboard**: `↑`/`↓` move through the list, `→`/`Enter` go into the preview or a folder, `←`
   goes back up; see [KEYBOARD](KEYBOARD.md).
 - **The preview** renders Markdown, images, audio, video, PDFs and more, each by its type; see
-  [TYPED NOTES](TYPED-NOTES.md).
+  [TYPED-NOTES](TYPED-NOTES.md).
 
 ## For developers
 

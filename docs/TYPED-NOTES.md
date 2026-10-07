@@ -1,115 +1,84 @@
 <!-- Generated from docs:TYPED-NOTES.md by .tools/readme-export.py. Edit the source, not this file. -->
 
-# Typed Notes
+# Typed notes
 
-[Overview](#overview) · [Setting a Type](#setting-a-type) · [Type Reference](#type-reference) · [Dashboard and Dotfile Pairs](#dashboard-and-dotfile-pairs) · [Project and Report Pairs](#project-and-report-pairs) · [Project Notes](#project-notes) · [Type Help Popovers](#type-help-popovers)
+## Summary
 
----
+`type:` in a note's frontmatter says what kind of note it is: `project`, `dashboard`, `invoice`
+and so on. The list shows its icon, and many types get a **header bar** above the note: the
+icon, the type's name, details taken from the note's frontmatter (status, client, due date) and
+links to related notes, such as a folder's dashboard and its config. A type nb-web doesn't
+know is simply shown as a plain note.
 
-Notes with a recognised `type:` frontmatter value get a **rich header strip** rendered above the note body — an icon, a label, and contextual pills drawn from other FM fields. The strip replaces the plain title display and makes the note's role immediately visible without reading the body.
-
-This is provided by the **NbWeb-specialty** plugin, loaded globally for all notebooks.
-
----
-
-## Setting a Type
-
-Add `type:` to any note's frontmatter:
+## How it works
 
 ```yaml
 ---
-title: Hansen House — Phase 1
+title: Hansen House, phase 1
 type: project
 status: active
-client: Hansen Family
+client: contacts:hansen.md
 ---
 ```
 
-If the type is recognised, the specialty header renders automatically when the note is opened. Unknown types fall back to plain rendering.
+Only types nb-web knows count; anything else is treated as a plain note (types come from nb-web
+itself and from plugins, see Reference).
 
----
+**Header bars.** Most headers show the note's `status:`, `client:` (a `contacts:` link shown by
+name), `billing_type:` and `platform:` as pills. Clicking the icon at the left lists the typed
+notes at the top of the notebook.
 
-## Type Reference
+**[+]** at the right of a header opens a wizard that creates the notes and folders that go with
+this one (a new project's folder, diary, reports page and config, say). The wizard is a note at
+the top of the notebook named `.{type}-org.md` (`.project-org.md` for projects), or another one
+named by `add_org:` in the note, or by `types: {project: {add_org: …}}` in the notebook's config.
+`add_org_add:` in a folder or notebook config offers extra wizards beside it. No wizard, no
+**[+]**.
+
+**Dashboards and configs.** A folder's visible front page is a `type: dashboard` note (usually
+named after the folder and pinned, so the folder opens on it); its hidden config is
+`.{folder}.md`, `type: dotfile`.
+
+- The **dashboard** header counts the files and folders beside it, shows the notebook's sync state
+  (click to sync) and access level, has 🎨 to choose the notebook's theme, and a **config** link
+  to the folder's config.
+- The **config** header shows its scope (global, notebook or folder), the folder's name, how many
+  settings it has, and a **dashboard** link back to the folder's dashboard.
+
+See [Folder config](FOLDER-CONFIG.md) for what goes in the config.
+
+**Projects and reports.** A `type: project` note is a running diary; its `type: reports` partner
+holds the reports you show someone. They find each other by name (`hansen.md` and
+`hansen-reports.md`), or by `source: hansen.md` in the reports note, and each header links to the
+other. A reports note without `source:` offers **link…** to set it. The reports header also has a
+timeframe picker, and the accounting plugin adds **Quote** and **Invoice** buttons. Full story:
+[Project diaries and reports](PROJECT-REPORTS.md).
+
+**Marker lines.** In a note with a header, a line such as `> MILESTONE: walls done` shows as a
+marker bar, and an empty `> TODAY:` shows today's date and time.
+
+## Reference
 
 | Type | Icon | Header shows |
-|------|------|-------------|
-| `project` | 🏗️ | Status pill · client · **+ Today** date button |
-| `report` | 📊 | Status pill · client |
-| `invoice` | 🧾 | Invoice number · due date · status pill |
-| `quote` | 📋 | Status pill · client |
-| `budget` | 💰 | Status pill · client |
-| `reports` | 📊 | Actions injected by accounting plugin (Quote · Invoice buttons) |
-| `tools` | 🔧 | Label only |
-| `materials` | 📦 | Label only |
-| `transport` | 🚗 | Label only |
-| `dashboard` | 🗂️ | File count · folder count · sync status · config link |
-| `dotfile` | ⚙️ | Scope · parent name · field count · dashboard link |
+|------|------|--------------|
+| `dashboard` | 🗂️ | config link, file and folder counts, 🎨 theme, sync state, access |
+| `dotfile` | ⚙️ | dashboard link, scope, folder, number of settings |
+| `project` | 🏗️ | reports link, status, client, billing type |
+| `reports` | 📊 | project link, timeframe; Quote / Invoice (accounting plugin) |
+| `report` | 📊 | status, client (a report on its own, without a project) |
+| `invoice` | 🧾 | invoice number, due date, status |
+| `quote`, `budget` | 📋, 💰 | status, client |
+| `tools`, `materials`, `transport` | 🔧, 📦, 🚗 | the label |
+| `topic`, `feature`, `doc` | 📘, 🎯, 📃 | the help system's docs, tour pages and reviewed docs ([Help](help.md)) |
 
-**FM fields used by the header** — declare these in frontmatter to populate the pills:
+Plugins add their own types (the film plugin's `scene`, `shot`, `actor`, `location` and others),
+with their own cards rather than these headers.
 
-| Field | Used by |
-|-------|---------|
-| `status:` | project, report, invoice, quote, budget |
-| `client:` | project, report, quote, budget |
-| `invoice_num:` | invoice |
-| `due:` | invoice |
-| `help:` | any — adds **?** button; see [TYPED NOTES](#type-help-popovers) |
+## For developers
 
----
-
-## Dashboard and Dotfile Pairs
-
-Every notebook and folder has a natural pair of notes:
-
-| Note | Type | Role |
-|------|------|------|
-| `djp.md` | `dashboard` | Front of house — visible, pinned, shows live counts |
-| `.djp.md` | `dotfile` | Back of house — hidden config, carries rules and access |
-
-The **dashboard** header shows a live count of files and folders in the same scope, the current sync status (clickable to open the sync dialog), and a **[config]** link to its dotfile pair.
-
-The **dotfile** header shows its config scope (global / notebook / folder), the parent name, a count of configured keys, and a **[dashboard]** link back to its front-of-house note.
-
-nb-web derives the pair automatically from the filename: `djp.md` ↔ `.djp.md`. You don't wire them manually — the link is implicit in the `.` prefix convention.
-
-See [FOLDER CONFIG](FOLDER-CONFIG.md) for how to create and edit config dotfiles.
-
----
-
-## Project and Report Pairs
-
-`type: project` and `type: report` are designed to work as a named pair:
-
-| Note | Type | Role |
-|------|------|------|
-| `name.md` | `project` | Living document — accumulates freely, date-sectioned |
-| `name-reports.md` | `reports` | Output page — holds one or more curated reports, hand-edited |
-
-The project is the workspace; the reports page is what you show someone. Both get the specialty header, and each shows a navigation chip linking to the other. The naming convention (`-reports` suffix) is the only wiring required — no explicit link needed.
-
-**Recommended frontmatter for the reports note:**
-```yaml
----
-type: reports
-source: name.md
----
-```
-
-`source:` records which project this reports page belongs to. No `help:` key needed — `type: reports` alone gets the **?** button explaining the pair relationship automatically (see "Type Help Popovers" below).
-
----
-
-## Project Notes
-
-`type: project` gets one extra interactive element: the **+ Today** button in the header strip. Clicking it checks whether today's date heading (`## YYYY-MM-DD`) already exists in the note body — if not, it appends one before opening the editor. This keeps diary-style project logs organised without manual heading management.
-
-The same behaviour is also available via `date_headers: true` frontmatter on any note type — see [foldable — Collapsible Headings](foldable.md).
-
----
-
-## Type Help Popovers
-
-Click the **?** at the far right of the preview toolbar for help on the note you're looking at. A
-`type: project` note gets `.lib/help-type-project.md` automatically; docs topics can declare the
-types, blocks and keys they explain with `help_for:`. How it all fits together, including `help:`
-and `help_add:`: [Help](help.md).
+- Headers: `plugins/nbweb-specialty.js`. Four header builders, not one (dashboard, dotfile and
+  reports build their own): CLAUDE.md's "Specialty headers" section. A plugin adds a type with
+  `NbSpecialty.register(type, {icon, label})`.
+- A new type must be in `_FM_TYPES` and `INDICATORS` (`app.py`) or it's silently a plain note
+  (CLAUDE.md invariant 36; `report` was missing until 2026-10-07).
+- The **[+]** wizard: `effective_add_org` (invariant 43).

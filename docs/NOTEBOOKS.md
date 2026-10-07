@@ -78,7 +78,7 @@ bar uses it automatically. A folder's own `.templates/` does the same for notes 
 - **Access**: an `access:` line in `.{name}.md` sets who can see the notebook's notes.
 - **After creating one**: wire a remote, set `access:`, add folders (📂 in the Add bar, each can
   have its own `.{folder}.md`), and shape the dashboard. See [FOLDER CONFIG](FOLDER-CONFIG.md) and
-  [TYPED NOTES](TYPED-NOTES.md).
+  [TYPED-NOTES](TYPED-NOTES.md).
 
 ## For developers
 
