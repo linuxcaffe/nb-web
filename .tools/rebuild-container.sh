@@ -12,8 +12,10 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."   # nb-web repo root
 
+# `|| true`: with no image at all (after `podman system reset`) grep finds nothing and, under
+# pipefail, this used to end the script silently before it built anything (2026-10-07)
 last_v=$(podman images --format '{{.Tag}}' localhost/nb-web 2>/dev/null \
-    | grep -oP '(?<=^phase2-v)\d+' | sort -n | tail -1)
+    | grep -oP '(?<=^phase2-v)\d+' | sort -n | tail -1 || true)
 next_v=$(( ${last_v:-0} + 1 ))
 tag="phase2-v${next_v}"
 commit=$(git rev-parse --short HEAD)
