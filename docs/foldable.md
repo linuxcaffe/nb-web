@@ -1,110 +1,55 @@
 <!-- Generated from docs:foldable.md by .tools/readme-export.py. Edit the source, not this file. -->
 
-# foldable — Collapsible Headings
+# Foldable headings
 
-`foldable:` is nb-web frontmatter that makes selected headings collapsible. A `▾`/`▸` toggle appears before each matching heading — click the toggle or the heading itself to collapse or expand the section beneath it. Fold state is remembered per note and heading in localStorage.
+## Summary
 
----
+`foldable: [Notes, Ideas]` in a note's frontmatter puts a ▾ before every heading containing
+"Notes" or "Ideas"; click the heading (or the ▾) to fold away the section under it, and again to
+open it. Each heading remembers whether it's folded. Set `foldable:` in a folder's config and
+every note in the folder gets it, which suits long diaries: fold every past day with a date
+pattern.
 
-## Quick start
-
-Add `foldable:` to any note's frontmatter with a list of patterns to match:
-
-```yaml
----
-foldable: [Notes, Ideas]
----
-```
-
-Any heading whose text contains "Notes" or "Ideas" (case-insensitive) becomes collapsible.
-
----
-
-## Syntax
+## How it works
 
 ```yaml
-foldable: pattern
-foldable: [pattern, pattern, …]
+foldable: [Notes, Ideas]          # any heading containing Notes or Ideas, any case
+foldable: '\d{4}-\d{2}-\d{2}'     # any heading with a date in it
 ```
 
-A single pattern or a YAML list. Each pattern is treated as a **RegExp** tested against the raw heading line (including the `#` prefix), case-insensitive by default.
+Each entry is a pattern (a regular expression; a plain word just means "contains this word"),
+tested against the whole heading line including its `#`s, so it can pick a level too:
+`'^## '` matches only second-level headings. Matching ignores case; start a pattern with
+`(?-i)` to make case count. Put patterns with symbols in quotes.
 
-Plain strings work as literal substring matches and need no quoting:
+Folding hides everything up to the next heading of the same or a higher level, subheadings
+included. Whether a heading is folded is remembered in this browser, per note and heading.
 
-```yaml
-foldable: [Notes, Ideas, Shop, Todo]
-```
+The note's own `foldable:` replaces one from its folder or notebook config; it doesn't add to it.
 
-Patterns containing regex special characters must be single-quoted (YAML requirement):
+**Today's heading.** With `date_headers: true`, or a `foldable:` pattern that matches dates,
+clicking **Edit** first adds today's `## 2026-10-07` heading if the note hasn't got one (before
+a `> TODAY:` line if there is one, otherwise at the end), so a diary never needs one typed.
 
-```yaml
-foldable: ['\d{4}-\d{2}-\d{2}', Notes]
-```
-
-This matches any heading whose text contains a date (`2026-06-25`) alongside any heading containing "Notes".
-
----
-
-## Matching against the raw heading line
-
-Patterns are tested against the full raw heading, including the `#` prefix — `## Notes` not just `Notes`. This means heading level is available to the regex at no extra cost:
+## Reference
 
 | Pattern | Matches |
 |---------|---------|
-| `Notes` | `# Notes`, `## Notes`, `### My Notes` — any level |
-| `'^\# '` | H1 headings only |
-| `'^\#\# '` | H2 headings only |
-| `'\d{4}-\d{2}-\d{2}'` | Any heading containing an ISO date |
-| `'^\# \d{4}'` | H1 headings starting with a 4-digit year |
+| `Notes` | `# Notes`, `## My notes`, any level, any case |
+| `'(?-i)Notes'` | `## Notes` but not `## notes` |
+| `'^## '` | every second-level heading |
+| `'\d{4}-\d{2}-\d{2}'` | headings with a date in them |
+| `'^# \d{4}'` | first-level headings that start with a year |
 
----
+| Key | Where | Effect |
+|-----|-------|--------|
+| `foldable:` | note, or a folder or notebook config | which headings fold |
+| `date_headers: true` | note | **Edit** adds today's date heading |
 
-## Regex options
+## For developers
 
-All patterns run with the `i` (case-insensitive) flag. To force case-sensitive matching use the inline flag override:
-
-```yaml
-foldable: ['(?-i)ExactCase', Notes]
-```
-
----
-
-## Scope
-
-`foldable:` can be declared at three levels — each inherits from the level above:
-
-| Level | Where |
-|-------|-------|
-| Note | Note's own frontmatter |
-| Notebook | `.notebook` config file |
-| Global | Root `.notebook` config |
-
-A note-level `foldable:` replaces (does not merge with) any inherited value.
-
----
-
-## Fold behaviour
-
-A fold collapses all content between the matching heading and the next heading of **equal or higher level**. Nested headings inside a folded section are hidden with their content.
-
-Fold state is stored in localStorage as `nb-fold:<selector>:<raw-heading>`. It survives page reloads and navigation but is local to the browser.
-
----
-
-## date_headers — auto-insert today's heading on Edit
-
-When `foldable` contains a pattern that matches a date heading (e.g. `'\d{4}-\d{2}-\d{2}'`), nb-web automatically checks for today's `## YYYY-MM-DD` heading whenever you click **Edit**. If it isn't there, it's appended silently before the editor opens.
-
-This means diary-style and project notes with date-foldable never need a manual date heading for today — just click Edit and start typing in the section that's already there.
-
-For notes that want the same behaviour *without* date-foldable, add:
-
-```yaml
-date_headers: true
-```
-
----
-
-## Regex in frontmatter
-
-`foldable:` is the first nb-web frontmatter field to interpret its values as RegExp patterns. Plain strings remain valid (they match as literal substrings); quoting is only required when the pattern contains YAML special characters. This convention is available to future FM fields where pattern matching is useful.
+- `_applyFoldableHeadings` and `_foldPatterns` (`main.js`); fold state in `localStorage` as
+  `nb-fold:<selector>:<heading line>`.
+- `foldable` reaches notes through `effective_fm` (it's in `_FM_BLOCK_KEYS`, `app.py`).
+- Today's heading: `_ensureTodayHeading` / `_insertBeforeToday` (`main.js`, CLAUDE.md
+  invariant 42), using the local date (`_localDate`).

@@ -152,6 +152,14 @@ live in a `.templates` folder: `~/.nb/.templates/` for every notebook, a noteboo
 notebook, or a folder's own for that folder. If a folder (or notebook) has exactly one template,
 **Add** uses it without asking.
 
+**[Foldable headings](docs/foldable.md)** — headings that fold away the section under them
+
+`foldable: [Notes, Ideas]` in a note's frontmatter puts a ▾ before every heading containing
+"Notes" or "Ideas"; click the heading (or the ▾) to fold away the section under it, and again to
+open it. Each heading remembers whether it's folded. Set `foldable:` in a folder's config and
+every note in the folder gets it, which suits long diaries: fold every past day with a date
+pattern.
+
 ---
 
 ### Live codeblocks
