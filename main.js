@@ -1231,15 +1231,16 @@ const NbMain = (() => {
         }
         // the server refuses deleting a locked note too (invariant 76)
         if (_deleteBtn) _deleteBtn.hidden = ['dir-locked', 'content-locked'].includes(_gate.state);
-        // only admins may lock or unlock (invariant 76): anyone else sees the lock, no control
-        const _canUnlock = !!window.NbAuth?.is?.('admin');
+        // who may lock or unlock here: lock_level:, default admin (invariant 76); anyone else
+        // sees the lock, no control
+        const _canUnlock = !!note.can_lock;
 
         if (_gate.state === 'content-locked' && _editBtn && !_canUnlock) {
             const badge = document.createElement('span');
             badge.id          = 'nb-lock-badge';
             badge.className   = 'nb-tool-btn';
             badge.textContent = '🔒';
-            badge.title       = 'Locked (lock: yes): an admin can unlock it';
+            badge.title       = 'Locked (lock: yes)';
             _editBtn.insertAdjacentElement('afterend', badge);
         } else if (_gate.state === 'content-locked' && _editBtn) {
             const unlockBtn = document.createElement('button');

@@ -98,9 +98,7 @@ const NbDialog = (() => {
         header.className = 'nb-dlg-header';
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
-        // 🔒 Lock only for admins: only they may lock or unlock (invariant 76)
-        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-copy','⎘ Copy'], ['f-delete','🗑 Delete'],
-         ...(window.NbAuth?.is?.('admin') ? [['f-lock','🔒 Lock']] : [])].forEach(([id, label]) => {
+        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-copy','⎘ Copy'], ['f-delete','🗑 Delete'], ['f-lock','🔒 Lock']].forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
             btn.dataset.tab = id; btn.textContent = label;
@@ -314,13 +312,14 @@ const NbDialog = (() => {
         const body = _body();
         body.innerHTML = '<p class="nb-dlg-loading">Loading…</p>';
 
-        let isLocked = false, lockReason = '';
+        let isLocked = false, lockReason = '', canLock = false;
         try {
             const r = await fetch('/api/folder/lock?selector=' + encodeURIComponent(_folderSelector));
             if (r.ok) {
                 const d = await r.json();
                 isLocked   = d.locked || false;
                 lockReason = d.reason || '';
+                canLock    = !!d.can_lock;   // lock_level: here (invariant 76)
             }
         } catch(_) {}
 
@@ -349,6 +348,10 @@ const NbDialog = (() => {
         const btnRow = document.createElement('div');
         btnRow.className = 'nb-dlg-row nb-dlg-btn-row';
         btnRow.append(lockBtn, cancelBtn);
+        if (!canLock) {   // show the state, not a control that would be refused
+            lockBtn.hidden = true;
+            statusEl.innerHTML += '<br><small>Locking here is for admins (or whoever the folder\'s <code>lock_level:</code> allows).</small>';
+        }
 
         lockBtn.addEventListener('click', async () => {
             lockBtn.disabled = true; lockBtn.textContent = '…';
@@ -363,7 +366,7 @@ const NbDialog = (() => {
             } catch(_) { lockBtn.disabled = false; lockBtn.textContent = isLocked ? 'Unlock folder' : 'Lock folder'; }
         });
 
-        body.append(statusEl, ...(!isLocked ? [reasonRow] : []), btnRow);
+        body.append(statusEl, ...(!isLocked && canLock ? [reasonRow] : []), btnRow);
     }
 
     // ── Shared pickers ─────────────────────────────────────────

@@ -8956,6 +8956,8 @@ def api_note():
         # notebook -> global .nb.md).
         'effective_help_header': str(meta.get('help_header') if 'help_header' in meta else (nb_meta.get('help_header') or '')),
         'effective_add_org': _resolve_add_org_list(meta, nb_meta, note_notebook, fpath, itype) if note_notebook else '',
+        # may this user lock/unlock here (lock_level:, invariant 76): drives Unlock / 🔒 buttons
+        'can_lock': _may_lock(session.get('user', {}), note_notebook, fpath, meta) if note_notebook else False,
         'parent_meta': parent_meta,
         'parent_meta_sources': parent_meta_sources,
     }
@@ -9026,6 +9028,22 @@ def _lock_reason(path, note=True):
         if re.match(r'^(yes|on|true|1)$', str(meta.get('lock') or '').strip(), re.I):
             return 'this note is locked (lock: yes) -- unlock it first'
     return None
+
+
+def _may_lock(user, notebook, path=None, note_meta=None):
+    """May `user` lock or unlock at `path` (a note or folder; None = the notebook)? Needs the
+    `lock_level:` set for that place (cascading folder -> notebook -> global, default admin,
+    never below user; djp 2026-10-07: the features tour sets user so everyone can try locks)
+    and access there."""
+    if not notebook:
+        return False
+    cfg = _folder_config(notebook, path) if path is not None else _notebook_config(notebook)
+    need = str(cfg.get('lock_level') or 'admin').strip().lower()
+    if need not in LEVELS:
+        need = 'admin'
+    if not _level_gte(need, 'user'):
+        need = 'user'
+    return _level_gte(user.get('level', ''), need) and _can_access(user, note_meta or {}, cfg)
 
 
 def _locked(path, note=True):
@@ -12083,6 +12101,7 @@ def api_nb_notebook_detail():
         'prefs': nb_prefs,
         'default_remote': default_remote,
         'locked': nb_locked,
+        'can_lock': _may_lock(session.get('user', {}), notebook),
         'lock_reason': nb_lock_reason,
     })
 
@@ -14378,11 +14397,12 @@ def api_folder_lock():
             return jsonify({'error': 'folder not found'}), 404
         lk = folder_path / '.nb-lock'
         ul = folder_path / '.nb-unlock'
+        can = _may_lock(session.get('user', {}), _notebook_for_path(folder_path), folder_path / '.x')
         if lk.exists():
-            return jsonify({'locked': True,  'reason': lk.read_text(errors='replace').strip() or None})
+            return jsonify({'locked': True,  'reason': lk.read_text(errors='replace').strip() or None, 'can_lock': can})
         if ul.exists():
-            return jsonify({'locked': False, 'reason': ul.read_text(errors='replace').strip() or None})
-        return jsonify({'locked': False, 'reason': None})
+            return jsonify({'locked': False, 'reason': ul.read_text(errors='replace').strip() or None, 'can_lock': can})
+        return jsonify({'locked': False, 'reason': None, 'can_lock': can})
 
     data     = request.get_json() or {}
     selector = data.get('selector', '').strip()
@@ -14393,9 +14413,7 @@ def api_folder_lock():
         return jsonify({'error': 'folder not found'}), 404
     # locking and unlocking: admin, with access to the folder (2026-10-07; was anyone)
     user = session.get('user', {})
-    nb_name = _notebook_for_path(folder_path)
-    if not _level_gte(user.get('level', ''), 'admin') or not (
-            nb_name and _can_access(user, {}, _folder_config(nb_name, folder_path / '.x'))):
+    if not _may_lock(user, _notebook_for_path(folder_path), folder_path / '.x'):
         return jsonify({'error': 'forbidden'}), 403
     lk = folder_path / '.nb-lock'
     ul = folder_path / '.nb-unlock'
@@ -14433,8 +14451,7 @@ def api_nb_lock():
     notebook = data.get('notebook', '').strip()
     if not notebook or not _safe_notebook(notebook):
         return jsonify({'error': 'notebook required'}), 400
-    user = session.get('user', {})    # admin, with access (2026-10-07; was anyone)
-    if not _level_gte(user.get('level', ''), 'admin') or not _can_access(user, {}, _notebook_config(notebook)):
+    if not _may_lock(session.get('user', {}), notebook):    # lock_level:, default admin
         return jsonify({'error': 'forbidden'}), 403
     lk = nb_dir_for(notebook) / '.nb-lock'
     ul = nb_dir_for(notebook) / '.nb-unlock'
@@ -15581,8 +15598,7 @@ def api_cine_lock():
             note_meta, _ = parse_frontmatter(fpath.read_text(errors='replace'))
         except Exception:
             note_meta = {}
-        if not _level_gte(user.get('level', ''), 'admin') or not (
-                nb_name and _can_access(user, note_meta, _folder_config(nb_name, fpath))):
+        if not _may_lock(user, nb_name, fpath, note_meta):    # lock_level:, default admin
             return jsonify({'error': 'forbidden'}), 403
         blocked = _locked(fpath, note=False)
         if blocked:

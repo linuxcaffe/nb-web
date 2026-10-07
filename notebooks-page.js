@@ -506,7 +506,7 @@ const NbNotebooksPage = (() => {
                     <span style="font-size:11px;color:var(--text-dim)">Set as the active scope for List, Add, and other commands.</span>
                 </div>
                 <div style="padding:6px 28px 12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                    ${window.NbAuth?.is?.('admin') ? `<button id="nb-nb-lock-btn" class="nb-tool-btn${d.locked ? ' nb-btn-danger' : ''}">${d.locked ? '🔒 Unlock notebook' : '🔒 Lock notebook'}</button>` : (d.locked ? '<span>🔒</span>' : '')}
+                    ${d.can_lock ? `<button id="nb-nb-lock-btn" class="nb-tool-btn${d.locked ? ' nb-btn-danger' : ''}">${d.locked ? '🔒 Unlock notebook' : '🔒 Lock notebook'}</button>` : (d.locked ? '<span>🔒</span>' : '')}
                     <span style="font-size:11px;color:var(--text-dim)">${d.locked ? (d.lock_reason ? _esc(d.lock_reason) : 'Notebook is read-only — all notes locked.') : 'Prevent edits to all notes in this notebook.'}</span>
                 </div>
                 ${!name.startsWith('.') ? `
