@@ -551,3 +551,27 @@ older request answered last). Then force the losing order:
 
 Both shapes are in `e2e/tests/deep-link-scope.spec.js`; the fixes are invariant 69. Run the spec
 several times in a row afterwards (`for i in 1 2 3 4 5; do npx playwright test …; done`).
+
+## Time zones and "today": pin the clock and the zone (2026-10-07)
+
+Date bugs that only show in the evening (UTC already tomorrow) are testable without waiting for
+the evening: in a spec, `test.use({ timezoneId: 'America/Toronto' })` and, before the page loads
+the note, `await page.clock.setFixedTime(new Date('2026-10-06T21:30:00-04:00'))` (01:30 UTC the
+next day). See `e2e/tests/foldable.spec.js`. Server side, the container's own zone is UTC unless
+its run command passes `-e TZ=...` (`sys-container-tz`); the bare dev server uses the host's.
+
+## Direct git work in a notebook: hold the nb lock (2026-10-07)
+
+Two `nb` processes at once can empty a notebook's `.index` (invariant 72). nb-web serializes its
+own through `flock ~/.nb/.logs/nb-web-nb.lock`; do the same for hand-run git/nb work in `~/.nb`
+while a server is up: `flock ~/.nb/.logs/nb-web-nb.lock sh -c 'git add ... && git commit ...'`.
+After moving the `features` `pristine` tag, check its `.index` isn't empty first (a wiped one
+once got tagged and the README export published no tour).
+
+## Known flaky: deep-link-scope reload test
+
+`e2e/tests/deep-link-scope.spec.js` "a reload on another notebook's note lists that notebook"
+fails about 1 run in 6 under the full parallel suite (lands on `home:pinned-demo.md`), never
+seen in 25 isolated runs with logging. Rerun before suspecting your change; it's parked in
+`claude:nb-web_help_single_source_design_2026-10-04.md`. `edit-session.spec.js` is the other
+known flake.
