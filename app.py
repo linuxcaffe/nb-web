@@ -3009,6 +3009,9 @@ def api_note_image_embed():
     note_path = _resolve_to_nb_path(selector)
     if not note_path or not note_path.exists() or not note_path.is_file():
         return jsonify({'error': 'note not found'}), 404
+    blocked = _locked(note_path, note=False)
+    if blocked:
+        return blocked
 
     notebook = _notebook_for_path(note_path)
     meta, _  = parse_frontmatter(note_path.read_text(errors='replace'))
@@ -6430,6 +6433,9 @@ def api_t_invoice_generate():
     note_path = _resolve_to_nb_path(selector)
     if not note_path or not note_path.exists():
         return jsonify({'error': 'note not found'}), 404
+    blocked = _locked(note_path, note=False)
+    if blocked:
+        return blocked
 
     meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
     _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
@@ -6825,6 +6831,9 @@ def api_t_quote_generate():
     note_path = _resolve_to_nb_path(selector)
     if not note_path or not note_path.exists():
         return jsonify({'error': 'note not found'}), 404
+    blocked = _locked(note_path, note=False)
+    if blocked:
+        return blocked
 
     meta, body = parse_frontmatter(note_path.read_text(errors='replace'))
     _, diary_body, meta = _resolve_diary_source(note_path, meta, body)
@@ -8998,6 +9007,33 @@ def _merged_meta(note_path: str, note_meta: dict) -> dict:
         return note_meta
     return {**ann_meta, **note_meta}  # note_meta keys win
 
+def _lock_reason(path, note=True):
+    """Why `path` (a note, or a folder something would be written into) can't be written: a
+    .nb-lock in its folder chain, or with note=True the note's own `lock: yes`. None if free.
+    Locks are read-only for everyone; unlock first (admin). 2026-10-07: they used to hide the
+    Edit/Delete buttons only, every endpoint wrote anyway (test_locks.py)."""
+    p = Path(path)
+    lk = _find_nb_lock(p) if p.exists() else (_find_nb_lock(p.parent) if p.parent.exists() else None)
+    if lk:
+        why = lk.read_text(errors='replace').strip()
+        where = lk.parent.name
+        return f'{where} is locked' + (f' ({why})' if why else '') + ' -- unlock it first'
+    if note and p.is_file() and p.suffix == '.md':
+        try:
+            meta, _ = parse_frontmatter(p.read_text(errors='replace'))
+        except Exception:
+            meta = {}
+        if re.match(r'^(yes|on|true|1)$', str(meta.get('lock') or '').strip(), re.I):
+            return 'this note is locked (lock: yes) -- unlock it first'
+    return None
+
+
+def _locked(path, note=True):
+    """A 423 response if `path` is locked (see _lock_reason), else None."""
+    why = _lock_reason(path, note) if path is not None else None
+    return (jsonify({'error': f'locked: {why}'}), 423) if why else None
+
+
 def _find_nb_lock(path) -> 'Path | None':
     """Walk up from path (file or dir) to notebook root; return first .nb-lock found, or None."""
     p = Path(path)
@@ -9242,10 +9278,10 @@ def api_note_annotate():
     if not selector:
         return jsonify({'error': 'selector required'}), 400
 
-    path_r = run_nb('show', selector, '--path')
-    if not nb_ok(path_r):
+    _p = _resolve_to_nb_path(selector)   # no nb run for a plain path (invariant 72)
+    if _p is None:
         return jsonify({'error': 'not found'}), 404
-    fpath = path_r['stdout'].strip()
+    fpath = str(_p)
     ap    = _annotation_path(fpath)
 
     note_notebook = _notebook_for_path(Path(fpath))
@@ -9264,6 +9300,24 @@ def api_note_annotate():
     user = session.get('user', {})
     if not _can_write_annotation(user, note_meta, ann_meta, nb_meta):
         return jsonify({'error': 'forbidden'}), 403
+    # The annotation is locked with its note (folder lock or the note's lock: yes, djp 2026-10-07)
+    # and can carry its own lock: yes in its frontmatter (it has its own access: too, invariant 62)
+    blocked = _locked(Path(fpath))
+    if blocked:
+        return blocked
+    if re.match(r'^(yes|on|true|1)$', str(ann_meta.get('lock') or '').strip(), re.I):
+        # an admin saving it without lock: is the unlock (an annotation has no Unlock button)
+        new_meta = {}
+        if request.method == 'POST':
+            try:
+                new_meta, _ = parse_frontmatter(str((request.get_json(silent=True) or {}).get('content', '')))
+            except Exception:
+                new_meta = {}
+        lifting = (request.method == 'POST' and _level_gte(user.get('level', ''), 'admin')
+                   and not re.match(r'^(yes|on|true|1)$', str(new_meta.get('lock') or '').strip(), re.I))
+        if not lifting:
+            return jsonify({'error': 'locked: this annotation is locked (lock: yes) -- an admin can '
+                                     'unlock it by saving it without lock:'}), 423
 
     def _bust_sidecar_cache():
         _sidecar_scan_cache.clear()
@@ -9397,6 +9451,11 @@ def api_create_note():
 
     if not _can_write(user, None, notebook=notebook):
         return jsonify({'error': 'forbidden'}), 403
+    if _safe_notebook(notebook):
+        _dest = NB_DIR / notebook / folder if folder and '..' not in folder.split('/') else NB_DIR / notebook
+        blocked = _locked(_dest, note=False)
+        if blocked:
+            return blocked
 
     target = f"{notebook}:" + (f"{folder}/" if folder else '')
 
@@ -9724,6 +9783,9 @@ def api_edit_note():
         # Regular note — enforce per-note access
         if not _can_write(user, selector):
             return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(Path(selector) if selector.startswith('/') else _resolve_to_nb_path(selector))
+    if blocked:
+        return blocked
 
     if append is not None:
         if selector.startswith('/'):
@@ -9827,6 +9889,9 @@ def api_save_encrypted_note():
     fpath = _resolve_to_nb_path(selector)
     if not fpath or not fpath.is_file():
         return jsonify({'error': 'not found'}), 404
+    blocked = _locked(fpath)
+    if blocked:
+        return blocked
     if not fpath.name.endswith('.enc'):
         return jsonify({'error': 'not an encrypted file'}), 400
     tmp = Path(tempfile.mktemp(suffix='.enc.tmp', dir=str(fpath.parent)))
@@ -9868,6 +9933,9 @@ def api_create_encrypted_note():
         return jsonify({'error': f'notebook {notebook!r} not found'}), 404
 
     note_dir = nb_root / folder if folder else nb_root
+    blocked = _locked(note_dir, note=False)
+    if blocked:
+        return blocked
     note_dir.mkdir(parents=True, exist_ok=True)
 
     # Build markdown body same as nb add --title / --tags
@@ -9933,6 +10001,9 @@ def api_delete_note():
             return jsonify({'error': str(e)}), 500
     if not _can_write(user, selector):
         return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(_resolve_to_nb_path(selector))
+    if blocked:
+        return blocked
     r = run_nb('delete', selector, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': r['stderr']})
 
@@ -9952,6 +10023,9 @@ def api_todo_toggle():
     user = session.get('user', {})
     if not _can_write(user, selector):
         return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(_resolve_to_nb_path(selector))
+    if blocked:
+        return blocked
     cmd = 'do' if done else 'undo'
     args = [cmd, selector]
     if task_num is not None:
@@ -14018,6 +14092,9 @@ def api_rename():
     user = session.get('user', {})
     if not _can_write(user, selector):
         return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(_resolve_to_nb_path(selector))
+    if blocked:
+        return blocked
 
     path_r = run_nb('show', selector, '--path')
     if not nb_ok(path_r):
@@ -14068,6 +14145,9 @@ def api_move():
     user = session.get('user', {})
     if not _can_write(user, selector):
         return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(_resolve_to_nb_path(selector)) or _locked(_resolve_dest_dir(dest), note=False)
+    if blocked:
+        return blocked
 
     # Capture annotation path before the move
     path_r   = run_nb('show', selector, '--path')
@@ -14106,6 +14186,9 @@ def api_copy():
     user = session.get('user', {})
     if not _can_write(user, selector):
         return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(_resolve_dest_dir(dest), note=False)
+    if blocked:
+        return blocked
 
     fpath_r  = run_nb('show', selector, '--path')
     fpath    = Path(fpath_r['stdout'].strip()) if nb_ok(fpath_r) else None
@@ -14170,6 +14253,9 @@ def api_folder_rename():
     name     = data.get('name', '').strip()
     if not selector or not name:
         return jsonify({'error': 'selector and name required'}), 400
+    blocked = _locked(_folder_selector_to_dir(selector), note=False)
+    if blocked:
+        return blocked
     r = run_nb('move', selector, name, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
 
@@ -14188,6 +14274,9 @@ def api_folder_move():
 
     dest_parent = _resolve_dest_dir(dest)
     dest_dir    = dest_parent / src_dir.name
+    blocked = _locked(src_dir, note=False) or _locked(dest_parent, note=False)
+    if blocked:
+        return blocked
     if dest_dir.exists():
         return jsonify({'success': False, 'stderr': f'"{src_dir.name}" already exists at the destination.'}), 400
 
@@ -14239,6 +14328,9 @@ def api_folder_copy():
 
     dest_parent = _resolve_dest_dir(dest)
     dest_copy   = dest_parent / src_dir.name
+    blocked = _locked(src_dir, note=False) or _locked(dest_parent, note=False)
+    if blocked:
+        return blocked
     if dest_copy.exists():
         return jsonify({'success': False, 'stderr': f'"{src_dir.name}" already exists at the destination.'}), 400
 
@@ -14299,6 +14391,12 @@ def api_folder_lock():
     folder_path = _folder_selector_to_dir(selector)
     if not folder_path:
         return jsonify({'error': 'folder not found'}), 404
+    # locking and unlocking: admin, with access to the folder (2026-10-07; was anyone)
+    user = session.get('user', {})
+    nb_name = _notebook_for_path(folder_path)
+    if not _level_gte(user.get('level', ''), 'admin') or not (
+            nb_name and _can_access(user, {}, _folder_config(nb_name, folder_path / '.x'))):
+        return jsonify({'error': 'forbidden'}), 403
     lk = folder_path / '.nb-lock'
     ul = folder_path / '.nb-unlock'
     if request.method == 'POST':
@@ -14335,6 +14433,9 @@ def api_nb_lock():
     notebook = data.get('notebook', '').strip()
     if not notebook or not _safe_notebook(notebook):
         return jsonify({'error': 'notebook required'}), 400
+    user = session.get('user', {})    # admin, with access (2026-10-07; was anyone)
+    if not _level_gte(user.get('level', ''), 'admin') or not _can_access(user, {}, _notebook_config(notebook)):
+        return jsonify({'error': 'forbidden'}), 403
     lk = nb_dir_for(notebook) / '.nb-lock'
     ul = nb_dir_for(notebook) / '.nb-unlock'
     if request.method == 'POST':
@@ -14427,6 +14528,9 @@ def api_note_restore():
     fpath = _resolve_to_nb_path(selector)
     if not fpath:
         return jsonify({'error': 'not found'}), 404
+    blocked = _locked(fpath)
+    if blocked:
+        return blocked
     nb_root, rel_path = _nb_root_and_rel(fpath)
     r = subprocess.run(
         ['git', 'show', f'{git_hash}:{rel_path}'],
@@ -15469,6 +15573,20 @@ def api_cine_lock():
         fpath = _resolve_to_nb_path(selector)
         if not fpath or not fpath.is_file():
             return jsonify({'error': 'not found'}), 404
+        # a note's lock: is set and lifted by an admin with access to the note (2026-10-07; was
+        # anyone), and not at all inside a locked folder
+        user = session.get('user', {})
+        nb_name = _notebook_for_path(fpath)
+        try:
+            note_meta, _ = parse_frontmatter(fpath.read_text(errors='replace'))
+        except Exception:
+            note_meta = {}
+        if not _level_gte(user.get('level', ''), 'admin') or not (
+                nb_name and _can_access(user, note_meta, _folder_config(nb_name, fpath))):
+            return jsonify({'error': 'forbidden'}), 403
+        blocked = _locked(fpath, note=False)
+        if blocked:
+            return blocked
         raw = fpath.read_text(errors='replace')
         if locked:
             patched = _patch_fm_fields(raw, lock='yes')
