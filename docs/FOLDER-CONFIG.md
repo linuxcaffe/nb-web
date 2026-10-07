@@ -84,7 +84,7 @@ constraints:
   saved only if you give them a value. Required fields are marked `*`.
 - **the `nb-check-front` check** reports notes that break the rules: an empty `required:` field, a
   value that doesn't match `pattern:` (a regular expression), or one that isn't in `values:`. It
-  only checks notes whose `type:` is the folder's `default_type:`, and skips folders without one.
+  applies the folder's rules only to notes whose `type:` is the folder's `default_type:`.
 
 Put the rules in the folder whose notes they describe. Rules in folders further up still choose
 an input's type for a field the note has, but only the note's own folder decides which fields
@@ -93,7 +93,8 @@ below it.
 
 A note can adjust its folder's rules in its own frontmatter: `constraints:` replaces the folder's
 rule for a field, `constraints_add:` adds rules for fields the folder doesn't mention. The form
-follows these; the check doesn't (it reads only the folder's config).
+and the check both follow these, and a note with rules of its own is checked even in a folder
+without a `default_type:`.
 
 ## For developers
 
