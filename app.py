@@ -9843,15 +9843,16 @@ def api_edit_note():
         if not note_path.is_file():
             return jsonify({'error': 'not found'}), 404
     else:
-        path_r = run_nb('show', selector, '--path')
-        if not nb_ok(path_r):
-            return jsonify({'error': 'not found'}), 404
-        note_path = Path(path_r['stdout'].strip())
-        if not note_path.is_file():
+        note_path = _resolve_to_nb_path(selector)   # no nb run for a plain path (invariant 72)
+        if note_path is None or not note_path.is_file():
             return jsonify({'error': 'not found'}), 404
 
     try:
         note_path.write_text(content)
+        # this note's cached check results are stale now (they're kept 30 s per script and
+        # note; a fixed problem kept showing its warning until they expired, 2026-10-07)
+        for _k in [k for k in _check_cache if k[1] == selector]:
+            _check_cache.pop(_k, None)
     except OSError as e:
         return jsonify({'error': str(e)}), 500
 
