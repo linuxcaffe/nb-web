@@ -172,8 +172,9 @@ pattern.
 
 A lock makes something read-only, for everyone. Lock a single note with `lock: yes` in its
 frontmatter, or a whole folder or notebook from its menu; nothing inside can then be edited,
-moved, renamed or deleted until it's unlocked, and a note's annotation is locked with it. Only an
-admin can lock or unlock; others see a 🔒.
+moved, renamed or deleted until it's unlocked, and a note's annotation is locked with it. Who may
+lock and unlock is up to each notebook or folder (`lock_level:`, admins by default); others see a
+🔒.
 
 ---
 

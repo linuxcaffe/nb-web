@@ -6,17 +6,22 @@
 
 A lock makes something read-only, for everyone. Lock a single note with `lock: yes` in its
 frontmatter, or a whole folder or notebook from its menu; nothing inside can then be edited,
-moved, renamed or deleted until it's unlocked, and a note's annotation is locked with it. Only an
-admin can lock or unlock; others see a 🔒.
+moved, renamed or deleted until it's unlocked, and a note's annotation is locked with it. Who may
+lock and unlock is up to each notebook or folder (`lock_level:`, admins by default); others see a
+🔒.
 
 ## How it works
 
+**Who locks.** `lock_level:` in a folder or notebook config (or `~/.nb/.nb.md`) says who may
+lock and unlock there: `admin` unless set, never lower than `user`. The features tour sets
+`lock_level: user`, so anyone can try it. Everyone else sees the 🔒 but no control.
+
 **A note** is locked by `lock: yes` in its frontmatter. Its **Edit** and **Delete** buttons go and
-an admin sees **🔒 Unlock** in their place (it clears `lock:` rather than deleting it, so a 🔒
+whoever may lock there sees **🔒 Unlock** in their place (it clears `lock:` rather than deleting it, so a 🔒
 button can lock it again).
 
 **A folder or notebook** is locked by a small `.nb-lock` file inside it; whatever text it holds is
-shown as the reason. Admins lock and unlock a folder from its **⋯** menu (**🔒 Lock** tab) and a
+shown as the reason. A folder is locked and unlocked from its **⋯** menu (**🔒 Lock** tab), a
 notebook from **Menu → Notebooks** (**🔒 Lock notebook**). A lock covers everything below it,
 subfolders included; unlocking renames the file to `.nb-unlock`, so the reason is kept for next
 time.
@@ -27,7 +32,7 @@ in, annotating, restoring an old version, and folder rename/move/copy. nb-web re
 journals) aren't locked.
 
 **Annotations** are locked with their note. An annotation can also be locked on its own, with
-`lock: yes` in its frontmatter; an admin unlocks it by saving it without `lock:`.
+`lock: yes` in its frontmatter; whoever may lock there unlocks it by saving it without `lock:`.
 
 Locks bind nb-web, not the files: `nb` in a terminal, or any editor, can still change them.
 
@@ -35,14 +40,19 @@ Locks bind nb-web, not the files: `nb` in a terminal, or any editor, can still c
 
 | Locks | How | Unlock |
 |-------|-----|--------|
-| a note | `lock: yes` in its frontmatter | **🔒 Unlock** (admin) |
-| an annotation | `lock: yes` in its frontmatter (or its note's lock) | save it without `lock:` (admin) |
-| a folder | **⋯ → 🔒 Lock → Lock folder** (admin), or a `.nb-lock` file | the same tab |
-| a notebook | **Menu → Notebooks → 🔒 Lock notebook** (admin) | the same button |
+| a note | `lock: yes` in its frontmatter | **🔒 Unlock** |
+| an annotation | `lock: yes` in its frontmatter (or its note's lock) | save it without `lock:` |
+| a folder | **⋯ → 🔒 Lock → Lock folder**, or a `.nb-lock` file | the same tab |
+| a notebook | **Menu → Notebooks → 🔒 Lock notebook** | the same button |
+
+| Key | Where | Effect |
+|-----|-------|--------|
+| `lock_level:` | folder, notebook or global config | who may lock and unlock there: `user`, `office`, `admin` (default), `tech` |
 
 ## For developers
 
-- `_lock_reason` / `_locked` (`app.py`) check every write; a refused write answers 423 with the
+- `_lock_reason` / `_locked` (`app.py`) check every write; `_may_lock` decides who locks (the
+  `can_lock` field in `/api/note` and the lock info drive the buttons); a refused write answers 423 with the
   reason (CLAUDE.md invariant 76). Any new endpoint that writes a note or into a folder needs
   `_locked(...)`.
 - Two unrelated locks with similar names: the folder `.nb-lock` (`note.locked` in `/api/note`) and
