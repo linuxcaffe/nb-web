@@ -134,7 +134,9 @@ const NbTemplates = (() => {
         try {
             const r = await fetch(`/api/templates?notebook=${encodeURIComponent(nb)}`);
             const d = await r.json();
-            const templates = d.templates || [];
+            // note templates only: /api/templates also lists annotation and HTML export
+            // templates (template_type set) for the Templates view
+            const templates = (d.templates || []).filter(t => !t.template_type);
             const curTemplate = NbNav.addTemplate;
 
             countEl.textContent = templates.length

@@ -2343,6 +2343,42 @@ def strip_ansi(s):
 # API: Notebooks
 # ---------------------------------------------------------------------------
 
+def _template_path_ok(user, path, write=False):
+    """May `user` read (or write) the template file at `path`? Only template files qualify: one in
+    a .templates/ folder (.md/.txt/.org), a .template-annotation.md or a .export.template.html,
+    normalised first so `..` can't escape. Global templates (~/.nb/.templates/, the root export
+    template): anyone logged in reads, admin writes. A notebook's: read access to the folder to
+    read, plus 'user' level to write (invariant 17), and the account's notebooks: scope.
+    Before 2026-10-06 the template endpoints took any path under ~/.nb (password hashes in
+    .users/ included); test_template_access.py."""
+    try:
+        p = Path(os.path.normpath(str(path)))
+        if not p.is_absolute():
+            return False
+        rel = p.relative_to(NB_DIR)
+        p.resolve().relative_to(NB_DIR.resolve())
+    except (ValueError, OSError):
+        return False
+    if not ((p.parent.name == '.templates' and p.suffix in ('.md', '.txt', '.org'))
+            or p.name in ('.template-annotation.md', '.export.template.html')):
+        return False
+    level = user.get('level', '')
+    parts = rel.parts
+    if parts[0].startswith('.'):
+        if not ((parts[0] == '.templates' and len(parts) == 2) or parts == ('.export.template.html',)):
+            return False
+        return _level_gte(level, 'admin') if write else True
+    nb = _safe_notebook(parts[0])
+    if not nb or not (NB_DIR / nb).is_dir():
+        return False
+    if write and not _level_gte(level, 'user'):
+        return False
+    restrict = user.get('notebooks') or []
+    if restrict and level != 'tech' and nb not in restrict:
+        return False
+    return _can_access(user, {}, _folder_config(nb, p.parent))
+
+
 @app.route('/api/templates')
 def api_templates():
     # `notebook` param kept for API compat but no longer used for filtering —
@@ -2462,6 +2498,8 @@ def api_templates():
                 'template_type': 'export_html',
             })
 
+    user = session.get('user', {})
+    templates = [t for t in templates if _template_path_ok(user, t['path'])]
     return jsonify({'templates': templates})
 
 
@@ -2472,18 +2510,26 @@ def api_save_template():
     content  = data.get('content', '')
     scope    = data.get('scope', 'global')
     notebook = data.get('notebook', 'home')
+    user     = session.get('user', {})
+    if scope in ('annotation', 'local') and not _safe_notebook(notebook):
+        return jsonify({'error': 'invalid notebook'}), 400
     if scope == 'annotation':
         folder = data.get('folder', '').strip('/')
+        if any(part in ('', '.', '..') or part.startswith('.') for part in folder.split('/')) and folder:
+            return jsonify({'error': 'invalid folder'}), 400
         tdir   = NB_DIR / notebook / folder if folder else NB_DIR / notebook
-        tdir.mkdir(parents=True, exist_ok=True)
         tpath  = tdir / '.template-annotation.md'
+        if not tdir.is_dir() or not _template_path_ok(user, tpath, write=True):
+            return jsonify({'error': 'forbidden'}), 403
         tpath.write_text(content)
         return jsonify({'success': True, 'path': str(tpath), 'scope': scope})
     if not name:
         return jsonify({'error': 'name required'}), 400
     tdir = (NB_DIR / notebook / '.templates') if scope == 'local' else GLOBAL_TEMPLATES_DIR
-    tdir.mkdir(parents=True, exist_ok=True)
     tpath = tdir / f"{name}.md"
+    if (scope == 'local' and not (NB_DIR / notebook).is_dir()) or not _template_path_ok(user, tpath, write=True):
+        return jsonify({'error': 'forbidden'}), 403
+    tdir.mkdir(parents=True, exist_ok=True)
     tpath.write_text(content)
     return jsonify({'success': True, 'path': str(tpath), 'scope': scope, 'name': name})
 
@@ -2494,10 +2540,8 @@ def api_get_template():
     if not path:
         return jsonify({'error': 'path required'}), 400
     tpath = Path(path)
-    try:
-        tpath.relative_to(NB_DIR)
-    except ValueError:
-        return jsonify({'error': 'invalid path'}), 403
+    if not _template_path_ok(session.get('user', {}), tpath):
+        return jsonify({'error': 'forbidden'}), 403
     if not tpath.exists():
         return jsonify({'error': 'not found'}), 404
     return jsonify({'content': tpath.read_text(errors='replace'), 'name': tpath.stem})
@@ -2511,10 +2555,8 @@ def api_update_template():
     if not path:
         return jsonify({'error': 'path required'}), 400
     tpath = Path(path)
-    try:
-        tpath.relative_to(NB_DIR)
-    except ValueError:
-        return jsonify({'error': 'invalid path'}), 403
+    if not _template_path_ok(session.get('user', {}), tpath, write=True):
+        return jsonify({'error': 'forbidden'}), 403
     if not tpath.exists():
         return jsonify({'error': 'not found'}), 404
     tpath.write_text(content)
@@ -2527,7 +2569,7 @@ def api_get_template_default():
     If ?folder=items is given, check {notebook}/{folder}/.templates/ first."""
     notebook = request.args.get('notebook', '').strip()
     folder   = request.args.get('folder', '').strip().strip('/')
-    if not notebook:
+    if not notebook or not _safe_notebook(notebook) or '..' in folder.split('/'):
         return jsonify({'template': None})
 
     def _pick(tmpl_dir):
@@ -2559,16 +2601,17 @@ def api_set_template_default():
     notebook      = data.get('notebook', '').strip()
     if not template_path or not notebook:
         return jsonify({'error': 'template_path and notebook required'}), 400
+    if not _safe_notebook(notebook) or not (NB_DIR / notebook).is_dir():
+        return jsonify({'error': 'invalid notebook'}), 400
+    user = session.get('user', {})
     src = Path(template_path)
-    try:
-        src.relative_to(NB_DIR)
-    except ValueError:
-        return jsonify({'error': 'invalid path'}), 403
+    dest_dir = NB_DIR / notebook / '.templates'
+    dest = dest_dir / src.name
+    if not _template_path_ok(user, src) or not _template_path_ok(user, dest, write=True):
+        return jsonify({'error': 'forbidden'}), 403
     if not src.is_file():
         return jsonify({'error': 'template not found'}), 404
-    dest_dir = NB_DIR / notebook / '.templates'
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / src.name
     import shutil
     shutil.copy2(src, dest)
     return jsonify({'success': True, 'path': str(dest)})
@@ -2580,10 +2623,8 @@ def api_delete_template():
     if not path:
         return jsonify({'error': 'path required'}), 400
     tpath = Path(path)
-    try:
-        tpath.relative_to(NB_DIR)
-    except ValueError:
-        return jsonify({'error': 'invalid path'}), 403
+    if not _template_path_ok(session.get('user', {}), tpath, write=True):
+        return jsonify({'error': 'forbidden'}), 403
     if not tpath.exists():
         return jsonify({'error': 'not found'}), 404
     tpath.unlink()
@@ -2715,9 +2756,12 @@ def api_create_export_template():
     data     = request.get_json() or {}
     scope    = data.get('scope', 'global')
     notebook = data.get('notebook', '').strip()
-    dest = (NB_DIR / notebook / '.export.template.html'
-            if scope == 'local' and notebook
-            else NB_DIR / '.export.template.html')
+    local    = scope == 'local' and notebook
+    if local and (not _safe_notebook(notebook) or not (NB_DIR / notebook).is_dir()):
+        return jsonify({'error': 'invalid notebook'}), 400
+    dest = NB_DIR / notebook / '.export.template.html' if local else NB_DIR / '.export.template.html'
+    if not _template_path_ok(session.get('user', {}), dest, write=True):
+        return jsonify({'error': 'forbidden'}), 403
     if dest.exists():
         return jsonify({'error': 'already exists', 'path': str(dest)}), 409
     dest.parent.mkdir(parents=True, exist_ok=True)
