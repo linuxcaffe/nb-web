@@ -9324,18 +9324,18 @@ def api_note_annotate():
     if blocked:
         return blocked
     if re.match(r'^(yes|on|true|1)$', str(ann_meta.get('lock') or '').strip(), re.I):
-        # an admin saving it without lock: is the unlock (an annotation has no Unlock button)
+        # saving it without lock: is the unlock, for whoever may lock here (an annotation has no Unlock button)
         new_meta = {}
         if request.method == 'POST':
             try:
                 new_meta, _ = parse_frontmatter(str((request.get_json(silent=True) or {}).get('content', '')))
             except Exception:
                 new_meta = {}
-        lifting = (request.method == 'POST' and _level_gte(user.get('level', ''), 'admin')
+        lifting = (request.method == 'POST' and _may_lock(user, note_notebook, Path(fpath), note_meta)
                    and not re.match(r'^(yes|on|true|1)$', str(new_meta.get('lock') or '').strip(), re.I))
         if not lifting:
-            return jsonify({'error': 'locked: this annotation is locked (lock: yes) -- an admin can '
-                                     'unlock it by saving it without lock:'}), 423
+            return jsonify({'error': 'locked: this annotation is locked (lock: yes) -- whoever may '
+                                     'lock here can unlock it by saving it without lock:'}), 423
 
     def _bust_sidecar_cache():
         _sidecar_scan_cache.clear()
