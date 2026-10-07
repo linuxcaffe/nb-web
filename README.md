@@ -132,6 +132,20 @@ notebook or folder config and every note there gets the same strip.
 
 ---
 
+### Structure
+
+_Shape notebooks to fit what's in them_
+
+**[Folder config](docs/FOLDER-CONFIG.md)** — settings for a whole folder or notebook, kept in a hidden note inside it
+
+A folder can carry its own settings in a hidden note named after it: `projects/.projects.md` for
+the `projects` folder, `.work.md` at the top of the `work` notebook. Its frontmatter sets things
+like who may see the folder (`access:`), which note it opens on (`pinned:`), its tab strip
+(`tabs:`) and field rules for its notes (`constraints:`). Settings pass down to every subfolder
+and note below, and the nearest one wins, so you only write down what's different.
+
+---
+
 ### Templates
 
 [screenshot: Add bar with template picker]

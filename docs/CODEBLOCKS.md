@@ -891,7 +891,7 @@ Values ending with `:` must be quoted in YAML.
     ○ 📁 schedule/                (no config file)
 ```
 
-`●` nodes are clickable — opens the config file in the preview pane for editing via **Changes** or **Edit**. `○` nodes have no config file yet.
+`●` nodes are clickable — opens the config file in the preview pane for editing via **FM** or **Edit**. `○` nodes have no config file yet.
 
 When a `field` is specified, only nodes that actually set that field show a value beside them:
 
