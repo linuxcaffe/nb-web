@@ -36,9 +36,26 @@ import zipfile
 from flask import Flask, Response, jsonify, redirect, request, send_file, send_from_directory, session
 from flask_sock import Sock
 
+from flask.json.provider import DefaultJSONProvider
+import datetime as _dt
+
+
+class _JSONProvider(DefaultJSONProvider):
+    """Dates as written. YAML reads an unquoted `date: 2026-07-15` as a date, which Flask's
+    default writes as 'Wed, 15 Jul 2026 00:00:00 GMT' (every frontmatter date in the UI looked
+    like that until 2026-10-06; test_json_dates.py)."""
+    sort_keys = False                                  # preserve document key order
+
+    @staticmethod
+    def default(o):
+        if isinstance(o, (_dt.date, _dt.datetime, _dt.time)):
+            return o.isoformat()
+        return DefaultJSONProvider.default(o)
+
+
 app = Flask(__name__, static_folder='.', static_url_path='')
+app.json = _JSONProvider(app)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
-app.json.sort_keys = False                             # preserve document key order (Flask 2.2+)
 sock = Sock(app)
 
 NB_BIN  = os.environ.get('NB_BIN', 'nb')
@@ -2205,6 +2222,7 @@ INDICATORS = {
     'help':        '❓',
     'topic':       '📘',
     'feature':     '🎯',
+    'doc':         '📃',
     'note':        '',
     'dotfile':     '⚙',
     'code':        '📋',
@@ -2219,8 +2237,8 @@ INDICATORS = {
 #   2. Add its icon to INDICATORS above.
 #   3. Add it to the icon breakdown in main.js renderList if it should appear in
 #      the type count bar (e.g. `strip:'🎞️'`).
-#   4. Add it to the markdown-rendering whitelist in main.js renderPreview:
-#      ['note','file','strip',''].includes(note.type)   ← add the new name here
+#   4. Nothing to do for rendering: a type with no plugin renderer or specialty header
+#      renders as plain Markdown (the old renderPreview whitelist is gone).
 #   5. Registered types automatically get a `meta` dict in list items (scalar
 #      frontmatter fields only). Plugins use this via `listTitle: note => ...`
 #      to compute a custom display title from note.meta.
@@ -2241,9 +2259,11 @@ INDICATORS = {
 #   help      — a .lib/help-*.md help-popover source note  ❓  (core, so fm queries can list them)
 #   topic     — a docs: topic note (help_for:, ## Summary layers) 📘  (core, help system)
 #   feature   — a features: tour page, scratchpad in its sidecar  🎯  (core, help system)
+#   doc       — a docs: page checked against the code, not a help topic (dev docs, More pages);
+#               untyped docs are the unreviewed backlog  📃  (core)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'character', 'location', 'day', 'resource', 'dotfile', 'journal',
                        'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production',
-                       'topic', 'feature'})
+                       'topic', 'feature', 'doc'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.

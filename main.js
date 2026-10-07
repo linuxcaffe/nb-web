@@ -458,7 +458,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯', doc:'📃'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -523,7 +523,7 @@ const NbMain = (() => {
                                '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Closed todo',
                                '🔖': 'Bookmark', '🔗': 'Linked file', '🔒': 'Encrypted', '📂': 'Folder',
                                '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
-                               '📖': 'Ebook', '📄': 'Document', '🗃️': 'Sheet', '🪪': 'Contact' };
+                               '📖': 'Ebook', '📄': 'Document', '📃': 'Doc', '🗃️': 'Sheet', '🪪': 'Contact' };
             const _extIcon = { md:'📝', txt:'📝', markdown:'📝',
                                 pdf:'📄', doc:'📄', docx:'📄', odt:'📄', rtf:'📄',
                                 png:'🌄', jpg:'🌄', jpeg:'🌄', gif:'🌄', webp:'🌄', svg:'🌄', avif:'🌄',

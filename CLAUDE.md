@@ -208,6 +208,8 @@ not `alias:` field values. See `dev-wikilinks.md` § Display label resolution.
 
 72. **Never two `nb` processes at once: every `nb` nb-web starts goes through `_nb_lock()`** (`app.py`, 2026-10-06), an `flock` on `~/.nb/.logs/nb-web-nb.lock`. Every `nb` run reconciles its notebook's `.index` and commits whatever is uncommitted, and two doing it at once can leave `.index` **empty** (the list shows 0 items; the files are fine). Found live: the new fm-edit form fired `/api/note/constraints` and `/api/note/constraints-full` together, two concurrent `nb show` runs while `features` had uncommitted edits, and `features/.index` was emptied and auto-committed as `[nb] Commit`. Reproduced with plain shell `nb` (two concurrent calls: wiped in round 9 of 40; three: round 4), and not once in 40 rounds of three through the lock. A file lock, not a `threading.Lock`, so it also holds between processes (the dev server and the container on the same `~/.nb`). `run_nb`, `_nb_index_reconcile` and the other direct `NB_BIN` calls use it; any new `subprocess` call to `nb` must too. `nb` typed in a terminal doesn't take it. Recovery: `git show <commit>^:.index > .index` in the notebook. Same family as invariant 63. Test: `nb-web-tests/test_nb_serialized.py`. The constraints endpoints now resolve plain path selectors without `nb` at all (`_resolve_to_nb_path`).
 
+73. **Dates in API JSON are ISO (`2026-07-15`), via `_JSONProvider` (`app.py`, 2026-10-06).** YAML reads an unquoted frontmatter date as a `date` object, and Flask's default JSON provider writes those as `Wed, 15 Jul 2026 00:00:00 GMT`, so every unquoted `date:`/`due:`/`reviewed:` in any note's `meta` reached the browser in that form until this date. Keep `app.json` set to `_JSONProvider` (it also carries the old `sort_keys = False`); don't reassign `app.json` or re-add per-endpoint date formatting. Test: `nb-web-tests/test_json_dates.py`.
+
 ## nb notebook layout
 
 `~/.nb/` — one subdirectory per notebook, each its own git repo. Key notebooks: `home`, `docs`, `claude`, `accts`, `contacts`, `pfinds`, `Takeout`, `hledger`, `tw`, `tasks`, `work`, `friends`, `exp`, `bkmk`, `openfilmmaker`, `preciousfinds.ca`, `tutorial`, `nb`.
@@ -297,7 +299,7 @@ types:
 
 Access levels: `guest` / `user` / `office` / `admin` / empty (inherit notebook default).
 
-FM types recognised by `app.py`: see `_FM_TYPES` and the registration checklist above it (cine's types, the business types, `dashboard`/`dotfile`/`help`, and `topic`/`feature` for the help system); add new types there + `INDICATORS` (invariant 36).
+FM types recognised by `app.py`: see `_FM_TYPES` and the registration checklist above it (cine's types, the business types, `dashboard`/`dotfile`/`help`, `topic`/`feature` for the help system, and `doc` (📃, a docs page checked against the code, with `reviewed:`; untyped docs are the unreviewed backlog, listed on `docs:docs.md`)); add new types there + `INDICATORS` (invariant 36).
 
 ## Specialty headers
 

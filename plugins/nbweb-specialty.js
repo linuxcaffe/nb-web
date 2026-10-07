@@ -105,6 +105,7 @@
         dotfile:   { icon: '⚙️', label: 'Config'    },
         topic:     { icon: '📘', label: 'Topic'     },   // a docs: topic note (help system)
         feature:   { icon: '🎯', label: 'Feature'   },   // a features: tour page
+        doc:       { icon: '📃', label: 'Doc'       },   // a docs: page checked against the code
     };
 
     // Type help popover moved to main.js (NbMain's internal _showTypeHelp) as part of
@@ -312,6 +313,10 @@
             ctx.forEach(c => pills.push(`<span class="nb-specialty-pill nb-topic-ctx">${_esc(c)}</span>`));
             if (note.topic_links?.feature)
                 pills.push(`<a class="nb-specialty-link" href="#" data-open="${_esc(note.topic_links.feature)}">Try it</a>`);
+            pillsHtml = pills.join('');
+        } else if (note.type === 'doc') {
+            // reviewed: <date> -- when it was last checked against the code
+            if (note.meta?.reviewed) pills.push(`<span class="nb-specialty-pill nb-doc-reviewed" title="last checked against the code">reviewed ${_esc(String(note.meta.reviewed))}</span>`);
             pillsHtml = pills.join('');
         } else if (note.type === 'feature') {
             if (note.topic_links?.doc)
