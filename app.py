@@ -2513,10 +2513,14 @@ def api_save_template():
     user     = session.get('user', {})
     if scope in ('annotation', 'local') and not _safe_notebook(notebook):
         return jsonify({'error': 'invalid notebook'}), 400
+    # annotation: folder; local: subfolder (the Templates view's "Duplicate to: notebook + folder")
+    folder = (data.get('folder') if scope == 'annotation' else data.get('subfolder')) or ''
+    folder = folder.strip('/')
+    if folder and any(part in ('', '.', '..') or part.startswith('.') for part in folder.split('/')):
+        return jsonify({'error': 'invalid folder'}), 400
+    if folder and not (NB_DIR / notebook / folder).is_dir():
+        return jsonify({'error': 'no such folder'}), 400
     if scope == 'annotation':
-        folder = data.get('folder', '').strip('/')
-        if any(part in ('', '.', '..') or part.startswith('.') for part in folder.split('/')) and folder:
-            return jsonify({'error': 'invalid folder'}), 400
         tdir   = NB_DIR / notebook / folder if folder else NB_DIR / notebook
         tpath  = tdir / '.template-annotation.md'
         if not tdir.is_dir() or not _template_path_ok(user, tpath, write=True):
@@ -2525,7 +2529,7 @@ def api_save_template():
         return jsonify({'success': True, 'path': str(tpath), 'scope': scope})
     if not name:
         return jsonify({'error': 'name required'}), 400
-    tdir = (NB_DIR / notebook / '.templates') if scope == 'local' else GLOBAL_TEMPLATES_DIR
+    tdir = (NB_DIR / notebook / folder / '.templates') if scope == 'local' else GLOBAL_TEMPLATES_DIR
     tpath = tdir / f"{name}.md"
     if (scope == 'local' and not (NB_DIR / notebook).is_dir()) or not _template_path_ok(user, tpath, write=True):
         return jsonify({'error': 'forbidden'}), 403

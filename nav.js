@@ -454,7 +454,17 @@ const NbNav = (() => {
             saveBtn.textContent = _t('btn_save');
         }
 
-        function _doCancel() {
+        // Show a note just made from the Add bar: back to the List command, which keeps the
+        // folder you were in (the Add command's own list is the notebook's top level), with
+        // auto-select off so the list can't open its first note over the new one (2026-10-07,
+        // note-actions.spec.js; same pattern as NbNoteActions' create form).
+        async function _openCreated(sel) {
+            NbMain.setNoAutoSelect(true);
+            activateCmd('list', { internal: true });
+            try { await NbMain.openNote(sel); } finally { NbMain.setNoAutoSelect(false); }
+        }
+
+        function _doCancel(reload = true) {
             st.title = ''; st.url = ''; st.template = null; st.templateName = ''; st.dirty = false;
             st.encrypt = false; st.password = '';
             titleInput.value = ''; urlInput.value = '';
@@ -464,7 +474,7 @@ const NbNav = (() => {
             _tmplMode = false;
             _syncTmplBtn();
             _updateOutputBar();
-            NbMain.loadNotes();
+            if (reload) NbMain.loadNotes();
         }
 
         function _noteArgs() {
@@ -489,9 +499,10 @@ const NbNav = (() => {
                     ? await NbMain.addEncryptedNote({..._noteArgs(), password: st.password})
                     : await NbMain.addNote(_noteArgs());
                 if (result) {
-                    _doCancel();
+                    _doCancel(false);
                     if (result.folder) NbNav.showFolder(result.notebook, result.folder);
-                    else if (result.selector) NbMain.openNote(result.selector);
+                    else if (result.selector) _openCreated(result.selector);
+                    else NbMain.loadNotes();
                 }
             } finally {
                 _idle();
@@ -508,12 +519,11 @@ const NbNav = (() => {
                     ? await NbMain.addEncryptedNote({..._noteArgs(), password: st.password})
                     : await NbMain.addNote(_noteArgs());
                 if (result && result.folder) {
-                    _doCancel();
+                    _doCancel(false);
                     NbNav.showFolder(result.notebook, result.folder);
                 } else if (result && result.selector) {
                     st.title = ''; st.url = ''; st.template = null; st.dirty = false;
-                    activateCmd('list', { internal: true });
-                    await NbMain.openNote(result.selector);
+                    await _openCreated(result.selector);
                     NbMain.openEditor(result.selector);
                 } else if (result) {
                     console.warn('[doEdit] no selector returned — falling back to save', result);
