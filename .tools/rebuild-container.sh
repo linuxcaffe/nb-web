@@ -25,6 +25,9 @@ echo "Tagging as active (localhost/nb-web:phase2)..."
 podman tag "localhost/nb-web:${tag}" localhost/nb-web:phase2
 
 echo "Restarting container-nb-web.service..."
+# after failed starts (e.g. no image, after a podman reset) systemd refuses with "start request
+# repeated too quickly" until the failure count is cleared
+systemctl --user reset-failed container-nb-web.service 2>/dev/null || true
 systemctl --user restart container-nb-web.service
 sleep 3
 

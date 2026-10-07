@@ -58,10 +58,17 @@ _warn_if_stale() {
     _STALE_CHECK_DONE=1
 
     command -v podman > /dev/null 2>&1 || return 0
-    podman inspect nb-web > /dev/null 2>&1 || return 0
     [ -d "$SCRIPT_DIR/.git" ] || return 0
 
     local stale_reason=""
+
+    # No image at all (after `podman system reset`, invariant 26): the service can't start, so
+    # offer the build instead of letting systemd fail five times (found 2026-10-07)
+    if ! podman image exists localhost/nb-web:phase2 2>/dev/null; then
+        stale_reason="there is no nb-web image (podman storage was reset?)"
+    elif ! podman inspect nb-web > /dev/null 2>&1; then
+        return 0
+    fi
 
     local image_commit repo_head
     image_commit=$(podman inspect nb-web --format '{{index .Config.Labels "nb_web_commit"}}' 2>/dev/null)
@@ -82,7 +89,7 @@ _warn_if_stale() {
     # session's work existed. Falls back to a direct content comparison
     # (symlink target vs the container's baked copy) instead of trying to
     # track N sibling repos' commit histories.
-    if [ -z "$stale_reason" ]; then
+    if [ -z "$stale_reason" ] && podman inspect nb-web > /dev/null 2>&1; then
         local f base local_sum image_sum
         for f in "$SCRIPT_DIR"/plugins/*.js; do
             [ -L "$f" ] || continue
