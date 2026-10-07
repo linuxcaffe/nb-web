@@ -404,14 +404,18 @@
             ? Object.keys(note.meta).filter(k => k !== 'type' && k !== 'title').length
             : 0;
 
-        // Dashboard pair: find the actual type:dashboard note (reuse nav cache — no extra fetch)
+        // Dashboard pair: the type:dashboard note in this config's own folder (the notebook's top
+        // level for a notebook config), preferring the one named after the folder. Used to take
+        // the first dashboard at the notebook's top level for every config (2026-10-07).
         let dashSel = '';
-        if (nb) {
-            if (!_navCache.has(nb))
-                _navCache.set(nb, fetch(`/api/notes?notebook=${encodeURIComponent(nb)}`).then(r => r.json()));
-            const d = await _navCache.get(nb).catch(() => ({}));
-            const dashNote = (d.notes || []).find(n => n.type === 'dashboard');
-            dashSel = dashNote?.selector || '';
+        if (nb && scope !== 'global') {
+            const cfgPath = (note.selector || '').split(':').slice(1).join(':');
+            const dir     = cfgPath.includes('/') ? cfgPath.slice(0, cfgPath.lastIndexOf('/')) : '';
+            const d = await fetch(`/api/notes?notebook=${encodeURIComponent(nb)}` + (dir ? `&folder=${encodeURIComponent(dir)}` : ''))
+                .then(r => r.json()).catch(() => ({}));
+            const dashes = (d.notes || []).filter(n => n.type === 'dashboard');
+            const own = `${dir ? dir.split('/').pop() : nb}.md`;
+            dashSel = (dashes.find(n => (n.filename || n.selector.split('/').pop()) === own) || dashes[0])?.selector || '';
         }
         const dashLink = dashSel
             ? `<a class="nb-specialty-link" href="#" data-open="${_esc(dashSel)}">dashboard</a>`
@@ -434,8 +438,13 @@
         const domain = note.meta?.domain || nb;
         const access = note.effective_access || note.meta?.access || '';
 
+        // this dashboard's own folder: counts are for the folder it sits in, not the notebook's
+        // top level (found 2026-10-07: every folder dashboard showed the notebook's counts)
+        const dashPath = (note.selector || '').split(':').slice(1).join(':');
+        const dashDir  = dashPath.includes('/') ? dashPath.slice(0, dashPath.lastIndexOf('/')) : '';
+        const listUrl  = `/api/notes?notebook=${encodeURIComponent(nb)}` + (dashDir ? `&folder=${encodeURIComponent(dashDir)}` : '');
         const [listData, syncData] = await Promise.all([
-            fetch(`/api/notes?notebook=${encodeURIComponent(nb)}`).then(r => r.json()).catch(() => ({})),
+            fetch(listUrl).then(r => r.json()).catch(() => ({})),
             nb ? fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json()).catch(() => ({}))
                : Promise.resolve({}),
         ]);

@@ -2216,6 +2216,7 @@ INDICATORS = {
     'budget':      '💰',
     'project':     '🏗️',
     'reports':     '📊',
+    'report':      '📊',
     'invoice':     '🧾',
     'dashboard':   '🗂️',
     'production':  '🎥',
@@ -2262,7 +2263,7 @@ INDICATORS = {
 #   doc       — a docs: page checked against the code, not a help topic (dev docs, More pages);
 #               untyped docs are the unreviewed backlog  📃  (core)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'character', 'location', 'day', 'resource', 'dotfile', 'journal',
-                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production',
+                       'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production', 'report',
                        'topic', 'feature', 'doc'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
