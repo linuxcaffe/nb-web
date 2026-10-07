@@ -52,70 +52,105 @@ Your notes are always a browser tab away — searchable, readable, and editable 
 
 <!-- readme:categories (generated from the features notebook) -->
 
-### Note list and preview
+### Basics
 
-[screenshot: split-pane note list with rendered preview]
+_Your nb notes, in a browser_
 
-The left pane lists notes with title and excerpt. The right pane renders the selected note as Markdown. Switch notebooks, filter by type, sort, and search — all without leaving the page. Keyboard shortcuts (`/` to search, `#` to filter by tag, arrow keys to navigate) keep your hands off the mouse.
+**[Notebooks](docs/NOTEBOOKS.md)** — separate collections of notes, each its own folder and git repo
 
-→ [KEYBOARD](docs/KEYBOARD.md) · [SEARCH_TAGS](docs/SEARCH_TAGS.md)
+A notebook is a folder of notes under `~/.nb/` with its own git history: `home`, `work`,
+`recipes`… Pick one from the notebook selector at the top left to list and add notes there, or
+choose **all** to see every notebook at once. **Menu → Notebooks** shows each one's size and sync
+state, and is where you set its defaults, connect it to a remote, or delete it.
+
+**[Note list and preview](docs/note-list.md)** — the list of notes on the left, and the preview on the right
+
+The left pane lists the notes in the current notebook or folder; click one (or move with the
+arrow keys) to show it on the right. Folders come first, then pinned notes, then the rest. The
+row above the list filters by type (notes, bookmarks, todos, contacts, folders, images), the
+**⇅** button changes the sort, and Ctrl-click selects several notes to move, export or delete
+together. Notes pinned in their frontmatter (dashboards, usually) come first, then ones you pin
+from the menu.
+
+**[Search and tags](docs/SEARCH_TAGS.md)** — find notes by their text, by their tags, or both
+
+Type in the **search** bar (or start search with `/`) to narrow the list to notes containing those words, or in the **tags** field (use `#yourtag` to jump there) to show only notes with those tags. Both work together and update the list as you type. Put `-` before a tag to leave notes with it out (`recipes -tested`), and switch the notebook selector to **all** to search every notebook.
+
+**[Editor](docs/editor.md)** — editing a note's Markdown right in the browser
+
+Click **Edit** (or press `e`) to edit the open note: its whole text, frontmatter included,
+appears in a plain Markdown editor. `Ctrl+Enter` saves and `Escape` cancels. The toolbar adds
+line numbers, a Markdown cheat sheet and image embedding (`Ctrl+Shift+1`). Every save is a git
+commit, so an earlier version is always in the notebook's history.
+
+**[Keyboard](docs/KEYBOARD.md)** — keyboard shortcuts for moving around, finding and editing notes
+
+Most of nb-web works without the mouse. `↑`/`↓` move through the list and `→` steps into the
+preview; `/` searches, `#` filters by tag, `a` adds a note and `e` edits the open one. `Escape`
+always backs you out to somewhere safe. Shortcuts are single keys, so they only work when you're
+not typing in a field.
+
+**[Help](docs/help.md)** — the ? button, and how help finds what to show
+
+The **?** at the far right of the toolbar opens help for whatever you're looking at: the note's
+type, the live blocks in it, its frontmatter keys, its notebook. Each topic shows a short summary,
+with **More** for the full page and **Try it** for a live example you can edit. The help comes
+from the same docs you can read in the `docs:` notebook, so there's one copy of everything.
 
 ---
 
-### Editor
+### Linking
 
-[screenshot: inline editor with toolbar]
+_Connect notes to each other_
 
-Click **Edit** or press `e` to edit any note inline. A lightweight formatting toolbar handles bold, italic, headings, links, and lists. `Ctrl+Enter` saves; `Escape` cancels. Encrypted notes are supported with per-note password protection.
+**[Wikilinks](docs/wikilinks.md)** — making connections across paragraphs, files and notebooks
 
-→ [KEYBOARD](docs/KEYBOARD.md)
+Write `[[Note Title]]` in a note to link to another note; click it to open the target. Links
+find notes by title or filename, in the current notebook or another one (`[[docs:THEMES.md]]`),
+and can jump straight to a heading (`[[Page#Heading]]`). The label shown is the target's `alias:`,
+then its `title:`, so renaming a note's display never breaks a link.
+
+**[Terminal links](docs/terminal-links.md)** — links that run a command in the built-in terminal
+
+A Markdown link whose URL starts with `term:` runs a shell command in nb-web's terminal pane
+when clicked: `[Today's tasks](term:task%20due:today)`. Write spaces in the command as `%20`.
+Commands can name the current note with `{file}`, `{dir}`, `{notebook}` and friends, so one link
+in a template gives every note a "run this" button.
+
+**[Inline includes](docs/inline-includes.md)** — show another note, or one section of it, inside this one
+
+`{{inline: notebook:path/note.md}}` on its own line shows another note's body right there, as if
+it were part of this note. Add `#Heading` to include just one section
+(`{{inline: docs:wikilinks.md#Summary}}`), or `card` to show the note's card instead of its text.
+Several includes plus `toc: true` make one long, navigable document out of separate notes.
+
+**[Tab strip](docs/tabs.md)** — a row of tabs linking a set of related notes
+
+A `tabs:` list in a note's frontmatter shows a row of tabs above the note, one per listed note or
+folder; the current note's tab is highlighted, and clicking another opens it. Put `tabs:` in a
+notebook or folder config and every note there gets the same strip.
 
 ---
 
-### Templates
+### Structure
 
-[screenshot: Add bar with template picker]
+_Shape notebooks to fit what's in them_
 
-Templates are plain Markdown files with `{{placeholder}}` substitution — title, date, time, tags, weather, or any shell expression. Store them globally or per-notebook. A single local template becomes the notebook's default, pre-applied every time you add a note.
+**[Folder config](docs/FOLDER-CONFIG.md)** — settings for a whole folder or notebook, kept in a hidden note inside it
 
-→ [TEMPLATES](docs/TEMPLATES.md)
+A folder can carry its own settings in a hidden note named after it: `projects/.projects.md` for
+the `projects` folder, `.work.md` at the top of the `work` notebook. Its frontmatter sets things
+like who may see the folder (`access:`), which note it opens on (`pinned:`), its tab strip
+(`tabs:`) and field rules for its notes (`constraints:`). Settings pass down to every subfolder
+and note below, and the nearest one wins, so you only write down what's different.
 
----
+**[Templates](docs/TEMPLATES.md)** — notes to start new notes from, with placeholders filled in as they're created
 
-### Wikilinks
-
-[screenshot: rendered note with clickable wikilink]
-
-Write `[[Note Title]]` anywhere in a note body to link to another note. Links resolve on click — nb-web finds the note by title, case-insensitively, within the current notebook. Anchor to a heading with `[[Note Title#Section]]`. A `backlinks` codeblock shows every note that links to the current one.
-
-→ [WIKILINKS](docs/wikilinks.md)
-
----
-
-### Terminal links
-
-[screenshot: rendered note with ▶ terminal link clicked, terminal pane open below]
-
-Write `[label](term:command)` anywhere in a note to create a clickable link that runs a shell command in the built-in terminal pane. The `▶` prefix and monospace yellow styling make terminal links visually distinct.
-
-```markdown
-[Preview site](term:cd ~/dev/mysite && npx quartz build --serve)
-[Sync notes](term:nb sync)
-[Today's tasks](term:task due:today)
-```
-
-Commands can reference the **current note** using `{variable}` placeholders resolved at click time — `{file}` (full path), `{dir}` (directory), `{name}` (basename), `{selector}`, `{notebook}`, `{title}`:
-
-```markdown
-[Open in vim](term:vim {file})
-[Run as script](term:bash {file})
-[→ PDF](term:pandoc {file} -o {dir}/{name}.pdf)
-[Encrypt](term:nb encrypt {selector})
-```
-
-Put a `[Run](term:bash {file})` link in a notebook template and every note in that notebook gets a run button. The note *is* the script. Click once — the terminal opens and the command runs immediately. If the terminal is already open, the command is sent to the running session. Works in note bodies, templates, and wikilinked docs.
-
-→ [Terminal links](docs/terminal-links.md)
+A template is a note that new notes start from. Click **📋** in the **Add** bar to pick one; its
+`{{title}}`, `{{date}}` and other placeholders are filled in as the note is created. Templates
+live in a `.templates` folder: `~/.nb/.templates/` for every notebook, a notebook's own for that
+notebook, or a folder's own for that folder. If a folder (or notebook) has exactly one template,
+**Add** uses it without asking.
 
 ---
 
@@ -155,16 +190,6 @@ The two notes are a pair. The project note accumulates; the reports note present
 Your project notes are always plain Markdown. The reports are assembled on demand — no separate database, no import step.
 
 → [Project Diaries and Reports](docs/PROJECT-REPORTS.md)
-
----
-
-### Notebooks
-
-[screenshot: notebooks panel showing list and detail]
-
-Each nb notebook is its own git repo under `~/.nb/`. The Notebooks panel shows note count, sync status, git branch, remote URL, and last commit for every notebook. Wire a remote, sync, set per-notebook defaults (sort order, list type, default template), and manage the Danger Zone — all from one place. Create a new notebook from the Add bar.
-
-→ [NOTEBOOKS](docs/NOTEBOOKS.md)
 
 ---
 
@@ -228,16 +253,6 @@ mv ~/.nb/home/tutorial/.nb-unlock ~/.nb/home/tutorial/.nb-lock
 nb-web uses a **one-repo, branch-per-notebook** model: all notebooks live as branches of a single remote repository (typically `nb-notes` on Codeberg or GitHub). Wire once, sync per notebook. The sync dialog shows exactly what is pending before you push.
 
 → [SYNC](docs/SYNC.md)
-
----
-
-### Search and tags
-
-[screenshot: search bar active with tag filter showing]
-
-Full-text search and tag filtering work simultaneously and update the list live. Press `/` to jump to search, `#` to jump to the tags field. Tag queries support AND logic (`recipes dinner`) and exclusion (`recipes -draft`). Switch scope to **all** to search every notebook at once.
-
-→ [SEARCH_TAGS](docs/SEARCH_TAGS.md)
 
 ---
 
