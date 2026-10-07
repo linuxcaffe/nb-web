@@ -27,6 +27,10 @@
 #     -v ~/.nb-web-secrets/nb-settings.json:/app/nb-settings.json:Z \
 #     nb-web
 #
+# Disk: podman 3.4 leaks layers on every rebuild (~5 GB each; no prune removes them). When
+# rebuild-container.sh or sys-podman-leak says so: stop the service, `podman system reset -f`,
+# rebuild (CLAUDE.md invariant 26).
+#
 # TZ matters: the image's own zone is UTC, so without it every server-side date (template
 # {{date}}/{{day}}/{{time}}, {{date:}} queries, nb's dates, quotes and invoices) is tomorrow's
 # from evening on west of Greenwich (found 2026-10-07; sys-container-tz checks for it).

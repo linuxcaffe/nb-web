@@ -75,13 +75,10 @@ done
 
 echo
 echo "Pruning old phase2-vN tags (keeping the newest 5 + phase2)..."
-# `podman images` inflates each tag's "reclaimable" size by counting shared
-# base layers redundantly (confirmed 2026-08-06: system df claimed 130GB
-# reclaimable across 400+ images while the real containers/storage directory
-# was 29MB total) -- this is about keeping `podman images` readable across
-# repeated rebuilds, not meaningful disk savings. `podman rmi` on a tag only
-# removes layers no other tag still references, so this is safe even though
-# most of the bytes are shared with the tag(s) being kept.
+# This keeps `podman images` readable; it frees little. Tagged images share most layers
+# (six tags used 0.5 GB together, 2026-10-07). The disk goes elsewhere: podman 3.4 leaks
+# layers no image uses, about 5 GB per rebuild, and no prune removes them (CLAUDE.md
+# invariant 26). The check at the end of this script says when to reset podman.
 old_tags=$(podman images --format '{{.Tag}}' localhost/nb-web 2>/dev/null \
     | grep -oP '(?<=^phase2-v)\d+' | sort -rn | tail -n +6)
 for v in $old_tags; do
@@ -92,3 +89,13 @@ done
 
 echo
 echo "Live at whatever port container-nb-web.service publishes (check with: podman port nb-web)."
+
+# podman 3.4 leaks layers on every build; say so here, where it happens (invariant 26)
+leak_check="$HOME/.nb/.checks/sys-podman-leak.sh"
+if [ -x "$leak_check" ]; then
+    leak=$(bash "$leak_check" 2>/dev/null)
+    if [ -n "$leak" ]; then
+        echo
+        echo "$leak" | sed 's/\*\*//g; s/`//g'
+    fi
+fi
