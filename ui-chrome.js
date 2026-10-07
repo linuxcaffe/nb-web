@@ -181,7 +181,7 @@ const NbUiChrome = (() => {
         btn.classList.toggle('nb-active', hidden);
         btn.textContent = hidden ? '○' : '◉';
         if (hidden) {
-            const panel = document.getElementById('nb-changes-panel');
+            const panel = document.getElementById('nb-fm-edit-panel');
             if (panel) panel.hidden = true;
         }
     }

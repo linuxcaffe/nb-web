@@ -2950,24 +2950,25 @@ body.nb-fullscreen #nb-cmd-bar::after {
   padding: 1px 4px; border-radius: 3px; background: var(--bg3); border: 1px solid var(--border);
 }
 
-/* front changes — frontmatter editor */
-.nb-fm-changes { margin: 0.5em 0; }
-.nb-fm-changes-btn { font-size: 0.85em; }
-.nb-fm-changes-btn.nb-active { background: var(--accent, #4a9eff); color: #fff; }
+/* fm-edit — the frontmatter form (FM button, fm edit block) */
+.nb-fm-edit { margin: 0.5em 0; }
+.nb-fm-edit-btn { font-size: 0.85em; }
+.nb-fm-edit-btn.nb-active { background: var(--accent); color: var(--bg); }
 /* inline codeblock panel */
-.nb-fm-changes .nb-fm-changes-panel { margin-top: 0.4em; border: 1px solid var(--border); border-radius: 4px; padding: 0.6em; }
+.nb-fm-edit .nb-fm-edit-inline-panel { margin-top: 0.4em; border: 1px solid var(--border); border-radius: 4px; padding: 0.6em; }
 /* toolbar panel — flush under the grey toolbar bar */
-#nb-changes-panel { padding: 0.6em 1em; border-bottom: 1px solid var(--border); background: var(--bg2); }
-.nb-fm-changes-form { display: grid; grid-template-columns: minmax(6em, 10em) 1fr; gap: 0.3em 0.6em; align-items: center; margin-bottom: 0.6em; }
-.nb-fm-changes-row { display: contents; }
-.nb-fm-changes-label { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted); }
-.nb-fm-changes-form input[type=text],
-.nb-fm-changes-form input[type=date],
-.nb-fm-changes-form select,
-.nb-fm-changes-form textarea { width: 100%; font-size: 0.9em; padding: 2px 4px; box-sizing: border-box; background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); }
-.nb-fm-changes-form textarea { resize: vertical; min-height: 3em; }
-.nb-fm-changes-form .nb-fm-inherited { font-size: 0.9em; padding: 2px 4px; color: var(--text-muted); font-style: italic; }
-.nb-fm-changes-actions { display: flex; gap: 0.4em; }
+#nb-fm-edit-panel { padding: 0.6em 1em; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.nb-fm-edit-form { display: grid; grid-template-columns: minmax(6em, 10em) 1fr; gap: 0.3em 0.6em; align-items: center; margin-bottom: 0.6em; }
+.nb-fm-edit-row { display: contents; }
+.nb-fm-edit-label { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted); }
+.nb-fm-edit-label.nb-fm-edit-new { color: var(--text-dim); font-style: italic; }
+.nb-fm-edit-form input[type=text],
+.nb-fm-edit-form input[type=date],
+.nb-fm-edit-form select,
+.nb-fm-edit-form textarea { width: 100%; font-size: 0.9em; padding: 2px 4px; box-sizing: border-box; background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); }
+.nb-fm-edit-form textarea { resize: vertical; min-height: 3em; }
+.nb-fm-edit-form .nb-fm-inherited { font-size: 0.9em; padding: 2px 4px; color: var(--text-muted); font-style: italic; }
+.nb-fm-edit-actions { display: flex; gap: 0.4em; }
 
 /* config codeblock — inheritance tree */
 .nb-config-header { gap: 0.4em; }

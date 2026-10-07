@@ -1085,25 +1085,25 @@ const NbMain = (() => {
         // Lock/Unlock button below) is a *different* signal from note.locked
         // (a folder-level .nb-lock marker file, _find_nb_lock() in app.py) --
         // computed once, up here, so both the Edit button (below) and the
-        // Changes/FM panel button respect it. Previously only Edit did, so a
-        // locked note's frontmatter could still be edited via Changes -- found
+        // fm-edit (FM) button respect it. Previously only Edit did, so a
+        // locked note's frontmatter could still be edited via fm-edit -- found
         // live 2026-08-10 on a real type:production note.
         const _isLocked = /^(yes|on|true|1)$/i.test(String(note.meta?.lock ?? ''));
 
         const doneBtn    = document.getElementById('nb-done-btn');
-        const changesBtn = document.getElementById('nb-changes-btn');
+        const fmEditBtn = document.getElementById('nb-fm-edit-btn');
         const openExtBtn = document.getElementById('nb-open-ext-btn');
         if (doneBtn) doneBtn.hidden = !(note.type === 'todo' && note.status === 'open');
         // Edit button's own hidden/sibling-button state is decided in one place,
         // "── Edit gate ──" below, alongside the other three conditions that used
         // to each independently fetch and mutate #nb-edit-btn.
-        if (changesBtn) {
+        if (fmEditBtn) {
             const hasMeta = note.meta && Object.keys(note.meta).length > 0;
-            changesBtn.hidden   = !hasMeta || !!note.locked || _isLocked;
-            changesBtn.classList.remove('nb-active');
-            changesBtn.onclick  = () => _toggleFmChangesPanel(note, changesBtn);
+            fmEditBtn.hidden   = !hasMeta || !!note.locked || _isLocked;
+            fmEditBtn.classList.remove('nb-active');
+            fmEditBtn.onclick  = () => _toggleFmEditPanel(note, fmEditBtn);
             // Close panel when navigating to a new note
-            const panel = document.getElementById('nb-changes-panel');
+            const panel = document.getElementById('nb-fm-edit-panel');
             if (panel) panel.hidden = true;
         }
 
@@ -2808,7 +2808,7 @@ const NbMain = (() => {
                 _editAnnotation(foot, note, text));
             foot.querySelector('.nb-ann-del-btn').addEventListener('click', () =>
                 _deleteAnnotation(foot, note));
-            _appendFmChangesBtn(foot.querySelector('.nb-ann-actions'), note);
+            _appendFmEditBtn(foot.querySelector('.nb-ann-actions'), note);
         } else {
             foot.innerHTML = `
                 <div class="nb-ann-bar nb-ann-empty">
@@ -2822,7 +2822,7 @@ const NbMain = (() => {
                 } catch { /* no template — start empty */ }
                 _editAnnotation(foot, note, initial);
             });
-            _appendFmChangesBtn(foot.querySelector('.nb-ann-bar'), note);
+            _appendFmEditBtn(foot.querySelector('.nb-ann-bar'), note);
         }
     }
 
@@ -3109,85 +3109,19 @@ const NbMain = (() => {
         if (bodyEl) _enrichRendered(bodyEl, note);
     }
 
-    // ── Frontmatter Changes panel (toolbar button → panel below toolbar) ──────
-    // Footer placement code preserved below but dormant — see _appendFmChangesBtn.
+    // ── fm-edit panel (toolbar button → panel below toolbar) ──────
+    // Footer placement code preserved below but dormant — see _appendFmEditBtn.
 
-    async function _toggleFmChangesPanel(note, btn) {
-        const panel = document.getElementById('nb-changes-panel');
+    async function _toggleFmEditPanel(note, btn) {
+        const panel = document.getElementById('nb-fm-edit-panel');
         if (!panel) return;
-        if (!panel.hidden) {
-            panel.hidden = true; btn.classList.remove('nb-active'); return;
-        }
+        const close = () => { panel.hidden = true; btn.classList.remove('nb-active'); };
+        if (!panel.hidden) { close(); return; }
         btn.disabled = true;
         try {
             const fu = NbWeb.fmUtils;
-            if (!fu) throw new Error('fmUtils not loaded — codeblocks plugin missing?');
-
-            const [noteD, conD] = await Promise.all([
-                fetch(`/api/note?selector=${encodeURIComponent(note.selector)}`).then(r => r.json()),
-                fetch(`/api/note/constraints?selector=${encodeURIComponent(note.selector)}`).then(r => r.json()),
-            ]);
-            if (noteD.error) throw new Error(noteD.error);
-
-            const noteRaw     = noteD.raw || '';
-            const constraints = conD.error ? {} : conD;
-            const fields      = fu.parseFields(noteRaw);
-
-            panel.innerHTML = '';
-            const form = document.createElement('div');
-            form.className = 'nb-fm-changes-form';
-
-            for (const { key, value } of fields) {
-                const row = document.createElement('div');
-                row.className = 'nb-fm-changes-row';
-                const lbl = document.createElement('label');
-                lbl.className   = 'nb-fm-changes-label';
-                lbl.textContent = key;
-                row.appendChild(lbl);
-                row.appendChild(fu.widget(key, value, constraints[key]));
-                form.appendChild(row);
-            }
-
-            const actions = document.createElement('div');
-            actions.className = 'nb-fm-changes-actions';
-
-            const saveBtn = document.createElement('button');
-            saveBtn.className   = 'nb-tw-btn';
-            saveBtn.textContent = _t('btn_save');
-            saveBtn.addEventListener('click', async () => {
-                const updates = {};
-                for (const w of form.querySelectorAll('[data-fm-key]')) {
-                    updates[w.dataset.fmKey] = w.type === 'checkbox' ? String(w.checked) : w.value;
-                }
-                saveBtn.disabled = true; saveBtn.textContent = '⟳';
-                try {
-                    const r = await fetch('/api/note', {
-                        method:  'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body:    JSON.stringify({ selector: note.selector, content: fu.patch(noteRaw, updates) }),
-                    }).then(r => r.json());
-                    if (r.error) throw new Error(r.error);
-                    _noteCache.delete(note.selector);
-                    panel.hidden = true;
-                    btn.classList.remove('nb-active');
-                    NbMain.openNote(note.selector);
-                } catch(e) {
-                    saveBtn.textContent = `⚠ ${e.message}`;
-                    saveBtn.disabled = false;
-                }
-            });
-
-            const cancelBtn = document.createElement('button');
-            cancelBtn.className   = 'nb-tw-btn';
-            cancelBtn.textContent = _t('btn_cancel');
-            cancelBtn.addEventListener('click', () => {
-                panel.hidden = true; btn.classList.remove('nb-active');
-            });
-
-            actions.appendChild(saveBtn);
-            actions.appendChild(cancelBtn);
-            panel.appendChild(form);
-            panel.appendChild(actions);
+            if (!fu?.form) throw new Error('fmUtils not loaded — codeblocks plugin missing?');
+            await fu.form(panel, note.selector, close);   // shared with the fm block's edit form
             panel.hidden = false;
             btn.classList.add('nb-active');
         } catch(e) {
@@ -3199,8 +3133,8 @@ const NbMain = (() => {
     }
 
     // DORMANT — footer placement; kept for reference.
-    // Call _appendFmChangesBtn(barEl, note) to re-enable per-note footer buttons.
-    function _appendFmChangesBtn(/*bar, note*/) { /* dormant */ }
+    // Call _appendFmEditBtn(barEl, note) to re-enable per-note footer buttons.
+    function _appendFmEditBtn(/*bar, note*/) { /* dormant */ }
 
     // Walk text nodes in `root` and wrap 7-8-hex-char tokens as clickable uuid refs.
     // Skips code BLOCKS (pre) and links, but intentionally walks inline <code> spans

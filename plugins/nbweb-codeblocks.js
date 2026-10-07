@@ -2006,7 +2006,7 @@
         return notes;
     }
 
-    // ── front changes mode — frontmatter editor ───────────────────────────────
+    // ── fm edit mode — the frontmatter form as a block (`edit |Label`; `changes` is the old name) ──
 
     function _fmParseFields(raw) {
         if (!raw.startsWith('---\n')) return [];
@@ -2096,106 +2096,115 @@
         return inp;
     }
 
-    async function _loadFrontChanges(el) {
+    // The fm-edit form, shared by the toolbar's FM button (main.js) and the `fm` block's `edit`
+    // form: one row per frontmatter field, a widget per field from the folder's constraints:, then
+    // the fields the folder (or the note's own constraints:/constraints_add:) declares that the
+    // note doesn't have yet. Those come from /api/note/constraints-full, not the full cascade
+    // (invariant 38), and are written only when given a value. Fills `panel`; calls onDone(saved).
+    async function _fmEditForm(panel, selector, onDone) {
+        const [noteD, conD, declD] = await Promise.all([
+            fetch(`/api/note?selector=${encodeURIComponent(selector)}`).then(r => r.json()),
+            fetch(`/api/note/constraints?selector=${encodeURIComponent(selector)}`).then(r => r.json()),
+            fetch(`/api/note/constraints-full?selector=${encodeURIComponent(selector)}`).then(r => r.json()),
+        ]);
+        if (noteD.error) throw new Error(noteD.error);
+        const noteRaw     = noteD.raw || '';
+        const constraints = conD.error ? {} : conD;
+        const declared    = declD.error ? {} : declD;
+        const fields      = _fmParseFields(noteRaw);
+        const have        = new Set(fields.map(f => f.key));
+        const added       = Object.keys(declared).filter(k => !have.has(k));
+
+        panel.innerHTML = '';
+        const form = document.createElement('div');
+        form.className = 'nb-fm-edit-form';
+        const addRow = (key, value, isNew) => {
+            const row = document.createElement('div');
+            row.className = 'nb-fm-edit-row';
+            const lbl = document.createElement('label');
+            lbl.className   = 'nb-fm-edit-label' + (isNew ? ' nb-fm-edit-new' : '');
+            lbl.textContent = key + (declared[key]?.required ? ' *' : '');
+            if (isNew) lbl.title = 'not in this note yet: saved only if you give it a value';
+            row.appendChild(lbl);
+            const w = _fmWidget(key, value, constraints[key] || declared[key]?.widget);
+            if (isNew) w.dataset.fmNew = '1';
+            row.appendChild(w);
+            form.appendChild(row);
+        };
+        for (const { key, value } of fields) addRow(key, value, false);
+        for (const key of added) addRow(key, '', true);
+
+        const actions = document.createElement('div');
+        actions.className = 'nb-fm-edit-actions';
+        const saveBtn = document.createElement('button');
+        saveBtn.className   = 'nb-tw-btn';
+        saveBtn.textContent = NbWeb.t('btn_save');
+        saveBtn.addEventListener('click', async () => {
+            const updates = {};
+            for (const w of form.querySelectorAll('[data-fm-key]')) {
+                const val = w.type === 'checkbox' ? String(w.checked) : w.value;
+                if (w.dataset.fmNew && (w.type === 'checkbox' ? !w.checked : !val.trim())) continue;
+                updates[w.dataset.fmKey] = val;
+            }
+            saveBtn.disabled = true; saveBtn.textContent = '⟳';
+            try {
+                const r = await fetch('/api/note', {
+                    method:  'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ selector, content: _fmPatch(noteRaw, updates) }),
+                }).then(r => r.json());
+                if (r.error) throw new Error(r.error);
+                NbMain.bustNoteCache?.(selector);  // invariant 25
+                onDone(true);
+                NbMain.openNote(selector);
+            } catch (e) {
+                saveBtn.textContent = `⚠ ${e.message}`;
+                saveBtn.disabled = false;
+            }
+        });
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className   = 'nb-tw-btn';
+        cancelBtn.textContent = NbWeb.t('btn_cancel');
+        cancelBtn.addEventListener('click', () => onDone(false));
+        actions.appendChild(saveBtn);
+        actions.appendChild(cancelBtn);
+        panel.appendChild(form);
+        panel.appendChild(actions);
+    }
+
+    async function _loadFmEdit(el) {
         const firstLine = (el.dataset.query || '').trim().split('\n')[0];
         const pipeIdx   = firstLine.indexOf('|');
-        const label     = pipeIdx >= 0 ? firstLine.slice(pipeIdx + 1).trim() : 'Changes';
+        const label     = pipeIdx >= 0 ? firstLine.slice(pipeIdx + 1).trim() : 'fm-edit';
 
         el.innerHTML = '';
-        el.classList.add('nb-fm-changes');
+        el.classList.add('nb-fm-edit');
 
         const btn = document.createElement('button');
-        btn.className  = 'nb-fm-changes-btn nb-tw-btn';
+        btn.className  = 'nb-fm-edit-btn nb-tw-btn';
         btn.textContent = label;
         el.appendChild(btn);
 
         const panel = document.createElement('div');
-        panel.className = 'nb-fm-changes-panel';
+        panel.className = 'nb-fm-edit-inline-panel';
         panel.hidden = true;
         el.appendChild(panel);
 
+        const close = () => { panel.hidden = true; btn.classList.remove('nb-active'); };
         btn.addEventListener('click', async () => {
-            if (!panel.hidden) {
-                panel.hidden = true; btn.classList.remove('nb-active'); return;
-            }
+            if (!panel.hidden) { close(); return; }
             btn.disabled = true; btn.textContent = '⟳';
             try {
                 const selector = NbMain.activeSelector?.();
                 if (!selector) throw new Error('no active note');
-
-                const [noteD, conD] = await Promise.all([
-                    fetch(`/api/note?selector=${encodeURIComponent(selector)}`).then(r => r.json()),
-                    fetch(`/api/note/constraints?selector=${encodeURIComponent(selector)}`).then(r => r.json()),
-                ]);
-                if (noteD.error) throw new Error(noteD.error);
-
-                const noteRaw    = noteD.raw || '';
-                const constraints = conD.error ? {} : conD;
-                const fields      = _fmParseFields(noteRaw);
-
-                panel.innerHTML = '';
-                const form = document.createElement('div');
-                form.className = 'nb-fm-changes-form';
-
-                for (const { key, value } of fields) {
-                    const row = document.createElement('div');
-                    row.className = 'nb-fm-changes-row';
-                    const lbl = document.createElement('label');
-                    lbl.className   = 'nb-fm-changes-label';
-                    lbl.textContent = key;
-                    row.appendChild(lbl);
-                    row.appendChild(_fmWidget(key, value, constraints[key]));
-                    form.appendChild(row);
-                }
-
-                const actions = document.createElement('div');
-                actions.className = 'nb-fm-changes-actions';
-
-                const _t = (key) => NbWeb.t(key);
-                const saveBtn = document.createElement('button');
-                saveBtn.className   = 'nb-tw-btn';
-                saveBtn.textContent = _t('btn_save');
-                saveBtn.addEventListener('click', async () => {
-                    const updates = {};
-                    for (const w of form.querySelectorAll('[data-fm-key]')) {
-                        updates[w.dataset.fmKey] = w.type === 'checkbox' ? String(w.checked) : w.value;
-                    }
-                    saveBtn.disabled = true; saveBtn.textContent = '⟳';
-                    try {
-                        const r = await fetch('/api/note', {
-                            method:  'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body:    JSON.stringify({ selector, content: _fmPatch(noteRaw, updates) }),
-                        }).then(r => r.json());
-                        if (r.error) throw new Error(r.error);
-                        panel.hidden = true;
-                        btn.classList.remove('nb-active');
-                        NbMain.openNote(selector);
-                    } catch (e) {
-                        saveBtn.textContent = `⚠ ${e.message}`;
-                        saveBtn.disabled = false;
-                    }
-                });
-
-                const cancelBtn = document.createElement('button');
-                cancelBtn.className   = 'nb-tw-btn';
-                cancelBtn.textContent = _t('btn_cancel');
-                cancelBtn.addEventListener('click', () => {
-                    panel.hidden = true; btn.classList.remove('nb-active');
-                });
-
-                actions.appendChild(saveBtn);
-                actions.appendChild(cancelBtn);
-                panel.appendChild(form);
-                panel.appendChild(actions);
+                await _fmEditForm(panel, selector, close);
                 panel.hidden = false;
                 btn.classList.add('nb-active');
             } catch (e) {
                 panel.innerHTML = `<span class="nb-hl-error">⚠ ${_esc(e.message)}</span>`;
                 panel.hidden = false;
             } finally {
-                btn.disabled    = false;
-                btn.textContent = label;
+                btn.disabled = false; btn.textContent = label;
             }
         });
     }
@@ -2287,8 +2296,8 @@
 
     async function _loadFrontBlock(el) {
         if (!_cbCan(el, 'fm', 'read')) { _cbDenyRead(el); return; }
-        if ((el.dataset.query || '').trim().startsWith('changes')) {
-            await _loadFrontChanges(el);
+        if (/^(edit|changes)\b/.test((el.dataset.query || '').trim())) {
+            await _loadFmEdit(el);
             return;
         }
         // list / list-X / list-X N — delegate to list renderer
@@ -7840,7 +7849,7 @@
     // Export FM utilities so main.js can use them in the card-footer Changes button
     // without duplicating the helpers.
     NbWeb.fmUtils = {
-        parseFields: _fmParseFields, patch: _fmPatch, widget: _fmWidget,
+        parseFields: _fmParseFields, patch: _fmPatch, widget: _fmWidget, form: _fmEditForm,
         buildFmSkeleton(block, lang) {
             block.innerHTML = '';
             block.dataset.fmLazy = '1';
