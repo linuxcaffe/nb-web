@@ -1203,7 +1203,11 @@ const NbMain = (() => {
         // pre-existing, not new): pdf, code/timedot, html, ebook/document, archive,
         // sheet, encrypted, and the large-note /api/render path.
         const _checkPrefix = _virtualTestPrefix(note);
-        const _checkHtml   = _checkPrefix ? _renderMarkdown(_checkPrefix, note.selector) : '';
+        // Checks from frontmatter/config: marked so the check pass sends them to the badge; a check
+        // block written in the body warns in place instead (djp, 2026-10-07; check-placement.spec.js)
+        const _checkHtml   = _checkPrefix
+            ? _renderMarkdown(_checkPrefix, note.selector).replace(/<div class="nb-test-block/g, '<div data-check-ambient="1" class="nb-test-block')
+            : '';
 
         // Stamp lock state on the content pane so codeblock renderers can read it
         const _contentPane = document.getElementById('nb-preview-content');
@@ -2716,6 +2720,11 @@ const NbMain = (() => {
     function _watchInlineTocRebuild(container, note) {
         if (!container.querySelector('.nb-rendered')) return;
 
+        // A body check that warns in place (its own heading included) changes what the TOC should
+        // list -- in this note or a chapter -- so rebuild then too. Bubbles from chapters; dropped
+        // on the next navigation (the container outlives the note).
+        container.addEventListener('nb-checks-rendered', () => _scheduleTocRebuild(container, note),
+                                   { signal: _renderAbort.signal });
         if (container.querySelector(_INLINE_PENDING)) {
             _whenInlinesSettled(container).then(() => _scheduleTocRebuild(container, note));
         } else {

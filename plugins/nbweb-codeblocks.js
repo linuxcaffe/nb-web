@@ -8026,7 +8026,25 @@
                 : new Map();
             if (signal?.aborted) { await form1Done; return; }
 
-            const failing = (await Promise.all(resolved.map(async src => {
+            // A check block written in the body warns in place (where its author put it, so a
+            // book's TOC lists it beside its section); only checks from frontmatter/config
+            // (data-check-ambient, main.js) go to the badge (djp, 2026-10-07). Same batch.
+            const ambient = resolved.filter(src => src.el.dataset.checkAmbient);
+            const inBody  = resolved.filter(src => !src.el.dataset.checkAmbient);
+            await Promise.all(inBody.map(async src => {
+                if (!src.scripts.length) { src.el.remove(); return; }
+                if (src.isSingle) {
+                    const script = src.scripts[0].script;
+                    await _runTest(src.el, script, null, null, batchMap.get(script) ?? null);
+                } else {
+                    await _runGroupTest(src.el, src.scripts, null, null, batchMap);
+                }
+            }));
+            if (signal?.aborted) { await form1Done; return; }
+            if (inBody.some(src => src.el.isConnected && src.el.querySelector('.nb-test-result')))
+                container.dispatchEvent(new CustomEvent('nb-checks-rendered', { bubbles: true }));
+
+            const failing = (await Promise.all(ambient.map(async src => {
                 if (!src.scripts.length) return null;
                 if (src.isSingle) {
                     const script = src.scripts[0].script;
@@ -8041,7 +8059,7 @@
             }))).filter(Boolean);
             if (signal?.aborted) { await form1Done; return; }
 
-            _renderCheckAggregate(resolved, failing);
+            _renderCheckAggregate(ambient, failing);
         } catch (e) {
             if (e?.name !== 'AbortError') throw e;
         } finally {
