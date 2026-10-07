@@ -2,7 +2,7 @@
 
 # Frontmatter Editor (dev)
 
-Universal guided frontmatter editing — a toolbar button on every note card, plus an optional inline `front changes` codeblock. No raw YAML editing required. Body content is never touched.
+Universal guided frontmatter editing — a toolbar button on every note card (**FM**), plus an optional inline `fm edit` block. Both are "fm-edit" (called "Changes" until 2026-10-06). No raw YAML editing required. Body content is never touched.
 
 ---
 
@@ -16,9 +16,9 @@ Three components work together:
 | `constraints:` in `.{foldername}.md` | folder config | same mapping, higher priority (migration path) — see below |
 | `GET /api/note/constraints` | `app.py` | merges both sources, normalizes to widget-type strings, returns JSON |
 | `GET /api/note/constraints-full` | `app.py` | folder-config `constraints:` only, keeps `required:` instead of dropping it — see "Required fields" below |
-| FM button + panel (`#nb-changes-btn`, labeled "FM") | `main.js` | toolbar button → form → save |
-| `front changes` codeblock | `nbweb-codeblocks.js` | inline alternative, same helpers |
-| `NbWeb.fmUtils` | `nbweb-codeblocks.js` | shared parseFields/patch/widget |
+| FM button + panel (`#nb-fm-edit-btn`, labeled "FM") | `main.js` | toolbar button → `fmUtils.form` |
+| `fm edit` block | `nbweb-codeblocks.js` | inline alternative → `fmUtils.form` |
+| `NbWeb.fmUtils` | `nbweb-codeblocks.js` | shared form (`form`) and its parseFields/patch/widget helpers |
 
 ---
 
@@ -131,7 +131,7 @@ Also carries the same absolute-path selector bypass `api_note()` has (`elif sele
 As of 2026-07-14 there are three, not two, and they cover genuinely different gaps:
 
 1. **Direct Edit** — raw markdown/frontmatter editing. Always available, no schema needed.
-2. **FM button / `front changes` codeblock** (this doc, above) — schema-typed widgets, but only for fields **already present** in the note. `NbWeb.fmUtils.parseFields(raw)` iterates the note's own current frontmatter lines; a schema field the note never had isn't in that list, so it never gets a row.
+2. **FM button / `fm edit` block** (this doc, above) — schema-typed widgets for the note's own fields, then (since 2026-10-06) a row for each field `/api/note/constraints-full` declares that the note doesn't have yet (italic label, `data-fm-new`), written only when given a value. Required fields get a `*`. Declared fields come from the note's own folder and its own `constraints:`/`constraints_add:`, never the full cascade (invariant 38); widget types still come from `/api/note/constraints`.
 3. **A type-specific "fill in everything" modal** — shows every field a schema declares, required or optional, present or not, using `/api/note/constraints-full` to know what to show and which fields are required. First (and so far only) example: the item fields modal, `_itemFieldsModal` in `nbweb-hledger.js` — the "📝 Fields" button on the item specialty header (see `docs:dev/plugins/hledger/CLAUDE.md`). Reuses the exact same `NbWeb.fmUtils.widget`/`patch` helpers as the FM panel, so widget rendering and the save mechanism can't drift between the two UIs.
 
 **(3) only works because of a `fmUtils.patch()` fix, not a new save path.** `patch()`'s original behavior only ever matched and updated a field that already existed in the frontmatter — a missing key's regex simply never matched anything, so the update for that key silently no-op'd. That's *why* (2) can't fill in blanks: even if you built a form row for a genuinely-missing field, saving it would go nowhere. Fixed by falling through to append the key when the regex doesn't match (existing-key update path unchanged):
@@ -208,24 +208,26 @@ The gap was the raw editor path only.
 
 ---
 
-## Changes toolbar button
+## FM toolbar button (fm-edit)
 
 Added to `#nb-preview-actions` in `index.html` — sits left of Edit in the grey toolbar bar, always visible regardless of note scroll depth.
 
 **Visibility rules** (wired in `renderPreview` in `main.js`):
 - Hidden if `note.meta` is empty (no frontmatter)
-- Hidden if `note.locked` is true
+- Hidden if `note.locked` (folder lock) or the note's own `lock:` is set
 - Resets panel state on every note navigation
 
 **Flow:**
 
-1. Click **FM** → `_toggleFmChangesPanel(note, btn)`
-2. Parallel fetch: `GET /api/note` (for `raw` content) + `GET /api/note/constraints`
-3. `NbWeb.fmUtils.parseFields(raw)` extracts ordered field list (skips block scalars)
-4. `NbWeb.fmUtils.widget(key, value, constraint)` builds each input
-5. Panel opens as `#nb-changes-panel` — a static HTML div flush under the toolbar
-6. **Save** → `NbWeb.fmUtils.patch(raw, updates)` → `PUT /api/note` → reload note
+1. Click **FM** → `_toggleFmEditPanel(note, btn)` → `NbWeb.fmUtils.form(panel, selector, onDone)`
+2. Parallel fetch: `GET /api/note` (`raw`) + `/api/note/constraints` (widgets) + `/api/note/constraints-full` (declared fields)
+3. `parseFields(raw)` extracts the ordered field list (skips block scalars); declared fields the note lacks follow
+4. `widget(key, value, constraint)` builds each input
+5. Panel opens as `#nb-fm-edit-panel` — a static HTML div flush under the toolbar
+6. **Save** → `patch(raw, updates)` → `PUT /api/note` → `NbMain.bustNoteCache` → reload note
 7. **Cancel** → panel hides, no write
+
+The `fm edit` block calls the same `form()` with its own inline panel, so the two can't drift.
 
 ---
 
@@ -235,6 +237,7 @@ Exported from `nbweb-codeblocks.js` so `main.js` can reuse without duplication:
 
 ```javascript
 NbWeb.fmUtils = {
+    form(panel, selector, onDone), // the whole fm-edit form; onDone(saved) on save/cancel
     parseFields(raw),   // → [{key, value}] from frontmatter, block scalars excluded
     patch(raw, updates),// → new raw string, body preserved exactly
     widget(key, value, constraint), // → DOM input element with data-fm-key
@@ -249,17 +252,17 @@ NbWeb.fmUtils = {
 
 ---
 
-## front changes codeblock (inline)
+## fm edit block (inline)
 
 An alternative entry point — places the editor at a specific point in the note body, useful in long notes:
 
 ````markdown
 ```fm
-changes |Edit Resource
+edit |Edit Resource
 ```
 ````
 
-The `front` codeblock dispatches to `_loadFrontChanges(el)` when the body starts with `changes`. Uses the same `NbWeb.fmUtils` helpers. Renders a collapsed button that expands to the same form inline.
+The `fm` block dispatches to `_loadFmEdit(el)` when the body starts with `edit` (or the old `changes`). The label after `|` is optional (default `fm-edit`). Uses `NbWeb.fmUtils.form`. Renders a collapsed button that expands to the same form inline.
 
 The toolbar FM button covers the universal case; the codeblock is optional.
 
@@ -269,13 +272,13 @@ The toolbar FM button covers the universal case; the codeblock is optional.
 
 | Class | Purpose |
 |-------|---------|
-| `#nb-changes-panel` | Static toolbar panel — flush under grey bar, `background: var(--bg2)` |
-| `.nb-front-changes` | Codeblock wrapper |
-| `.nb-front-changes-panel` | Inline codeblock panel |
-| `.nb-front-changes-form` | Two-column grid (label + widget) |
-| `.nb-front-changes-row` | `display: contents` — one field row |
-| `.nb-front-changes-label` | Monospace field key |
-| `.nb-front-changes-actions` | Save/Cancel button row |
+| `#nb-fm-edit-panel` | Static toolbar panel — flush under grey bar, `background: var(--bg2)` |
+| `.nb-fm-edit` | Block wrapper |
+| `.nb-fm-edit-inline-panel` | Inline block panel |
+| `.nb-fm-edit-form` | Two-column grid (label + widget) |
+| `.nb-fm-edit-row` | `display: contents` — one field row |
+| `.nb-fm-edit-label` | Monospace field key (`.nb-fm-edit-new`: a declared field the note lacks) |
+| `.nb-fm-edit-actions` | Save/Cancel button row |
 
 ---
 

@@ -158,19 +158,19 @@ are skipped by the validator.
 
 **Dot-notation inheritance** — a constraint value of `scene.loc` means "this field
 is inherited from the note referenced by the `scene` field, field `loc`". The
-Changes panel renders inherited fields as read-only displays, not editable inputs.
+The fm-edit form (FM button) renders inherited fields as read-only displays, not editable inputs.
 `nb-constraints.sh` (not yet written) must resolve these cross-note references
 before validating.
 
 ```yaml
 constraints:
-  loc:       scene.loc        # read-only in Changes; sourced from referenced scene
+  loc:       scene.loc        # read-only in fm-edit; sourced from referenced scene
   day_night: scene.day_night
 ```
 
 **Legacy `.constraints.md`** — still read for backward compat. `_load_constraints()`
 merges it as the lower-priority layer; folder config `constraints:` wins.
-`_normalize_constraint()` converts both formats to the JS widget string the Changes
+`_normalize_constraint()` converts both formats to the JS widget string the fm-edit
 button expects (`select a,b,c`, `bool`, `area`, `date`, `text`).
 
 ### Notebook manifests absorbing plugin JSON
@@ -243,7 +243,7 @@ config: | Config files
 ```
 ````
 
-Each result is clickable → opens in preview → **Changes** (guided, constraint-driven)
+Each result is clickable → opens in preview → **FM** (fm-edit: guided, constraint-driven)
 or **Edit** (raw YAML, access-gated). This is the intended settings UI — no dedicated
 panel needed.
 

@@ -847,6 +847,19 @@ list-empty 12
 
 FM-mode syntax (`fm: list-core 10` in frontmatter) is also supported — the key browser appears as a collapsible FM strip block.
 
+#### fm: edit — the frontmatter form in the body
+
+````markdown
+```fm
+edit |Edit this recipe
+```
+````
+
+A button (labelled after the `|`, default `fm-edit`) that opens the same form as the toolbar's
+**FM** button, right there in the note: one input per field, plus the fields the folder declares
+that the note doesn't have yet. See [Folder config: constraints](FOLDER-CONFIG.md#constraints).
+`changes` is the old name and still works.
+
 ---
 
 ### cfg — Config Inheritance Tree

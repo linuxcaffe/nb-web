@@ -74,18 +74,26 @@ constraints:
   loc: scene.loc
 ```
 
-The toolbar's **FM** button (edit frontmatter fields) shows each rule as an input, for the
-fields the note has: `enum` (or `select`) with `values:` a
-drop-down, `bool` a checkbox, `date` a date picker, `multiline` (or `area`) a text box, anything
-else a line of text. A value like `scene.loc` shows that field read-only, taken from another
-note.
+`constraints:` describes the fields a folder's notes should have. Two things use it:
 
-The `nb-check-front` check reports notes that break the rules: an empty `required:` field, a
-value that doesn't match `pattern:` (a regular expression), or one that isn't in `values:`. It
-only checks notes whose `type:` is the folder's `default_type:`, and skips folders without one.
+- **fm-edit**, the toolbar's **FM** button (or an `fm` block whose first line is `edit`): a form
+  with one input per field. The rule picks the input: `enum` (or `select`) with `values:` a
+  drop-down, `bool` a checkbox, `date` a date picker, `multiline` (or `area`) a text box, anything
+  else a line of text; `scene.loc` shows the field read-only, taken from another note. Fields the
+  rules declare but the note doesn't have yet come after the note's own (in italics), and are
+  saved only if you give them a value. Required fields are marked `*`.
+- **the `nb-check-front` check** reports notes that break the rules: an empty `required:` field, a
+  value that doesn't match `pattern:` (a regular expression), or one that isn't in `values:`. It
+  only checks notes whose `type:` is the folder's `default_type:`, and skips folders without one.
+
+Put the rules in the folder whose notes they describe. Rules in folders further up still choose
+an input's type for a field the note has, but only the note's own folder decides which fields
+are offered and checked; that keeps a parent's rules for one kind of note off every other kind
+below it.
 
 A note can adjust its folder's rules in its own frontmatter: `constraints:` replaces the folder's
-rule for a field, `constraints_add:` adds rules for fields the folder doesn't mention.
+rule for a field, `constraints_add:` adds rules for fields the folder doesn't mention. The form
+follows these; the check doesn't (it reads only the folder's config).
 
 ## For developers
 
@@ -94,5 +102,6 @@ rule for a field, `constraints_add:` adds rules for fields the folder doesn't me
   blocks. Which keys reach a note is the `effective_*` list in `api_note` (CLAUDE.md invariant 15).
 - Constraints: `_load_constraints` (`/api/note/constraints`, the FM form, full cascade) and
   `api_note_constraints_full` (immediate folder plus the note's own `constraints:` /
-  `constraints_add:`, invariant 38); widgets in `nbweb-codeblocks.js` (`_fmWidget`); validation in
+  `constraints_add:`, invariant 38, the declared fields); the form is `NbWeb.fmUtils.form`
+  (`nbweb-codeblocks.js`, [Frontmatter editor](dev/dev-frontmatter-editor.md)); validation in
   `~/.nb/.checks/nb-check-front.sh`.

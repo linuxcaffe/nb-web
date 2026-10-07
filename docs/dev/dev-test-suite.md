@@ -93,7 +93,7 @@ or security-critical.** Everything else waits.
 | P0 | Config chain (`_folder_config`, `_notebook_config`, `_merge_configs`) | Most complex new logic; subtle walk-up rules; central to everything |
 | P0 | Access control (`_can_access`, `_effective_access`, username access) | Security-critical; tech bypass invariant must hold |
 | P0 | Shell scripts as black boxes (`.checks/*.sh` via subprocess) | Hybrid layer; validates the script contract with synthetic fixtures |
-| P1 | Constraints (`_load_constraints`, `_normalize_constraint`) | Drives Changes panel; two input formats; dot-notation skipping |
+| P1 | Constraints (`_load_constraints`, `_normalize_constraint`) | Drives the fm-edit form (FM button); two input formats; dot-notation skipping |
 | P1 | Settings migration (`_effective_setting`) | Just implemented; `.nb.md` wins, no fallback — must stay true |
 | P1 | CBQL (`api_hledger_cbql_query`) | Command allowlist + server-side path read of notebook data; destination-access boundary case — see .rules/access.md |
 | P1 | `/api/list` — pinning, tag_color, prepend_date, access filtering | Core list behaviour; several new fields just added |
