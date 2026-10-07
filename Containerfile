@@ -20,11 +20,16 @@
 #     -v ~/.config/gh:/home/nbweb/.config/gh:Z,ro \
 #     -v ${SSH_AUTH_SOCK}:/run/ssh-agent.sock:Z \
 #     -e SSH_AUTH_SOCK=/run/ssh-agent.sock \
+#     -e TZ=$(timedatectl show -p Timezone --value) \
 #     -v ~/.ssh/known_hosts:/home/nbweb/.ssh/known_hosts:Z,ro \
 #     -v ~/.nb-web-secrets/.flask_secret:/app/.flask_secret:Z \
 #     -v ~/.nb-web-secrets/.api_token:/app/.api_token:Z \
 #     -v ~/.nb-web-secrets/nb-settings.json:/app/nb-settings.json:Z \
 #     nb-web
+#
+# TZ matters: the image's own zone is UTC, so without it every server-side date (template
+# {{date}}/{{day}}/{{time}}, {{date:}} queries, nb's dates, quotes and invoices) is tomorrow's
+# from evening on west of Greenwich (found 2026-10-07; sys-container-tz checks for it).
 #
 # In practice: `systemctl --user restart container-nb-web.service` after a
 # rebuild (see ~/.config/systemd/user/container-nb-web.service) -- this raw

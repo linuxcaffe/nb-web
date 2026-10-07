@@ -559,7 +559,7 @@ const NbNav = (() => {
 
     function _renderCalOpts(bar) {
         const st = _state.cal;
-        const today = new Date().toISOString().slice(0, 10);
+        const today = NbWeb.isoDate();
 
         // Default selected to today on first open; clean up any stale Enter handler
         if (!st.selected) st.selected = today;
@@ -795,7 +795,7 @@ const NbNav = (() => {
         function step(d) {
             const base = st.date ? new Date(st.date + 'T12:00:00') : new Date();
             base.setDate(base.getDate() + d);
-            st.date = base.toISOString().slice(0, 10);
+            st.date = NbWeb.isoDate(base);
             label.textContent = st.date;
             _updateOutputBar(); _executeCmd();
         }

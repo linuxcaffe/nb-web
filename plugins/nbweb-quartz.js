@@ -270,7 +270,7 @@ Fields left empty ("") are not shown on the site.
                 description: 'Dated blog post',
                 scope:       'notebook',
                 content: () => {
-                    const date = new Date().toISOString().slice(0, 10);
+                    const date = NbWeb.isoDate();
                     return `---\ntitle: \ndate: ${date}\ntags: []\n---\n\n`;
                 },
             },
@@ -280,7 +280,7 @@ Fields left empty ("") are not shown on the site.
                 description: 'Shop item listing',
                 scope:       'folder:items',
                 content: () => {
-                    const date = new Date().toISOString().slice(0, 10);
+                    const date = NbWeb.isoDate();
                     return `---\ntitle: \ntype: item\nprice: \nstatus: available\ncategory: \nimage: \ncaption: \ntags: []\ndate: ${date}\n---\n\n`;
                 },
             },

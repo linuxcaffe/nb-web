@@ -96,7 +96,7 @@
                 const blob    = await r.blob();
                 const cd      = r.headers.get('Content-Disposition') || '';
                 const fname   = cd.match(/filename[^;=\n]*=["']?([^"';\n]+)/)?.[1]
-                              || `${nb.name}-${new Date().toISOString().slice(0,10)}.nbz`;
+                              || `${nb.name}-${NbWeb.isoDate()}.nbz`;
                 const a = Object.assign(document.createElement('a'), {href: URL.createObjectURL(blob), download: fname});
                 a.click(); URL.revokeObjectURL(a.href);
 

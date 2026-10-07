@@ -795,8 +795,15 @@ const NbWeb = (() => {
         console.warn('NbWeb.openTerminal: NbTerminal not available');
     }
 
+    // A date as local YYYY-MM-DD. Never the first ten characters of toISOString(): that's the UTC date, already
+    // tomorrow from 20:00 in Toronto (2026-10-07; nb-web-tests/test_local_dates.py).
+    function isoDate(d = new Date()) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
     return {
         t,
+        isoDate,
         loadLocale,
         applyI18n,
         registerModule,

@@ -4778,9 +4778,7 @@ const NbMain = (() => {
 
     // Today as YYYY-MM-DD in the browser's own time zone. toISOString() is UTC, which put
     // tomorrow's heading on evening edits west of Greenwich (2026-10-07, foldable.spec.js).
-    function _localDate(d = new Date()) {
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    }
+    function _localDate(d = new Date()) { return NbWeb.isoDate(d); }
 
     // > TODAY: is the hard pivot between past/actual and future/planning
     // content (see project-today-boundary.sh, .checks/) -- any automated

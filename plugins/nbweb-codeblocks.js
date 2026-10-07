@@ -3278,7 +3278,7 @@
         if (leaf.kind === 'today') {
             const note = typeof NbMain !== 'undefined' ? NbMain.activeNote?.() : null;
             if (!note?.selector) return { status: 'error' };
-            const today = new Date().toISOString().slice(0, 10);
+            const today = NbWeb.isoDate();
             const heading = `## ${today}`;
             // body only, NOT raw -- raw's own frontmatter gets re-prepended
             // below; using raw here too would duplicate it. Found live.
@@ -6179,10 +6179,10 @@
         const markers = _cbqlMarkerLines(body);
         const billing = markers.filter(m => /^(INVOICED|CLOSED):/i.test(m.label));
         const todayM  = markers.find(m => /^TODAY:/i.test(m.label));
-        const today   = new Date().toISOString().slice(0, 10);
+        const today   = NbWeb.isoDate();
 
         const dateFromLabel = label => { const m = label.match(/\b(\d{4}-\d{2}-\d{2})\b/); return m ? m[1] : null; };
-        const nextDay = d => { if (!d) return null; const dt = new Date(d + 'T12:00:00Z'); dt.setDate(dt.getDate() + 1); return dt.toISOString().slice(0, 10); };
+        const nextDay = d => { if (!d) return null; const dt = new Date(d + 'T12:00:00'); dt.setDate(dt.getDate() + 1); return NbWeb.isoDate(dt); };
 
         if (!timeframe || timeframe === 'all') return { from: null, to: null };
 
