@@ -176,6 +176,14 @@ moved, renamed or deleted until it's unlocked, and a note's annotation is locked
 lock and unlock is up to each notebook or folder (`lock_level:`, admins by default); others see a
 🔒.
 
+**[Books](docs/BOOKS.md)** — one long document stitched from chapter notes, with a table of contents
+
+A book is a note with `type: book` whose chapters are other notes, pulled in with
+`{{inline: notebook:chapter.md}}`, one per line. It reads as one long document, with a table of
+contents across every chapter. Each chapter stays an ordinary note you can open and edit on its
+own. A check block placed in a chapter warns right there, so a failing check shows up in the
+book's contents beside the section it's about.
+
 ---
 
 ### Live codeblocks
