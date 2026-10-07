@@ -490,7 +490,8 @@ const NbNav = (() => {
                     : await NbMain.addNote(_noteArgs());
                 if (result) {
                     _doCancel();
-                    if (result.selector) NbMain.openNote(result.selector);
+                    if (result.folder) NbNav.showFolder(result.notebook, result.folder);
+                    else if (result.selector) NbMain.openNote(result.selector);
                 }
             } finally {
                 _idle();
@@ -506,7 +507,10 @@ const NbNav = (() => {
                 const result = st.encrypt
                     ? await NbMain.addEncryptedNote({..._noteArgs(), password: st.password})
                     : await NbMain.addNote(_noteArgs());
-                if (result && result.selector) {
+                if (result && result.folder) {
+                    _doCancel();
+                    NbNav.showFolder(result.notebook, result.folder);
+                } else if (result && result.selector) {
                     st.title = ''; st.url = ''; st.template = null; st.dirty = false;
                     activateCmd('list', { internal: true });
                     await NbMain.openNote(result.selector);

@@ -9225,6 +9225,44 @@ def api_today_append():
 # API: Create note
 # ---------------------------------------------------------------------------
 
+def _create_folder(notebook, parent, name):
+    """Make <notebook>:<parent>/<name>/ the way `nb folders add` does (the folder with an empty
+    .index, each new level listed in its parent's .index, one commit), without running nb: nb
+    reads `nb folders add docs:archive` as `nb docs:archive`, its archive-this-notebook command,
+    and the same for any top-level folder named after an nb subcommand (todo, list, status...),
+    in every command form. Found live 2026-10-06; test_create_folder.py."""
+    nb_root = NB_DIR / notebook
+    parts = [p for p in f'{parent}/{name}'.split('/') if p]
+    if (not nb_root.is_dir() or not name or
+            any(p in ('.', '..') or p.startswith('.') for p in parts)):
+        return jsonify({'error': 'invalid folder name'}), 400
+    target = nb_root.joinpath(*parts)
+    if target.exists():
+        return jsonify({'error': 'already exists'}), 409
+    changed, here = [], nb_root
+    for part in parts:
+        index = here / '.index'
+        sub = here / part
+        if not sub.is_dir():
+            sub.mkdir()
+            (sub / '.index').touch()
+            changed.append(str((sub / '.index').relative_to(nb_root)))
+        listed = index.read_text().splitlines() if index.exists() else []
+        if part not in listed:
+            with open(index, 'a') as f:
+                f.write(part + '\n')
+            changed.append(str(index.relative_to(nb_root)))
+        here = sub
+    rel = '/'.join(parts)
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    subprocess.run(['git', 'add', '--', *changed], cwd=str(nb_root), capture_output=True, env=env)
+    subprocess.run(['git', 'commit', '-m', f'[nb] Add: {rel}'],
+                   cwd=str(nb_root), capture_output=True, env=env)
+    # `folder`, not `selector`: the Add forms open it as a folder, not as a note
+    return jsonify({'success': True, 'output': f'Added: {notebook}:{rel}/',
+                    'notebook': notebook, 'folder': rel})
+
+
 @app.route('/api/notes', methods=['POST'])
 def api_create_note():
     data     = request.get_json() or {}
@@ -9279,8 +9317,7 @@ def api_create_note():
         if tags:  args += ['--tags', ','.join(tags)]
         r = run_nb(*args)
     elif ntype == 'folder':
-        folder_name = (title or 'newfolder').strip().strip('/')
-        r = run_nb('folders', 'add', target + folder_name)
+        return _create_folder(notebook, folder, (title or 'newfolder').strip().strip('/'))
     elif ntype == 'notebook':
         user = session.get('user', {})
         if not _level_gte(user.get('level', ''), 'admin'):

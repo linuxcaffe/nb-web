@@ -192,7 +192,10 @@ const NbNoteActions = (() => {
             if (d.success) {
                 NbMain.setNoAutoSelect(true);
                 NbNav.activateCmd('list', { internal: true });
-                if (andEdit && d.selector) {
+                if (d.folder) {
+                    NbMain.setNoAutoSelect(false);
+                    NbNav.showFolder(d.notebook, d.folder);
+                } else if (andEdit && d.selector) {
                     await NbMain.openNote(d.selector);
                     NbMain.setNoAutoSelect(false);
                     NbMain.openEditor(d.selector);
