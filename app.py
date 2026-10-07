@@ -2,10 +2,12 @@
 """nb-web — Flask backend for nb note-taking web interface."""
 
 import collections
+import contextlib
 import copy
 import fnmatch
 import json
 import errno
+import fcntl
 import os
 import re
 import signal
@@ -351,17 +353,39 @@ def run_nb(*args, input_text=None, readonly=False):
     sites already do; don't rely on this env var to have done that job.
     """
     cmd = [NB_BIN] + list(args)
-    result = subprocess.run(
-        cmd,
-        capture_output=True, text=True,
-        input=input_text if input_text is not None else '',
-        env={**os.environ, 'NO_COLOR': '1'},
-    )
+    with _nb_lock():   # never two nb at once (invariant 72)
+        result = subprocess.run(
+            cmd,
+            capture_output=True, text=True,
+            input=input_text if input_text is not None else '',
+            env={**os.environ, 'NO_COLOR': '1'},
+        )
     return {
         'stdout':     result.stdout.strip(),
         'stderr':     result.stderr.strip(),
         'returncode': result.returncode,
     }
+
+
+def _nb_lock_path():
+    p = NB_DIR / '.logs' / 'nb-web-nb.lock'
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+@contextlib.contextmanager
+def _nb_lock():
+    """Run one `nb` at a time. Every nb run reconciles its notebook's .index and commits whatever
+    is uncommitted; two at once can leave .index empty (2026-10-06: features/.index emptied by two
+    concurrent `nb show` calls; reproduced with plain shell `nb`, invariant 72). An flock on a file,
+    not a threading.Lock, so it also holds across processes: a dev server and the container on
+    the same ~/.nb, the check sweep. nb run by hand in a terminal doesn't take it."""
+    with open(_nb_lock_path(), 'a') as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def _nb_index_reconcile(path):
@@ -386,9 +410,10 @@ def _nb_index_reconcile(path):
     output are harmless by construction, unlike api_notebooks()'s use of
     `nb notebooks --names` output as actual JSON data.
     """
-    subprocess.run([NB_BIN, 'index', 'reconcile', str(path)],
-                   capture_output=True, text=True,
-                   env={**os.environ, 'NO_COLOR': '1'})
+    with _nb_lock():   # invariant 72
+        subprocess.run([NB_BIN, 'index', 'reconcile', str(path)],
+                       capture_output=True, text=True,
+                       env={**os.environ, 'NO_COLOR': '1'})
 
 
 def nb_ok(r):
@@ -9044,10 +9069,9 @@ def api_note_constraints():
     selector = request.args.get('selector', '').strip()
     if not selector:
         return jsonify({'error': 'selector required'}), 400
-    path_r = run_nb('show', selector, '--path')
-    if not nb_ok(path_r):
+    fpath = _resolve_to_nb_path(selector)   # no nb run for a plain path (invariants 67, 72)
+    if fpath is None:
         return jsonify({'error': 'not found'}), 404
-    fpath = Path(path_r['stdout'].strip())
     return jsonify(_load_constraints(fpath))
 
 
@@ -9101,10 +9125,9 @@ def api_note_constraints_full():
         if not fpath.exists():
             return jsonify({'error': 'not found'}), 404
     else:
-        path_r = run_nb('show', selector, '--path')
-        if not nb_ok(path_r):
+        fpath = _resolve_to_nb_path(selector)   # no nb run for a plain path (invariants 67, 72)
+        if fpath is None:
             return jsonify({'error': 'not found'}), 404
-        fpath = Path(path_r['stdout'].strip())
 
     result = {}
     folder_cfg_path = fpath.parent / f'.{fpath.parent.name}.md'
@@ -10559,11 +10582,12 @@ def api_nb_delete_notebook():
 
     # scope == 'local'
     try:
-        r = subprocess.run(
-            [NB_BIN, 'notebooks', 'delete', notebook, '--force'],
-            capture_output=True, text=True, timeout=15,
-            env={**os.environ, 'NO_COLOR': '1'},
-        )
+        with _nb_lock():   # invariant 72
+            r = subprocess.run(
+                [NB_BIN, 'notebooks', 'delete', notebook, '--force'],
+                capture_output=True, text=True, timeout=15,
+                env={**os.environ, 'NO_COLOR': '1'},
+            )
         msg = r.stdout.strip() or r.stderr.strip() or f'Notebook "{notebook}" deleted.'
         return jsonify({'success': r.returncode == 0, 'output': msg})
     except subprocess.TimeoutExpired:
@@ -10672,7 +10696,8 @@ def api_nb_archive():
     max_bytes = int(_settings.get('archive_max_file_mb', 50)) * 1024 * 1024
 
     try:
-        vr = subprocess.run([NB_BIN, '--version'], capture_output=True, text=True, timeout=5)
+        with _nb_lock():
+            vr = subprocess.run([NB_BIN, '--version'], capture_output=True, text=True, timeout=5)
         parts = vr.stdout.strip().split()
         nb_version = parts[-1] if vr.returncode == 0 and parts else ''
     except Exception:
@@ -15854,8 +15879,9 @@ def _assert_nb_auto_sync_off():
     it, and fails loudly instead of masking the gap a second way.
     """
     try:
-        r = subprocess.run([NB_BIN, 'settings', 'get', 'auto_sync'],
-                           capture_output=True, text=True, timeout=5)
+        with _nb_lock():
+            r = subprocess.run([NB_BIN, 'settings', 'get', 'auto_sync'],
+                               capture_output=True, text=True, timeout=5)
         value = r.stdout.strip()
         if value == '0':
             print('[nb-web] NB_AUTO_SYNC: OK (0)', flush=True)
