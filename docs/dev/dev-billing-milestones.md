@@ -80,7 +80,7 @@ where a `since_invoice`/`since_marker` scope's own slice happens to start.
 `_parse_timedot_slice` with the note's raw frontmatter `rate:` as `start_rate` —
 correct only by accident, for as long as no RATE marker had ever fired earlier in
 the diary, outside that slice. Found live 2026-09-09 on
-`djp:projects/Seaman/nathan/nathan.md`: `> RATE: 35` set 2026-07-10, never
+a real project diary: `> RATE: 35` set 2026-07-10, never
 repeated; every invoice through INV-2026-016 (flat/journal path — no MILESTONE
 marker existed in scope yet) correctly billed $35/hr, since that path reads
 pre-baked amounts off the generated journal, which itself walks the whole diary

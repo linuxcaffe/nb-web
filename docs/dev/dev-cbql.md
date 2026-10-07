@@ -385,7 +385,7 @@ Which existing block types are natural CBQL participants:
 | `query` | Consumer: already aggregates FM across notes; extend to codeblock content | Close |
 | `timeline` | Consumer: renders markers from source as visual phase history | New type needed |
 
-**Build order within types**: `timedot`/`hl` pair first (Nathan dogfoods it, lowest risk). `tw` snapshot second. `timeline` third (highest value for reports page opener). `checklist` is low-effort once the CBQL read path exists. `query` extension is the pub/sub on-ramp.
+**Build order within types**: `timedot`/`hl` pair first (already in real use, lowest risk). `tw` snapshot second. `timeline` third (highest value for reports page opener). `checklist` is low-effort once the CBQL read path exists. `query` extension is the pub/sub on-ramp.
 
 ### Work item layers
 
