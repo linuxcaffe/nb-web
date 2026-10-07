@@ -423,7 +423,7 @@
 
         const scopePill  = `<span class="nb-specialty-pill">${scope}</span>`;
         const parentPill = parent ? `<span class="nb-specialty-pill">${_esc(parent)}</span>` : '';
-        const keysPill   = keyCount ? `<span class="nb-specialty-pill">${keyCount} keys</span>` : '';
+        const keysPill   = keyCount ? `<span class="nb-specialty-pill">${keyCount} key${keyCount === 1 ? '' : 's'}</span>` : '';
 
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', '⚙️')}
