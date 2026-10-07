@@ -98,7 +98,9 @@ const NbDialog = (() => {
         header.className = 'nb-dlg-header';
         const tabsEl = document.createElement('div');
         tabsEl.className = 'nb-dlg-tabs';
-        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-copy','⎘ Copy'], ['f-delete','🗑 Delete'], ['f-lock','🔒 Lock']].forEach(([id, label]) => {
+        // 🔒 Lock only for admins: only they may lock or unlock (invariant 76)
+        [['f-rename','✏ Rename'], ['f-move','→ Move'], ['f-copy','⎘ Copy'], ['f-delete','🗑 Delete'],
+         ...(window.NbAuth?.is?.('admin') ? [['f-lock','🔒 Lock']] : [])].forEach(([id, label]) => {
             const btn = document.createElement('button');
             btn.className = 'nb-dlg-tab' + (id === _tab ? ' active' : '');
             btn.dataset.tab = id; btn.textContent = label;

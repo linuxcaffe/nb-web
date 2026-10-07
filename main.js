@@ -1216,7 +1216,7 @@ const NbMain = (() => {
         // button and decided hidden/sibling-button on their own, with no
         // explicit precedence between them. See _computeEditGate's own
         // comment for the one real behavior difference this introduces.
-        ['nb-unlock-btn', 'nb-relock-btn', 'nb-dir-lock-indicator', 'nb-edit-anyway-btn'].forEach(id => document.getElementById(id)?.remove());
+        ['nb-unlock-btn', 'nb-relock-btn', 'nb-lock-badge', 'nb-dir-lock-indicator', 'nb-edit-anyway-btn'].forEach(id => document.getElementById(id)?.remove());
 
         const _gate      = _computeEditGate(note, _isLocked);
         const _editBtn   = document.getElementById('nb-edit-btn');
@@ -1229,9 +1229,19 @@ const NbMain = (() => {
                 ? `${_gate.displayName} is editing this note${_relTimeAgo(_gate.since)}`
                 : '';
         }
-        if (_deleteBtn) _deleteBtn.hidden = _gate.state === 'dir-locked';
+        // the server refuses deleting a locked note too (invariant 76)
+        if (_deleteBtn) _deleteBtn.hidden = ['dir-locked', 'content-locked'].includes(_gate.state);
+        // only admins may lock or unlock (invariant 76): anyone else sees the lock, no control
+        const _canUnlock = !!window.NbAuth?.is?.('admin');
 
-        if (_gate.state === 'content-locked' && _editBtn) {
+        if (_gate.state === 'content-locked' && _editBtn && !_canUnlock) {
+            const badge = document.createElement('span');
+            badge.id          = 'nb-lock-badge';
+            badge.className   = 'nb-tool-btn';
+            badge.textContent = '🔒';
+            badge.title       = 'Locked (lock: yes): an admin can unlock it';
+            _editBtn.insertAdjacentElement('afterend', badge);
+        } else if (_gate.state === 'content-locked' && _editBtn) {
             const unlockBtn = document.createElement('button');
             unlockBtn.id        = 'nb-unlock-btn';
             unlockBtn.className = 'nb-tool-btn';
@@ -1252,7 +1262,7 @@ const NbMain = (() => {
                 }
             });
             _editBtn.insertAdjacentElement('afterend', unlockBtn);
-        } else if (_gate.state === 'editable' && _gate.hasSoftLock && _editBtn) {
+        } else if (_gate.state === 'editable' && _gate.hasSoftLock && _editBtn && _canUnlock) {
             // Re-lock button — shown when lock: key exists in meta but value is cleared
             const relockBtn = document.createElement('button');
             relockBtn.id        = 'nb-relock-btn';
