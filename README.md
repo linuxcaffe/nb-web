@@ -168,6 +168,13 @@ open it. Each heading remembers whether it's folded. Set `foldable:` in a folder
 every note in the folder gets it, which suits long diaries: fold every past day with a date
 pattern.
 
+**[Locks](docs/LOCKS.md)** — make a note, folder or notebook read-only
+
+A lock makes something read-only, for everyone. Lock a single note with `lock: yes` in its
+frontmatter, or a whole folder or notebook from its menu; nothing inside can then be edited,
+moved, renamed or deleted until it's unlocked, and a note's annotation is locked with it. Only an
+admin can lock or unlock; others see a 🔒.
+
 ---
 
 ### Live codeblocks
@@ -232,33 +239,6 @@ The **`cfg: org`** codeblock renders the entire notebook's config topology as an
 The **`dotfile.md`** global template pre-wires `cfg: org` into every new folder config so the sysadmin view is available from day one.
 
 → [SYSADMIN](docs/SYSADMIN.md) · [CODEBLOCKS](docs/CODEBLOCKS.md#cfg)
-
----
-
-### Folder and notebook locks
-
-Any folder or notebook can be made read-only by placing an `.nb-lock` file inside it. Locked notes hide the **Edit** and **Delete** buttons and show a 🔒 indicator in the toolbar. Hovering the indicator shows the reason, if one was given.
-
-The lock is **hierarchical**: a notebook-level `.nb-lock` covers every folder inside it; a folder-level lock covers every note in that folder without affecting sibling folders.
-
-**Via the UI:**
-- **Folder** — click `⋯` on any folder → 🔒 Lock tab → *Lock folder* (add an optional reason)
-- **Notebook** — Menu → Notebooks → select a notebook → *🔒 Lock notebook*
-
-Toggling lock/unlock **renames** the file between `.nb-lock` (locked) and `.nb-unlock` (unlocked) rather than deleting it, so the reason text is preserved across cycles.
-
-**Manually:**
-
-```bash
-# Lock a folder:
-echo "Tutorial — read only" > ~/.nb/home/tutorial/.nb-lock
-
-# Unlock (preserves the reason for next time):
-mv ~/.nb/home/tutorial/.nb-lock ~/.nb/home/tutorial/.nb-unlock
-
-# Re-lock:
-mv ~/.nb/home/tutorial/.nb-unlock ~/.nb/home/tutorial/.nb-lock
-```
 
 ---
 
