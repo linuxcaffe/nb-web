@@ -2144,12 +2144,22 @@ const NbMain = (() => {
         note.__cachedRenderHtml = clone.innerHTML;
     }
 
+    // foldable: patterns -> RegExps, case-insensitive unless the pattern starts with (?-i)
+    // (JavaScript has no inline flags, so '(?-i)Ideas' used to be a syntax error and the pattern
+    // was dropped; 2026-10-07, foldable.spec.js). Bad patterns are skipped.
+    function _foldPatterns(raw) {
+        if (!raw) return [];
+        return (Array.isArray(raw) ? raw : [raw]).map(p => {
+            let src = String(p), flags = 'i';
+            if (src.startsWith('(?-i)')) { src = src.slice(5); flags = ''; }
+            try { return new RegExp(src, flags); } catch(_) { return null; }
+        }).filter(Boolean);
+    }
+
     function _applyFoldableHeadings(container, note) {
-        const raw = note?.meta?.foldable ?? note?.effective_fm?.foldable;
-        if (!raw) return;
-        const patterns = (Array.isArray(raw) ? raw : [raw])
-            .map(p => { try { return new RegExp(String(p), 'i'); } catch(_) { return null; } })
-            .filter(Boolean);
+        // note's own foldable:, else a folder/notebook config's (effective_fm; 'foldable' is in
+        // _FM_BLOCK_KEYS since 2026-10-07)
+        const patterns = _foldPatterns(note?.meta?.foldable ?? note?.effective_fm?.foldable);
         if (!patterns.length) return;
 
         const rendered = container.querySelector('.nb-rendered');
@@ -4763,10 +4773,13 @@ const NbMain = (() => {
     }
 
     function _foldableImpliesDates(foldable) {
-        if (!foldable) return false;
-        const patterns = Array.isArray(foldable) ? foldable : [foldable];
-        const probe = '## 2026-01-01';
-        return patterns.some(p => { try { return new RegExp(p, 'i').test(probe); } catch(_) { return false; } });
+        return _foldPatterns(foldable).some(re => re.test('## 2026-01-01'));
+    }
+
+    // Today as YYYY-MM-DD in the browser's own time zone. toISOString() is UTC, which put
+    // tomorrow's heading on evening edits west of Greenwich (2026-10-07, foldable.spec.js).
+    function _localDate(d = new Date()) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
     // > TODAY: is the hard pivot between past/actual and future/planning
@@ -4791,7 +4804,7 @@ const NbMain = (() => {
     }
 
     async function _ensureTodayHeading(sel, d) {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = _localDate();
         const body  = d.raw || d.body || '';
         if (body.includes(`## ${today}`)) return;
         const updated = _insertBeforeToday(body, `## ${today}`);
@@ -4841,7 +4854,8 @@ const NbMain = (() => {
             .then(r => r.json())
             .then(async d => {
                 if (_saveBtn) _saveBtn.disabled = false;
-                if (d.meta?.date_headers || _foldableImpliesDates(d.meta?.foldable)) await _ensureTodayHeading(sel, d);
+                const fold = d.meta?.foldable ?? d.effective_fm?.foldable;
+                if (d.meta?.date_headers || _foldableImpliesDates(fold)) await _ensureTodayHeading(sel, d);
                 _populateEditor(sel, d.raw || d.body || '', _saveNote, d);
             })
             .catch(() => { if (_saveBtn) _saveBtn.disabled = false; });
