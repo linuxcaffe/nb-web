@@ -987,7 +987,10 @@ const NbMain = (() => {
 
     // A page's own ? (editor, terminal, Notebooks page): the topics whose help_for:
     // names page:<page>, under the current notebook's help_header line. A second click closes.
-    async function showPageHelp(trigger, page) {
+    // withNote (the editor): the note being edited keeps its own help too, after the page's
+    // topics and under its own header, so editing a dotfile still shows the dotfile topics
+    // (djp, 2026-10-08; it used to show the editor's topics only).
+    async function showPageHelp(trigger, page, { withNote = false } = {}) {
         if (trigger._helpPop) { _showTypeHelp(trigger, [], null); return; }
         let topics = [], header = '';
         try {
@@ -995,7 +998,13 @@ const NbMain = (() => {
             const r = await fetch(`/api/help/page?name=${encodeURIComponent(page)}${nb ? '&notebook=' + encodeURIComponent(nb) : ''}`);
             if (r.ok) { const j = await r.json(); topics = j.topics || []; header = j.help_header || ''; }
         } catch (e) { /* show what we have */ }
-        _showTypeHelp(trigger, topics, { ...(_activeNote || {}), type: 'page', effective_help_header: header });
+        const note = _activeNote || {};
+        if (withNote && note.effective_help) {
+            const own = Array.isArray(note.effective_help) ? note.effective_help : [note.effective_help];
+            topics = [...topics, ...own.filter(t => t && !topics.includes(t))];
+            header = note.effective_help_header || header;
+        }
+        _showTypeHelp(trigger, topics, { ...note, type: 'page', effective_help_header: header });
     }
 
     const _UNEDITABLE_TYPES = ['sheet','image','audio','video','pdf','ebook','document','archive'];
@@ -4501,7 +4510,7 @@ const NbMain = (() => {
         const _mkdModal = document.getElementById('nb-mkd-modal');
         function _toggleMkdModal() { _mkdModal.hidden = !_mkdModal.hidden; }
         document.getElementById('nb-mkd-ref-btn').addEventListener('click', _toggleMkdModal);
-        document.getElementById('nb-editor-help-btn')?.addEventListener('click', e => showPageHelp(e.currentTarget, 'editor'));
+        document.getElementById('nb-editor-help-btn')?.addEventListener('click', e => showPageHelp(e.currentTarget, 'editor', { withNote: true }));
         document.getElementById('nb-mkd-modal-close').addEventListener('click', () => { _mkdModal.hidden = true; });
         document.querySelectorAll('.nb-mkd-ref-trigger').forEach(b => b.addEventListener('click', _toggleMkdModal));
         _mkdModal.addEventListener('click', e => { if (e.target === _mkdModal) _mkdModal.hidden = true; });
