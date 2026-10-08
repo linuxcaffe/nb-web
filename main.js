@@ -842,7 +842,12 @@ const NbMain = (() => {
         pop.style.top  = (rect.bottom + 4) + 'px';
         pop.style.left = rect.left + 'px';
 
+        // Placed from scratch each time: below the button, else above it. Runs again whenever
+        // an entry opens or closes, since that changes the height (a block's ? can sit at the
+        // bottom of the window; found 2026-10-08).
         const reposition = () => {
+            pop.style.top  = (rect.bottom + 4) + 'px';
+            pop.style.left = rect.left + 'px';
             const pr = pop.getBoundingClientRect();
             if (pr.right > window.innerWidth - 8)
                 pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
@@ -880,6 +885,7 @@ const NbMain = (() => {
                 link('nb-help-more', 'More', d.selector);
                 if (d.topic_links?.feature) link('nb-help-try', 'Try it', d.topic_links.feature);
                 det.append(sum, body, links);
+                det.addEventListener('toggle', reposition);
                 _enrichRendered(body, d);
                 return det;
             };
