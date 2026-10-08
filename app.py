@@ -1024,6 +1024,46 @@ def api_help_page():
     return jsonify({'topics': topics, 'help_header': str(cfg.get('help_header') or '')})
 
 
+@app.route('/api/summary')
+def api_summary():
+    """{{inline: summary <dashboard>}}: the dashboard as the README shows it -- title, caption,
+    intro, then each chapter's docs topic with its ## Summary (dashboard_summary.py, shared with
+    .tools/readme-export.py). Chapters and topics the user can't open are left out."""
+    import dashboard_summary
+    user = session.get('user', {})
+    sel = request.args.get('selector', '').strip()
+    nb = sel.split(':', 1)[0] if ':' in sel else ''
+    path = _selector_disk_path(sel) if nb and _safe_notebook(nb) else None
+    if path is None or not path.is_file():
+        return jsonify({'error': 'not found'}), 404
+    text = path.read_text(errors='replace')
+    meta, _ = parse_frontmatter(text)
+    if not _can_access(user, meta, _folder_config(nb, path)):
+        return jsonify({'error': 'forbidden'}), 403
+
+    def read_page(target):
+        s = target if ':' in target else f'{nb}:{target}'
+        pnb = s.split(':', 1)[0]
+        p = _selector_disk_path(s) if _safe_notebook(pnb) else None
+        if p is None or not p.is_file() or not _notebook_in_scope(user, pnb):
+            return None
+        t = p.read_text(errors='replace')
+        m, _ = parse_frontmatter(t)
+        return t if _can_access(user, m, _folder_config(pnb, p)) else None
+
+    def find_topic(topic):
+        for tsel, tmeta, _ in _help_topics():
+            if str(tmeta.get('topic') or '').strip() == topic:
+                if not _help_topic_ok(user, tsel, tmeta):
+                    return None
+                tp = _selector_disk_path(tsel)
+                return tsel, tmeta, (parse_frontmatter(tp.read_text(errors='replace'))[1] if tp else '')
+        return None
+
+    md = dashboard_summary.dashboard_summary(text, read_page, find_topic)
+    return jsonify({'markdown': md, 'selector': sel, 'notebook': nb})
+
+
 @app.route('/api/help/category')
 def api_help_category():
     """A category: a dashboard's topics in its chapter order, for a category line in the ?

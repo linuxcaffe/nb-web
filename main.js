@@ -1804,13 +1804,27 @@ const NbMain = (() => {
         if (depth >= 2) { span.remove(); return; }
         const rendered  = span.closest('.nb-rendered');
         const wantCard  = /^card\s+/i.test(rawPath.trim());
-        let targetRaw   = wantCard ? rawPath.trim().replace(/^card\s+/i, '') : rawPath.trim();
+        // summary: a category dashboard as the README shows it, built by the server
+        // (dashboard_summary.py, shared with the README exporter; 2026-10-08)
+        const wantSummary = /^summary\s+/i.test(rawPath.trim());
+        let targetRaw   = rawPath.trim().replace(/^(card|summary)\s+/i, '');
         // note.md#Heading -- just that section (the help system's single-source docs)
         let section = null;
         const hashAt = targetRaw.indexOf('#');
         if (hashAt > 0) { section = targetRaw.slice(hashAt + 1).trim(); targetRaw = targetRaw.slice(0, hashAt).trim(); }
         const selector  = _resolveRelPath(targetRaw, note?.selector || '');
         try {
+            if (wantSummary) {
+                const r = await fetch(`/api/summary?selector=${encodeURIComponent(selector)}`, { signal });
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const d = await r.json();
+                const wrap = document.createElement('div');
+                wrap.className = 'nb-inline-content nb-inline-summary';
+                wrap.innerHTML = `<div class="nb-rendered">${_renderMarkdown(d.markdown || '', d.selector)}</div>`;
+                span.replaceWith(wrap);
+                _enrichRendered(wrap, { selector: d.selector, notebook: d.notebook, meta: {} });
+                return;
+            }
             const r = await fetch(`/api/note?selector=${encodeURIComponent(selector)}&inline=1`, { signal });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
