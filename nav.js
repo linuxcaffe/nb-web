@@ -1506,13 +1506,15 @@ const NbNav = (() => {
             { label: 'Plugins',   cmd: 'plugins' },
             { label: 'Settings',  cmd: 'nb-settings' },
             { label: 'Templates', cmd: 'templates' },
-            { label: 'Terminal',  cmd: 'terminal' },
+            { label: 'Terminal',  cmd: 'terminal', minLevel: 'tech' },
             { label: 'Undo',      cmd: 'undo' },
             { label: 'Website',   cmd: 'website' },
         ];
 
         nav.innerHTML = '';
         MENU.forEach(entry => {
+            // the server refuses the terminal below tech; T and term: links show its message
+            if (entry.minLevel && window.NbAuth && !NbAuth.is(entry.minLevel)) return;
             if (entry.items) {
                 const group = document.createElement('div');
                 group.className = 'nb-menu-group';

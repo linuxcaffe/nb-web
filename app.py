@@ -5,6 +5,7 @@ import collections
 import contextlib
 import copy
 import fnmatch
+import functools
 import json
 import errno
 import fcntl
@@ -4487,6 +4488,50 @@ def _t_tc_file(override: str | None = None) -> Path:
     return default
 
 
+_TIME_FILE_SUFFIXES = ('.timedot', '.journal', '.timeclock')
+
+
+def _time_file_refusal(user, override, write=False):
+    """None if `user` may read (write) the time file a request names with `file=`, else a 403.
+    No override means the configured default file. tech may name any path (the owner, who has a
+    shell anyway: ~/freelance/time.timedot keeps working). Anyone else: a .timedot/.journal/
+    .timeclock inside a notebook in their scope whose folder they can open, symlinks not
+    followed out. Until 2026-10-08 `file=` was any path: /api/t/timedot/content read any file
+    and /api/t/timedot/write wrote any, .users/<name>.md included (test_path_endpoints.py)."""
+    level = user.get('level', '')
+    forbidden = (jsonify({'success': False, 'error': 'forbidden'}), 403)
+    if write and not _level_gte(level, 'user'):
+        return forbidden
+    if not (override or '').strip() or level == 'tech':
+        return None
+    p = Path(os.path.normpath(os.path.expanduser(override.strip())))
+    if not p.is_absolute() or p.suffix not in _TIME_FILE_SUFFIXES:
+        return forbidden
+    try:
+        parts = p.relative_to(os.path.normpath(NB_DIR)).parts
+        p.resolve().relative_to(NB_DIR.resolve())
+    except (ValueError, OSError):
+        return forbidden
+    nb = _safe_notebook(parts[0]) if len(parts) > 1 else None
+    if not nb or not (NB_DIR / nb).is_dir() or not _notebook_in_scope(user, nb) \
+            or not _can_access(user, {}, _folder_config(nb, p.parent)):
+        return forbidden
+    return None
+
+
+def _time_file_gate(write=False):
+    """Route decorator: refuse a `file=` (query or JSON body) the user may not use."""
+    def deco(f):
+        @functools.wraps(f)
+        def inner(*a, **k):
+            body = request.get_json(silent=True) if request.method != 'GET' else None
+            override = request.args.get('file') or (body.get('file') if isinstance(body, dict) else None)
+            refused = _time_file_refusal(session.get('user', {}), override, write=write)
+            return refused or f(*a, **k)
+        return inner
+    return deco
+
+
 def _t_td_file(override: str | None = None) -> Path:
     """Return Path to the active timedot file (override > rc > default)."""
     if override:
@@ -5068,17 +5113,20 @@ def api_hledger_cbql_query():
 
 
 @app.route('/api/t/status')
+@_time_file_gate(write=False)
 def api_t_status():
     return jsonify(_t_parse_status(_t_tc_file(request.args.get('file'))))
 
 
 @app.route('/api/t/report')
+@_time_file_gate(write=False)
 def api_t_report():
     period = request.args.get('period', 'today').strip()
     return jsonify(_t_parse_report(_t_tc_file(request.args.get('file')), period))
 
 
 @app.route('/api/t/accounts')
+@_time_file_gate(write=False)
 def api_t_accounts():
     tc = _t_tc_file(request.args.get('file'))
     if not tc.exists():
@@ -5089,6 +5137,7 @@ def api_t_accounts():
 
 
 @app.route('/api/t/in', methods=['POST'])
+@_time_file_gate(write=True)
 def api_t_in():
     data    = request.get_json(silent=True) or {}
     account = data.get('account', '').strip()
@@ -5116,6 +5165,7 @@ def api_t_in():
 
 
 @app.route('/api/t/out', methods=['POST'])
+@_time_file_gate(write=True)
 def api_t_out():
     data = request.get_json(silent=True) or {}
     tc = _t_tc_file(data.get('file'))
@@ -5129,17 +5179,20 @@ def api_t_out():
 
 
 @app.route('/api/t/timedot/status')
+@_time_file_gate(write=False)
 def api_t_timedot_status():
     return jsonify(_t_timedot_last(_t_td_file(request.args.get('file'))))
 
 
 @app.route('/api/t/timedot/report')
+@_time_file_gate(write=False)
 def api_t_timedot_report():
     period = request.args.get('period', 'today').strip()
     return jsonify(_t_timedot_parse_report(_t_td_file(request.args.get('file')), period))
 
 
 @app.route('/api/t/timedot/content')
+@_time_file_gate(write=False)
 def api_t_timedot_content():
     td = _t_td_file(request.args.get('file'))
     if not td.exists():
@@ -5148,6 +5201,7 @@ def api_t_timedot_content():
 
 
 @app.route('/api/t/timedot/append', methods=['POST'])
+@_time_file_gate(write=True)
 def api_t_timedot_append():
     data  = request.get_json(silent=True) or {}
     td    = _t_td_file(data.get('file'))
@@ -5222,6 +5276,7 @@ def _ensure_journal_stubs(journal_path: Path):
 
 
 @app.route('/api/t/timedot/write', methods=['POST'])
+@_time_file_gate(write=True)
 def api_t_timedot_write():
     data    = request.get_json(silent=True) or {}
     td      = _t_td_file(data.get('file'))
@@ -5254,6 +5309,9 @@ def api_t_journal_from_csv():
     if not selector or not token:
         return jsonify({'success': False, 'error': 'selector and token required'}), 400
 
+    user = session.get('user', {})
+    if not _can_write(user, selector):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
     note_path = _resolve_to_nb_path(selector)
     if not note_path or not note_path.exists():
         return jsonify({'success': False, 'error': 'note not found'}), 404
@@ -5268,7 +5326,12 @@ def api_t_journal_from_csv():
         return jsonify({'success': False, 'error': 'journal: FM key not set'}), 400
 
     journal_path  = Path(os.path.expanduser(journal_key))
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', token):
+        return jsonify({'success': False, 'error': 'invalid token'}), 400
     out_path      = journal_path.with_name(f'{journal_path.stem}-gen.{token}.journal')
+    refused = _time_file_refusal(user, str(out_path), write=True)
+    if refused:
+        return refused
 
     # clear=true: block was removed from note — write empty stub so journal is blank
     if data.get('clear'):
@@ -7101,13 +7164,21 @@ def ws_pty(ws):
     # cross-origin attempt (some other page's script opening this socket)
     # sends that page's own origin, which will never match request.host
     # regardless of what host nb-web itself is reached through.
+    # Browsers always send Origin on a WebSocket handshake, so a missing
+    # one isn't a browser on this page.
+    from urllib.parse import urlparse
     origin = request.environ.get('HTTP_ORIGIN', '')
-    if origin:
-        from urllib.parse import urlparse
-        parsed = urlparse(origin)
-        if parsed.netloc != request.host:
-            ws.send('\r\n[pty] Connection rejected: cross-origin request\r\n')
-            return
+    if not origin or urlparse(origin).netloc != request.host:
+        ws.send('\r\n[pty] Connection rejected: cross-origin request\r\n')
+        return
+
+    # A shell reads every notebook, every account's password hash and
+    # ~/dev, so anything below tech that could open one effectively was
+    # tech. (tech already bypasses a notebooks: scope everywhere else.)
+    user = session.get('user') or {}
+    if not _level_gte(user.get('level', ''), 'tech'):
+        ws.send('\r\n[pty] The terminal needs a tech-level account.\r\n')
+        return
 
     first = ws.receive(timeout=10)
     if not first:
@@ -9894,6 +9965,8 @@ def api_decrypt_note():
     fpath = _resolve_to_nb_path(selector)
     if not fpath or not fpath.is_file():
         return jsonify({'error': 'not found'}), 404
+    if _place_refusal(session.get('user', {}), fpath.parent, write=False):
+        return jsonify({'error': 'forbidden'}), 403
     if not fpath.name.endswith('.enc'):
         return jsonify({'error': 'not an encrypted file'}), 400
     decrypted, err = _decrypt_note_payload(fpath.read_bytes(), password)
@@ -9910,6 +9983,8 @@ def api_save_encrypted_note():
     content  = data.get('content', '')
     if not selector or not password:
         return jsonify({'error': 'selector and password required'}), 400
+    if not _can_write(session.get('user', {}), selector):
+        return jsonify({'error': 'forbidden'}), 403
     fpath = _resolve_to_nb_path(selector)
     if not fpath or not fpath.is_file():
         return jsonify({'error': 'not found'}), 404
@@ -14166,17 +14241,46 @@ def api_delete_user(username):
 # API: Rename / Move note
 # ---------------------------------------------------------------------------
 
-def _resolve_dest_dir(dest: str) -> Path:
-    """Resolve nb move dest like 'work:folder/file.md' or 'work:folder/' to the directory."""
+def _resolve_dest_dir(dest: str) -> 'Path | None':
+    """Resolve nb move dest like 'work:folder/file.md' or 'work:folder/' to the directory, or
+    None if it isn't inside the notebook it names ('home:../../' used to reach out of ~/.nb;
+    found 2026-10-08, test_path_endpoints.py)."""
     if ':' in dest:
         nb_name, rest = dest.split(':', 1)
         folder = rest.strip('/')
     else:
         nb_name = dest.strip('/')
         folder = ''
-    p = (NB_DIR / nb_name / folder) if folder else (NB_DIR / nb_name)
+    if not _safe_notebook(nb_name):
+        return None
+    base = Path(os.path.normpath(NB_DIR / nb_name))
+    p = Path(os.path.normpath(base / folder)) if folder else base
+    try:
+        p.relative_to(base)
+    except ValueError:
+        return None
     # If dest included a filename (has an extension), return its parent directory
     return p.parent if p.suffix else p
+
+
+def _place_refusal(user, d, write=True):
+    """None if `user` may write into (or, write=False, read) the folder `d`, else an error
+    response. 'user' level to write (invariant 17), the account's notebooks: scope (a `dest`
+    or a path never reaches _notebook_scope_check), and access to that folder's own config.
+    Folder delete/rename/move/copy and note move/copy destinations had none of this until
+    2026-10-08 (test_path_endpoints.py)."""
+    if d is None:
+        return jsonify({'success': False, 'error': 'not a folder in a notebook'}), 400
+    if write and not _level_gte(user.get('level', ''), 'user'):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    try:
+        nb = Path(os.path.normpath(d)).relative_to(os.path.normpath(NB_DIR)).parts[0]
+    except (ValueError, IndexError):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    if not _safe_notebook(nb) or not _notebook_in_scope(user, nb) \
+            or not _can_access(user, {}, _folder_config(nb, d)):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    return None
 
 
 @app.route('/api/note/rename', methods=['POST'])
@@ -14244,7 +14348,8 @@ def api_move():
     user = session.get('user', {})
     if not _can_write(user, selector):
         return jsonify({'error': 'forbidden'}), 403
-    blocked = _locked(_resolve_to_nb_path(selector)) or _locked(_resolve_dest_dir(dest), note=False)
+    blocked = (_place_refusal(user, _resolve_dest_dir(dest))
+               or _locked(_resolve_to_nb_path(selector)) or _locked(_resolve_dest_dir(dest), note=False))
     if blocked:
         return blocked
 
@@ -14285,7 +14390,7 @@ def api_copy():
     user = session.get('user', {})
     if not _can_write(user, selector):
         return jsonify({'error': 'forbidden'}), 403
-    blocked = _locked(_resolve_dest_dir(dest), note=False)
+    blocked = _place_refusal(user, _resolve_dest_dir(dest)) or _locked(_resolve_dest_dir(dest), note=False)
     if blocked:
         return blocked
 
@@ -14352,7 +14457,10 @@ def api_folder_rename():
     name     = data.get('name', '').strip()
     if not selector or not name:
         return jsonify({'error': 'selector and name required'}), 400
-    blocked = _locked(_folder_selector_to_dir(selector), note=False)
+    src_dir = _folder_selector_to_dir(selector)
+    if not src_dir:
+        return jsonify({'error': 'folder not found'}), 404
+    blocked = _place_refusal(session.get('user', {}), src_dir) or _locked(src_dir, note=False)
     if blocked:
         return blocked
     r = run_nb('move', selector, name, '--force')
@@ -14371,9 +14479,13 @@ def api_folder_move():
     if not src_dir:
         return jsonify({'error': 'source folder not found'}), 404
 
+    user        = session.get('user', {})
     dest_parent = _resolve_dest_dir(dest)
+    blocked = (_place_refusal(user, src_dir) or _place_refusal(user, dest_parent)
+               or _locked(src_dir, note=False) or _locked(dest_parent, note=False))
+    if blocked:
+        return blocked
     dest_dir    = dest_parent / src_dir.name
-    blocked = _locked(src_dir, note=False) or _locked(dest_parent, note=False)
     if blocked:
         return blocked
     if dest_dir.exists():
@@ -14425,9 +14537,13 @@ def api_folder_copy():
     if not src_dir:
         return jsonify({'error': 'source folder not found'}), 404
 
+    user        = session.get('user', {})
     dest_parent = _resolve_dest_dir(dest)
+    blocked = (_place_refusal(user, src_dir, write=False) or _place_refusal(user, dest_parent)
+               or _locked(src_dir, note=False) or _locked(dest_parent, note=False))
+    if blocked:
+        return blocked
     dest_copy   = dest_parent / src_dir.name
-    blocked = _locked(src_dir, note=False) or _locked(dest_parent, note=False)
     if blocked:
         return blocked
     if dest_copy.exists():
@@ -14462,6 +14578,12 @@ def api_folder_delete():
     selector = data.get('selector', '').strip()
     if not selector:
         return jsonify({'error': 'selector required'}), 400
+    d = _folder_selector_to_dir(selector)
+    if not d:
+        return jsonify({'error': 'folder not found'}), 404
+    blocked = _place_refusal(session.get('user', {}), d) or _locked(d, note=False)
+    if blocked:
+        return blocked
     r = run_nb('folders', 'delete', selector, '--force')
     return jsonify({'success': nb_ok(r), 'stderr': strip_ansi(r['stderr'])})
 
@@ -14596,6 +14718,8 @@ def api_note_version():
         return jsonify({'error': 'selector and hash required'}), 400
     if not re.match(r'^[0-9a-f]{4,64}$', git_hash):
         return jsonify({'error': 'invalid hash'}), 400
+    if not _can_write(session.get('user', {}), selector):
+        return jsonify({'error': 'forbidden'}), 403
     fpath = _resolve_to_nb_path(selector)
     if not fpath:
         return jsonify({'error': 'not found'}), 404
@@ -14622,6 +14746,8 @@ def api_note_restore():
         return jsonify({'error': 'selector and hash required'}), 400
     if not re.match(r'^[0-9a-f]{4,64}$', git_hash):
         return jsonify({'error': 'invalid hash'}), 400
+    if not _can_write(session.get('user', {}), selector):
+        return jsonify({'error': 'forbidden'}), 403
     fpath = _resolve_to_nb_path(selector)
     if not fpath:
         return jsonify({'error': 'not found'}), 404
