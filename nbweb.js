@@ -594,7 +594,8 @@ const NbWeb = (() => {
         for (const f of items.filter(f => !f.path)) {
             const li = document.createElement('li');
             li.className = `nb-publish-gate-item ${f.level}`;
-            li.textContent = `${_plainCheckMessage(f.message)} (${checkName(f.script)}, ${plural(f.notes, 'note')})`;
+            // a notebook-wide check runs once for the whole notebook; a note count says nothing
+            li.textContent = `${_plainCheckMessage(f.message)} (${checkName(f.script)}, whole notebook)`;
             list.appendChild(li);
         }
         const groups = new Map();

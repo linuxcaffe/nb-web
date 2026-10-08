@@ -13667,6 +13667,8 @@ def _run_sweep(notebook, mode):
             chain_by_dir[path.parent] = _folder_config(notebook, path)
         tokens = _effective_check_tokens(notebook, path, meta, chain_by_dir[path.parent])
         for script in _expand_check_tokens(tokens):
+            if script.startswith('sys-'):
+                continue   # about the machine, not the notebook (2026-10-07); they still show in a note's check badge
             script_path, _err = _check_script_path(script)
             if script_path is None:
                 # no such check: reported once below, naming where it was set (2026-10-07)
