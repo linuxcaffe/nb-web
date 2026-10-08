@@ -22,6 +22,9 @@ and is overwritten on the next run. What it does (plan: claude:readme_github_exp
    can't be expanded stops the export. Inlined notes aren't copied as files of their own.
 5. Copies every docs note (except ones with `export: false`) the README links to, transitively, into docs/ (plus local images they
    use), and removes generated docs/ files no longer linked.
+6. Scans everything it would write against ~/.nb/.rules/private-names.txt (real names, paths,
+   addresses; one case-insensitive word or phrase per line, # comments; never in a public repo):
+   a hit stops the export and shows in --check. No list is a warning, not a pass.
 
 Tests: nb-web-tests/test_readme_export.py.
 """
@@ -340,6 +343,33 @@ def _stale_generated(out_root, outputs):
                   and GEN_MARK in p.read_text(errors='replace')[:300])
 
 
+def private_names(nb_root):
+    """Patterns from <nb>/.rules/private-names.txt, or None if there's no list."""
+    p = Path(nb_root) / '.rules' / 'private-names.txt'
+    if not p.is_file():
+        return None
+    names = [ln.strip() for ln in p.read_text(errors='replace').splitlines()
+             if ln.strip() and not ln.strip().startswith('#')]
+    return [(n, re.compile(r'(?<![\w])' + re.escape(n) + r'(?![\w])', re.I)) for n in names]
+
+
+def private_hits(nb_root, outputs, warnings=None):
+    """['path:line (private name "x")', ...] for every output line containing a listed name."""
+    names = private_names(nb_root)
+    if names is None:
+        if warnings is not None:
+            warnings.append(f'no {Path(nb_root) / ".rules" / "private-names.txt"}: '
+                            'output not scanned for private names')
+        return []
+    hits = []
+    for rel, text in sorted(outputs.items()):
+        for i, line in enumerate(text.splitlines(), 1):
+            for n, rx in names:
+                if rx.search(line):
+                    hits.append(f'{rel}:{i} (private name "{n}")')
+    return hits
+
+
 def check(nb_root, out_root, features='features'):
     """What an export would change in out_root, as 'path (changed|missing|no longer linked)'."""
     out_root = Path(out_root)
@@ -357,7 +387,7 @@ def check(nb_root, out_root, features='features'):
             found.append(f'docs/{a} (' + ('changed' if p.exists() else 'missing') + ')')
     found += [f'{p.relative_to(out_root).as_posix()} (no longer linked)'
               for p in _stale_generated(out_root, outputs)]
-    return sorted(found)
+    return sorted(found) + private_hits(nb_root, outputs)
 
 
 def export(nb_root, out_root, dry_run=False, features='features'):
@@ -365,8 +395,12 @@ def export(nb_root, out_root, dry_run=False, features='features'):
     out_root = Path(out_root)
     outputs, assets, docs, warnings = _build(nb_root, features)
     files = sorted(outputs) + sorted('docs/' + a for a in assets)
+    hits = private_hits(nb_root, outputs, warnings)
     if dry_run:
-        return files, warnings
+        return files, warnings + hits
+    if hits:
+        raise SystemExit('readme-export: private names in the output; nothing written:\n  '
+                         + '\n  '.join(hits))
 
     for p in _stale_generated(out_root, outputs):   # drop copies nothing links to now
         p.unlink()
