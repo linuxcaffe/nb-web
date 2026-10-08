@@ -577,33 +577,60 @@ const NbWeb = (() => {
         const items = all.filter(f => f.level in LEVEL_ORDER)
                          .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
         const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-        const MAX_ROWS = 25;
+        const noteLink = f => {
+            const a = document.createElement('a');
+            a.href = '#';
+            a.textContent = f.path;
+            a.addEventListener('click', e => { e.preventDefault(); onNoteOpen(`${notebook}:${f.path}`); });
+            return a;
+        };
+        const checkName = s => String(s || '').replace(/\.sh$/, '');
 
+        // Grouped by check (2026-10-07): notebook-wide findings first, then one row per check
+        // and level -- most notes first -- opening to its notes. Nothing is cut off: grouped,
+        // even a big notebook's list is short (it used to stop at 25 rows, one per note).
         const list = document.createElement('ul');
         list.className = 'nb-publish-gate-list';
-        for (const f of items.slice(0, MAX_ROWS)) {
+        for (const f of items.filter(f => !f.path)) {
             const li = document.createElement('li');
             li.className = `nb-publish-gate-item ${f.level}`;
-            if (f.path) {
-                const a = document.createElement('a');
-                a.href = '#';
-                a.textContent = f.path;
-                a.addEventListener('click', e => {
-                    e.preventDefault();
-                    onNoteOpen(`${notebook}:${f.path}`);
-                });
-                li.appendChild(a);
-                li.append(` — ${_plainCheckMessage(f.message)}`);
-            } else {
-                li.textContent = `${_plainCheckMessage(f.message)} (${f.script}, ${plural(f.notes, 'note')})`;
-            }
+            li.textContent = `${_plainCheckMessage(f.message)} (${checkName(f.script)}, ${plural(f.notes, 'note')})`;
             list.appendChild(li);
         }
-        if (items.length > MAX_ROWS) {
-            const more = document.createElement('li');
-            more.className = 'nb-publish-gate-more';
-            more.textContent = `…and ${items.length - MAX_ROWS} more`;
-            list.appendChild(more);
+        const groups = new Map();
+        for (const f of items.filter(f => f.path)) {
+            const key = `${f.level}|${f.script}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(f);
+        }
+        const ordered = [...groups.values()].sort((a, b) =>
+            (LEVEL_ORDER[a[0].level] - LEVEL_ORDER[b[0].level]) || (b.length - a.length));
+        for (const g of ordered) {
+            const first = g[0];
+            const li = document.createElement('li');
+            li.className = `nb-publish-gate-item ${first.level}`;
+            const label = first.script === 'config' ? 'config' : checkName(first.script);
+            if (g.length === 1) {
+                li.appendChild(noteLink(first));
+                li.append(` — ${_plainCheckMessage(first.message)} (${label})`);
+            } else {
+                const det = document.createElement('details');
+                det.className = 'nb-check-group';
+                const sum = document.createElement('summary');
+                sum.textContent = `${_plainCheckMessage(first.message)} (${label}, ${plural(g.length, 'note')})`;
+                det.appendChild(sum);
+                const ul = document.createElement('ul');
+                for (const f of g) {
+                    const row = document.createElement('li');
+                    row.appendChild(noteLink(f));
+                    const msg = _plainCheckMessage(f.message);
+                    if (msg !== _plainCheckMessage(first.message)) row.append(` — ${msg}`);
+                    ul.appendChild(row);
+                }
+                det.appendChild(ul);
+                li.appendChild(det);
+            }
+            list.appendChild(li);
         }
         const errors = items.filter(f => f.level === 'error').length;
         return { el: list, errors, warnings: items.length - errors,

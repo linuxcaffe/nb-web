@@ -1103,6 +1103,9 @@ body {
 .nb-publish-gate-item { padding: 4px 0 4px 10px; border-left: 3px solid var(--border); margin-bottom: 4px; overflow-wrap: anywhere; }
 .nb-publish-gate-item.error { border-left-color: var(--red); }
 .nb-publish-gate-item.warn  { border-left-color: var(--yellow); }
+.nb-check-group > summary { cursor: pointer; }
+.nb-check-group > ul { list-style: none; margin: 4px 0 0; padding: 0 0 0 14px; }
+.nb-check-group > ul > li { padding: 1px 0; color: var(--text-muted); }
 .nb-publish-gate-more, .nb-publish-gate-note { color: var(--text-dim); font-size: 0.88em; }
 .nb-publish-gate-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 

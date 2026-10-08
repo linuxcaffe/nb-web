@@ -13586,6 +13586,52 @@ def _sweep_finding(result):
     return {'level': 'warn' if code == 2 else 'error', 'message': lines[0] if lines else '(no output)'}
 
 
+def _frontmatter_yaml_error(text):
+    """Why a note's frontmatter isn't valid YAML ('line 25: ...'), or None. parse_frontmatter
+    falls back to reading lines when YAML fails, which can invent values (a literal '|' check
+    list, 2026-10-07); the sweep reports the file instead."""
+    m = re.match(r'\A---\n(.*?)\n---', text, re.S)
+    if not m or not _YAML_OK:
+        return None
+    try:
+        _yaml.safe_load(m.group(1))
+    except _yaml.YAMLError as e:
+        mark = getattr(e, 'problem_mark', None)
+        where = f'line {mark.line + 2}: ' if mark else ''
+        return where + str(getattr(e, 'problem', None) or e).splitlines()[0]
+    return None
+
+
+def _sweep_config_findings(notebook, nb_root):
+    """({config rel path: YAML error}, ~/.nb/.nb.md's YAML error or None) for the notebook's
+    config notes (its own and every folder's .{folder}.md): a config that doesn't parse is
+    reported once, on itself, instead of as fallout on every note it governs."""
+    broken = {}
+    cfgs = [nb_root / f'.{notebook}.md']
+    for d, dirs, _files in os.walk(nb_root):
+        dirs[:] = [x for x in dirs if not x.startswith('.')]
+        if Path(d) != nb_root:
+            cfgs.append(Path(d) / f'.{Path(d).name}.md')
+    for f in cfgs:
+        if not f.is_file():
+            continue
+        err = _frontmatter_yaml_error(f.read_text(errors='replace'))
+        if err:
+            rel = f.relative_to(nb_root).as_posix()
+            broken[rel] = err
+    glob_err = _frontmatter_yaml_error((NB_DIR / '.nb.md').read_text(errors='replace')) \
+        if (NB_DIR / '.nb.md').is_file() else None
+    if glob_err:
+        broken['~/.nb/.nb.md'] = glob_err
+    return broken, glob_err
+
+
+def _sweep_config_findings_list(broken):
+    return [{'path': rel, 'script': 'config', 'level': 'error',
+             'message': f"### ⚠ Frontmatter isn't valid YAML\n\n{err}"}
+            for rel, err in sorted(broken.items()) if not rel.startswith('~')]
+
+
 def _run_sweep(notebook, mode):
     """Sweep one notebook and store the result. Caller holds _sweep_lock_for."""
     from concurrent.futures import ThreadPoolExecutor
@@ -13606,6 +13652,8 @@ def _run_sweep(notebook, mode):
     # Resolve every note's scripts (cheap: config reads, no script runs) -- a
     # notebook-wide script runs once and needs to know how many notes it covers.
     per_note, wide_notes, chain_by_dir = {}, {}, {}
+    broken_cfgs, global_err = _sweep_config_findings(notebook, nb_root)
+    unknown = {}   # script -> {'notes': [...], 'src': config that set it}
     for rel in all_notes:
         path = nb_root / rel
         own = {}
@@ -13620,6 +13668,18 @@ def _run_sweep(notebook, mode):
         tokens = _effective_check_tokens(notebook, path, meta, chain_by_dir[path.parent])
         for script in _expand_check_tokens(tokens):
             script_path, _err = _check_script_path(script)
+            if script_path is None:
+                # no such check: reported once below, naming where it was set (2026-10-07)
+                u = unknown.setdefault(script, {'notes': [], 'src': None})
+                u['notes'].append(rel)
+                if u['src'] is None:
+                    name = script[:-3] if script.endswith('.sh') else script
+                    if any(name in _split_check_tokens(_js_str(own.get(k) or '')) for k in ('check', 'check_add')):
+                        u['src'] = rel
+                    else:
+                        _c, srcs = _folder_config_sources(notebook, path)
+                        u['src'] = srcs.get('check') or srcs.get('check_add') or '~/.nb/.nb.md'
+                continue
             if script_path and _check_script_scope(script_path) == 'notebook':
                 wide_notes.setdefault(script, []).append(rel)
             else:
@@ -13641,6 +13701,17 @@ def _run_sweep(notebook, mode):
                 new_findings.append({'path': rel, 'script': script, **finding})
 
     notebook_findings = []
+    if global_err:
+        notebook_findings.append({'script': 'config', 'level': 'error', 'notes': len(all_notes),
+                                  'message': f"### ⚠ ~/.nb/.nb.md: frontmatter isn't valid YAML\n\n{global_err}"})
+    for script, u in sorted(unknown.items()):
+        if u['src'] in broken_cfgs:
+            continue   # that config doesn't parse; its own finding says so
+        name = script[:-3] if script.endswith('.sh') else script
+        notebook_findings.append({
+            'script': name, 'level': 'error', 'notes': len(u['notes']),
+            'message': f"### ⚠ No check called `{name}`\n\nIt's in the check list set by `{u['src']}`, "
+                       f"but there's no such script in `.checks/`."})
     for script in sorted(wide_notes):
         rels = wide_notes[script]
         env = _check_env(nb_root / rels[0], f'{notebook}:{rels[0]}')
@@ -13664,7 +13735,8 @@ def _run_sweep(notebook, mode):
         'reason':            reason,
         'checked':           checked,
         'fingerprint':       _sweep_fingerprint(),
-        'note_findings':     sorted(kept + new_findings, key=lambda f: (f['path'], f['script'])),
+        'note_findings':     sorted(kept + new_findings + _sweep_config_findings_list(broken_cfgs),
+                                    key=lambda f: (f['path'], f['script'])),
         'notebook_findings': notebook_findings,
     }
     out = _sweep_result_path(notebook)
