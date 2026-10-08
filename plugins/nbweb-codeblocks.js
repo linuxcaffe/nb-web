@@ -163,8 +163,9 @@
 
     // Shared barblock header factory — icon + meta placeholder + acts (help? + refresh?).
     // Returns { hdr, meta, acts, refBtn, helpBtn } so callers can fill meta and prepend extra acts buttons.
+    // Every header gets ? (topics with help_for: block:<lang>) and, if onRefresh, ↻.
     // cls overrides lang for CSS class names when the icon key and CSS prefix differ (e.g. lang:'cfg', cls:'config').
-    function _buildBarHeader(el, { lang, cls, collapseZone = false, onRefresh, onHelp } = {}) {
+    function _buildBarHeader(el, { lang, cls, collapseZone = false, onRefresh } = {}) {
         const blockCls = cls || lang;
         const hdr = document.createElement('div');
         hdr.className = `nb-barblock nb-${blockCls}-header` + (collapseZone ? ' nb-collapse-zone' : '');
@@ -175,17 +176,20 @@
         const acts = document.createElement('span');
         acts.className = 'nb-barblock-acts';
 
-        // Lib-based help overrides hardcoded onHelp; lib-based Open is always additive
-        const libHelp = lang ? _blockExtras?.help?.[lang] : null;
+        // ? is always there (2026-10-08, djp): the topics whose help_for: names block:<lang>,
+        // or a line saying there's no help for this block yet. Help text lives in those topic
+        // notes, not here. lib-based Open (.lib/open-block-*) is additive.
         const libOpen = lang ? _blockExtras?.open?.[lang] : null;
-        const effectiveHelp = libHelp ? btn => _showLibHelp(btn, lang, libHelp) : onHelp;
 
         let helpBtn = null;
-        if (effectiveHelp) {
+        if (lang && typeof NbMain !== 'undefined' && NbMain.showContextHelp) {
             helpBtn = document.createElement('button');
             helpBtn.className = 'nb-tw-btn';
             helpBtn.title = 'Help'; helpBtn.textContent = '?';
-            helpBtn.addEventListener('click', e => { e.stopPropagation(); effectiveHelp(helpBtn); });
+            helpBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                NbMain.showContextHelp(helpBtn, `block:${lang}`, { empty: `No help for ${lang} blocks yet.` });
+            });
             acts.appendChild(helpBtn);
         }
         if (libOpen) {
@@ -205,48 +209,6 @@
         }
         hdr.appendChild(acts);
         return { hdr, meta, acts, refBtn, helpBtn };
-    }
-
-    function _showLibHelp(trigger, lang, selector) {
-        if (trigger._libHelpPop) {
-            trigger._libHelpPop.remove();
-            trigger._libHelpPop = null;
-            trigger.classList.remove('nb-lib-btn-active');
-            return;
-        }
-        trigger.classList.add('nb-lib-btn-active');
-        const pop = document.createElement('div');
-        pop.className = 'nb-lib-help-pop';
-        pop.innerHTML = '<span class="nb-spin">⟳</span>';
-        document.body.appendChild(pop);
-        const rect = trigger.getBoundingClientRect();
-        pop.style.top  = (rect.bottom + 4) + 'px';
-        pop.style.left = rect.left + 'px';
-
-        fetch(`/api/note?selector=${encodeURIComponent(selector)}`)
-            .then(r => r.json())
-            .then(d => {
-                const body = d.body || '';
-                pop.innerHTML = body
-                    ? (typeof marked !== 'undefined' ? marked.parse(body) : `<pre>${_esc(body)}</pre>`)
-                    : '<em style="padding:8px;display:block;color:var(--text-muted)">No content</em>';
-                const pr = pop.getBoundingClientRect();
-                if (pr.right > window.innerWidth - 8)
-                    pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
-                if (pr.bottom > window.innerHeight - 8)
-                    pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
-            })
-            .catch(() => { pop.innerHTML = '<em style="padding:8px;display:block">Error loading help</em>'; });
-
-        trigger._libHelpPop = pop;
-        const dismiss = () => {
-            pop.remove();
-            trigger._libHelpPop = null;
-            trigger.classList.remove('nb-lib-btn-active');
-            document.removeEventListener('click', outside, true);
-        };
-        const outside = e => { if (!pop.contains(e.target) && e.target !== trigger) dismiss(); };
-        setTimeout(() => document.addEventListener('click', outside, true), 0);
     }
 
     function _dispatchLibOpen(out) {
@@ -1550,7 +1512,7 @@
                         : launch.terminal        ? 'Run in terminal'
                         :                          'Open in hledger-web';
         const { hdr, meta, acts, refBtn, helpBtn } = _buildBarHeader(el, {
-            lang: 'hl', onRefresh: refresh, onHelp: _showHledgerHelp,
+            lang: 'hl', onRefresh: refresh,
         });
         helpBtn.className += ' nb-hl-btn nb-hl-help-btn';
         meta.className += ' nb-collapse-zone';
@@ -1595,52 +1557,6 @@
 
         el.appendChild(hdr);
         _initCollapseToggle(el);
-    }
-
-    function _showHledgerHelp(trigger) {
-        if (trigger._helpPop) {
-            trigger._helpPop.remove();
-            trigger._helpPop = null;
-            trigger.classList.remove('nb-hl-btn-active');
-            return;
-        }
-        trigger.classList.add('nb-hl-btn-active');
-
-        const pop = document.createElement('div');
-        pop.className = 'nb-hl-help-pop';
-        pop.innerHTML = `
-            <b class="nb-hl-hp-title">hledger block</b>
-            <table class="nb-hl-hp-cmds">
-                <tr><td>balance · bal · b</td><td>account tree</td></tr>
-                <tr><td>register · reg · r</td><td>ledger + running balance</td></tr>
-                <tr><td>incomestatement · is</td><td>revenues / expenses</td></tr>
-                <tr><td>balancesheet · bs</td><td>assets / liabilities</td></tr>
-                <tr><td>cashflow · cf</td><td>cash flow</td></tr>
-            </table>
-            <div class="nb-hl-hp-sec">File</div>
-            <code class="nb-hl-hp-code">~/path/ledger.journal reg thismonth</code>
-            <div class="nb-hl-hp-sec">Filters</div>
-            <code class="nb-hl-hp-code">--period thisweek · --depth 2 · tag:name</code>
-            <code class="nb-hl-hp-code">--begin 2026-01-01 · --end 2026-12-31</code>`;
-
-        document.body.appendChild(pop);
-        const rect = trigger.getBoundingClientRect();
-        pop.style.top  = (rect.bottom + 4) + 'px';
-        pop.style.left = rect.left + 'px';
-        const pr = pop.getBoundingClientRect();
-        if (pr.right  > window.innerWidth  - 8) pop.style.left = Math.max(8, rect.right - pr.width) + 'px';
-        if (pr.bottom > window.innerHeight - 8) pop.style.top  = Math.max(8, rect.top - pr.height - 4) + 'px';
-
-        trigger._helpPop = pop;
-
-        const dismiss = () => {
-            pop.remove();
-            trigger._helpPop = null;
-            trigger.classList.remove('nb-hl-btn-active');
-            document.removeEventListener('click', outside, true);
-        };
-        const outside = e => { if (!pop.contains(e.target) && e.target !== trigger) dismiss(); };
-        setTimeout(() => document.addEventListener('click', outside, true), 0);
     }
 
     function _showHledgerAddForm(el, q, trigger) {
@@ -3763,37 +3679,6 @@
         }
     }
 
-    function _configHelpPopover(trigger) {
-        if (trigger._helpPop) { trigger._helpPop.remove(); trigger._helpPop = null; return; }
-        const pop = document.createElement('div');
-        pop.className = 'nb-config-help-pop';
-        pop.innerHTML =
-            `<strong>config block</strong> — shows the config inheritance chain for a key.<br><br>` +
-            `<code>access: .</code> &nbsp;— <em>key</em> for current note's context<br>` +
-            `<code>access: Notebook:folder/</code> &nbsp;— explicit target<br>` +
-            `<code>.</code> &nbsp;— all keys, current context<br><br>` +
-            `Chain: <code>note → folder → notebook → global</code><br>` +
-            `<strong>▶</strong> amber = effective (wins). &nbsp;<strong>◉</strong> blue = this file is open.<br>` +
-            `<strong>○</strong> = config file not yet created at this level.<br><br>` +
-            `<a href="#" onclick="NbMain.openNote('docs:CODEBLOCKS.md');return false">Full docs →</a>`;
-        const rect = trigger.getBoundingClientRect();
-        pop.style.cssText =
-            `position:fixed;z-index:9000;top:${rect.bottom+4}px;right:${window.innerWidth-rect.right}px;` +
-            `background:var(--bg2);border:1px solid var(--border);border-radius:6px;` +
-            `padding:10px 14px;box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:320px;font-size:0.82em;line-height:1.6`;
-        document.body.appendChild(pop);
-        trigger._helpPop = pop;
-        trigger.classList.add('nb-hl-btn-active');
-        const away = e => {
-            if (!pop.contains(e.target) && e.target !== trigger) {
-                pop.remove(); trigger._helpPop = null;
-                trigger.classList.remove('nb-hl-btn-active');
-                document.removeEventListener('click', away, true);
-            }
-        };
-        setTimeout(() => document.addEventListener('click', away, true), 0);
-    }
-
     function _configTreeRender(el, tree, attribute, notebook, wasOpen) {
         el.innerHTML = '';
         el.className = (el.className || '').replace(/\bnb-spin\b/, '').trim();
@@ -3801,7 +3686,7 @@
         // Header
         const { hdr, meta, acts, refBtn, helpBtn } = _buildBarHeader(el, {
             lang: 'cfg', cls: 'config', collapseZone: true,
-            onRefresh: () => _loadConfigBlock(el), onHelp: _configHelpPopover,
+            onRefresh: () => _loadConfigBlock(el),
         });
         helpBtn.className += ' nb-config-btn';
         refBtn.className  += ' nb-config-btn';
@@ -3899,7 +3784,7 @@
 
         const { hdr, meta, refBtn, helpBtn } = _buildBarHeader(el, {
             lang: 'cfg', cls: 'config', collapseZone: true,
-            onRefresh: () => _loadConfigBlock(el), onHelp: _configHelpPopover,
+            onRefresh: () => _loadConfigBlock(el),
         });
         helpBtn.className += ' nb-config-btn';
         refBtn.className  += ' nb-config-btn';
@@ -4401,7 +4286,7 @@
         // ── Header ──────────────────────────────────────────────────────────
         const { hdr, meta, refBtn, helpBtn } = _buildBarHeader(el, {
             lang: 'cfg', cls: 'config', collapseZone: true,
-            onRefresh: () => _loadConfigBlock(el), onHelp: _configHelpPopover,
+            onRefresh: () => _loadConfigBlock(el),
         });
         helpBtn.className += ' nb-config-btn';
         refBtn.className  += ' nb-config-btn';

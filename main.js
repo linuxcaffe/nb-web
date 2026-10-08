@@ -963,8 +963,8 @@ const NbMain = (() => {
                 pop.appendChild(line);
                 lastLine = line;
             }
-            if (!parts.length && !cats.length && !note?.effective_help_header) {
-                pop.insertAdjacentHTML('beforeend', '<em class="nb-help-empty" style="padding:8px;display:block;color:var(--text-muted)">No help available</em>');
+            if (!parts.length && !cats.length && (note?.help_empty || !note?.effective_help_header)) {
+                pop.insertAdjacentHTML('beforeend', `<em class="nb-help-empty" style="padding:8px;display:block;color:var(--text-muted)">${_esc(note?.help_empty || 'No help available')}</em>`);
             } else {
                 parts.forEach((wrap, i) => {
                     if (i > 0) pop.appendChild(Object.assign(document.createElement('hr'), { className: 'nb-help-divider' }));
@@ -990,12 +990,19 @@ const NbMain = (() => {
     // withNote (the editor): the note being edited keeps its own help too, after the page's
     // topics and under its own header, so editing a dotfile still shows the dotfile topics
     // (djp, 2026-10-08; it used to show the editor's topics only).
-    async function showPageHelp(trigger, page, { withNote = false } = {}) {
+    async function showPageHelp(trigger, page, opts = {}) {
+        return showContextHelp(trigger, `page:${page}`, opts);
+    }
+
+    // Any UI context's ? (2026-10-08): page:<name>, block:<lang> (every codeblock header, via
+    // _buildBarHeader), key:<frontmatter key>. empty: what to say when nothing matches yet
+    // (djp: a placeholder is better than no button).
+    async function showContextHelp(trigger, ctx, { withNote = false, empty = '' } = {}) {
         if (trigger._helpPop) { _showTypeHelp(trigger, [], null); return; }
         let topics = [], header = '';
         try {
             const nb = NbNav.notebook && NbNav.notebook !== '_all' ? NbNav.notebook : '';
-            const r = await fetch(`/api/help/page?name=${encodeURIComponent(page)}${nb ? '&notebook=' + encodeURIComponent(nb) : ''}`);
+            const r = await fetch(`/api/help/page?ctx=${encodeURIComponent(ctx)}${nb ? '&notebook=' + encodeURIComponent(nb) : ''}`);
             if (r.ok) { const j = await r.json(); topics = j.topics || []; header = j.help_header || ''; }
         } catch (e) { /* show what we have */ }
         const note = _activeNote || {};
@@ -1004,7 +1011,7 @@ const NbMain = (() => {
             topics = [...topics, ...own.filter(t => t && !topics.includes(t))];
             header = note.effective_help_header || header;
         }
-        _showTypeHelp(trigger, topics, { ...note, type: 'page', effective_help_header: header });
+        _showTypeHelp(trigger, topics, { ...note, type: 'page', effective_help_header: header, help_empty: empty });
     }
 
     const _UNEDITABLE_TYPES = ['sheet','image','audio','video','pdf','ebook','document','archive'];
@@ -5827,6 +5834,7 @@ const NbMain = (() => {
              activeSelector: () => _activeSelector,
              activeNote:     () => _activeNote,
              showPageHelp,
+             showContextHelp,
              activeType:     () => _activeType,
              activeFilename: () => _activeFilename,
              selectedSelectors: () => NbUiChrome.selectedSelectors(),

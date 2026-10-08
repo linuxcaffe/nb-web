@@ -1007,14 +1007,16 @@ _CHAPTER_RE = re.compile(r'^\s*\{\{inline:\s*[^:}\s]+:([\w-]+)/([\w-]+)\.md\s*\}
 
 @app.route('/api/help/page')
 def api_help_page():
-    """Topics whose help_for: names page:<name> -- for the ? buttons on the editor, the note
-    list, the terminal and the Notebooks page -- and the help_header to show above them (for
-    ?notebook=, else the global one). Topics the user can't open are left out."""
-    name = request.args.get('name', '').strip().lower()
-    if not re.fullmatch(r'[a-z0-9-]+', name):
-        return jsonify({'error': 'invalid page'}), 400
+    """Topics whose help_for: names a UI context -- ?ctx=page:<name> (the editor, terminal,
+    Notebooks page ?), block:<lang> (a codeblock header's ?), key:<frontmatter key>; ?name=<page>
+    is page:<name> -- and the help_header to show above them (for ?notebook=, else the global
+    one). Topics the user can't open are left out."""
+    ctx = request.args.get('ctx', '').strip().lower()
+    if not ctx:
+        ctx = 'page:' + request.args.get('name', '').strip().lower()
+    if not re.fullmatch(r'(page|block|key):[a-z0-9_-]+', ctx):
+        return jsonify({'error': 'invalid context'}), 400
     user = session.get('user', {})
-    ctx = f'page:{name}'
     topics = [sel for sel, tmeta, tctx in _help_topics()
               if ctx in tctx and _help_topic_ok(user, sel, tmeta)]
     nb = request.args.get('notebook', '').strip()
@@ -3911,22 +3913,11 @@ def api_lib_block_extras():
     user       = session.get('user', {})
     user_level = user.get('level', 'guest')
     lib_dir    = NB_DIR / '.lib'
-    result     = {'help': {}, 'open': {}}
+    # help-block-*.md was dropped 2026-10-08: block help is topic notes (help_for: block:<lang>)
+    result     = {'open': {}}
 
     if not lib_dir.is_dir():
         return jsonify(result)
-
-    # Parse help-block-{lang}-{access}.md
-    for p in sorted(lib_dir.glob('help-block-*.md')):
-        parts = p.stem.split('-')   # ['help', 'block', lang, access]
-        if len(parts) < 3:
-            continue
-        lang   = parts[2]
-        access = parts[3] if len(parts) > 3 else 'guest'
-        if access not in LEVELS:
-            continue
-        if _level_gte(user_level, access):
-            result['help'][lang] = f'.lib:{p.name}'
 
     # Parse open-block-{lang}-{access}.sh
     for p in sorted(lib_dir.glob('open-block-*.sh')):
