@@ -18,6 +18,7 @@ import yaml
 _FM_RE = re.compile(r'\A---\n(.*?)\n---\n?', re.S)
 _CHAPTER_RE = re.compile(r'^\{\{\s*inline:\s*([^}\s#]+)[^}]*\}\}\s*$')
 _WIKI_RE = re.compile(r'\[\[([^\]\n]+?)\]\]')
+_CODE_RE = re.compile(r'(^```.*?^```[^\n]*$|^~~~.*?^~~~[^\n]*$|`[^`\n]+`)', re.S | re.M)
 
 
 def split_fm(text):
@@ -77,7 +78,9 @@ def qualify_links(text, selector):
         elif ':' not in target.split('#', 1)[0]:
             target = f'{notebook}:{target}'
         return f'[[{target}{bar}{label}]]'
-    return _WIKI_RE.sub(fix, text)
+    # not inside code: a Summary may show wikilink syntax (`[[Note]]`) as an example
+    parts = _CODE_RE.split(text)
+    return ''.join(p if i % 2 else _WIKI_RE.sub(fix, p) for i, p in enumerate(parts))
 
 
 def dashboard_summary(dash_text, read_page, find_topic, heading='###'):

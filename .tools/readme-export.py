@@ -14,13 +14,12 @@ and is overwritten on the next run. What it does (plan: claude:readme_github_exp
    becomes its plain label, with a warning naming file and line.
 3. Leaves code (fences and `inline code`) and HTML comments alone; warns on nb-only syntax outside
    them: term: links (kept as their label) and {{...}} queries.
-4. Rebuilds the tour between <!-- readme:categories --> and <!-- readme:categories-end -->: one
-   section per features: category (folder order from the notebook's .index), read at the
-   `pristine` tag so scratchpad edits never leak in. Each section is the dashboard's title and
-   caption, then for every {{inline:}} chapter its docs topic note (matched by topic:): link,
-   caption: and ## Summary. Categories with no written chapters are skipped. A hand-written ###
-   section already between the markers stays (after the generated ones) until a generated topic of
-   the same name replaces it, so nothing disappears from GitHub before its category is written.
+4. Expands the book: each {{inline:}} on a line of its own (outside code) becomes the note it
+   names -- its body, or one #Heading section -- and `summary <dashboard>` the dashboard's
+   README summary (dashboard_summary.py, the same function the app uses). features: notes are
+   read at the `pristine` tag so scratchpad edits never leak in. docs:README.md is three such
+   lines (readme-top, features:features.md#Categories, readme-footer); a README chapter that
+   can't be expanded stops the export. Inlined notes aren't copied as files of their own.
 5. Copies every docs note (except ones with `export: false`) the README links to, transitively, into docs/ (plus local images they
    use), and removes generated docs/ files no longer linked.
 
@@ -37,9 +36,11 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import dashboard_summary  # noqa: E402  (nb-web root, shared with the app)
+
 HEADER = '<!-- Generated from docs:{src} by .tools/readme-export.py. Edit the source, not this file. -->\n\n'
 GEN_MARK = 'by .tools/readme-export.py. Edit the source'
-START, END = '<!-- readme:categories', '<!-- readme:categories-end -->'
 
 _FM_RE = re.compile(r'\A---\n(.*?)\n---\n?', re.S)
 _PROTECT_RE = re.compile(r'(^```.*?^```[^\n]*$|^~~~.*?^~~~[^\n]*$|<!--.*?-->|`[^`\n]+`)', re.S | re.M)
@@ -47,7 +48,7 @@ _WIKI_RE = re.compile(r'\[\[([^\]\n]+?)\]\]')
 _TERM_RE = re.compile(r'\[([^\]\n]*)\]\(term:[^)\n]*\)')
 _QUERY_RE = re.compile(r'\{\{[^}\n]*\}\}')
 _MDLINK_RE = re.compile(r'(!?\[[^\]\n]*\]\()([^)\s]+)(\))')
-_INLINE_CH_RE = re.compile(r'^\{\{\s*inline:\s*([^}\s#]+)[^}]*\}\}\s*$', re.M)
+_INLINE_LINE_RE = re.compile(r'^\{\{\s*inline:\s*(.+?)\s*\}\}\s*$')
 
 
 def github_slug(heading):
@@ -216,55 +217,95 @@ def _git_show(repo, rev, path):
     return r.stdout if r.returncode == 0 else None
 
 
-def build_tour(nb_root, docs, features='features', rev='pristine', warnings=None, labels=None):
-    """Markdown for the tour: one ### section per category with written chapters. Each chapter's
-    label is added to `labels` (lower-cased), for keep_hand_sections."""
-    repo = nb_root / features
-    index = _git_show(repo, rev, '.index')
-    if index is None:
-        (warnings if warnings is not None else []).append(f'{features}: no {rev} tag; tour left empty')
-        return ''
-    parts = []
-    for cat in [ln.strip() for ln in index.splitlines() if ln.strip()]:
-        dash = _git_show(repo, rev, f'{cat}/{cat}.md')
-        if dash is None:
+def slice_section(body, heading):
+    """The text under a heading named `heading` (any level), up to the next heading of the same
+    or a higher level, without the heading line; None if there's none (the app's _sliceSection)."""
+    lines, start, level, fence = body.split('\n'), None, 0, False
+    for i, ln in enumerate(lines):
+        if ln.lstrip().startswith(('```', '~~~')):
+            fence = not fence
+        if fence:
             continue
-        meta, body = split_fm(dash)
-        entries = []
-        for page in _INLINE_CH_RE.findall(body):
-            page = page.split(':', 1)[1] if ':' in page else page
-            pmeta, _ = split_fm(_git_show(repo, rev, page) or '')
-            topic = str(pmeta.get('topic') or '').strip()
-            hit = docs.by_topic(topic) if topic else None
-            if not hit:
-                continue
-            tmeta, tbody = docs.notes[hit]
-            label = str(pmeta.get('title') or tmeta.get('title') or topic).strip()
-            if labels is not None:
-                labels.update({label.lower(), str(tmeta.get('title') or '').strip().lower(), topic.lower()})
-            cap = str(tmeta.get('caption') or '').strip()
-            head = f'**[[docs:{hit}|{label}]]**' + (f' — {cap}' if cap else '')
-            summary = section(tbody, 'Summary')
-            entries.append(head + ('\n\n' + summary if summary else ''))
-        if not entries:
+        m = re.match(r'^(#{1,6})\s+(.*?)\s*#*\s*$', ln)
+        if not m:
             continue
-        title = str(meta.get('title') or cat).strip()
-        cap = str(meta.get('caption') or '').strip()
-        parts.append(f'### {title}\n\n' + (f'_{cap}_\n\n' if cap else '') + '\n\n'.join(entries))
-    return '\n\n---\n\n'.join(parts)
+        if start is None:
+            if m.group(2).strip().lower() == heading.strip().lower():
+                start, level = i + 1, len(m.group(1))
+        elif len(m.group(1)) <= level:
+            return '\n'.join(lines[start:i]).strip()
+    return None if start is None else '\n'.join(lines[start:]).strip()
 
 
-def keep_hand_sections(hand, labels):
-    """The hand-written ### sections of the old tour that no generated topic has replaced yet, so a
-    category isn't missing from GitHub before it's written."""
-    hand = hand.split('-->', 1)[1] if '-->' in hand else hand
-    keep = []
-    for sec in re.split(r'^(?=### )', hand, flags=re.M)[1:]:
-        title = sec.splitlines()[0][4:].strip()
-        if title.lower() in labels:
-            continue
-        keep.append(re.sub(r'\n-{3,}\s*$', '', sec.rstrip()).rstrip())
-    return keep
+class Book:
+    """Expands {{inline:}} chapters: docs: notes from the working tree (the source), features:
+    notes at the pristine tag."""
+
+    def __init__(self, nb_root, docs, features='features', rev='pristine'):
+        self.docs, self.repo, self.features, self.rev = docs, Path(nb_root) / features, features, rev
+
+    def _feature(self, target):
+        rel = target.split(':', 1)[1].lstrip('/')
+        return _git_show(self.repo, self.rev, rel)
+
+    def _topic(self, topic):
+        for k, (meta, body) in self.docs.notes.items():
+            if str(meta.get('topic') or '').strip() == topic and meta.get('help_for') and k not in self.docs.private:
+                return f'docs:{k}', meta, body
+        return None
+
+    def chapter(self, arg, host):
+        """(markdown, None) for one inline's argument, or (None, why)."""
+        arg = arg.strip()
+        if re.match(r'^summary\s+', arg, re.I):
+            target = re.sub(r'^summary\s+', '', arg, flags=re.I)
+            if not target.startswith(self.features + ':'):
+                return None, 'summary of a note outside the features notebook'
+            dash = self._feature(target)
+            if dash is None:
+                return None, f'{target} not found at the {self.rev} tag'
+            read = lambda t: self._feature(t) if t.startswith(self.features + ':') else None  # noqa: E731
+            return dashboard_summary.dashboard_summary(dash, read, self._topic), None
+        target, _, heading = arg.partition('#')
+        target = target.strip()
+        if target.startswith(self.features + ':'):
+            text, sel = self._feature(target), target
+            if text is None:
+                return None, f'{target} not found at the {self.rev} tag'
+        else:
+            hit = self.docs.resolve(target, host)
+            if hit is None:
+                return None, f'{target} is not a docs note'
+            if hit in self.docs.private:
+                return None, f'export: false note {hit}'
+            text, sel = None, f'docs:{hit}'
+        body = split_fm(text)[1] if text is not None else self.docs.notes[sel[5:]][1]
+        if heading:
+            body = slice_section(body, heading)
+            if body is None:
+                return None, f'no section "{heading}" in {target}'
+        return dashboard_summary.qualify_links(body.strip(), sel), None
+
+    def expand(self, text, rel, warnings, strict=False, depth=0):
+        """Replace the chapter lines in `text` (a note at docs:rel); nested chapters two deep."""
+        def fix(chunk, off):
+            out = []
+            for line in chunk.split('\n'):
+                m = _INLINE_LINE_RE.match(line.strip())
+                if not m:
+                    out.append(line)
+                    continue
+                md, why = self.chapter(m.group(1), rel)
+                if md is None:
+                    msg = f'docs:{rel}: cannot expand {{{{inline: {m.group(1)}}}}}: {why}'
+                    if strict:
+                        raise SystemExit(f'readme-export: {msg}; nothing written')
+                    warnings.append(msg + ' (left out)' if why.startswith('export: false') else msg + ' (left as is)')
+                    out.append('' if why.startswith('export: false') else line)
+                    continue
+                out.append(self.expand(md, rel, warnings, strict, depth + 1) if depth < 1 else md)
+            return '\n'.join(out)
+        return _protected(text, fix)
 
 
 def _build(nb_root, features='features'):
@@ -273,23 +314,7 @@ def _build(nb_root, features='features'):
     warnings = list(docs.errors)
     if 'README.md' not in docs.notes:
         raise SystemExit('docs:README.md not found')
-
-    _, body = docs.notes['README.md']
-    s, e = body.find(START), body.find(END)
-    if s != -1 and e > s:
-        labels = set()
-        tour = build_tour(Path(nb_root), docs, features, warnings=warnings, labels=labels)
-        if not tour:
-            # never publish a README without its tour: an empty one means the features notebook
-            # (or its pristine tag) is broken, e.g. an emptied .index (2026-10-07)
-            raise SystemExit(f'readme-export: the {features} tour came out empty (check '
-                             f'{features}/.index at its pristine tag); nothing written')
-        tour = '\n\n---\n\n'.join([t for t in [tour] if t] + keep_hand_sections(body[s:e], labels))
-        body = (body[:s] + START + ' (generated from the features notebook) -->\n\n' + tour + '\n\n'
-                + body[e:])
-    else:
-        warnings.append('docs:README.md: no readme:categories markers; tour not built')
-    docs.notes['README.md'] = ({}, body)
+    book = Book(nb_root, docs, features)
 
     outputs, assets, done, todo = {}, set(), set(), ['README.md']
     while todo:
@@ -298,7 +323,8 @@ def _build(nb_root, features='features'):
             continue
         done.add(rel)
         linked = set()
-        text = translate(docs.notes[rel][1].lstrip('\n'), rel, docs, warnings, linked, assets)
+        body = book.expand(docs.notes[rel][1].lstrip('\n'), rel, warnings, strict=(rel == 'README.md'))
+        text = translate(body, rel, docs, warnings, linked, assets)
         outputs[out_path(rel)] = HEADER.format(src=rel) + text.rstrip() + '\n'
         todo.extend(sorted(linked - done))
     return outputs, assets, docs, warnings
