@@ -19,13 +19,14 @@ If you already enjoy working with nb, or with text files as your primary way of 
 
 ## TL;DR
 
+- Create notes quickly with as much or as little markdown, with keyboard, mouse or mobile
 - Browse, search, and edit all your nb notebooks in a split-pane, Markdown-rendering web UI
 - Full CRUD: add notes, bookmarks, todos, and contacts with per-notebook templates
 - **Wikilinks** — `[[Note Title]]` links between notes, resolved live on click
 - **Terminal links** — `[label](term:command)` in any note runs a shell command in the built-in terminal pane
 - **Live codeblocks** — embed Taskwarrior queries, hledger reports, git logs, and timeclock status directly in notes
 - **Git sync** — commit, push, and pull per notebook; one-repo branch-per-notebook model
-- **Plugins** — extend the UI without touching core; ships with Contacts, Archive, Quartz, and Codeblocks plugins
+- **Plugins** — extend the UI without touching core; ships with Codeblocks, Specialty, Contacts, Archive and Quartz, with hledger, cine and Claude plugins alongside
 - **Archive** — export any notebook as a portable `.nbz` file; import on any machine
 - Installable as a **PWA** (Epiphany / GNOME Web recommended); works offline via service worker
 - Your notes stay plain Markdown files in `~/.nb/` — nb-web never locks you in
@@ -48,13 +49,13 @@ Your notes are always a browser tab away — searchable, readable, and editable 
 
 ---
 
-## Feature Tour
-
-<!-- readme:categories (generated from the features notebook) -->
+## Feature tour
 
 ### Basics
 
 _Your nb notes, in a browser_
+
+Notebooks, the note list, search and tags, the editor, the keyboard and the ? help — everything you touch in the first five minutes.
 
 **[Notebooks](docs/NOTEBOOKS.md)** — separate collections of notes, each its own folder and git repo
 
@@ -97,11 +98,11 @@ type, the live blocks in it, its frontmatter keys, its notebook. Each topic show
 with **More** for the full page and **Try it** for a live example you can edit. The help comes
 from the same docs you can read in the `docs:` notebook, so there's one copy of everything.
 
----
-
 ### Linking
 
 _Connect notes to each other_
+
+Wikilinks between notes, links that run commands in the terminal, pulling one note into another, and cross-references.
 
 **[Wikilinks](docs/wikilinks.md)** — making connections across paragraphs, files and notebooks
 
@@ -130,11 +131,11 @@ A `tabs:` list in a note's frontmatter shows a row of tabs above the note, one p
 folder; the current note's tab is highlighted, and clicking another opens it. Put `tabs:` in a
 notebook or folder config and every note there gets the same strip.
 
----
-
 ### Structure
 
 _Shape notebooks to fit what's in them_
+
+Folder and notebook config, templates, typed notes, foldable headings, locks and books.
 
 **[Folder config](docs/FOLDER-CONFIG.md)** — settings for a whole folder or notebook, kept in a hidden note inside it
 
@@ -184,132 +185,111 @@ contents across every chapter. Each chapter stays an ordinary note you can open 
 own. A check block placed in a chapter warns right there, so a failing check shows up in the
 book's contents beside the section it's about.
 
----
+### Live blocks
 
-### Live codeblocks
+_Notes that do things_
 
-[screenshot: tw codeblock showing task list inside a note]
+Fenced codeblocks that render as live widgets — tasks, accounts, git, frontmatter queries and more — in the body or the header strip.
 
-Fenced code blocks with recognised language tags render as live, interactive widgets rather than static code. Write a query, read a live result — all from your local tools, no cloud involved.
+Write a query, read a live result, all from your own tools, no cloud involved. The same block can
+also sit in a note's frontmatter (`tw: +work`), where it shows in the header strip above the note.
 
 | Block | What it shows |
 |-------|--------------|
-| ` ```tw ` | Taskwarrior task table — filterable, clickable, with inline Add |
-| ` ```hl ` | hledger balance / register / income statement |
-| ` ```git ` | git log or status for any configured repo alias |
-| ` ```nb ` | nb notebooks panel or backlinks |
-| ` ```t ` | Timeclock status and period report |
-| ` ```cfg ` | Config inheritance tree or org chart — audit every notebook config at a glance |
-| ` ```fm ` | Frontmatter filter — browse and query FM keys across all notes |
-| ` ```nav ` | Folder navigator — drill into subfolders inline |
-| ` ```chart ` | Financial charts from hledger data |
-| ` ```gallery ` | Image gallery from a folder |
+| `tw` | Taskwarrior tasks, filterable, with inline Add |
+| `hl` | hledger balances, registers, income statement |
+| `git` | git log or status for a repo |
+| `nb` | notebooks panel or backlinks |
+| `t` / `timedot` | time tracking: timeclock status and reports, timedot journals |
+| `cfg` | where a setting comes from; an org chart of every config file |
+| `fm` | frontmatter queries across notes, and an edit form |
+| `nav` | a folder navigator |
+| `gallery` | an image gallery from a folder |
+| `csv` | a spreadsheet-style table |
+| `toc` | a table of contents |
 
-→ [CODEBLOCKS](docs/CODEBLOCKS.md)
+A block's **?** opens its help. Full reference: [Codeblocks](docs/CODEBLOCKS.md).
 
----
+### Work
 
-### Project diaries and live reports
+_Run real work from your notes_
 
-[screenshot: reports page showing timeline, time totals, and financial summary]
+Project diaries and reports, quotes and invoices, contacts, and the scaffolding wizard that sets a new project up.
 
-A `type: project` note is a **diary** — dated headings, prose, time entries, expense records, decisions. Nothing is forced; you write what happened and the system reads it.
+A `type: project` note is a **diary**: dated headings, prose, time entries, expenses, decisions.
+Nothing is forced; you write what happened and nb-web reads it. Its `type: reports` companion is a
+live view of that diary: pick a timeframe (current work, a past invoice period, the whole
+project) and every block on the page totals just that window. When it's time to bill, Invoice
+writes the invoice note and puts a marker in the diary as its receipt. Everything stays plain
+Markdown: no database, no import step. See [Project reports](docs/PROJECT-REPORTS.md).
 
-A companion `type: reports` note is a **live projection** of that diary. A timeframe selector on the reports bar lets you navigate between billing phases — current work, a past invoice period, or the full project history. Every block on the page responds instantly, scoping its totals to the selected window.
+A notebook named `contacts` shows its notes as contact cards with clickable email, phone,
+address and links, sorted by last name; 📇 imports a `.vcf` file. See
+[Contacts](docs/CONTACTS.md).
 
-The two notes are a pair. The project note accumulates; the reports note presents. When billing time comes, the Invoice button reads the current phase, generates an invoice note, and writes a marker back into the diary as its own receipt. To regenerate: delete the marker, click Invoice again.
+### Look
 
-Your project notes are always plain Markdown. The reports are assembled on demand — no separate database, no import step.
+_Make it yours_
 
-→ [Project Diaries and Reports](docs/PROJECT-REPORTS.md)
+Themes, languages, and installing nb-web as an app.
 
----
+Themes are Markdown files in `~/.nb/.themes/` with a `dark:` and a `light:` palette. Pick one
+with 🎨 on a notebook's dashboard; ☀/☾ switches light and dark everywhere. `theme:` cascades like
+any config key: set it globally, per notebook or per folder, and each note opens in its theme.
+See [Themes](docs/THEMES.md).
 
-### Themes
+### Sharing
 
-[screenshot: theme picker popup showing Default and Groovy cards with colour swatches]
+_Sync, share and publish_
 
-Full-colour themes are plain Markdown files in `~/.nb/.themes/` with `dark:` and `light:` YAML sections that map key names directly to CSS custom properties. Switch themes from the **🎨** button on any notebook dashboard — the picker shows live colour swatches and saves your choice back to the notebook config automatically.
+Git sync, import and export, publishing a notebook as a website, and accounts with access levels.
 
-The **☀/☾** toggle in the top nav bar switches dark and light mode globally. Every theme defines both palettes independently.
+Every notebook is its own git repo; they all sync to one remote as one branch per notebook. Wire
+once, then sync per notebook; the sync dialog shows what's pending before you push. See
+[Sync](docs/SYNC.md).
 
-`theme:` is a config chain key — set it in `.nb.md` for a global default, in a notebook manifest for a per-notebook look, or in a folder config to theme a subtree. Opening a note auto-applies its resolved theme.
+Export any notebook as a `.nbz` archive (a ZIP with a manifest, git history optional) and import
+it on another machine. See [Import and export](docs/import-export.md).
 
-→ [Themes](docs/THEMES.md) · [FOLDER CONFIG](docs/FOLDER-CONFIG.md)
+### Health
 
----
+_Keep everything in good shape_
 
-### Sysadmin corner
+Checks that explain themselves, the sysadmin corner, and settings.
 
-[screenshot: cfg:org SVG org chart with filter bar and access tints]
-
-The **`cfg: org`** codeblock renders the entire notebook's config topology as an interactive SVG tree — every config file, its type icon, key count badge, and access tint in one view. Click any node to open the config directly; click an empty node (`○`) to create it. The filter bar accepts any `key` or `key:value` and highlights exactly which configs set it, with grep-style `-C N` context in the hover tooltip.
-
-The **`dotfile.md`** global template pre-wires `cfg: org` into every new folder config so the sysadmin view is available from day one.
-
-→ [SYSADMIN](docs/SYSADMIN.md) · [CODEBLOCKS](docs/CODEBLOCKS.md#cfg)
-
----
-
-### Sync
-
-[screenshot: sync dialog showing unpushed count and Sync Now button]
-
-nb-web uses a **one-repo, branch-per-notebook** model: all notebooks live as branches of a single remote repository (typically `nb-notes` on Codeberg or GitHub). Wire once, sync per notebook. The sync dialog shows exactly what is pending before you push.
-
-→ [SYNC](docs/SYNC.md)
-
----
-
-### Contacts
-
-[screenshot: contact card rendered with clickable email and phone]
-
-Add a notebook named `contacts` and nb-web renders its notes as structured contact cards — email, phone, address, and URL fields all clickable. Import contacts from a `.vcf` file via the 📇 browser. Sort by last name. Filter by tag.
-
-→ [CONTACTS](docs/CONTACTS.md)
-
----
-
-### Archive
-
-[screenshot: archive section in notebook settings panel]
-
-Export any notebook as a self-contained `.nbz` file (a standard ZIP with a metadata manifest). Optionally include full git history. Import a `.nbz` on any machine — nb-web extracts, reconciles, and makes notes available immediately. A planned `docs.nbz` will ship with nb-web so new users can import the reference documentation as a local notebook.
-
-→ [IMPORT/EXPORT](docs/import-export.md)
-
----
+The `cfg org` block draws every config file in a notebook as an interactive chart: type icons,
+key counts, access tints. Click a node to open its config, or an empty one (`○`) to create it;
+filter by any `key` or `key:value` to see which configs set it. New folder configs made from the
+`dotfile` template come with it built in. See [Sysadmin](docs/SYSADMIN.md) and
+[Checks](docs/CHECKS.md).
 
 ### Plugins
 
-[screenshot: plugins panel showing installed plugins]
+_Extend it_
 
-nb-web's plugin system lets JavaScript modules extend the UI without modifying core files. Plugins are loaded from `nb-settings.json` and can add note renderers, sort options, toolbar buttons, notebook sections, and custom plugin-page content.
+The plugin system, and the hledger, cine and Claude plugins.
 
-Four plugins ship with nb-web; additional plugins are loaded from `nb-settings.json`:
+Plugins are JavaScript modules listed in `nb-settings.json`. They add note renderers, codeblocks,
+sort options, toolbar buttons and notebook sections without touching core files.
 
 | Plugin | What it adds |
 |--------|-------------|
-| **NbWeb-codeblocks** | Live `tw`, `hl`, `git`, `nb`, `t`, `cfg`, `fm`, `nav`, `gallery`, `chart` blocks |
-| **NbWeb-contacts** | Contact card renderer and VCF importer |
-| **NbWeb-archive** | Notebook archive, export, and import |
-| **NbWeb-quartz** | Quartz static site publishing workflow |
-| **NbWeb-specialty** | Typed note headers — dashboard, invoice, project, quote, budget (external) |
-| **NbWeb-cine** | Film production — shot lists, stripboard, screenplay, cast/location index (external) |
-| **NbWeb-hledger** | Accounting journals, invoice generation, contact lookup (external) |
+| codeblocks | the live blocks (`tw`, `hl`, `git`, `nb`, `t`, `cfg`, `fm`, `nav`, `gallery`, …) |
+| specialty | typed note headers: dashboard, project, reports, invoice, quote, budget |
+| contacts | contact cards and `.vcf` import |
+| archive | notebook archive, export and import |
+| quartz | publishing a notebook as a Quartz website |
+| hledger | accounting: journals, chart of accounts, invoices (separate repo) |
+| cine | film production: shot lists, stripboard, screenplay (separate repo) |
+| claude | ask Claude about a note (separate repo) |
 
-→ [PLUGINS](docs/PLUGINS.md)
-
-<!-- readme:categories-end -->
-
----
+See [Plugins](docs/PLUGINS.md).
 
 ## Installation
 
 ### Requirements
 
-- Python 3.8+
+- Python 3.10+
 - [nb](https://github.com/xwmx/nb) installed and initialised (`nb` must be on `$PATH`)
 - A modern browser (Firefox, Chrome, or Epiphany/GNOME Web for PWA mode)
 
@@ -320,11 +300,13 @@ Optional: `gh` CLI for Create & Wire (new GitHub repo from the UI), `rg` (ripgre
 ```bash
 git clone https://github.com/linuxcaffe/nb-web.git
 cd nb-web
-pip install flask
-python app.py
+pip install -r requirements.txt
+python3 app.py
 ```
 
-Open `http://localhost:5001` — your existing nb notebooks appear immediately.
+Open `http://localhost:5001` and sign in; your existing nb notebooks appear immediately.
+
+<!-- FIXME first account: /login redirects to /setup when ~/.nb/.users/ is empty, but no /setup route exists (found 2026-10-08). -->
 
 ### PWA install (Epiphany / GNOME Web)
 
@@ -332,20 +314,12 @@ Open `http://localhost:5001` — your existing nb notebooks appear immediately.
 
 nb-web is a full PWA. In Epiphany, open `http://localhost:5001`, then **⋮ → Install as Web Application**. It launches in its own window with no browser chrome, indistinguishable from a native app.
 
-A launcher script (`nb-web-launch`) is included that starts the Flask server, opens Epiphany, and cleans up on exit. See [INSTALL](docs/Install.md) for setup details.
+A launcher script (`nb-web-launch.sh`) is included that starts the Flask server, opens Epiphany, and cleans up on exit. See [INSTALL](docs/Install.md) for setup details.
 
 ### Settings
 
-Copy `nb-settings.json.example` to `nb-settings.json` and edit:
-
-```json
-{
-  "default_git_remote": "git@github.com:you/nb-notes.git",
-  "git_repos": {
-    "nb-web": "~/dev/nb-web"
-  }
-}
-```
+Machine settings (port, terminal, plugins, git remote) live in `nb-settings.json`, written when you
+first change one in **Menu → Settings**. Everything else is per notebook, in its config note.
 
 → [INSTALL](docs/Install.md)
 
@@ -381,7 +355,7 @@ The full documentation lives in nb-web's own `docs` notebook; the pages linked h
 
 ### Security
 
-nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with YAML frontmatter (`name`, `level`, `password_hash`, `notebooks`). Five access levels: `guest`, `user`, `office`, `admin`, `tech`. Admin and tech users see five dotfolder notebooks (`.users`, `.tools`, `.changes`, `.images`, `.rules`) in the notebook selector. See [security](docs/dev/dev-security.md) for full details.
+nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with YAML frontmatter (`name`, `level`, `password_hash`, `notebooks`). Five access levels: `guest`, `user`, `office`, `admin`, `tech`. Admin and tech users also see the dotfolders (`.users`, `.tools`, `.changes`, `.images`, `.rules`, `.lib`, `.checks`) in the notebook selector. See [security](docs/dev/dev-security.md) for full details.
 
 ---
 
@@ -390,11 +364,11 @@ nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with Y
 | Project | What it is |
 |---------|-----------|
 | [nb](https://github.com/xwmx/nb) | The CLI note-taking tool nb-web wraps |
-| nb-quartz | Convert any notebook to a static website using quartz 
-| nb-plugins | plugins for CLI |
+| [nb-quartz](https://github.com/linuxcaffe/nb-quartz) | Convert a notebook to a static website with Quartz |
+| [nb-plugins](https://github.com/linuxcaffe/nb-plugins) | Plugins for the nb CLI |
 | [tw-web](https://github.com/linuxcaffe/tw-web) | Sister app: web interface for Taskwarrior; designed to run alongside nb-web |
 | [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) | Standalone hledger live block; the same widget used in nb-web |
-| [mkd-codeblocks](https://codeberg.org/linuxcaffe/mkd-codeblocks) | The broader codeblock collection nb-web draws from |
+| [mkd-codeblocks](https://github.com/linuxcaffe/mkd-codeblocks) | The broader codeblock collection nb-web draws from |
 
 ---
 
@@ -402,6 +376,6 @@ nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with Y
 
 - License: [AGPL v3](LICENSE)
 - Language: Python (Flask) + Vanilla JavaScript
-- Requires: Python 3.8+, nb 7+
+- Requires: Python 3.10+, nb 7+
 - Platforms: Linux (primary), macOS (untested)
 - Version: 2.x

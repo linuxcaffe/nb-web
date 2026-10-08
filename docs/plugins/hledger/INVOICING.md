@@ -30,11 +30,11 @@ there for the client:
 
 ```yaml
 ---
-name: Jane Smith
+name: Kim Lee
 org: Acme Construction
 address: "123 Main St, Anytown, ON"
 phone: 555-987-6543
-email: jane@acme.ca
+email: kim@acme.ca
 ---
 ```
 

@@ -72,8 +72,8 @@ Users are `.md` files in `~/.nb/.users/`. This is a **dotfolder** — not indexe
 
 ```
 ~/.nb/.users/
-    djp.md
-    lena.md
+    pat.md
+    sam.md
     guest.md
 ```
 

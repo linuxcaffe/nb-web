@@ -10,13 +10,13 @@ This document covers the concrete implementation of the project diary system: ho
 
 Get this wrong once and you'll spend two sessions rediscovering it.
 
-**Layer 1 — The diary** (`smith.md`, `type: project`)
+**Layer 1 — The diary** (`jones.md`, `type: project`)
 The only place humans write. Date headings, prose, timedot blocks, csv blocks, markers. Nothing is ever filtered or deleted from it. It accumulates forever.
 
-**Layer 2 — The journals** (`journals/smith-gen.*.journal`, `journals/smith-gen.timedot`)
+**Layer 2 — The journals** (`journals/jones-gen.*.journal`, `journals/jones-gen.timedot`)
 Derived artifacts. Rebuilt from the diary on every block save. They contain **all records, all time** — no timeframe filtering here. Never hand-edit these files; edits will be overwritten on the next save.
 
-**Layer 3 — The reports** (`smith-reports.md`, `type: reports`)
+**Layer 3 — The reports** (`jones-reports.md`, `type: reports`)
 A projection surface. CBQL blocks fetch from the journals and apply a timeframe filter at **query time**. The same journals serve every timeframe selection — only the hledger `date:FROM..TO` argument changes.
 
 > **The architectural invariant**: journals = complete records; timeframe = query filter only.
@@ -27,16 +27,16 @@ A projection surface. CBQL blocks fetch from the journals and apply a timeframe 
 ## File layout
 
 ```
-projects/acme/smith/
-  .smith.md                      ← folder dotfile: delivers project:, journal:, rate: etc
-  smith.md                       ← project diary (source of truth)
-  smith-reports.md               ← type: reports (projection surface)
+projects/acme/jones/
+  .jones.md                      ← folder dotfile: delivers project:, journal:, rate: etc
+  jones.md                       ← project diary (source of truth)
+  jones-reports.md               ← type: reports (projection surface)
   journals/
-    smith.journal                ← stable manifest: P directive + include chain (NEVER rewritten)
-    smith-gen.timedot            ← DO NOT HAND EDIT — rebuilt from all timedot blocks
-    smith-gen.labour.journal     ← DO NOT HAND EDIT — rebuilt from timedot × rate
-    smith-gen.materials.journal  ← DO NOT HAND EDIT — rebuilt from csv materials blocks
-    smith-gen.tools.journal      ← DO NOT HAND EDIT — rebuilt from csv tools blocks
+    jones.journal                ← stable manifest: P directive + include chain (NEVER rewritten)
+    jones-gen.timedot            ← DO NOT HAND EDIT — rebuilt from all timedot blocks
+    jones-gen.labour.journal     ← DO NOT HAND EDIT — rebuilt from timedot × rate
+    jones-gen.materials.journal  ← DO NOT HAND EDIT — rebuilt from csv materials blocks
+    jones-gen.tools.journal      ← DO NOT HAND EDIT — rebuilt from csv tools blocks
 ```
 
 ### The `-gen` suffix convention
@@ -44,15 +44,15 @@ projects/acme/smith/
 Any file that is a **derived artifact** (generated from source blocks, rebuilt on every save) gets a `-gen` suffix before the extension:
 
 ```
-smith-gen.timedot            ✓
-smith-gen.labour.journal     ✓
-smith.timedot                ✗  (old naming — no longer used)
-smith.labour.journal         ✗  (old naming — no longer used)
+jones-gen.timedot            ✓
+jones-gen.labour.journal     ✓
+jones.timedot                ✗  (old naming — no longer used)
+jones.labour.journal         ✗  (old naming — no longer used)
 ```
 
 This makes generated files trivially identifiable in file listings, enables tooling to distinguish hand-edited from generated, and prevents accidental hand-edits that would be silently overwritten.
 
-### `smith.journal` — the stable manifest
+### `jones.journal` — the stable manifest
 
 This file is written once and never rewritten by the system. It holds:
 
@@ -60,15 +60,15 @@ This file is written once and never rewritten by the system. It holds:
 2. `include` directives for all `-gen` sub-journals
 
 ```hl
-; smith.journal — master project ledger
+; jones.journal — master project ledger
 ; All sub-journals are auto-synced from note blocks on save. Edit source blocks, not these files.
 
 P 2026-06-01 h 30.00 CAD
 
-include ./smith-gen.timedot
-include ./smith-gen.labour.journal
-include ./smith-gen.materials.journal
-include ./smith-gen.tools.journal
+include ./jones-gen.timedot
+include ./jones-gen.labour.journal
+include ./jones-gen.materials.journal
+include ./jones-gen.tools.journal
 ```
 
 **Why the `P` directive lives here and nowhere else**: hledger rejects `P` price directives in `.timedot` files with a parse error. The master `.journal` is the only valid home for it.
@@ -77,18 +77,18 @@ include ./smith-gen.tools.journal
 
 ---
 
-## Folder dotfile — `.smith.md`
+## Folder dotfile — `.jones.md`
 
 The folder dotfile delivers project-wide FM keys to every note in the folder via `effective_fm`. Notes don't need to repeat these values.
 
 ```yaml
 ---
-journal: ~/.nb/work/projects/acme/smith/journals/smith.journal
-project: acme:smith
+journal: ~/.nb/work/projects/acme/jones/journals/jones.journal
+project: acme:jones
 rate: 30
 rate_unit: hour
 billing_type: cash
-client: "contacts:smith.md"
+client: "contacts:jones.md"
 ---
 ```
 
@@ -104,7 +104,7 @@ client: "contacts:smith.md"
 
 When a timedot block is saved inline (via the block editor in nb-web), `api_t_timedot_write` fires:
 
-1. Writes the updated timedot content to `smith-gen.timedot` (full rebuild, not append)
+1. Writes the updated timedot content to `jones-gen.timedot` (full rebuild, not append)
 2. Calls `_ensure_journal_stubs(master_journal)` — creates any missing `-gen.*.journal` stub files
 3. Calls `_nb_index_add(td)` — adds the timedot to the nb `.index` if not already present
 
@@ -124,8 +124,8 @@ _ensure_journal_stubs(td.parent / f'{master_stem}.journal')
 
 ```hl
 2026-06-29 work
-    Assets:AR:acme:smith        105.00 CAD
-    Income:Services:Hourly:acme:smith
+    Assets:AR:acme:jones        105.00 CAD
+    Income:Services:Hourly:acme:jones
 ```
 
 The labour journal is **a complete rebuild every time**. No deduplication needed — it's a derived artifact.
@@ -181,7 +181,7 @@ If no billing markers exist, `current` starts from the beginning of the log.
 
 ```javascript
 const query = baseQuery + (from ? ` date:${from}..` : '') + (to ? `..${to}` : '');
-// e.g.: "bal Assets:AR:acme:smith date:2026-06-28..2026-07-03"
+// e.g.: "bal Assets:AR:acme:jones date:2026-06-28..2026-07-03"
 ```
 
 This is the **only** place timeframe filtering happens. Journals are never filtered.
@@ -194,8 +194,8 @@ This is the **only** place timeframe filtering happens. Journals are never filte
 
 ```markdown
 ```hl
-source: smith.md
-bal Assets:AR:acme:smith
+source: jones.md
+bal Assets:AR:acme:jones
 ```
 ```
 
@@ -205,11 +205,11 @@ bal Assets:AR:acme:smith
 
 ### Critical: scope your account
 
-A bare `bal` on `smith.journal` shows **all accounts from all included files** — both CAD entries from `smith-gen.labour.journal` AND raw hour amounts from `smith-gen.timedot`. Always scope to the account you want:
+A bare `bal` on `jones.journal` shows **all accounts from all included files** — both CAD entries from `jones-gen.labour.journal` AND raw hour amounts from `jones-gen.timedot`. Always scope to the account you want:
 
 ```
-bal Assets:AR:acme:smith           ← shows receivable (positive CAD) ✓
-bal Income:Services:Hourly:acme:smith  ← shows income (negative CAD — hledger convention) ✓
+bal Assets:AR:acme:jones           ← shows receivable (positive CAD) ✓
+bal Income:Services:Hourly:acme:jones  ← shows income (negative CAD — hledger convention) ✓
 bal                                 ← shows mixed CAD + raw hours ✗
 ```
 
@@ -217,7 +217,7 @@ bal                                 ← shows mixed CAD + raw hours ✗
 
 ```markdown
 ```hl
-reg Income:Services:Hourly:acme:smith
+reg Income:Services:Hourly:acme:jones
 ```
 ```
 
@@ -227,7 +227,7 @@ No `source:` = no CBQL path. Queries the note's journal directly (from `effectiv
 
 Accepts `{ journalFile, query }`. Runs `hledger -f <journalFile> <query>` directly. Returns stdout.
 
-`journalFile` is the absolute path to the real journal (e.g. the master `smith.journal`). No temp files needed — the master journal already includes all sub-journals via `include` directives.
+`journalFile` is the absolute path to the real journal (e.g. the master `jones.journal`). No temp files needed — the master journal already includes all sub-journals via `include` directives.
 
 ---
 
@@ -244,11 +244,11 @@ In the project diary, timedot entries use a shorthand sub-account notation:
 The leading ` :` is expanded by `_timedotRewrite(text, project)` to the full account path:
 
 ```
- acme:smith:flooring  3.5
- acme:smith:trim      2.0
+ acme:jones:flooring  3.5
+ acme:jones:trim      2.0
 ```
 
-**Invariant: the leading space is mandatory.** In hledger timedot format, an unindented line is interpreted as a date. `acme:smith:flooring` (no leading space) will cause a parse error or silent misparse. The generator (`_timedotRewrite`) does NOT normalize missing spaces — it preserves whatever indentation the source has. If `:flooring` in the diary has no leading space, the generated file will too.
+**Invariant: the leading space is mandatory.** In hledger timedot format, an unindented line is interpreted as a date. `acme:jones:flooring` (no leading space) will cause a parse error or silent misparse. The generator (`_timedotRewrite`) does NOT normalize missing spaces — it preserves whatever indentation the source has. If `:flooring` in the diary has no leading space, the generated file will too.
 
 **Rule**: all timedot account lines must be indented by at least one space. ` :flooring` not `:flooring`.
 
@@ -277,14 +277,14 @@ This marker becomes the new phase boundary. The next `current` timeframe starts 
 
 ### Sub-accounts on the `Re:` line
 
-`_timedot_categories(timedot_path, project)` reads `smith-gen.timedot` and extracts unique sub-accounts, stripping the project prefix:
+`_timedot_categories(timedot_path, project)` reads `jones-gen.timedot` and extracts unique sub-accounts, stripping the project prefix:
 
 ```
-acme:smith:flooring  →  flooring
-acme:smith:paint     →  paint
+acme:jones:flooring  →  flooring
+acme:jones:paint     →  paint
 ```
 
-Result: `Re: project: smith (flooring, paint, trim)`
+Result: `Re: project: jones (flooring, paint, trim)`
 
 The timedot path is derived from `journal_key` when not in FM:
 ```python
@@ -302,9 +302,9 @@ projects/acme/
   invoices/
     INV-2026-004.md    ← shared across all acme projects
     INV-2026-005.md
-  smith/
-    smith.md
-    smith-reports.md
+  jones/
+    jones.md
+    jones-reports.md
 ```
 
 Invoice number sequence is per-client, naturally avoiding duplicates across projects under the same client.
@@ -339,7 +339,7 @@ Called after every generated file write. Idempotent.
 
 ### `P` directive invalid in `.timedot` files
 
-hledger rejects `P` price directives in `.timedot` files with a parse error. The directive must live in a `.journal` file. The stable manifest `smith.journal` is the right home.
+hledger rejects `P` price directives in `.timedot` files with a parse error. The directive must live in a `.journal` file. The stable manifest `jones.journal` is the right home.
 
 ### bare `bal` mixes commodities
 
@@ -347,7 +347,7 @@ The master journal includes both the labour journal (CAD) and the timedot (raw h
 
 ### Timedot sub-account indent
 
-`:flooring` without a leading space generates `acme:smith:flooring` at column 0 — hledger misparses it as a date. The generator does not auto-correct this. Fix it in the source block.
+`:flooring` without a leading space generates `acme:jones:flooring` at column 0 — hledger misparses it as a date. The generator does not auto-correct this. Fix it in the source block.
 
 ### `effective_fm` doesn't reach the invoice endpoint
 
@@ -359,7 +359,7 @@ Save on a timedot block triggers journal rebuild for that block. But the intende
 
 ### hledger cache invalidation
 
-The hledger cache in `app.py` keys on journal file mtime. When sub-journals change (timedot or labour rebuild), the master `smith.journal` mtime doesn't change — so the cache doesn't invalidate. `api_t_timedot_write` and `api_t_journal_from_csv` both call `_hledger_cache.clear()` explicitly.
+The hledger cache in `app.py` keys on journal file mtime. When sub-journals change (timedot or labour rebuild), the master `jones.journal` mtime doesn't change — so the cache doesn't invalidate. `api_t_timedot_write` and `api_t_journal_from_csv` both call `_hledger_cache.clear()` explicitly.
 
 ---
 
@@ -367,7 +367,7 @@ The hledger cache in `app.py` keys on journal file mtime. When sub-journals chan
 
 | Item | Notes |
 |------|-------|
-| Materials CBQL block in reports | `bal Expenses:Materials:acme:smith` — needs timeframe filter wired |
+| Materials CBQL block in reports | `bal Expenses:Materials:acme:jones` — needs timeframe filter wired |
 | Tools / transport CBQL blocks | Same pattern as materials |
 | `billing_type: t&m` invoice template | `invoice-tm.md` template; HST calculation on subtotal |
 | Invoice ledger block → post to journal | On generate: write AR/income entry to journal for payment tracking |
@@ -382,11 +382,11 @@ The hledger cache in `app.py` keys on journal file mtime. When sub-journals chan
 
 ```markdown
 ---
-title: "Project Smith — Reports"
+title: "Project Jones — Reports"
 type: reports
-source: smith.md
-project: acme:smith        ← or inherited from .smith.md folder dotfile
-client: "contacts:smith.md"
+source: jones.md
+project: acme:jones        ← or inherited from .jones.md folder dotfile
+client: "contacts:jones.md"
 billing_type: cash
 rate: 30
 rate_unit: hour
@@ -394,29 +394,29 @@ rate_unit: hour
 
 ## Timeline
 ```timeline
-source: smith.md
+source: jones.md
 ```
 
 ## Time
 ```timedot
-source: smith.md
+source: jones.md
 timeframe: current
 ```
 
 ## Current phase — Labour
 ```hl
-source: smith.md
-bal Assets:AR:acme:smith
+source: jones.md
+bal Assets:AR:acme:jones
 ```
 
 ## All labour
 ```hl
-reg Income:Services:Hourly:acme:smith
+reg Income:Services:Hourly:acme:jones
 ```
 
 ## Materials
 ```hl
-reg Expenses:Materials:acme:smith
+reg Expenses:Materials:acme:jones
 ```
 ```
 

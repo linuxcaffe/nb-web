@@ -298,7 +298,7 @@ The 🎨 button on any dashboard opens the theme picker and saves the selection 
 
 Built-in themes: `default`, `groovy`. Adding a new theme is just adding a new `~/.nb/.themes/*.md` file.
 
-**`description:`** — one-liner shown in the detail panel and (optionally) as a tooltip on the selector icon. "Lena's vintage finds — inventory and pricing" beats a bare filename every time.
+**`description:`** — one-liner shown in the detail panel and (optionally) as a tooltip on the selector icon. "Sam's vintage finds — inventory and pricing" beats a bare filename every time.
 
 ---
 

@@ -44,6 +44,7 @@ External plugins live in `~/dev/nbweb-*/` and are wired via `nb-settings.json`.
 
 ## Docs
 
+- **Example data:** use the fictional cast in `docs:dev/dev-example-data.md` (Pat and Sam Smith, client Acme, project Jones, contact Kim Lee), never a name, path or amount from the real `~/.nb`; `~/.nb/.rules/private-names.txt` lists real ones, and `.tools/readme-export.py` refuses to publish a hit.
 - **User docs:** `~/.nb/docs/` — all files have `processed: true` frontmatter; open in nb-web
 - **Dev docs:** `~/.nb/docs/dev/` — 11 files; index at `docs:DEVELOPERS.md`
 - **AI meta-index:** `~/.claude/projects/-home-djp/memory/reference_nb_web_index.md` — "where is X?" for any topic

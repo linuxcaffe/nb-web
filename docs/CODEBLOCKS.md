@@ -209,7 +209,16 @@ Permitted subcommands (read-only): `branch`, `describe`, `diff`, `log`, `ls-file
 
 ---
 
-### hl — Accounting
+# hl — Accounting
+
+## Summary
+
+An `hl` block runs an hledger report and shows the result in the note: balances, registers,
+income statement, balance sheet, cash flow. The body is an hledger command line (`bal expenses
+--monthly -3`); it reads the note's `journal:` when the line names no file. `+` adds a
+transaction, ↻ re-runs the report, and the **hledger** label opens hledger itself.
+
+## How it works
 
 ````markdown
 ```hl
@@ -217,31 +226,60 @@ bal expenses --monthly -3
 ```
 ````
 
-Any hledger subcommand: `bal`, `reg`, `is`, `bs`, `cf`. Positive and negative amounts are coloured.
+The body is what you'd type after `hledger`. Balance, register and the sectioned reports
+(`is`, `bs`, `bse`, `cf`) render as tables; other commands (`print`, `stats`, `files`, …) as
+plain text. Amounts are coloured by sign.
 
-**Add Transaction (`+` button)**
+| Command | Shows |
+|---|---|
+| `balance` · `bal` · `b` | account tree |
+| `register` · `reg` · `r` | postings with a running balance |
+| `incomestatement` · `is` | revenues and expenses |
+| `balancesheet` · `bs` (`bse` with equity) | assets and liabilities |
+| `cashflow` · `cf` | cash flow |
 
-Opens an inline posting form. Two smart pre-fills happen automatically:
+**Which journal.** A body starting with a path (`~/…` or `/…`) or containing `-f` uses that
+file. Otherwise the note's `journal:` frontmatter (its own, or inherited from a folder or
+notebook config) is put in front. Filters are hledger's own: `--period thisweek`, `--depth 2`,
+`tag:name`, `--begin 2026-01-01`, `--end 2026-12-31`.
 
-- **Account from query** — if the fence body contains an account name (e.g. `reg Assets:Bank`), the first account field in the form is pre-populated with it.
-- **Date from filename** — if the currently open note is a daily note named `YYYYMMDD.md`, the date field is pre-filled from the filename instead of today's date.
+**Adding a transaction (`+`).** Opens a posting form under the header. If the query names an
+account (`reg Assets:Bank`), the first account field starts with it; in a daily note named
+`YYYYMMDD.md`, the date starts at that day instead of today. Account fields suggest names from
+the journal.
 
-**Bookkeeper panel**
+**The hledger label.** Clicking it opens hledger: in the terminal or hledger-web, as set in
+Settings → Codeblocks (until it's set, the click opens that setting). An admin script
+`.lib/open-block-hl-<level>.sh` takes over the click when present.
 
-The hledger panel (☰ → hledger) has a persistent **+ Add Transaction** section at the top that also applies both smart pre-fills above.
+**Special bodies**
 
-**Files tab**
+| Body | Shows |
+|---|---|
+| `ui` (`~/x.journal ui \| label`) | hledger-ui in a terminal inside the note |
+| `web` | a button that opens hledger-web |
+| `regen .tools/<name>.py \| label` | a button that runs that script in the note's notebook (regenerating journals), then refreshes the note's other `hl` blocks |
 
-The hledger panel's **Files** tab handles bulk import and export between daily notes and journal files:
+A body of `source:` / `filter:` / `timeframe:` / `group:` lines queries entries kept in another
+note's codeblocks instead of a journal file (a project diary's timedot and csv blocks); see
+[CBQL](dev/dev-cbql.md#cbql-read-path).
 
-- **Export** — scans `YYYYMMDD.md` daily notes for ` ```hl ``` ` fenced blocks and writes their contents to a `.journal` file. Optionally filtered by date range.
-- **Import** — parses an existing `.journal` file and appends each dated transaction block to the matching `YYYYMMDD.md` daily note (creating it if it doesn't exist), then commits.
+**Example entries.** Use a ` ```ledger ` block, not `hl`, for sample journal text in docs and
+tutorials: it's shown highlighted and never run.
 
-**Static `ledger` blocks**
+## Reference
 
-Use ` ```ledger ` (not ` ```hl `) for example journal entries in tutorial or documentation notes. These render as static syntax-highlighted code via Prism — never executed against your real journal.
+- Needs `hledger` on the server's `$PATH` (`hledger-ui` / `hledger-web` for those bodies).
+- Who can see blocks and who can add transactions: `codeblock_access: hl: {read:, write:}`
+  (see [Access gates](#access-gates)).
+- Also released on its own: [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock).
+- In frontmatter (`hl: bal -2`) it shows in the note's header strip instead of the body.
 
-Requires `hledger` on `$PATH`. See also: [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) — this block is also released as a standalone package.
+## For developers
+
+Renderer: `_loadHledgerBlock` (`plugins/nbweb-codeblocks.js`), backed by `/api/hledger-query`;
+the add form is `_showHledgerAddForm`. Accounting domain notes: the `hledger` skill and
+[nbweb-hledger](https://github.com/linuxcaffe/nbweb-hledger).
 
 ---
 
@@ -862,7 +900,17 @@ that the note doesn't have yet. See [Folder config: constraints](FOLDER-CONFIG.m
 
 ---
 
-### cfg — Config Inheritance Tree
+# cfg — Config Inheritance Tree
+
+## Summary
+
+A `cfg` block shows how a setting is resolved: the chain from the global `~/.nb/.nb.md` down
+through the notebook and folder configs to the current note, and which level sets the value
+that wins. `access: .` traces one key here; a bare block lists every key; `tree` and `org` map
+all the config files in a notebook. Click a node to open its config file, or create one where
+none exists. Admin only by default.
+
+## How it works
 
 ````markdown
 ```cfg
@@ -904,7 +952,7 @@ Values ending with `:` must be quoted in YAML.
     ○ 📁 schedule/                (no config file)
 ```
 
-`●` nodes are clickable — opens the config file in the preview pane for editing via **FM** or **Edit**. `○` nodes have no config file yet.
+`●` nodes are clickable — opens the config file in the preview pane for editing via **FM** or **Edit**. `○` nodes have no config file yet. With a key traced, `▶` marks the level whose value wins, and `◉` the config file you're looking at.
 
 When a `field` is specified, only nodes that actually set that field show a value beside them:
 
@@ -949,7 +997,7 @@ The FM form (`cfg: org` in frontmatter) propagates the block via the config chai
 
 ---
 
-#### cfg: org — Config Org Chart
+## Org chart (`cfg: org`)
 
 The `org` mode renders an interactive, zoomable SVG org chart of every config file in the current notebook — the fastest way to audit, navigate, and fix your configuration landscape.
 
@@ -990,7 +1038,7 @@ The chart is fully interactive at any depth.
 | Click and drag | Pan |
 | `f` (mouse over chart) | Fit the whole tree into view |
 | `+` / `-` | Zoom in / out by fixed step |
-| `0` | Reset to fit |
+| `0` | Reset zoom to 100% |
 
 The initial view centres the root node and scales to show as much of the tree as fits. Large installations may open zoomed in to the root — scroll back or press `f` to see the full picture.
 
@@ -1075,6 +1123,10 @@ After a chart refresh, the `tutorial` notebook shows as a single leaf node inste
 **The sysadmin loop**
 
 Zoom out → read the coloured outlines to understand wiring at a glance → hover any node for specifics → zoom in on a gap → click to open or create → fix → refresh. The chart is the live, always-current map of your configuration landscape.
+
+## For developers
+
+Parser: `_loadConfigBlock` (`plugins/nbweb-codeblocks.js`); org chart: `_configOrgRender`; backend `/api/config-tree`. Chain resolution: [Folder config](FOLDER-CONFIG.md).
 
 ---
 
