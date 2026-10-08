@@ -46,7 +46,7 @@ Matching topics are listed most specific first: filename, type, codeblocks, keys
 | `block:<lang>` | contains a fenced codeblock in that language |
 | `key:<key>` | has that frontmatter key, its own or inherited from a config (a folder's `tabs:` counts) |
 | `notebook:<name>` | is in that notebook |
-| `page:<page>` | is shown on that page's own **?**: `editor` (the editor toolbar), `terminal` (the terminal's title bar), `notebooks` (a notebook's details on the Notebooks page) |
+| `page:<page>` | is shown on that page's own **?**: `editor` (the editor toolbar; it also keeps the help of the note being edited, after the editor's topics), `terminal` (the terminal's title bar), `notebooks` (a notebook's details on the Notebooks page) |
 
 `check:` and `plugin:` contexts are for help on check findings and plugins (not built yet).
 
