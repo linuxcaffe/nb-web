@@ -47,15 +47,17 @@ def chapters(body):
 
 
 def intro(body, caption=''):
-    """Text after the H1 up to the first chapter line or subheading."""
+    """Text after the H1 up to the first chapter line, subheading or --- rule (a tour dashboard's
+    reset link sits below one), without HTML comments."""
     lines = body.splitlines()
     i = next((k + 1 for k, ln in enumerate(lines) if re.match(r'^#\s', ln)), 0)
     out = []
     for ln in lines[i:]:
-        if _CHAPTER_RE.match(ln.strip()) or re.match(r'^#{1,6}\s', ln):
+        if _CHAPTER_RE.match(ln.strip()) or re.match(r'^#{1,6}\s', ln) or re.match(r'^\s*(-{3,}|\*{3,})\s*$', ln):
             break
         out.append(ln)
-    text = '\n'.join(out).strip()
+    text = re.sub(r'<!--.*?-->', '', '\n'.join(out), flags=re.S)
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
     cap = str(caption or '').strip().rstrip('.')
     if cap and text.lower().startswith(cap.lower()):
         text = text[len(cap):].lstrip('.').strip()
