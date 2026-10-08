@@ -5239,11 +5239,13 @@
         toggle.innerHTML = _checkRowLabelHtml(_checkDomainIcon(script), script.replace(/\.sh$/, ''), headline);
         headRow.appendChild(toggle);
 
+        // check_timeout: N makes dismiss a snooze, as in _buildSingleResultDOM
+        const snoozeMin = parseInt(NbMain.activeNote()?.meta?.check_timeout ?? 0, 10);
         const dismiss = document.createElement('button');
         dismiss.className = 'nb-test-dismiss nb-group-dismiss';
-        dismiss.title = 'Dismiss until next render';
-        dismiss.textContent = '×';
-        dismiss.addEventListener('click', () => onDismiss?.());
+        dismiss.title = snoozeMin > 0 ? `Snooze ${snoozeMin} min` : 'Dismiss until next render';
+        dismiss.textContent = snoozeMin > 0 ? '⏸' : '×';
+        dismiss.addEventListener('click', () => onDismiss?.(snoozeMin));
         headRow.appendChild(dismiss);
 
         wrap.appendChild(headRow);
@@ -5321,7 +5323,10 @@
             let node;
             node = f.kind === 'group'
                 ? _buildGroupResultDOM(f.scripts, f.failures, () => node.remove())
-                : _buildCollapsedSingleDOM(f.script, f.text, f.severity, () => node.remove());
+                : _buildCollapsedSingleDOM(f.script, f.text, f.severity, snoozeMin => {
+                      if (snoozeMin > 0) _snooze(selector, f.script, snoozeMin);
+                      node.remove();
+                  });
             body.appendChild(node);
         });
 
