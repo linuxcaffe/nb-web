@@ -4931,14 +4931,10 @@
             const row = document.createElement('div');
             row.className = 'nb-subtest';
 
+            const { headline, rest } = _checkHeadline(text);
             const toggleBtn = document.createElement('button');
             toggleBtn.className = 'nb-subtest-toggle';
-            const iconHtml = sharedIcon ? '' : _checkDomainIcon(script);
-            if (iconHtml) {
-                toggleBtn.innerHTML = iconHtml + _esc(label);
-            } else {
-                toggleBtn.textContent = label;
-            }
+            toggleBtn.innerHTML = _checkRowLabelHtml(sharedIcon ? '' : _checkDomainIcon(script), label, headline);
 
             const body = document.createElement('div');
             body.className = 'nb-subtest-body';
@@ -4946,7 +4942,7 @@
 
             const inner = document.createElement('div');
             inner.className = 'nb-rendered' + _severityClass(severity);
-            inner.innerHTML = NbMain.renderMarkdown(text, '');
+            inner.innerHTML = NbMain.renderMarkdown(rest, '');
             NbMain.enrichRendered(inner, null);
             body.appendChild(inner);
 
@@ -5038,6 +5034,32 @@
         if (script.startsWith('sys-'))   return chip('SYS') + ' ';
         if (script.startsWith('test-'))  return chip('TST') + ' ';
         return '';
+    }
+
+    // A check's first line is its headline -- "### ⚠ Title" or "**Title** — why" -- shown beside
+    // the check's name in the badge, so seeing what failed takes no extra click; the rest opens on
+    // click (djp, 2026-10-08). No recognisable headline (a table, plain text): headline ''.
+    function _checkHeadline(text) {
+        const lines = String(text || '').split('\n');
+        const i = lines.findIndex(l => l.trim());
+        if (i < 0) return { headline: '', rest: '' };
+        const first = lines[i].trim();
+        let m = first.match(/^#{1,6}\s+(.+)$/);
+        if (m) return { headline: m[1].replace(/^[⚠✗✘❌]\uFE0F?\s*/u, ''),
+                        rest: lines.slice(i + 1).join('\n').trim() };
+        m = first.match(/^\*\*(.+?)\*\*\s*(?:[—–-]\s*)?(.*)$/);
+        if (m) return { headline: m[1], rest: [m[2], ...lines.slice(i + 1)].join('\n').trim() };
+        return { headline: '', rest: String(text) };
+    }
+
+    // "name — ⚠ headline" for a badge row; backticks become <code>, everything else escaped.
+    function _checkRowLabelHtml(iconHtml, name, headline) {
+        let html = iconHtml + _esc(name);
+        if (headline) {
+            const h = _esc(headline).replace(/`([^`]+)`/g, '<code>$1</code>');
+            html += `<span class="nb-check-headline"> — ⚠ ${h}</span>`;
+        }
+        return html;
     }
 
     function _severityClass(severity) {
@@ -5213,7 +5235,8 @@
         const toggle = document.createElement('button');
         toggle.className = 'nb-group-toggle';
         toggle.dataset.open = '0';
-        toggle.innerHTML = _checkDomainIcon(script) + _esc(script.replace(/\.sh$/, ''));
+        const { headline, rest } = _checkHeadline(text);
+        toggle.innerHTML = _checkRowLabelHtml(_checkDomainIcon(script), script.replace(/\.sh$/, ''), headline);
         headRow.appendChild(toggle);
 
         const dismiss = document.createElement('button');
@@ -5236,7 +5259,7 @@
 
         const inner = document.createElement('div');
         inner.className = 'nb-rendered' + _severityClass(severity);
-        inner.innerHTML = NbMain.renderMarkdown(text, '');
+        inner.innerHTML = NbMain.renderMarkdown(rest, '');
         NbMain.enrichRendered(inner, null);
         body.appendChild(inner);
         _enrichSubtests(body);
@@ -5298,10 +5321,7 @@
             let node;
             node = f.kind === 'group'
                 ? _buildGroupResultDOM(f.scripts, f.failures, () => node.remove())
-                : _buildSingleResultDOM(f.script, f.text, f.severity, snoozeMin => {
-                      if (snoozeMin > 0) _snooze(selector, f.script, snoozeMin);
-                      node.remove();
-                  });
+                : _buildCollapsedSingleDOM(f.script, f.text, f.severity, () => node.remove());
             body.appendChild(node);
         });
 

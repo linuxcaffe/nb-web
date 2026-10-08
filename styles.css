@@ -1678,7 +1678,7 @@ body {
                    color: var(--text-muted); font-style: italic; }
 .nb-iq-done  { color: inherit; font-style: normal; }
 .nb-iq-error { color: var(--text-muted); font-style: italic; cursor: help;
-               text-decoration: underline dotted var(--red, #c0392b); }
+               text-decoration: underline dotted var(--red); }
 .nb-iq-refresh { background: none; border: none; padding: 0 0 0 0.25em;
                  color: var(--text-muted); font-size: 0.85em; cursor: pointer;
                  opacity: 0.5; vertical-align: baseline; }
@@ -1721,7 +1721,7 @@ body {
     letter-spacing: 0.01em;
     background: var(--alert-bg);
     border: 1px solid var(--alert-border);
-    color: var(--alert);
+    color: var(--yellow);
     white-space: nowrap;
     transition: opacity 0.4s;
 }
@@ -2170,7 +2170,7 @@ mark.nb-highlight {
 }
 .nb-menu-sync-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
 .nb-menu-sync-btn.nb-sync-pending {
-  color: var(--yellow, #f0b429);
+  color: var(--yellow);
   border-color: rgba(240,180,41,0.4);
 }
 .nb-menu-subtitle {
@@ -2509,6 +2509,11 @@ body.nb-fullscreen #nb-cmd-bar::after {
   --green:      #2a9d5c;
   --red:        #d94040;
   --yellow:     #c47a00;
+  /* warnings: a lighter, yellower amber than --yellow, so a warning's edge doesn't read as the
+     error red beside it (djp, 2026-10-08) */
+  --alert:        #d9a000;
+  --alert-bg:     rgba(217,160,0,0.12);
+  --alert-border: rgba(217,160,0,0.45);
   color-scheme: light;
 }
 
@@ -2728,7 +2733,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-requirements-card {
   margin: 16px; padding: 16px 20px;
   background: var(--bg2); border-radius: 6px;
-  border: 1px solid var(--border); border-left: 4px solid var(--yellow, #d97706);
+  border: 1px solid var(--border); border-left: 4px solid var(--yellow);
   color: var(--text); line-height: 1.6; font-size: 13px;
 }
 .nb-requirements-card h1, .nb-requirements-card h2 { margin-top: 0; font-size: 15px; }
@@ -2832,7 +2837,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
   font-size: 11px; color: var(--text-dim); white-space: nowrap;
 }
 .nb-claude-ask-ratelimit {
-  font-size: 11px; color: var(--yellow, #c69026); white-space: nowrap; cursor: default;
+  font-size: 11px; color: var(--yellow); white-space: nowrap; cursor: default;
 }
 .nb-claude-ask-ratelimit-detail {
   width: 100%; font-size: 11px; color: var(--text-dim);
@@ -2891,7 +2896,7 @@ body.nb-fullscreen #nb-cmd-bar::after {
 }
 .nb-claude-config-field input[type=text]:focus { outline: none; }
 .nb-claude-config-hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
-.nb-claude-config-hint.nb-claude-config-warn { color: var(--yellow, #c69026); }
+.nb-claude-config-hint.nb-claude-config-warn { color: var(--yellow); }
 .nb-claude-config-perms {
   display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text);
 }
@@ -3455,8 +3460,8 @@ span.nb-cb-icon.nb-cb-icon--emoji {
   padding: 2px 6px; border-radius: 3px; opacity: 0.75;
 }
 .nb-test-dismiss:hover { opacity: 1; color: var(--text); background: var(--bg3); }
-.nb-test-fail { border-left: 3px solid var(--red, #c0392b); padding-left: 10px; }
-.nb-test-warn { border-left: 3px solid var(--alert, #e67e22); padding-left: 10px; }
+.nb-test-fail { border-left: 3px solid var(--red); padding-left: 10px; }
+.nb-test-warn { border-left: 3px solid var(--alert); padding-left: 10px; }
 .nb-check-icon { height: 1.1em; width: auto; vertical-align: -0.2em; display: inline; }
 .nb-check-icon--chip {
   font-family: monospace; font-size: 0.65em; font-weight: 700; letter-spacing: 0.04em;
@@ -3473,7 +3478,7 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-alert-banner {
     background: var(--alert-bg);
     border: 1px solid var(--alert-border);
-    color: var(--alert);
+    color: var(--yellow);
     border-radius: 4px;
     padding: 7px 12px;
     margin: 6px 0;
@@ -3507,8 +3512,8 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 
 /* Group test result (multi-script block) */
 .nb-group-result { padding-left: 10px; }
-.nb-group-result.nb-test-fail { border-left: 3px solid var(--red, #c0392b); }
-.nb-group-result.nb-test-warn { border-left: 3px solid var(--alert, #e67e22); }
+.nb-group-result.nb-test-fail { border-left: 3px solid var(--red); }
+.nb-group-result.nb-test-warn { border-left: 3px solid var(--alert); }
 .nb-group-headrow { display: flex; align-items: center; gap: 6px; margin: 0 0 6px 0; }
 .nb-group-toggle {
   background: none; border: none; cursor: pointer; padding: 0;
@@ -3537,6 +3542,9 @@ span.nb-cb-icon.nb-cb-icon--emoji {
    from .nb-group-result/.nb-subtest-* unchanged; this is only the nesting
    indent, mirroring .nb-subtest-body's own 1.2em. */
 .nb-check-notify-body .nb-group-result { margin: 4px 0 4px 1.2em; }
+/* What a badge entry opens to sits one level in: a family's check rows, a single check's text. */
+.nb-group-result > .nb-group-body:not(.nb-check-notify-body) { padding-left: 1.2em; }
+.nb-check-headline code { font-size: 0.92em; }
 
 /* Check-notification anchor -- sticky in the note's own top margin instead
    of a normal-flow line. Collapsed (default): the anchor's own box stays
