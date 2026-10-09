@@ -3673,6 +3673,8 @@
             const d = await r.json();
             if (d.error) throw new Error(d.error);
             const tree = _parseAddOrgSource(d.body || '');
+            // the root has no heading of its own: name it after the org file (2026-10-08)
+            tree.label = String(d.meta?.title || d.title || orgSource);
             _addOrgRender(el, tree, notebook, orgSource, wasOpen);
         } catch (e) {
             _cbError(el, 'add', e.message, () => _loadAddOrgBlock(el));

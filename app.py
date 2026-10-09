@@ -2134,6 +2134,38 @@ def _ensure_home_notebook():
     return ok
 
 
+STARTER_DIR = Path(__file__).resolve().parent / 'starter'
+
+
+def _seed_starter():
+    """Copy nb-web's starter/ files (home:welcome.md and its wizard, .welcome-org.md) into a fresh
+    install's notebooks, never over an existing file; list new notes in the notebook's .index and
+    commit. Done by /setup once home exists. True if home has its welcome note."""
+    for nb_dir in sorted(p for p in STARTER_DIR.iterdir() if p.is_dir()):
+        target = NB_DIR / nb_dir.name
+        if not target.is_dir():
+            continue
+        added = []
+        for src in sorted(p for p in nb_dir.rglob('*') if p.is_file()):
+            rel = src.relative_to(nb_dir)
+            dest = target / rel
+            if dest.exists():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            added.append(rel.as_posix())
+        idx = target / '.index'
+        listed = idx.read_text().splitlines() if idx.exists() else []
+        new = [a for a in added if '/' not in a and not a.startswith('.') and a not in listed]
+        if new:
+            idx.write_text('\n'.join(listed + new) + '\n')
+        if added and (target / '.git').exists():
+            subprocess.run(['git', 'add', '--', *added, '.index'], cwd=target, capture_output=True)
+            subprocess.run(['git', 'commit', '-m', '[nb] Welcome: starter notes from nb-web'],
+                           cwd=target, capture_output=True)
+    return (NB_DIR / 'home' / 'welcome.md').is_file()
+
+
 _SETUP_HTML = _LOGIN_HTML.replace('<h2>nb-web</h2>', '<h2>nb-web — first account</h2>').replace(
     'action="/login"', 'action="/setup"').replace(
     '<label>Username or name</label>',
@@ -2209,7 +2241,8 @@ def setup():
     user = _load_user(username)
     session['user'] = {k: user[k] for k in ('username', 'name', 'level', 'notebooks')}
     print(f'[nb-web] First account created: {username} (tech)', flush=True)
-    _ensure_home_notebook()
+    if _ensure_home_notebook() and _seed_starter():
+        return redirect('/#home:welcome.md')
     return redirect('/')
 
 @app.route('/api/me')
