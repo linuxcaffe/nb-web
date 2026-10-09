@@ -348,6 +348,19 @@ at first, and silently never appeared on dashboard/reports/dotfile notes even on
 added to all four separately. When adding new cross-cutting header UI, grep `nb-specialty-header`
 for all four call sites, not just the one you happened to be looking at.
 
+**The pair chip is the one exception that *does* work the same across all four builders, by
+construction.** `.nb-specialty-link.nb-pair-chip[data-open]` is handled by a single
+document-level delegated click handler (not per-builder wiring), so any header — generic or one
+of the four standalone ones — gets the same pre-flight-existence-check-then-`NbMain.openNote()`
+behavior just by emitting that class/attribute shape; nothing to thread into each builder by
+hand. Four pairs use it as of 2026-10-09: `project`↔`reports` (the original, with a
+create/link-on-miss affordance the others don't have), `topic`↔`feature`, and `dashboard`↔
+`dotfile` (the last built in `_renderDashboardNote`/`_renderDotfileNote` directly, not
+`_renderSpecialtyHeader` — still the same class/handler). Every chip's `title` attribute is the
+target's own selector, so hovering shows exactly what a click will open — added specifically
+because `dashboard`↔`config`'s target is a dotfile path, not a title a reader would otherwise
+recognize. A future pair relationship should reuse this chip, not invent a new link style.
+
 **Trailing UI (buttons/badges meant to sit at the header's right edge) goes last in each
 builder's own markup, after that builder's own pills/pair-chips/`extraActions`, relying on
 `margin-left: auto` on the trailing element's own CSS class to push it (and nothing before it)
