@@ -311,16 +311,12 @@
                 : String(note.meta?.help_for || '').split(',').map(c => c.trim()).filter(Boolean);
             if (note.meta?.category) pills.push(`<span class="nb-specialty-pill">${_esc(note.meta.category)}</span>`);
             ctx.forEach(c => pills.push(`<span class="nb-specialty-pill nb-topic-ctx">${_esc(c)}</span>`));
-            if (note.topic_links?.feature)
-                pills.push(`<a class="nb-specialty-link" href="#" data-open="${_esc(note.topic_links.feature)}">Try it</a>`);
             pillsHtml = pills.join('');
         } else if (note.type === 'doc') {
             // reviewed: <date> -- when it was last checked against the code
             if (note.meta?.reviewed) pills.push(`<span class="nb-specialty-pill nb-doc-reviewed" title="last checked against the code">reviewed ${_esc(String(note.meta.reviewed))}</span>`);
             pillsHtml = pills.join('');
         } else if (note.type === 'feature') {
-            if (note.topic_links?.doc)
-                pills.push(`<a class="nb-specialty-link" href="#" data-open="${_esc(note.topic_links.doc)}">Read the docs</a>`);
             pills.push(`<button class="nb-specialty-action nb-feature-try" title="Jump to this page's scratchpad">Try it ↓</button>`);
             pillsHtml = pills.join('');
         } else {
@@ -330,7 +326,10 @@
             if (note.meta?.platform)     pills.push(note.meta.platform);
             pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
         }
-        // Project ↔ Reports pair chip — smart: pre-flights existence, offers create/link on miss
+        // Pair chip — one bidirectional slot, same class/position/click-handling for every
+        // pair this header type knows about: project ↔ reports (smart: pre-flights existence,
+        // offers create/link on miss) and topic ↔ feature (simpler: topic_links already only
+        // ever names a target that exists, so no create/link-on-miss case here, 2026-10-09).
         let pairLink = '', sourceWarn = '';
         if (note.type === 'project') {
             const stem = (note.filename || '').replace(/\.md$/i, '');
@@ -355,6 +354,14 @@
                 data-pair-title="${_esc(String(note.meta?.title || stem))}">project</a>`;
             if (!sourceFile)
                 sourceWarn = `<span class="nb-source-warn">no source <button class="nb-specialty-action nb-link-source-btn" data-reports-sel="${_esc(note.selector || '')}" data-notebook="${_esc(note.notebook || '')}">link…</button></span>`;
+        } else if (note.type === 'topic') {
+            if (note.topic_links?.feature) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                data-open="${_esc(note.topic_links.feature)}"
+                data-pair="feature">feature</a>`;
+        } else if (note.type === 'feature') {
+            if (note.topic_links?.doc) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                data-open="${_esc(note.topic_links.doc)}"
+                data-pair="docs">docs</a>`;
         }
 
         const addBtn        = _addOrgBtnHtml(note);
