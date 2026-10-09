@@ -6,9 +6,9 @@
 #   podman build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
 #     -t nb-web -f Containerfile .
 #
-# GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL default to djp's own identity (below) --
-# only pass these for a *different* tenant's image build (Fly Machine
-# provisioning), never for djp's own Phase 2 rebuild.
+# GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL: the git identity nb commits under. No
+# default (2026-10-08): .tools/rebuild-container.sh passes the host's own; an
+# image built without them gets one from /setup, stored on the volume.
 #
 # Run (djp as tenant 0, real ~/.nb mounted read-write):
 #   podman run -d --name nb-web \
@@ -213,18 +213,17 @@ RUN groupadd --gid 1000 nbweb && useradd --uid 1000 --gid nbweb --create-home nb
 # a fresh container user with no ~/.gitconfig gets `nb`'s own first-run
 # setup wizard text instead of real output, which app.py's run_nb() then
 # silently parses as data (same failure shape as the $EDITOR issue below).
-# Defaults match the identity every existing commit in ~/.nb was already
-# made under, so djp's own Phase 2 build behaves identically without
-# passing either --build-arg. Made a build ARG (not still hardcoded)
-# 2026-08-01 for Fly Machine tenant provisioning: without this, every
-# commit a beta tenant's notebook makes would be authored as "linuxcaffe
-# <davamundo@gmail.com>" regardless of whose Machine it is -- baked at
-# image-build time, so no runtime mount or env var could have overridden
-# it after the fact. A per-tenant image build passes the tenant's own
-# identity here instead.
-ARG GIT_AUTHOR_NAME=linuxcaffe
-ARG GIT_AUTHOR_EMAIL=davamundo@gmail.com
-RUN su nbweb -c "git config --global user.name '${GIT_AUTHOR_NAME}' && git config --global user.email '${GIT_AUTHOR_EMAIL}'"
+# The root filesystem is read-only at runtime, so ~/.gitconfig can't be
+# written then: it includes ~/.nb/.users/.gitidentity (on the volume), which
+# /setup writes when git has no identity (2026-10-08). The build args, if
+# given, set one directly. They used to default to djp's identity, so every
+# image -- a Fly tenant's included -- committed as him.
+ARG GIT_AUTHOR_NAME=
+ARG GIT_AUTHOR_EMAIL=
+RUN su nbweb -c "git config --global include.path /home/nbweb/.nb/.users/.gitidentity" && \
+    if [ -n "${GIT_AUTHOR_NAME}" ] && [ -n "${GIT_AUTHOR_EMAIL}" ]; then \
+        su nbweb -c "git config --global user.name '${GIT_AUTHOR_NAME}' && git config --global user.email '${GIT_AUTHOR_EMAIL}'"; \
+    fi
 
 # SSH connection multiplexing (ControlMaster/ControlPersist) -- found live,
 # 2026-07-19, stress-testing the new "sync all notebooks" feature: 17

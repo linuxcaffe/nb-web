@@ -2082,12 +2082,56 @@ def _setup_code(new=False):
 
 def _announce_setup_code():
     """At startup: on a fresh install, make sure there's a setup code and print it."""
+    name, email = _git_identity()
+    if not (name and email):
+        print('[nb-web] git has no user.name/user.email, so nb can\'t work yet: /setup asks for '
+              'them (or run git config --global user.name/user.email)', flush=True)
+    elif not _has_notebooks():
+        _ensure_home_notebook()
     if not _no_accounts():
         return
     existed = bool(os.environ.get('NB_WEB_SETUP_CODE', '').strip()) or _setup_code_path().is_file()
     code = _setup_code()                  # prints it if it had to make one
     if existed:
         print(f'[nb-web] No accounts yet: open /setup and enter the setup code {code}', flush=True)
+
+
+def _git_identity():
+    """(name, email) as nb sees them: `git config --global --includes`."""
+    def get(key):
+        r = subprocess.run(['git', 'config', '--global', '--includes', key], capture_output=True, text=True)
+        return r.stdout.strip()
+    return get('user.name'), get('user.email')
+
+
+def _set_git_identity(name, email):
+    """Give git (so nb) a name and email: in the global config where that's writable (bare metal,
+    what nb's own first run does), else in ~/.nb/.users/.gitidentity, which the container's
+    read-only ~/.gitconfig includes. True if git now reports it."""
+    pairs = (('user.name', name), ('user.email', email))
+    if not all(subprocess.run(['git', 'config', '--global', k, v], capture_output=True).returncode == 0
+               for k, v in pairs):
+        f = USERS_DIR / '.gitidentity'
+        USERS_DIR.mkdir(parents=True, exist_ok=True)
+        for k, v in pairs:
+            subprocess.run(['git', 'config', '-f', str(f), k, v], capture_output=True)
+    return _git_identity() == (name, email)
+
+
+def _has_notebooks():
+    return NB_DIR.is_dir() and any(p.is_dir() and not p.name.startswith('.') for p in NB_DIR.iterdir())
+
+
+def _ensure_home_notebook():
+    """nb creates `home` the first time it lists notebooks while none exist (invariant 18); until
+    then every nb command prints its onboarding text. Needs a git identity first."""
+    if _has_notebooks():
+        return True
+    with _nb_lock():
+        subprocess.run([NB_BIN, 'notebooks', '--names'], input='', capture_output=True, text=True, timeout=60)
+    ok = (NB_DIR / 'home').is_dir()
+    print(f'[nb-web] first notebook: {"home created" if ok else "nb did not create home"}', flush=True)
+    return ok
 
 
 _SETUP_HTML = _LOGIN_HTML.replace('<h2>nb-web</h2>', '<h2>nb-web — first account</h2>').replace(
@@ -2102,7 +2146,14 @@ _SETUP_HTML = _LOGIN_HTML.replace('<h2>nb-web</h2>', '<h2>nb-web — first accou
     '<input name="password" type="password" autocomplete="current-password">',
     '<input name="password" type="password" autocomplete="new-password">\n    '
     '<label>Password again</label>\n    <input name="confirm" type="password" autocomplete="new-password">').replace(
-    'Sign in</button>', 'Create account</button>')
+    'Sign in</button>', '{git_fields}<button type="submit">Create account</button>').replace(
+    '<button type="submit">{git_fields}', '{git_fields}')
+
+_SETUP_GIT_FIELDS = (
+    '<p style="font-size:.85rem;color:#aaa;margin:0 0 1rem">Your notes are kept in git, which needs '
+    'a name and email for their history (it stays on this machine unless you push it).</p>\n    '
+    '<label>Your name</label>\n    <input name="git_name" type="text" autocomplete="name">\n    '
+    '<label>Email</label>\n    <input name="git_email" type="email" autocomplete="email">\n    ')
 
 
 @app.route('/setup', methods=['GET', 'POST'])
@@ -2110,7 +2161,9 @@ def setup():
     global _setup_failures
     if not _no_accounts():
         return redirect('/login')
-    page = lambda err, status: (_SETUP_HTML.format(error=f'<p class="err">{err}</p>' if err else ''),  # noqa: E731
+    need_git = not all(_git_identity())
+    page = lambda err, status: (_SETUP_HTML.format(error=f'<p class="err">{err}</p>' if err else '',  # noqa: E731
+                                                   git_fields=_SETUP_GIT_FIELDS if need_git else ''),
                                 status, {'Content-Type': 'text/html; charset=utf-8'})
     if request.method == 'GET':
         _setup_code()
@@ -2133,6 +2186,15 @@ def setup():
             return page('Use a password of at least 8 characters.', 400)
         if password != request.form.get('confirm', ''):
             return page('The two passwords differ.', 400)
+        if need_git:
+            git_name = request.form.get('git_name', '').strip()
+            git_email = request.form.get('git_email', '').strip()
+            if not git_name or '\n' in git_name or '\r' in git_name:
+                return page('Give a name for your notes\' history.', 400)
+            if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', git_email):
+                return page('Give an email address for your notes\' history.', 400)
+            if not _set_git_identity(git_name, git_email):
+                return page('Could not save the name and email for git; see the server log.', 500)
         content = (f'---\nname: {username}\nlevel: tech\nnotebooks: []\n'
                    f'password_hash: "{generate_password_hash(password)}"\n---\n')
         USERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -2147,6 +2209,7 @@ def setup():
     user = _load_user(username)
     session['user'] = {k: user[k] for k in ('username', 'name', 'level', 'notebooks')}
     print(f'[nb-web] First account created: {username} (tech)', flush=True)
+    _ensure_home_notebook()
     return redirect('/')
 
 @app.route('/api/me')

@@ -21,7 +21,11 @@ tag="phase2-v${next_v}"
 commit=$(git rev-parse --short HEAD)
 
 echo "Building localhost/nb-web:${tag} (nb-web @ ${commit})..."
-podman build --build-arg GIT_COMMIT="$commit" -t "localhost/nb-web:${tag}" -f Containerfile .
+# the host's git identity, so notebook commits stay attributed as before (no default in the image)
+podman build --build-arg GIT_COMMIT="$commit" \
+    --build-arg GIT_AUTHOR_NAME="$(git config --global user.name)" \
+    --build-arg GIT_AUTHOR_EMAIL="$(git config --global user.email)" \
+    -t "localhost/nb-web:${tag}" -f Containerfile .
 
 echo "Tagging as active (localhost/nb-web:phase2)..."
 podman tag "localhost/nb-web:${tag}" localhost/nb-web:phase2
