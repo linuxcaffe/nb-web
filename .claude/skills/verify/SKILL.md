@@ -535,6 +535,26 @@ with the `claude` login, read-only.
 fails about 1 run in 7, on unchanged `main` too (closer to 1 in 3 full runs on 2026-10-05, when
 the machine was busy). Re-run that spec alone before suspecting your change.
 
+## Recipe: a genuinely fresh install (added 2026-10-08)
+
+To see what a brand-new user gets (`/setup`, the git identity step, `home`, the welcome wizard;
+invariant 78): an empty `NB_DIR` **and** an empty `HOME`, so nb and git find no config at all.
+An empty `HOME` also hides the user-installed Python packages (`ModuleNotFoundError: flask`), so
+point `PYTHONUSERBASE` back at them:
+
+```bash
+S=<scratchpad>/fresh; rm -rf $S; mkdir -p $S/nb $S/home
+PYTHONUSERBASE=$HOME/.local HOME=$S/home NB_DIR=$S/nb NB_WEB_PORT=5003 NB_AUTO_SYNC=0 \
+  nohup python3 app.py > $S/server.log 2>&1 &
+grep -o "setup code [A-Z0-9-]*" $S/server.log      # the code /setup asks for
+```
+
+Then drive `http://localhost:5003/` with Playwright (it lands on `/setup`; the form has
+`code`, `username`, `password`, `confirm`, and `git_name`/`git_email` when git has no identity).
+Afterwards: `git -C $S/nb/home log` shows commits authored as the identity you typed, and
+`$S/home/.gitconfig` holds it. Kill the server by PID from `ss -ltnp | grep 5003`. Never run
+this with the real `HOME`: `/setup` would write your global git config if it had no identity.
+
 ## Recipe: make an intermittent navigation failure deterministic (added 2026-10-06)
 
 A test that fails "1 run in 5" in a full run is usually two async things finishing in either
