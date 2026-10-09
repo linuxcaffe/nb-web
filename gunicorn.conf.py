@@ -22,3 +22,4 @@ def on_starting(server):
     app._assert_nb_auto_sync_off()
     app._assert_notebook_tracking()
     app._install_prepush_hooks()
+    app._announce_setup_code()

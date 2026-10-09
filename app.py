@@ -2033,6 +2033,122 @@ def logout():
     session.clear()
     return redirect('/login')
 
+
+# ---------------------------------------------------------------------------
+# /setup: the first account on a fresh install (2026-10-08). While ~/.nb/.users/ holds no
+# accounts, a one-time code is printed in the server's log; /setup takes it plus a username and
+# password and creates a tech account. The code is the guard: on Fly or a tailnet anyone can reach
+# /setup, but only the operator can read the server's output. It lives in a file, not memory,
+# because gunicorn's startup hook runs in the master and requests in a worker.
+# NB_WEB_SETUP_CODE presets it. Tests: nb-web-tests/test_setup_first_account.py.
+# ---------------------------------------------------------------------------
+
+_SETUP_LOCK = threading.Lock()
+_SETUP_MAX_TRIES = 10
+_setup_failures = 0
+
+
+def _no_accounts():
+    return not USERS_DIR.is_dir() or not any(USERS_DIR.glob('*.md'))
+
+
+def _setup_code_path():
+    return USERS_DIR / '.setup-code'
+
+
+def _norm_code(code):
+    return re.sub(r'[\s-]', '', str(code or '')).upper()
+
+
+def _setup_code(new=False):
+    """The current setup code (made, saved 0600 and printed if there's none, or new=True)."""
+    preset = os.environ.get('NB_WEB_SETUP_CODE', '').strip()
+    if preset:
+        return preset
+    p = _setup_code_path()
+    if not new and p.is_file():
+        return p.read_text().strip()
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # no 0/O, 1/I
+    raw = ''.join(secrets.choice(alphabet) for _ in range(8))
+    code = f'{raw[:4]}-{raw[4:]}'
+    USERS_DIR.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        f.write(code + '\n')
+    os.chmod(p, 0o600)
+    print(f'[nb-web] No accounts yet: open /setup and enter the setup code {code}', flush=True)
+    return code
+
+
+def _announce_setup_code():
+    """At startup: on a fresh install, make sure there's a setup code and print it."""
+    if not _no_accounts():
+        return
+    existed = bool(os.environ.get('NB_WEB_SETUP_CODE', '').strip()) or _setup_code_path().is_file()
+    code = _setup_code()                  # prints it if it had to make one
+    if existed:
+        print(f'[nb-web] No accounts yet: open /setup and enter the setup code {code}', flush=True)
+
+
+_SETUP_HTML = _LOGIN_HTML.replace('<h2>nb-web</h2>', '<h2>nb-web — first account</h2>').replace(
+    'action="/login"', 'action="/setup"').replace(
+    '<label>Username or name</label>',
+    '<p style="font-size:.85rem;color:#aaa;margin:0 0 1rem">No accounts yet. The setup code is in '
+    "the server's log (the terminal running nb-web, <code>journalctl</code>, <code>podman logs</code> "
+    'or <code>fly logs</code>).</p>\n    <label>Setup code</label>\n    '
+    '<input name="code" type="text" autocomplete="off" autofocus>\n    <label>Username</label>').replace(
+    '<input name="username" type="text" autocomplete="username" autofocus>',
+    '<input name="username" type="text" autocomplete="username">').replace(
+    '<input name="password" type="password" autocomplete="current-password">',
+    '<input name="password" type="password" autocomplete="new-password">\n    '
+    '<label>Password again</label>\n    <input name="confirm" type="password" autocomplete="new-password">').replace(
+    'Sign in</button>', 'Create account</button>')
+
+
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    global _setup_failures
+    if not _no_accounts():
+        return redirect('/login')
+    page = lambda err, status: (_SETUP_HTML.format(error=f'<p class="err">{err}</p>' if err else ''),  # noqa: E731
+                                status, {'Content-Type': 'text/html; charset=utf-8'})
+    if request.method == 'GET':
+        _setup_code()
+        return page('', 200)
+    username = request.form.get('username', '').strip().lower()
+    password = request.form.get('password', '')
+    with _SETUP_LOCK:
+        if not _no_accounts():                        # someone else got here first
+            return redirect('/login')
+        code = _setup_code()
+        if not secrets.compare_digest(_norm_code(request.form.get('code')), _norm_code(code)):
+            _setup_failures += 1
+            if _setup_failures >= _SETUP_MAX_TRIES:
+                _setup_failures = 0
+                _setup_code(new=True)
+            return page('That setup code is not right. Check the server log.', 403)
+        if not _RE_USERNAME.match(username) or username.startswith('.'):
+            return page('A username is letters, digits, dot, dash or underscore.', 400)
+        if len(password) < 8:
+            return page('Use a password of at least 8 characters.', 400)
+        if password != request.form.get('confirm', ''):
+            return page('The two passwords differ.', 400)
+        content = (f'---\nname: {username}\nlevel: tech\nnotebooks: []\n'
+                   f'password_hash: "{generate_password_hash(password)}"\n---\n')
+        USERS_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(str(USERS_DIR / f'{username}.md'), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            return redirect('/login')
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+        _setup_code_path().unlink(missing_ok=True)
+        _setup_failures = 0
+    user = _load_user(username)
+    session['user'] = {k: user[k] for k in ('username', 'name', 'level', 'notebooks')}
+    print(f'[nb-web] First account created: {username} (tech)', flush=True)
+    return redirect('/')
+
 @app.route('/api/me')
 def api_me():
     user = session.get('user')
@@ -17408,6 +17524,7 @@ if __name__ == '__main__':
     _assert_nb_auto_sync_off()
     _assert_notebook_tracking()
     _install_prepush_hooks()
+    _announce_setup_code()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
     app.run(host=HOST, port=PORT, debug=DEBUG, use_reloader=False, threaded=True)
