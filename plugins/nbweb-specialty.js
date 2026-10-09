@@ -326,15 +326,23 @@
             if (note.meta?.platform)     pills.push(note.meta.platform);
             pillsHtml = pills.map(p => `<span class="nb-specialty-pill">${_esc(p)}</span>`).join('');
         }
-        // Pair chip — one bidirectional slot, same class/position/click-handling for every
-        // pair this header type knows about: project ↔ reports (smart: pre-flights existence,
-        // offers create/link on miss) and topic ↔ feature (simpler: topic_links already only
-        // ever names a target that exists, so no create/link-on-miss case here, 2026-10-09).
+        // Pair chip — one bidirectional slot/class/click-handler (`.nb-pair-chip[data-open]`,
+        // delegated below) reused across every note-pair this header type knows about: project
+        // ↔ reports (smart: pre-flights existence, offers create/link on miss), topic ↔
+        // feature, and (in _renderDashboardNote/_renderDotfileNote, their own separate header
+        // builders — see "Four independent header builders" above) dashboard ↔ dotfile.
+        // Every chip's `title` is the target's own selector, so hovering shows exactly what a
+        // click will open (djp, 2026-10-09) before committing to it — useful everywhere, but
+        // especially for dashboard ↔ config, where the target is a dotfile path, not a title a
+        // reader would otherwise recognize. Only project ↔ reports gets the create/link-on-miss
+        // affordance; the others' targets are either always real (topic_links) or not yet worth
+        // that extra UI (dashboard ↔ dotfile).
         let pairLink = '', sourceWarn = '';
         if (note.type === 'project') {
             const stem = (note.filename || '').replace(/\.md$/i, '');
             const reportSel = _pairedSel(note, `${stem}-reports.md`);
             if (reportSel) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                title="${_esc(reportSel)}"
                 data-open="${_esc(reportSel)}"
                 data-pair="reports"
                 data-notebook="${_esc(note.notebook || '')}"
@@ -347,6 +355,7 @@
                 ? _pairedSel(note, sourceFile)
                 : _pairedSel(note, `${stem}.md`);
             if (projectSel) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                title="${_esc(projectSel)}"
                 data-open="${_esc(projectSel)}"
                 data-pair="project"
                 data-notebook="${_esc(note.notebook || '')}"
@@ -356,10 +365,12 @@
                 sourceWarn = `<span class="nb-source-warn">no source <button class="nb-specialty-action nb-link-source-btn" data-reports-sel="${_esc(note.selector || '')}" data-notebook="${_esc(note.notebook || '')}">link…</button></span>`;
         } else if (note.type === 'topic') {
             if (note.topic_links?.feature) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                title="${_esc(note.topic_links.feature)}"
                 data-open="${_esc(note.topic_links.feature)}"
                 data-pair="feature">feature</a>`;
         } else if (note.type === 'feature') {
             if (note.topic_links?.doc) pairLink = `<a class="nb-specialty-link nb-pair-chip" href="#"
+                title="${_esc(note.topic_links.doc)}"
                 data-open="${_esc(note.topic_links.doc)}"
                 data-pair="docs">docs</a>`;
         }
@@ -425,7 +436,7 @@
             dashSel = (dashes.find(n => (n.filename || n.selector.split('/').pop()) === own) || dashes[0])?.selector || '';
         }
         const dashLink = dashSel
-            ? `<a class="nb-specialty-link" href="#" data-open="${_esc(dashSel)}">dashboard</a>`
+            ? `<a class="nb-specialty-link nb-pair-chip" href="#" title="${_esc(dashSel)}" data-open="${_esc(dashSel)}" data-pair="dashboard">dashboard</a>`
             : '';
 
         const scopePill  = `<span class="nb-specialty-pill">${scope}</span>`;
@@ -499,7 +510,7 @@
         const folder   = dirPath ? dirPath.split('/').pop() : '';
         const configSel = nb ? (folder ? `${nb}:${dirPath}/.${folder}.md` : `${nb}:.${nb}.md`) : '';
         const configLink = configSel
-            ? `<a class="nb-specialty-link" href="#" data-open="${_esc(configSel)}">config</a>`
+            ? `<a class="nb-specialty-link nb-pair-chip" href="#" title="${_esc(configSel)}" data-open="${_esc(configSel)}" data-pair="config">config</a>`
             : '';
 
         // Sync + access right-justified
