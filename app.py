@@ -552,6 +552,17 @@ from werkzeug.security import check_password_hash, generate_password_hash
 USERS_DIR  = NB_DIR / '.users'
 LEVELS     = ['guest', 'user', 'office', 'admin', 'tech']
 DOTFOLDERS = ['.users', '.tools', '.changes', '.images', '.rules', '.lib', '.checks']
+# Dot-folders that hold accounts or code the server runs. Reading .users gives every password
+# hash and writing it any account's level; a script in .checks/.lib/.tools runs on the server, so
+# writing one is a shell. Below tech, either is a way to become tech, so both are tech-only, as
+# the terminal is (invariant 77). The rest stay admin (2026-10-13, invariant 80).
+_DOT_TECH_READ  = {'.users'}
+_DOT_TECH_WRITE = {'.users', '.checks', '.lib', '.tools'}
+
+
+def _dot_level(folder, write=False):
+    """The level needed to read (or write) a file in dot-folder `folder`."""
+    return 'tech' if folder in (_DOT_TECH_WRITE if write else _DOT_TECH_READ) else 'admin'
 
 _SECRET_FILE = Path(__file__).parent / '.flask_secret'
 
@@ -1849,9 +1860,10 @@ def _can_access_abs_path(user, p, write=False):
     """Access check for an absolute-path selector -- see _resolve_abs_selector."""
     if write and not _level_gte(user.get('level', ''), 'user'):
         return False
+    p = Path(os.path.normpath(p))   # '.../home/../.users/x' is .users, not home
     kind, note_meta, nb_meta = _resolve_abs_selector(p)
     if kind == 'dotfolder':
-        return _level_gte(user.get('level', ''), 'admin')
+        return _level_gte(user.get('level', ''), _dot_level(p.relative_to(NB_DIR).parts[0], write))
     if kind == 'notebook':
         return _can_access(user, note_meta, nb_meta)
     return _level_gte(user.get('level', ''), 'tech')
@@ -7690,7 +7702,7 @@ def api_notes():
     limit    = int(request.args.get('limit', 200))
     if _is_dot_notebook(notebook):
         user = session.get('user', {})
-        if not _level_gte(user.get('level', ''), 'admin'):
+        if not _level_gte(user.get('level', ''), _dot_level(notebook)):
             return jsonify({'error': 'forbidden'}), 403
         return _list_dotfolder_notes(notebook, limit)
 
@@ -9155,7 +9167,7 @@ def api_note():
         if dot_path is not None:
             user = session.get('user', {})
             dot_nb = selector.partition(':')[0]
-            if dot_nb not in _DOT_OPEN and not _level_gte(user.get('level', ''), 'admin'):
+            if dot_nb not in _DOT_OPEN and not _level_gte(user.get('level', ''), _dot_level(dot_nb)):
                 return jsonify({'error': 'forbidden'}), 403
             # .lib files: filename suffix declares required level (_lib_file_accessible) —
             # serves empty body (silent) if user doesn't qualify; no error, no 403.
@@ -9833,7 +9845,7 @@ def api_create_note():
 
     user = session.get('user', {})
     if _is_dot_notebook(notebook):
-        if not _level_gte(user.get('level', ''), 'admin'):
+        if not _level_gte(user.get('level', ''), _dot_level(notebook, write=True)):
             return jsonify({'error': 'forbidden'}), 403
         filename = re.sub(r'[^\w\-.]', '_', title or 'note').strip('_') + '.md'
         fpath = NB_DIR / notebook / filename
@@ -10161,7 +10173,7 @@ def api_edit_note():
     # Resolve dotfolder selectors to absolute paths so the existing path-write code handles them
     dot_path = _dot_selector_to_path(selector)
     if dot_path is not None:
-        if not _level_gte(user.get('level', ''), 'admin'):
+        if not _level_gte(user.get('level', ''), _dot_level(selector.partition(':')[0], write=True)):
             return jsonify({'error': 'forbidden'}), 403
         selector = str(dot_path)
     elif selector.startswith('/'):
@@ -10391,7 +10403,7 @@ def api_delete_note():
     user = session.get('user', {})
     dot_path = _dot_selector_to_path(selector)
     if dot_path is not None:
-        if not _level_gte(user.get('level', ''), 'admin'):
+        if not _level_gte(user.get('level', ''), _dot_level(selector.partition(':')[0], write=True)):
             return jsonify({'error': 'forbidden'}), 403
         try:
             dot_path.unlink()
@@ -14396,6 +14408,35 @@ def api_sysadmin_crontab():
 # API: User management (admin+)
 # ---------------------------------------------------------------------------
 
+def _may_manage_user(caller, username, target_level):
+    """An admin manages only accounts below its own level (itself too, for name and password);
+    tech manages anyone. Before 2026-10-13 only the NEW level was checked, so an admin could set
+    a tech account's password and log in as it (test_admin_escalation.py, invariant 80)."""
+    if caller.get('level') == 'tech' or caller.get('username') == username:
+        return True
+    lv = lambda x: LEVELS.index(x) if x in LEVELS else 0  # noqa: E731
+    return lv(target_level) < lv(caller.get('level', 'guest'))
+
+
+def _set_fm_lines(text, updates):
+    """Rewrite top-level frontmatter keys in `text` (a key's indented lines go with it), keeping
+    every other line and the body. updates: {key: yaml-text value}, the value already rendered."""
+    if not text.startswith('---\n'):
+        text = '---\n---\n' + text
+    end = text.index('\n---', 3)
+    lines, out, skip = text[4:end].split('\n'), [], False
+    for ln in lines:
+        key = ln.split(':', 1)[0] if ln[:1].strip() and ':' in ln else None
+        if key is not None:
+            skip = key in updates
+        elif not ln[:1].strip() and ln.strip() and skip:
+            continue
+        if not skip:
+            out.append(ln)
+    out += [f'{k}:{v}' for k, v in updates.items()]
+    return '---\n' + '\n'.join(l for l in out if l != '') + text[end:]
+
+
 def _admin_check():
     """Return error response or None. Requires admin+ level."""
     user = session.get('user', {})
@@ -14487,9 +14528,12 @@ def api_update_user(username):
     caller   = session.get('user', {})
 
     try:
-        meta, body = parse_frontmatter(path.read_text())
+        raw = path.read_text()
+        meta, body = parse_frontmatter(raw)
     except Exception:
         return jsonify(error='Could not read user card'), 500
+    if not _may_manage_user(caller, username, str(meta.get('level', 'user'))):
+        return jsonify(error='Only tech can manage an account at or above your own level'), 403
 
     if 'name' in data:
         meta['name'] = str(data['name']).strip()
@@ -14512,13 +14556,18 @@ def api_update_user(username):
     if 'password' in data and data['password']:
         meta['password_hash'] = generate_password_hash(str(data['password']))
 
-    # Reconstruct YAML frontmatter preserving password_hash
-    nbs = meta.get('notebooks', [])
-    nb_yaml = '\n'.join(f'  - {nb}' for nb in nbs) if nbs else ''
-    nb_line  = f'notebooks:\n{nb_yaml}' if nb_yaml else 'notebooks: []'
-    content  = (f'---\nname: {meta.get("name", username)}\nlevel: {meta.get("level", "user")}\n'
-                f'{nb_line}\npassword_hash: "{meta.get("password_hash", "")}"\n---\n{body}')
-    path.write_text(content)
+    # Rewrite only the changed keys: the old full rewrite dropped every other field (2026-10-13)
+    updates = {}
+    if 'name' in data:
+        updates['name'] = f' {meta["name"]}'
+    if 'level' in data:
+        updates['level'] = f' {meta["level"]}'
+    if 'notebooks' in data:
+        nbs = meta['notebooks']
+        updates['notebooks'] = ''.join(f'\n  - {nb}' for nb in nbs) if nbs else ' []'
+    if 'password' in data and data['password']:
+        updates['password_hash'] = f' "{meta["password_hash"]}"'
+    path.write_text(_set_fm_lines(raw, updates))
     return jsonify({'success': True})
 
 @app.route('/api/users/<username>', methods=['DELETE'])
@@ -14533,6 +14582,12 @@ def api_delete_user(username):
     path = USERS_DIR / f'{username}.md'
     if not path.exists():
         return jsonify(error='User not found'), 404
+    try:
+        target_level = str(parse_frontmatter(path.read_text())[0].get('level', 'user'))
+    except Exception:
+        target_level = 'tech'
+    if not _may_manage_user(caller, username, target_level):
+        return jsonify(error='Only tech can delete an account at or above your own level'), 403
     path.unlink()
     return jsonify({'success': True})
 
