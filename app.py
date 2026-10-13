@@ -1840,7 +1840,8 @@ def _resolve_abs_selector(p):
             note_meta, _ = parse_frontmatter(p.read_text(errors='replace'))
         except OSError:
             note_meta = {}
-        return 'notebook', note_meta, _notebook_config(top)
+        # The folder chain, not just the notebook: a folder config's own access: applies too.
+        return 'notebook', note_meta, _folder_config(top, p)
     return 'outside', {}, {}
 
 
@@ -3853,6 +3854,9 @@ def api_inline_query():
                 _np = _resolve_to_nb_path(selector)
                 if not _np or not _np.exists():
                     return jsonify({'error': 'note not found'}), 404
+                # read nothing the account can't open (no check at all before 2026-10-13)
+                if not _can_access_abs_path(session.get('user', {}), Path(_np)):
+                    return jsonify({'error': 'forbidden'}), 403
                 meta, _ = parse_frontmatter(_np.read_text(errors='replace'))
                 if field not in meta:
                     return jsonify({'error': f'field not found: {field}'}), 404
@@ -7771,22 +7775,43 @@ def api_fm_keys():
     keys:     optional repeated param — if present, only include these keys
     Returns {keys: {name: {count, count_empty, samples[]}}}
     """
-    notebook  = request.args.get('notebook', '')
+    # Until 2026-10-13 `notebook` went straight into a path with no access check: any logged-in
+    # account could list .users (password_hash samples), walk outside ~/.nb with '..', or read
+    # any admin-only notebook's keys and values (nb-web-tests/test_fm_access.py). Now it sees
+    # what /api/front-query would show it: real notebooks in its scope, notes it can open.
+    user      = session.get('user', {})
+    notebook  = request.args.get('notebook', '').strip()
     scope_set = set(request.args.getlist('keys')) or None
-    nb_path   = Path(NB_DIR) / notebook if notebook else Path(NB_DIR)
-    if not nb_path.is_dir():
-        return jsonify({'error': 'notebook not found'}), 404
+    if notebook:
+        if not _safe_notebook(notebook):
+            return jsonify({'error': 'invalid notebook'}), 400
+        if not nb_dir_for(notebook).is_dir():
+            return jsonify({'error': 'notebook not found'}), 404
+        if not _notebook_in_scope(user, notebook):
+            return jsonify({'error': 'forbidden: notebook not in your account scope'}), 403
+        notebooks = [notebook]
+    else:
+        notebooks = [d.name for d in sorted(NB_DIR.iterdir())
+                     if d.is_dir() and not d.name.startswith('.') and _notebook_in_scope(user, d.name)]
+
+    def _walk():
+        for nb in notebooks:
+            for root, dirs, files in os.walk(nb_dir_for(nb)):
+                dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+                yield nb, Path(root), files
 
     key_data = {}
-    for root, dirs, files in os.walk(nb_path):
-        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+    for nb, root, files in _walk():
+        cfg = _folder_config(nb, root)
         for fname in files:
-            if not fname.endswith('.md'):
+            # dotfiles are config and bookkeeping, not notes (invariant 24)
+            if not fname.endswith('.md') or fname.startswith('.'):
                 continue
             try:
-                text = (Path(root) / fname).read_text(errors='replace')
-                meta, _ = parse_frontmatter(text)
+                meta, _ = parse_frontmatter((root / fname).read_text(errors='replace'))
             except Exception:
+                continue
+            if not _can_access(user, meta, cfg):
                 continue
             for k, v in meta.items():
                 if scope_set and k not in scope_set:
@@ -7830,6 +7855,9 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
                 continue
             if not _safe_notebook(nb):
                 return None, (f'invalid notebook: {nb}', 400)
+            # notebooks= is plural, so _notebook_scope_check never sees it (invariant 13)
+            if not _notebook_in_scope(user, nb):
+                return None, ('forbidden: notebook not in your account scope', 403)
         # folders is positionally aligned with nb_list — '' entries are fine and
         # common (a scope token with no folder qualifier); pad defensively so a
         # length mismatch can't ever raise instead of just meaning "no folder".
@@ -7845,7 +7873,7 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
                 return None, (f'invalid folder: {folder}', 400)
     else:
         nb_list    = [d.name for d in sorted(NB_DIR.iterdir())
-                      if d.is_dir() and not d.name.startswith('.')]
+                      if d.is_dir() and not d.name.startswith('.') and _notebook_in_scope(user, d.name)]
         nb_folders = {}
 
     def _scan_file(fpath, selector, notebook=None, nb_cfg=None):
@@ -7914,6 +7942,8 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
         for dirpath_s, dirnames, filenames in os.walk(walk_root):
             dirnames[:] = sorted(d for d in dirnames if not d.startswith('.'))
             dirpath = Path(dirpath_s)
+            # a folder config's own access: counts too, not just the notebook's (2026-10-13)
+            dir_cfg = nb_cfg if notebook == '.lib' else _folder_config(notebook, dirpath)
             # Dotfiles (.index, .<notebook>.md, folder configs) are bookkeeping,
             # not notes — never real query results. Was leaking through before
             # 2026-08-04 for any filter permissive of a missing field (found via
@@ -7923,7 +7953,7 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
                 fpath = dirpath / fname
                 rel   = str(fpath.relative_to(nb_dir))
                 selector = f'{notebook}:{rel}'
-                r = _scan_file(fpath, selector, notebook, nb_cfg)
+                r = _scan_file(fpath, selector, notebook, dir_cfg)
                 if r:
                     results.append(r)
                     if len(results) >= limit:
