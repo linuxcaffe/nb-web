@@ -240,6 +240,31 @@ def slice_section(body, heading):
     return None if start is None else '\n'.join(lines[start:]).strip()
 
 
+_HEADING_RE = re.compile(r'^(#{1,6})(?=\s)', re.M)
+
+
+def _headings(text):
+    """[(offset, level)] of the markdown headings in text, outside code and HTML comments."""
+    found = []
+    def scan(chunk, off):
+        found.extend((off + m.start(), len(m.group(1))) for m in _HEADING_RE.finditer(chunk))
+        return chunk
+    _protected(text, scan)
+    return found
+
+
+def shift_headings(md, base):
+    """A chapter under a level-`base` heading: shift its headings so the top one is base + 1.
+    Never promotes; capped at 6; code untouched; base 0 (no heading above) changes nothing.
+    The app does the same in the browser (main.js _shiftChapterHeadings)."""
+    levels = [lv for _, lv in _headings(md)]
+    shift = base + 1 - min(levels) if base and levels else 0
+    if shift <= 0:
+        return md
+    return _protected(md, lambda chunk, off: _HEADING_RE.sub(
+        lambda m: '#' * min(6, len(m.group(1)) + shift), chunk))
+
+
 class Book:
     """Expands {{inline:}} chapters: docs: notes from the working tree (the source), features:
     notes at the pristine tag."""
@@ -290,10 +315,14 @@ class Book:
         return dashboard_summary.qualify_links(body.strip(), sel), None
 
     def expand(self, text, rel, warnings, strict=False, depth=0):
-        """Replace the chapter lines in `text` (a note at docs:rel); nested chapters two deep."""
+        """Replace the chapter lines in `text` (a note at docs:rel); nested chapters two deep.
+        A chapter's headings sit under the host heading above its line (shift_headings)."""
+        heads = _headings(text)
+
         def fix(chunk, off):
-            out = []
+            out, at = [], off
             for line in chunk.split('\n'):
+                line_at, at = at, at + len(line) + 1
                 m = _INLINE_LINE_RE.match(line.strip())
                 if not m:
                     out.append(line)
@@ -306,6 +335,8 @@ class Book:
                     warnings.append(msg + ' (left out)' if why.startswith('export: false') else msg + ' (left as is)')
                     out.append('' if why.startswith('export: false') else line)
                     continue
+                base = next((lv for o, lv in reversed(heads) if o < line_at), 0)
+                md = shift_headings(md, base)
                 out.append(self.expand(md, rel, warnings, strict, depth + 1) if depth < 1 else md)
             return '\n'.join(out)
         return _protected(text, fix)

@@ -1821,6 +1821,7 @@ const NbMain = (() => {
                 const wrap = document.createElement('div');
                 wrap.className = 'nb-inline-content nb-inline-summary';
                 wrap.innerHTML = `<div class="nb-rendered">${_renderMarkdown(d.markdown || '', d.selector)}</div>`;
+                _shiftChapterHeadings(wrap, _hostHeadingLevel(span));
                 span.replaceWith(wrap);
                 _enrichRendered(wrap, { selector: d.selector, notebook: d.notebook, meta: {} });
                 return;
@@ -1855,6 +1856,7 @@ const NbMain = (() => {
             // e.g. `<div class="nb-card">...</div><div class="nb-card-body">...</div>`) --
             // djp: "should only inline: the card contents."
             if (gotCard) wrap.querySelector('.nb-card-body')?.remove();
+            else _shiftChapterHeadings(wrap, _hostHeadingLevel(span));
             // An inlined card has no toolbar of its own to edit through (the Changes
             // panel belongs to whatever note is actually open) -- djp: "an inlined card
             // becomes one big clickable link to the source file." Whole-card click opens
@@ -1882,6 +1884,39 @@ const NbMain = (() => {
         } finally {
             _RenderBar.tick();
             _StatusPill.tick();
+        }
+    }
+
+    // A chapter sits under the heading it's included under (2026-10-13): its headings keep their
+    // levels relative to each other, shifted so its top heading is one level below the nearest
+    // heading above it in the host. Headings inside other chapters don't count (the next chapter
+    // after a chapter still hangs off the host's heading); a chapter containing this one does.
+    // No heading above: unchanged. Never promoted; capped at h6. .tools/readme-export.py does
+    // the same to the markdown (shift_headings). e2e: inline-headings.spec.js.
+    function _hostHeadingLevel(span) {
+        let root = span.closest('.nb-rendered');
+        for (let up = root?.parentElement?.closest('.nb-rendered'); up; up = up.parentElement?.closest('.nb-rendered')) root = up;
+        if (!root) return 0;
+        let level = 0;
+        for (const h of root.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+            if (!(h.compareDocumentPosition(span) & Node.DOCUMENT_POSITION_FOLLOWING)) break;
+            const chapter = h.closest('.nb-inline-content');
+            if (chapter && !chapter.contains(span)) continue;
+            level = +h.tagName[1];
+        }
+        return level;
+    }
+
+    function _shiftChapterHeadings(wrap, base) {
+        const heads = [...wrap.querySelectorAll('h1,h2,h3,h4,h5,h6')];
+        if (!base || !heads.length) return;
+        const shift = base + 1 - Math.min(...heads.map(h => +h.tagName[1]));
+        if (shift <= 0) return;
+        for (const h of heads) {
+            const n = document.createElement(`h${Math.min(6, +h.tagName[1] + shift)}`);
+            for (const a of h.attributes) n.setAttribute(a.name, a.value);
+            n.append(...h.childNodes);
+            h.replaceWith(n);
         }
     }
 
