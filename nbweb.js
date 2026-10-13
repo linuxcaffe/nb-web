@@ -859,8 +859,21 @@ const NbWeb = (() => {
     // A root reused for a rebuilt form (the toolbar's FM panel) gets the new buttons; the one
     // listener always clicks whichever are current. Typing or changing anything inside marks
     // Save dirty; a form whose other edits fire no input event calls formDirty(root) itself.
+    // Unsaved-changes policy (2026-10-14, djp): a visible form whose Save is lit counts as unsaved
+    // work, so switching notes asks and closing the tab warns (NbMain._hasUnsaved). Forms register
+    // here through formKeys; a cancelled (hidden or removed) form drops out by itself.
+    const _formRoots = new Set();
+    function unsavedForms() {
+        return [..._formRoots].filter(root => {
+            if (!root.isConnected) { _formRoots.delete(root); return false; }
+            const s = root._nbFormBtns?.saveBtn;
+            return !!s && s.isConnected && !s.classList.contains('nb-clean') && s.checkVisibility();
+        });
+    }
+
     function formKeys(root, saveBtn, cancelBtn) {
         if (!root) return;
+        _formRoots.add(root);
         root._nbFormBtns = { saveBtn, cancelBtn };
         formDirty(saveBtn, false);
         if (root.dataset.formKeys) return;
@@ -892,6 +905,7 @@ const NbWeb = (() => {
         formActions,
         formKeys,
         formDirty,
+        unsavedForms,
         loadLocale,
         applyI18n,
         registerModule,

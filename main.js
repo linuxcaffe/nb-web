@@ -189,6 +189,11 @@ const NbMain = (() => {
     // ── Boot ───────────────────────────────────────────────────────
 
     async function init() {
+        window.addEventListener('beforeunload', e => {
+            if (!_hasUnsaved()) return;
+            e.preventDefault();
+            e.returnValue = '';   // the browser shows its own "Leave site?" text
+        });
         _loadNavHistory();
         _updateNavBtns();
         await NbNav.init();
@@ -705,13 +710,20 @@ const NbMain = (() => {
             `<div class="nb-skel-line" style="width:60%"></div></div>`;
     }
 
+    // The one unsaved-changes test (2026-10-14, djp): the editor, the sheet view, csv grids, and
+    // any in-note form with its Save lit. openNote asks before leaving; beforeunload (init) warns.
+    function _hasUnsaved() {
+        return _editing || _sheetDirty || _csvDirty || NbWeb.unsavedForms().length > 0;
+    }
+
     async function openNote(selector, pushHistory = true, opts = {}) {
-        if ((_editing || _sheetDirty || _csvDirty) && selector !== _activeSelector) {
+        if (_hasUnsaved() && selector !== _activeSelector) {
             if (opts.autoSelect) return;   // renderList auto-select: never disrupt editing
             if (!confirm('Discard unsaved changes?')) return;
             if (_editing) _closeEditor();
             _sheetDirty = false;
             _csvDirty = false;
+            NbWeb.unsavedForms().forEach(root => NbWeb.formDirty(root, false));
         }
 
         // Always update list visual selection — shows where cursor is even when pinned

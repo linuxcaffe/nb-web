@@ -218,9 +218,10 @@ Numbers match `docs:dev/dev-invariants.md`, where each has its full story.
     `.checks`/`.lib`/`.tools` tech to write) and `_may_manage_user`.
 81. In-note forms use `NbWeb.formActions()` + `NbWeb.formKeys(root, save, cancel)`
     (Ctrl+Enter saves, Escape cancels, stopped at the form). Save stays dim (`nb-clean`) until
-    an input/change; `NbWeb.formDirty(root)` marks it dirty for other edits; csv uses
-    `_csvDirtyHooks`, and `_csvDirty` makes `openNote` ask before leaving. Block-header actions use `nb-block-act`. The editor's own Save is
-    separate.
+    an input/change; `NbWeb.formDirty(root)` marks other edits. **Unsaved work is never lost
+    silently:** `_hasUnsaved()` (the editor, the sheet view, `_csvDirty`, `NbWeb.unsavedForms()`)
+    makes `openNote` ask and `beforeunload` warn; a new editing surface must feed it. Policy:
+    `docs:dev/dev-codeblock-authoring.md`. Block-header actions use `nb-block-act`.
 
 ## nb notebook layout
 
