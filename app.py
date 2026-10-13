@@ -12723,8 +12723,11 @@ def api_toolbar_notes():
     folder is currently open in the list pane.  Results are intentionally
     lightweight — just enough to render the shortcut button.
     """
+    # A real notebook in the account's scope, and only notes it can open: `notebook` used to be a
+    # raw path ('..' walked out of ~/.nb) with no access check (2026-10-14, invariant 79).
+    user     = session.get('user', {})
     notebook = request.args.get('notebook', '').strip()
-    if not notebook:
+    if not notebook or not _safe_notebook(notebook) or not _notebook_in_scope(user, notebook):
         return jsonify({'notes': []})
     nb_path = NB_DIR / notebook
     if not nb_path.is_dir():
@@ -12739,6 +12742,8 @@ def api_toolbar_notes():
             raw  = fpath.read_text(errors='replace')
             meta, _ = parse_frontmatter(raw)
             if not bool(meta.get('toolbar')):
+                continue
+            if not _can_access(user, meta, _folder_config(notebook, fpath.parent)):
                 continue
             fname = fpath.name
             itype = _apply_meta_type(classify(fname, notebook), meta)

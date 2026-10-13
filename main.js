@@ -3406,6 +3406,15 @@ const NbMain = (() => {
         }
     }
 
+    // A grid in a chapter pulled in with {{inline:}} belongs to that chapter's note, which ↓ here
+    // can't save: no ↓ on it (open the chapter to edit it).
+    function _csvNoSaveInChapter(placeholder, wrap) {
+        if (!placeholder.closest('.nb-inline-content')) return;
+        const save = wrap.querySelector('.nb-csv-save-btn');
+        if (save) save.hidden = true;
+        wrap.title = 'Open this chapter to edit its table';
+    }
+
     function _buildCsvBarblock(label, rowCount, blockIdx, addBtnFn) {
         const wrap = document.createElement('div');
         wrap.className = 'nb-csv-wrap';
@@ -3502,6 +3511,7 @@ const NbMain = (() => {
             const columns = _csvAutoColumns(headerRow, dataRows);
 
             const { wrap, body } = _buildCsvBarblock('csv', dataRows.length, blockIdx++, undefined);
+            _csvNoSaveInChapter(pre, wrap);
 
             const host = document.createElement('div');
             host.className = 'nb-csv-block';
@@ -3529,6 +3539,7 @@ const NbMain = (() => {
             .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
 
         const { wrap, body, meta } = _buildCsvBarblock(token, dataRows.length, blockIdx, null);
+        _csvNoSaveInChapter(pending, wrap);
         pending.replaceWith(wrap);
 
         let headerRow = [], footerRows = [];
@@ -3536,10 +3547,14 @@ const NbMain = (() => {
             const r = await fetch(`/api/lib/csv-template?name=${encodeURIComponent(token)}`);
             if (!r.ok) throw new Error((await r.json()).error || r.status);
             const d = await r.json();
+            // A template saved from a spreadsheet has trailing commas on every row (`contents,,`) and
+            // often empty `,,` rows: blank rows go, and the sentinel is `contents` plus empty cells.
+            // Before 2026-10-14 neither was handled and the footer never showed (csv-template.spec.js).
             const tmplRows = d.content.trim().split('\n')
-                .filter(r => r.trim() !== '')
-                .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
-            const ci = tmplRows.findIndex(r => r.length === 1 && r[0].trim().toLowerCase() === 'contents');
+                .map(r => r.split(',').map(cell => cell.replace(/^"|"$/g, '').replace(/""/g, '"')))
+                .filter(r => r.some(cell => cell.trim() !== ''));
+            const ci = tmplRows.findIndex(r => r[0].trim().toLowerCase() === 'contents'
+                                            && r.slice(1).every(cell => cell.trim() === ''));
             if (ci >= 0) {
                 headerRow  = tmplRows[0] || [];
                 footerRows = tmplRows.slice(ci + 1);
@@ -3749,8 +3764,14 @@ const NbMain = (() => {
             const d  = await r.json();
             let raw  = d.raw || d.body || '';
 
+            // Only this note's own grids line up with its csv blocks: one inside a chapter pulled in
+            // with {{inline:}} (or the annotation footer) used to shift the match, and the chapter's
+            // rows were written into this note's block (2026-10-14, e2e csv-save.spec.js).
+            const _ownGrids = sel => [...(document.getElementById('nb-preview-content') || document).querySelectorAll(sel)]
+                .filter(h => !h.closest('.nb-inline-content, .nb-annotation-foot'));
+
             // Template csv blocks: ```csv token\n...\n``` — save only user data rows
-            const tmplHosts = [...document.querySelectorAll('.nb-csv-block[data-csv-token]')];
+            const tmplHosts = _ownGrids('.nb-csv-block[data-csv-token]');
             let tmplIdx = 0;
             raw = raw.replace(/```csv ([\w-]+)\n([\s\S]*?)```/g, (match, token) => {
                 const host = tmplHosts[tmplIdx++];
@@ -3763,7 +3784,7 @@ const NbMain = (() => {
             });
 
             // Plain csv blocks: ```csv\n...\n``` — save header + all rows
-            const plainHosts = [...document.querySelectorAll('.nb-csv-block:not([data-csv-token])')];
+            const plainHosts = _ownGrids('.nb-csv-block:not([data-csv-token])');
             let plainIdx = 0;
             raw = raw.replace(/```csv\n([\s\S]*?)```/g, (match) => {
                 const host = plainHosts[plainIdx++];
@@ -3784,7 +3805,7 @@ const NbMain = (() => {
             if (wd.success) {
                 _bustCache(_activeSelector);
                 // Sync domain journals — one call per unique token (note may have multiple blocks)
-                const tokenHosts = [...document.querySelectorAll('.nb-csv-block[data-csv-token]')];
+                const tokenHosts = _ownGrids('.nb-csv-block[data-csv-token]');
                 const uniqueTokens = [...new Set(tokenHosts.map(h => h.dataset.csvToken))];
                 await Promise.all(uniqueTokens.map(token =>
                     fetch('/api/t/journal/from-csv', {

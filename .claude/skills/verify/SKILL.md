@@ -596,6 +596,12 @@ seen in 25 isolated runs with logging. Rerun before suspecting your change; it's
 `claude:nb-web_help_single_source_design_2026-10-04.md`. `edit-session.spec.js` is the other
 known flake.
 
+## Known flaky under heavy load (2026-10-14)
+
+`check-placement.spec.js` "a body check warns in place" failed once with the machine's load
+average at ~11 (a container rebuild running) and passed 3/3 alone. When a full run is unusually
+slow (pytest over a minute, e2e over 7 min), check `uptime` before suspecting the change.
+
 ## Known flaky: loading-skeleton fallback under load (2026-10-13)
 
 `e2e/tests/loading-skeleton.spec.js` "falls back to a titleless skeleton for a note outside the
