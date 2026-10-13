@@ -1901,7 +1901,7 @@
 
     // Applies sort:/limit: directives client-side, after the fetch — orthogonal
     // to /api/front-query's own scan-safety limit (a cap applied while walking,
-    // default 200/max 500); this is a display-level truncation on whatever the
+    // 500); this is a display-level truncation on whatever the
     // scan already returned. Leading '-' on sortField means descending. Numbers
     // (as numbers), then text, then notes missing the field -- in both directions:
     // flipping the whole comparison put text and missing values first for sort:-x

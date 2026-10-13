@@ -7731,11 +7731,17 @@ def _fm_compare(a, b, op) -> bool:
 
 def _fm_eval_one(meta: dict, field: str, op: str, value) -> bool:
     """Evaluate one filter condition against meta, ignoring negation — whether
-    the note satisfies this condition before any '-' prefix is applied."""
+    the note satisfies this condition before any '-' prefix is applied.
+    A list field (tags: [a, b]) matches if any item does; before 2026-10-13 it
+    was compared as the text "['a', 'b']" and never matched."""
     if op == 'exists':
         return field in meta
+    v = meta.get(field)
+    if isinstance(v, list):
+        if op == 'empty':
+            return not any(str(x).strip() for x in v)
+        return any(_fm_eval_one({field: x}, field, op, value) for x in v)
     if op == 'empty':
-        v = meta.get(field)
         return v is None or not str(v).strip()
     if op == 'anyof':
         v = meta.get(field)
@@ -7834,7 +7840,7 @@ def api_fm_keys():
     return jsonify({'keys': key_data})
 
 
-def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
+def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=500):
     """Shared scan for frontmatter queries — used by /api/front-query (the fm
     codeblock) and the 'fm' inline-query provider. Returns (results, error);
     error is a (message, status) pair on failure, results is a list on success.
@@ -8033,7 +8039,7 @@ def _parse_fm_scope(qpart, current_selector=''):
 def _fm_sort_limit(results, sort_field, limit_val):
     """Post-process a _run_front_query result list per sort:/limit: directives.
     Orthogonal to _run_front_query's own 'limit' param (a scan-safety cap
-    applied while walking, default 200/max 500) — this is a display-level
+    applied while walking, 500) — this is a display-level
     truncation applied after the fact, on whatever the scan already returned.
     A leading '-' on sort_field means descending. Numeric-parseable values
     sort before non-numeric ones (same graceful-fallback shape _fm_compare
@@ -8074,7 +8080,8 @@ def api_front_query():
     """
     notebooks_raw = request.args.get('notebooks', '')
     folders_raw   = request.args.get('folders', '')
-    limit         = int(request.args.get('limit', 200))
+    # 500, the scan's own cap and {{fm: count}}'s: the block stopped at 200 (2026-10-13)
+    limit         = int(request.args.get('limit', 500))
     filters_raw   = request.args.get('filters', '[]')
     user          = session.get('user', {})
 
