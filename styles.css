@@ -2980,6 +2980,19 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 0.5em; }
 .nb-form-actions .nb-btn-primary.nb-tool-btn { color: #fff; }
 .nb-form-actions .nb-btn-primary.nb-tool-btn:hover { color: #fff; background: var(--accent); opacity: 0.85; }
+/* slimmer than the editor's own (2026-10-14, djp: "squashed, for svelteness") */
+.nb-form-actions .nb-tool-btn { padding: 1px 10px; font-size: 11.5px; line-height: 1.35; }
+.nb-form-actions .nb-tool-btn:not(.nb-btn-primary) { color: var(--text); }   /* Cancel: readable, not muted */
+/* a block header's own Save (csv): smaller again, to sit in the bar */
+.nb-barblock .nb-tool-btn { padding: 0 8px; font-size: 11px; line-height: 1.5; }
+/* a block's essential actions (add +, edit ✎) in its header: a compact outlined button at full
+   contrast, not a faint glyph; ? and ↻ stay glyphs (2026-10-14) */
+.nb-barblock .nb-tw-btn.nb-block-act {
+  color: var(--text); opacity: 1; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 0 7px; font-size: 11px; line-height: 1.5;
+}
+.nb-barblock .nb-tw-btn.nb-block-act:hover { color: var(--accent); border-color: var(--accent); }
 /* in a one-line form (tw/timedot add): pushed to the row's right end */
 .nb-form-actions-inline { margin: 0 0 0 auto; }
 

@@ -592,7 +592,7 @@
 
         if (_cbCan(el, 'tw', 'write')) {
             const addBtn = document.createElement('button');
-            addBtn.className = 'nb-tw-btn nb-tw-add-btn';
+            addBtn.className = 'nb-tw-btn nb-tw-add-btn nb-block-act';
             addBtn.title = 'Add task'; addBtn.textContent = '+';
             addBtn.addEventListener('click', () => _showTwAddForm(el, q, addBtn));
             acts.insertBefore(addBtn, refBtn);
@@ -1539,7 +1539,7 @@
 
         if (_cbCan(el, 'hl', 'write')) {
             const editBtn = document.createElement('button');
-            editBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-edit-btn';
+            editBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-edit-btn nb-block-act';
             editBtn.title = 'Edit journal';
             editBtn.textContent = '✎';
             editBtn.addEventListener('click', () => {
@@ -1550,7 +1550,7 @@
             acts.insertBefore(editBtn, helpBtn);
 
             const addBtn = document.createElement('button');
-            addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn';
+            addBtn.className = 'nb-tw-btn nb-hl-btn nb-hl-add-btn nb-block-act';
             addBtn.title = 'Add transaction';
             addBtn.textContent = '+';
             addBtn.addEventListener('click', () => _showHledgerAddForm(el, q, addBtn));
@@ -6879,7 +6879,7 @@
         });
 
         const editBtn = document.createElement('button');
-        editBtn.className = 'nb-tw-btn nb-timedot-edit-btn';
+        editBtn.className = 'nb-tw-btn nb-timedot-edit-btn nb-block-act';
         editBtn.title = 'Edit inline';
         editBtn.textContent = '✎';
         acts.insertBefore(editBtn, acts.firstChild);
@@ -7162,7 +7162,7 @@
         // + entry button — hidden in aggregation mode (no single inline target to write to)
         if (!isAggregation) {
             const addBtn = document.createElement('button');
-            addBtn.className = 'nb-tw-btn nb-timedot-add-btn';
+            addBtn.className = 'nb-tw-btn nb-timedot-add-btn nb-block-act';
             addBtn.title = 'Add time entry';
             addBtn.textContent = '+';
             addBtn.addEventListener('click', e => { e.stopPropagation(); _showTimedotAddForm(el, addBtn, project); });

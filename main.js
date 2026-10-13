@@ -3407,6 +3407,19 @@ const NbMain = (() => {
         }
     }
 
+    // One empty row after the last data row: before the footer of a template grid, else at the end.
+    function _csvAddRow(wrap) {
+        const host = wrap.querySelector('.nb-csv-block');
+        const ws = host?._csvSheet;
+        if (!ws) return;
+        const footer = parseInt(host.dataset.csvFooterCount || '0', 10);
+        const dataCount = ws.getData().length - footer;
+        if (footer > 0) ws.insertRow(1, dataCount, true);
+        else ws.insertRow(1);
+        const count = wrap.querySelector('.nb-csv-count');
+        if (count) count.textContent = String(dataCount + 1);
+    }
+
     let _lastCsvWrap = null;
     document.addEventListener('keydown', e => {
         if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || !_lastCsvWrap?.isConnected) return;
@@ -3424,6 +3437,8 @@ const NbMain = (() => {
         if (!placeholder.closest('.nb-inline-content')) return;
         const save = wrap.querySelector('.nb-csv-save-btn');
         if (save) save.hidden = true;
+        const add = wrap.querySelector('.nb-csv-add-btn');
+        if (add) add.hidden = true;
         wrap.title = 'Open this chapter to edit its table';
     }
 
@@ -3448,14 +3463,14 @@ const NbMain = (() => {
         const acts = document.createElement('span');
         acts.className = 'nb-barblock-acts';
 
-        if (addBtnFn !== undefined) {
-            const addBtn = document.createElement('button');
-            addBtn.className = 'nb-tw-btn nb-csv-add-btn';
-            addBtn.title = 'Add row';
-            addBtn.textContent = '+';
-            if (addBtnFn) addBtn.addEventListener('click', e => { e.stopPropagation(); addBtnFn(addBtn); });
-            acts.appendChild(addBtn);
-        }
+        // + adds a row (above a template's footer). It used to be drawn only for template grids,
+        // and with no handler there, so it did nothing (2026-10-14, e2e form-actions.spec.js).
+        const addBtn = document.createElement('button');
+        addBtn.className = 'nb-tw-btn nb-csv-add-btn nb-block-act';
+        addBtn.title = 'Add a row';
+        addBtn.textContent = '+';
+        addBtn.addEventListener('click', e => { e.stopPropagation(); addBtnFn ? addBtnFn(addBtn) : _csvAddRow(wrap); });
+        acts.appendChild(addBtn);
 
         // A labelled, coloured Save like the editor's (it was a bare ↓, easy to miss; 2026-10-14);
         // Ctrl+Enter in the grid saves too. Escape stays the grid's (it leaves a cell).
@@ -3764,7 +3779,10 @@ const NbMain = (() => {
         return pop;
     }
 
+    // All-empty rows are never written: a row added with + and left blank, or the one the grid
+    // appends when Enter (Ctrl+Enter to save) is pressed in its last row (2026-10-14).
     function _csvRowsToCsv(rows) {
+        rows = rows.filter(row => row.some(cell => String(cell ?? '').trim() !== ''));
         return rows.map(row =>
             row.map(cell => {
                 const s = String(cell ?? '');
