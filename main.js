@@ -3204,14 +3204,14 @@ const NbMain = (() => {
 
         // Wire tag-color rows
         form.querySelectorAll('.nb-cfg-tc-row').forEach(r =>
-            r.querySelector('.nb-cfg-tc-del').addEventListener('click', () => r.remove()));
+            r.querySelector('.nb-cfg-tc-del').addEventListener('click', () => { r.remove(); NbWeb.formDirty(form); }));
 
         form.querySelector('.nb-cfg-tc-add').addEventListener('click', () => {
             const list = form.querySelector('.nb-cfg-tc-list');
             const div = document.createElement('div');
             div.innerHTML = _cfgTagColorRow('', '#888888');
             const newRow = div.firstElementChild;
-            newRow.querySelector('.nb-cfg-tc-del').addEventListener('click', () => newRow.remove());
+            newRow.querySelector('.nb-cfg-tc-del').addEventListener('click', () => { newRow.remove(); NbWeb.formDirty(form); });
             list.appendChild(newRow);
             newRow.querySelector('.nb-cfg-tc-name').focus();
         });
@@ -3421,6 +3421,19 @@ const NbMain = (() => {
     }
 
     let _lastCsvWrap = null;
+
+    // One Save saves every grid in the note, so an edit in any grid brightens them all, and a
+    // save dims them all (NbWeb.formDirty). An empty row from + isn't saved, so it doesn't count.
+    // Top-level callbacks, not in worksheets[] (see _sheetInitGrid).
+    function _csvSetDirty(dirty) {
+        document.querySelectorAll('#nb-preview-content .nb-csv-save-btn').forEach(b => NbWeb.formDirty(b, dirty));
+    }
+    const _csvDirtyHooks = {
+        onchange:    () => _csvSetDirty(true),
+        ondeleterow: () => _csvSetDirty(true),
+        onundo:      () => _csvSetDirty(true),
+        onredo:      () => _csvSetDirty(true),
+    };
     document.addEventListener('keydown', e => {
         if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || !_lastCsvWrap?.isConnected) return;
         const a = document.activeElement;
@@ -3475,7 +3488,7 @@ const NbMain = (() => {
         // A labelled, coloured Save like the editor's (it was a bare ↓, easy to miss; 2026-10-14);
         // Ctrl+Enter in the grid saves too. Escape stays the grid's (it leaves a cell).
         const saveBtn = document.createElement('button');
-        saveBtn.className = 'nb-tool-btn nb-btn-primary nb-csv-save-btn';
+        saveBtn.className = 'nb-tool-btn nb-btn-primary nb-csv-save-btn nb-clean';
         saveBtn.title = 'Save every table in this note (Ctrl+Enter)';
         saveBtn.textContent = _t('btn_save');
         saveBtn.addEventListener('click', e => { e.stopPropagation(); _saveCsvBlocks(saveBtn); });
@@ -3556,6 +3569,7 @@ const NbMain = (() => {
                     data: dataRows.length ? dataRows : [Array(Math.max(headerRow.length, 1)).fill('')],
                     columns: columns.length ? columns : undefined,
                 }],
+                ..._csvDirtyHooks,
             });
             host._csvSheet = Array.isArray(jssP) ? jssP[0] : (jssP?.worksheets?.[0] ?? jssP);
         });
@@ -3632,6 +3646,7 @@ const NbMain = (() => {
                 data: sheetData,
                 columns: headerRow.length ? _csvAutoColumns(headerRow, sheetData) : undefined,
             }],
+            ..._csvDirtyHooks,
         });
         // Normalise worksheet access across jspreadsheet v9 (array) and v10 (object)
         host._csvSheet = Array.isArray(jss) ? jss[0] : (jss?.worksheets?.[0] ?? jss);
@@ -3860,6 +3875,7 @@ const NbMain = (() => {
                         body: JSON.stringify({ selector: _activeSelector, token: t, clear: true }),
                     }).catch(() => {}))
                 );
+                _csvSetDirty(false);
                 if (triggerBtn) {
                     triggerBtn.textContent = _t('status_saved');
                     setTimeout(() => { triggerBtn.textContent = origText; }, 1200);

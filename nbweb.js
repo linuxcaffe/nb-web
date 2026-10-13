@@ -849,13 +849,25 @@ const NbWeb = (() => {
         return { row, saveBtn, cancelBtn };
     }
 
+    // Save is only bright once there's something to save (2026-10-14, djp): until then it carries
+    // nb-clean and looks like a block's + (styles.css). It still works either way.
+    function formDirty(btnOrRoot, dirty = true) {
+        const btn = btnOrRoot?._nbFormBtns ? btnOrRoot._nbFormBtns.saveBtn : btnOrRoot;
+        btn?.classList.toggle('nb-clean', !dirty);
+    }
+
     // A root reused for a rebuilt form (the toolbar's FM panel) gets the new buttons; the one
-    // listener always clicks whichever are current.
+    // listener always clicks whichever are current. Typing or changing anything inside marks
+    // Save dirty; a form whose other edits fire no input event calls formDirty(root) itself.
     function formKeys(root, saveBtn, cancelBtn) {
         if (!root) return;
         root._nbFormBtns = { saveBtn, cancelBtn };
+        formDirty(saveBtn, false);
         if (root.dataset.formKeys) return;
         root.dataset.formKeys = '1';
+        const markDirty = () => formDirty(root);
+        root.addEventListener('input', markDirty);
+        root.addEventListener('change', markDirty);
         root.addEventListener('keydown', e => {
             const { saveBtn: s, cancelBtn: c } = root._nbFormBtns || {};
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && s && !s.disabled && s.isConnected) {
@@ -879,6 +891,7 @@ const NbWeb = (() => {
         isoDate,
         formActions,
         formKeys,
+        formDirty,
         loadLocale,
         applyI18n,
         registerModule,

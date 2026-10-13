@@ -2993,6 +2993,16 @@ body.nb-fullscreen #nb-cmd-bar::after {
   padding: 0 7px; font-size: 11px; line-height: 1.5;
 }
 .nb-barblock .nb-tw-btn.nb-block-act:hover { color: var(--accent); border-color: var(--accent); }
+/* Save with nothing to save yet: the + button's look; bright once something changes
+   (NbWeb.formDirty, 2026-10-14, djp) */
+.nb-btn-primary.nb-clean,
+.nb-form-actions .nb-btn-primary.nb-tool-btn.nb-clean {
+  color: var(--text); background: var(--bg3); border-color: var(--border);
+}
+.nb-btn-primary.nb-clean:hover,
+.nb-form-actions .nb-btn-primary.nb-tool-btn.nb-clean:hover {
+  color: var(--accent); background: var(--bg3); border-color: var(--accent); opacity: 1;
+}
 /* in a one-line form (tw/timedot add): pushed to the row's right end */
 .nb-form-actions-inline { margin: 0 0 0 auto; }
 
