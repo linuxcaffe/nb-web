@@ -8,6 +8,20 @@ using inline Node/Python stub harnesses and curl smoke tests, unaware `nb-web-te
 a full Playwright suite with a working test login sitting right there. Persisted per the
 built-in `verify` skill's own instructions, so the next session doesn't cold-start this again.
 
+## How much to verify (djp, 2026-10-14: "playwright use has been lavish")
+
+djp watches the UI with his own eyes all the time, so browser runs are for what he can't see:
+- **pytest** for backend logic: cheap, run what the change touches (`pytest -q test_x.py`).
+- **Playwright only where indicated**: a red/green test for a frontend bug (CLAUDE.md's
+  test-first rule), or a behaviour that's hard to see by eye (races, keys, access). Run the one
+  spec (`npx playwright test form-actions -g "..."`), not the suite. No screenshots or ad-hoc
+  browser driving to check a look: say what changed and let djp look.
+- **The full e2e suite** (~4 min) only before a risky cross-module change (satellite extraction,
+  script order, kernel accessors) or when asked. Never with a timeout shorter than it needs: a
+  killed run orphans the fixture server on 5099 and the next run fails ("already used"); kill
+  it with `ss -ltnp | grep 5099`.
+- Output is already quiet (line reporter, `NB_WEB_QUIET_REQUESTS=1` drops per-request logs).
+
 ## What actually exists
 
 **`~/dev/nb-web-tests/`** — a separate repo, two independent layers:

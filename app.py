@@ -17740,4 +17740,7 @@ if __name__ == '__main__':
     _announce_setup_code()
     os.environ.pop('WERKZEUG_RUN_MAIN', None)
     os.environ.pop('WERKZEUG_SERVER_FD', None)
+    if os.environ.get('NB_WEB_QUIET_REQUESTS'):   # e2e runs: no per-request log lines, errors still shown
+        import logging
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
     app.run(host=HOST, port=PORT, debug=DEBUG, use_reloader=False, threaded=True)
