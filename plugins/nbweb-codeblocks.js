@@ -5336,18 +5336,39 @@
     }
 
     // ── sysadmin ──────────────────────────────────────────────────────────────
+    // Three modes: bare (inventory), `users`, `crontab`. Since 2026-10-13 it has the shared
+    // header (?, refresh, collapse), honours read:/write: lines and codeblock_access, and a 403
+    // removes the block like any other gated block (it used to draw its own markup with none of
+    // these; e2e sysadmin.spec.js).
 
     function _dispatchSysadminBlock(el) {
+        if (!_cbCan(el, 'sysadmin', 'read')) { _cbDenyRead(el); return; }
         if (el.dataset.mode === 'users')    return _loadSysadminUsersBlock(el);
         if (el.dataset.mode === 'crontab')  return _loadSysadminCrontabBlock(el);
         return _loadSysadminBlock(el);
+    }
+
+    // Header (mode label + a short count) and an empty body to fill; collapse wired once.
+    function _saFrame(el, label, count) {
+        const wasCollapsed = el.classList.contains('nb-collapsed');
+        el.innerHTML = '';
+        const { hdr, meta } = _buildBarHeader(el, { lang: 'sysadmin', onRefresh: () => _dispatchSysadminBlock(el) });
+        meta.innerHTML = `<span class="nb-sysadmin-name">${_esc(label)}</span>` +
+            (count ? ` <span class="nb-sa-muted">${_esc(count)}</span>` : '');
+        el.appendChild(hdr);
+        const body = document.createElement('div');
+        body.className = 'nb-sa-body';
+        el.appendChild(body);
+        if (wasCollapsed) el.classList.add('nb-collapsed');
+        _initCollapseToggle(el);
+        return body;
     }
 
     async function _loadSysadminCrontabBlock(el) {
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const r = await fetch('/api/sysadmin/crontab');
-            if (r.status === 403) { el.innerHTML = '<span class="nb-sa-muted">Crontab view requires tech level.</span>'; return; }
+            if (r.status === 403) { _cbDenyRead(el); return; }
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
             const entries = d.entries || [];
@@ -5358,11 +5379,9 @@
                 <td class="nb-sa-muted">${_esc(e.description || '')}</td>
             </tr>`).join('');
 
-            el.innerHTML = `
+            const body = _saFrame(el, 'crontab', `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`);
+            body.innerHTML = `
                 <div class="nb-sa-section">
-                    <div class="nb-sa-heading">Crontab
-                        <span class="nb-sa-muted">${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}</span>
-                    </div>
                     ${entries.length
                         ? `<table class="nb-sa-table">
                             <thead><tr><th>Schedule</th><th>Command</th><th>Description</th></tr></thead>
@@ -5371,7 +5390,7 @@
                         : '<span class="nb-sa-muted">No crontab entries.</span>'}
                 </div>`;
         } catch(e) {
-            el.innerHTML = `<span style="color:var(--red)">⚠ ${_esc(String(e))}</span>`;
+            _cbError(el, 'sysadmin', String(e.message || e), () => _dispatchSysadminBlock(el));
         }
     }
 
@@ -5381,7 +5400,7 @@
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const r = await fetch('/api/users');
-            if (r.status === 403) { el.innerHTML = '<span class="nb-sa-muted">User management requires admin level.</span>'; return; }
+            if (r.status === 403) { _cbDenyRead(el); return; }
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
             const myLevel = window.NbAuth?.level() || 'guest';
@@ -5395,9 +5414,13 @@
                 const nbs = u.notebooks?.length ? u.notebooks.join(', ') : '(all)';
                 const delBtn = isSelf ? '' :
                     `<button class="nb-sa-user-del nb-action-admin" data-username="${_esc(u.username)}" title="Delete user">🗑</button>`;
+                // .users files are tech-only to open (invariant 80): a plain name below tech
+                const nameHtml = myLevel === 'tech'
+                    ? `<a href="#" class="nb-sa-link" data-open="${_esc(u.selector)}">${_esc(u.username)}</a>`
+                    : _esc(u.username);
                 return `<tr data-username="${_esc(u.username)}">
                     <td class="nb-sa-name">
-                        <a href="#" class="nb-sa-link" data-open="${_esc(u.selector)}">${_esc(u.username)}</a>
+                        ${nameHtml}
                         ${isSelf ? '<span class="nb-sa-self-badge">you</span>' : ''}
                     </td>
                     <td><select class="nb-sa-level-sel nb-action-admin" data-username="${_esc(u.username)}" data-orig="${_esc(u.level)}">${levelSel}</select></td>
@@ -5409,10 +5432,11 @@
 
             const rows = (d.users || []).map(renderRow).join('');
 
-            el.innerHTML = `
+            // listeners go on this render's own body, so a refresh doesn't stack them
+            const body = _saFrame(el, 'users', `${(d.users || []).length} accounts`);
+            body.innerHTML = `
                 <div class="nb-sa-section">
-                    <div class="nb-sa-heading">Users
-                        <span class="nb-sa-muted">${(d.users || []).length} accounts</span>
+                    <div class="nb-sa-heading">
                         <button class="nb-sa-add-user-btn nb-action-admin">+ Add user</button>
                     </div>
                     <table class="nb-sa-table nb-sa-users-table">
@@ -5435,7 +5459,7 @@
                 </div>`;
 
             // Level change
-            el.addEventListener('change', async ev => {
+            body.addEventListener('change', async ev => {
                 const sel = ev.target.closest('.nb-sa-level-sel');
                 if (!sel) return;
                 const username = sel.dataset.username;
@@ -5458,7 +5482,7 @@
             });
 
             // Delete user
-            el.addEventListener('click', async ev => {
+            body.addEventListener('click', async ev => {
                 const btn = ev.target.closest('.nb-sa-user-del');
                 if (!btn) return;
                 const username = btn.dataset.username;
@@ -5475,13 +5499,13 @@
             });
 
             // Add user form toggle
-            const addBtn  = el.querySelector('.nb-sa-add-user-btn');
-            const form    = el.querySelector('.nb-sa-add-form');
-            const errEl   = el.querySelector('.nb-sa-form-err');
+            const addBtn  = body.querySelector('.nb-sa-add-user-btn');
+            const form    = body.querySelector('.nb-sa-add-form');
+            const errEl   = body.querySelector('.nb-sa-form-err');
             addBtn.addEventListener('click', () => { form.hidden = false; addBtn.hidden = true; });
-            el.querySelector('.nb-sa-form-cancel').addEventListener('click', () => { form.hidden = true; addBtn.hidden = false; errEl.hidden = true; });
+            body.querySelector('.nb-sa-form-cancel').addEventListener('click', () => { form.hidden = true; addBtn.hidden = false; errEl.hidden = true; });
 
-            el.querySelector('.nb-sa-form-create').addEventListener('click', async () => {
+            body.querySelector('.nb-sa-form-create').addEventListener('click', async () => {
                 const get = name => form.querySelector(`[name="${name}"]`).value.trim();
                 const body = { username: get('username'), name: get('name'), level: get('level'), password: get('password') };
                 if (!body.username || !body.password) { errEl.textContent = 'Username and password required.'; errEl.hidden = false; return; }
@@ -5498,7 +5522,7 @@
             });
 
         } catch(e) {
-            el.innerHTML = `<span style="color:var(--red)">⚠ ${_esc(String(e))}</span>`;
+            _cbError(el, 'sysadmin', String(e.message || e), () => _dispatchSysadminBlock(el));
         }
     }
 
@@ -5506,7 +5530,8 @@
         el.innerHTML = '<span class="nb-spin">⟳</span>';
         try {
             const r = await fetch('/api/sysadmin');
-            if (!r.ok) { el.innerHTML = `<span style="color:var(--red)">Sysadmin error ${r.status}</span>`; return; }
+            if (r.status === 403) { _cbDenyRead(el); return; }
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
 
             const nbRows = (d.notebooks || []).map(nb => {
@@ -5548,11 +5573,10 @@
                 return `<div class="nb-sa-cfg-row"><span class="${cls}">${icon}</span> ${link}</div>`;
             }).join('');
 
-            el.innerHTML = `
+            const body = _saFrame(el, 'inventory', `${d.notebooks.length} notebooks · ${d.check_count} checks`);
+            body.innerHTML = `
                 <div class="nb-sa-section">
-                    <div class="nb-sa-heading">Notebooks
-                        <span class="nb-sa-muted">${d.notebooks.length} notebooks · ${d.check_count} checks available</span>
-                    </div>
+                    <div class="nb-sa-heading">Notebooks</div>
                     <table class="nb-sa-table">
                         <thead><tr>
                             <th>Notebook</th><th>config</th><th>wired</th><th>.checks</th><th>plugins</th><th>notes</th>
@@ -5569,7 +5593,7 @@
                     <div class="nb-sa-cfgs">${cfgHtml}</div>
                 </div>`;
         } catch(e) {
-            el.innerHTML = `<span style="color:var(--red)">⚠ ${_esc(String(e))}</span>`;
+            _cbError(el, 'sysadmin', String(e.message || e), () => _dispatchSysadminBlock(el));
         }
     }
 
@@ -7645,8 +7669,9 @@
             {
                 lang:      'sysadmin',
                 html:      text => {
-                    const mode = (text || '').trim() || 'inventory';
-                    return `<div class="nb-sysadmin-block" data-mode="${_esc(mode)}"><span class="nb-spin">⟳</span></div>`;
+                    const { readLevel, writeLevel, query } = _cbParseGates(text || '');
+                    const mode = query.trim() || 'inventory';
+                    return `<div class="nb-sysadmin-block"${_cbGateAttrs(readLevel, writeLevel)} data-query="${_esc(query)}" data-mode="${_esc(mode)}"><span class="nb-spin">⟳</span></div>`;
                 },
                 renderOne: async el => _dispatchSysadminBlock(el),
                 render:    async container => {

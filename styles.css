@@ -4432,7 +4432,12 @@ span.nb-cb-icon.nb-cb-icon--emoji {
 .nb-checklist-group-count { font-size: 0.78em; color: var(--text-dim); }
 
 /* ── sysadmin block ─────────────────────────────────────────────────────── */
-.nb-sysadmin-block { font-size: 0.85em; }
+.nb-sysadmin-block { font-size: 0.85em; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; margin: 6px 0; }
+.nb-sysadmin-header { font-family: var(--font-mono, monospace); }
+.nb-sysadmin-meta { display: flex; align-items: center; gap: 0.5em; flex: 1; }
+.nb-sysadmin-name { font-weight: 600; color: var(--text); }
+.nb-sa-body { padding: 8px 10px 0; }
+.nb-sysadmin-block.nb-collapsed .nb-sa-body { display: none; }
 .nb-sa-section { margin: 0 0 18px; }
 .nb-sa-heading { font-weight: 700; font-size: 0.9em; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--text-muted); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
