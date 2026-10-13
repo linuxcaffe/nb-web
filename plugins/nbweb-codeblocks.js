@@ -950,8 +950,10 @@
             </div>
             <div class="nb-tw-addform-row">
                 <input type="text" class="nb-tw-inp nb-tw-atags" placeholder="tag1, tag2">
-                <button class="nb-btn-primary nb-tw-asave">Add</button>
-                <button class="nb-tw-btn nb-tw-acancel">Cancel</button>
+                <span class="nb-form-actions nb-form-actions-inline">
+                    <button type="button" class="nb-tool-btn nb-btn-primary nb-tw-asave">Add</button>
+                    <button type="button" class="nb-tool-btn nb-tw-acancel">Cancel</button>
+                </span>
                 <span class="nb-tw-form-status"></span>
             </div>`;
 
@@ -995,11 +997,11 @@
             f => el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', f));
 
         form.querySelector('.nb-tw-adesc').addEventListener('keydown', e => {
-            if (e.key === 'Enter')  doAdd();
-            if (e.key === 'Escape') dismiss();
+            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) doAdd();   // Ctrl+Enter / Escape: formKeys
         });
         form.querySelector('.nb-tw-asave').addEventListener('click', doAdd);
         form.querySelector('.nb-tw-acancel').addEventListener('click', dismiss);
+        NbWeb.formKeys(form, form.querySelector('.nb-tw-asave'), form.querySelector('.nb-tw-acancel'));
         form.querySelector('.nb-tw-adesc')?.focus();
     }
 
@@ -1600,8 +1602,8 @@
             <div class="nb-hl-addform-footer">
                 <button class="nb-tw-btn nb-hl-btn nb-hl-add-row">+ posting</button>
                 <input type="text" class="nb-hl-inp nb-hl-comment-inp" placeholder="; comment (optional)" autocomplete="off" spellcheck="false">
-                <button class="nb-btn-primary nb-hl-save-btn">Save</button>
-                <button class="nb-tw-btn nb-hl-cancel-btn">Cancel</button>
+                <button type="button" class="nb-tool-btn nb-btn-primary nb-hl-save-btn">Save</button>
+                <button type="button" class="nb-tool-btn nb-hl-cancel-btn">Cancel</button>
                 <span class="nb-hl-form-status"></span>
             </div>`;
 
@@ -1629,6 +1631,7 @@
             f => el.querySelector('.nb-hl-header').insertAdjacentElement('afterend', f));
 
         form.querySelector('.nb-hl-cancel-btn').addEventListener('click', dismiss);
+        NbWeb.formKeys(form, form.querySelector('.nb-hl-save-btn'), form.querySelector('.nb-hl-cancel-btn'));
 
         form.querySelector('.nb-hl-save-btn').addEventListener('click', async () => {
             const status  = form.querySelector('.nb-hl-form-status');
@@ -2052,11 +2055,9 @@
         for (const { key, value } of fields) addRow(key, value, false);
         for (const key of added) addRow(key, '', true);
 
-        const actions = document.createElement('div');
-        actions.className = 'nb-fm-edit-actions';
-        const saveBtn = document.createElement('button');
-        saveBtn.className   = 'nb-tw-btn';
-        saveBtn.textContent = NbWeb.t('btn_save');
+        // the editor's Save/Cancel, on the right; Ctrl+Enter saves, Escape cancels (2026-10-14)
+        const { row: actions, saveBtn, cancelBtn } = NbWeb.formActions({ onCancel: () => onDone(false) });
+        actions.classList.add('nb-fm-edit-actions');
         saveBtn.addEventListener('click', async () => {
             const updates = {};
             for (const w of form.querySelectorAll('[data-fm-key]')) {
@@ -2080,14 +2081,9 @@
                 saveBtn.disabled = false;
             }
         });
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className   = 'nb-tw-btn';
-        cancelBtn.textContent = NbWeb.t('btn_cancel');
-        cancelBtn.addEventListener('click', () => onDone(false));
-        actions.appendChild(saveBtn);
-        actions.appendChild(cancelBtn);
         panel.appendChild(form);
         panel.appendChild(actions);
+        NbWeb.formKeys(panel, saveBtn, cancelBtn);
     }
 
     async function _loadFmEdit(el) {
@@ -5451,8 +5447,10 @@
                                 ${_SA_LEVELS.map(l => `<option value="${l}"${l==='user'?' selected':''}>${l}</option>`).join('')}
                             </select>
                             <input class="nb-sa-input" name="password" type="password" placeholder="password">
-                            <button class="nb-sa-form-create nb-btn-primary">Create</button>
-                            <button class="nb-sa-form-cancel">Cancel</button>
+                        </div>
+                        <div class="nb-form-actions">
+                            <button type="button" class="nb-tool-btn nb-btn-primary nb-sa-form-create">Create</button>
+                            <button type="button" class="nb-tool-btn nb-sa-form-cancel">Cancel</button>
                         </div>
                         <div class="nb-sa-form-err" hidden></div>
                     </div>
@@ -5502,7 +5500,8 @@
             const addBtn  = body.querySelector('.nb-sa-add-user-btn');
             const form    = body.querySelector('.nb-sa-add-form');
             const errEl   = body.querySelector('.nb-sa-form-err');
-            addBtn.addEventListener('click', () => { form.hidden = false; addBtn.hidden = true; });
+            addBtn.addEventListener('click', () => { form.hidden = false; addBtn.hidden = true; form.querySelector('input')?.focus(); });
+            NbWeb.formKeys(form, form.querySelector('.nb-sa-form-create'), form.querySelector('.nb-sa-form-cancel'));
             body.querySelector('.nb-sa-form-cancel').addEventListener('click', () => { form.hidden = true; addBtn.hidden = false; errEl.hidden = true; });
 
             body.querySelector('.nb-sa-form-create').addEventListener('click', async () => {
@@ -6774,14 +6773,17 @@
             <input type="text" class="nb-hl-inp nb-timedot-time" placeholder=".... or 1.5h" size="8" autocomplete="off" spellcheck="false">
             <input type="text" class="nb-hl-inp nb-timedot-sub" placeholder=":sub-account" list="${dlId}" autocomplete="off" spellcheck="false">
             <input type="text" class="nb-hl-inp nb-timedot-comment" placeholder="; comment" autocomplete="off" spellcheck="false">
-            <button class="nb-btn-primary nb-timedot-save">Add</button>
-            <button class="nb-tw-btn nb-timedot-cancel">✕</button>
+            <span class="nb-form-actions nb-form-actions-inline">
+                <button type="button" class="nb-tool-btn nb-btn-primary nb-timedot-save">Add</button>
+                <button type="button" class="nb-tool-btn nb-timedot-cancel">Cancel</button>
+            </span>
             <span class="nb-timedot-status"></span>`;
 
         const dismiss = _cbFormAttach(form, trigger, el,
             f => el.querySelector('.nb-timedot-header').insertAdjacentElement('afterend', f));
 
         form.querySelector('.nb-timedot-cancel').addEventListener('click', dismiss);
+        NbWeb.formKeys(form, form.querySelector('.nb-timedot-save'), form.querySelector('.nb-timedot-cancel'));
         form.querySelector('.nb-timedot-save').addEventListener('click', async () => {
             const status  = form.querySelector('.nb-timedot-status');
             const date    = form.querySelector('.nb-timedot-date').value;
@@ -6910,17 +6912,18 @@
             ta.value = raw;
             ta.rows = Math.max(4, (raw.split('\n').length || 1) + 1);
             const btns = document.createElement('div');
-            btns.className = 'nb-timedot-edit-btns';
+            btns.className = 'nb-timedot-edit-btns nb-form-actions';
             const saveBtn = document.createElement('button');
-            saveBtn.className = 'nb-tw-btn nb-timedot-save-btn';
+            saveBtn.className = 'nb-tool-btn nb-btn-primary nb-timedot-save-btn';
             saveBtn.textContent = 'Save';
             const cancelBtn = document.createElement('button');
-            cancelBtn.className = 'nb-tw-btn';
+            cancelBtn.className = 'nb-tool-btn';
             cancelBtn.textContent = 'Cancel';
             btns.appendChild(saveBtn);
             btns.appendChild(cancelBtn);
             body.appendChild(ta);
             body.appendChild(btns);
+            NbWeb.formKeys(body, saveBtn, cancelBtn);
             ta.focus();
 
             saveBtn.addEventListener('click', async () => {

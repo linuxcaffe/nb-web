@@ -3187,8 +3187,8 @@ const NbMain = (() => {
                 ${row('check',        checksCtrl)}
                 ${row('tag_color',    tcCtrl, false)}
             </div>
-            <div class="nb-cfg-actions">
-                <button type="button" class="nb-cfg-save-btn nb-tw-btn">Save</button>
+            <div class="nb-cfg-actions nb-form-actions">
+                <button type="button" class="nb-cfg-save-btn nb-tool-btn nb-btn-primary">Save</button>
                 <span class="nb-cfg-status"></span>
             </div>
         </div>${bodyHtml}`;
@@ -3218,6 +3218,7 @@ const NbMain = (() => {
 
         form.querySelector('.nb-cfg-save-btn').addEventListener('click', () =>
             _saveConfigForm(form, note, form.querySelector('.nb-cfg-status')));
+        NbWeb.formKeys(form, form.querySelector('.nb-cfg-save-btn'), null);
 
         const bodyEl = container.querySelector('.nb-cfg-body');
         if (bodyEl) _enrichRendered(bodyEl, note);
@@ -3406,8 +3407,19 @@ const NbMain = (() => {
         }
     }
 
-    // A grid in a chapter pulled in with {{inline:}} belongs to that chapter's note, which ↓ here
-    // can't save: no ↓ on it (open the chapter to edit it).
+    let _lastCsvWrap = null;
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || !_lastCsvWrap?.isConnected) return;
+        const a = document.activeElement;
+        if (a && a !== document.body && !_lastCsvWrap.contains(a)) return;
+        const save = _lastCsvWrap.querySelector('.nb-csv-save-btn');
+        if (!save || save.hidden) return;
+        e.preventDefault(); e.stopPropagation();
+        save.click();
+    });
+
+    // A grid in a chapter pulled in with {{inline:}} belongs to that chapter's note, which Save here
+    // can't save: no Save on it (open the chapter to edit it).
     function _csvNoSaveInChapter(placeholder, wrap) {
         if (!placeholder.closest('.nb-inline-content')) return;
         const save = wrap.querySelector('.nb-csv-save-btn');
@@ -3445,14 +3457,19 @@ const NbMain = (() => {
             acts.appendChild(addBtn);
         }
 
+        // A labelled, coloured Save like the editor's (it was a bare ↓, easy to miss; 2026-10-14);
+        // Ctrl+Enter in the grid saves too. Escape stays the grid's (it leaves a cell).
         const saveBtn = document.createElement('button');
-        saveBtn.className = 'nb-tw-btn nb-csv-save-btn';
-        saveBtn.title = 'Save';
-        saveBtn.textContent = '↓';
+        saveBtn.className = 'nb-tool-btn nb-btn-primary nb-csv-save-btn';
+        saveBtn.title = 'Save every table in this note (Ctrl+Enter)';
+        saveBtn.textContent = _t('btn_save');
         saveBtn.addEventListener('click', e => { e.stopPropagation(); _saveCsvBlocks(saveBtn); });
         acts.appendChild(saveBtn);
         hdr.appendChild(acts);
         wrap.appendChild(hdr);
+        // The grid keeps focus on the page itself, so a key never passes through this block:
+        // Ctrl+Enter goes to the grid last clicked in, while nothing else has focus.
+        wrap.addEventListener('mousedown', () => { _lastCsvWrap = wrap; });
 
         const collapseKey = `nb-collapse:nb-csv-wrap:${blockIdx}`;
         if (localStorage.getItem(collapseKey) === '1') wrap.classList.add('nb-collapsed');
@@ -3673,7 +3690,7 @@ const NbMain = (() => {
                     await _saveCsvBlocks(null);
                 }
                 pop.remove(); trigger._chkPop = null;
-            });
+            }, () => { pop.remove(); trigger._chkPop = null; });
 
             // Position: vertically centred on barblock, left offset ~160px to clear badge+token
             const wRect = wrap.getBoundingClientRect();
@@ -3683,6 +3700,7 @@ const NbMain = (() => {
             pop.style.left = (wRect.left + 160) + 'px';
             document.body.appendChild(pop);
             trigger._chkPop = pop;
+            pop.querySelector('input')?.focus();
 
             setTimeout(() => {
                 const onOut = e => { if (!pop.contains(e.target) && e.target !== trigger) { pop.remove(); trigger._chkPop = null; document.removeEventListener('click', onOut); } };
@@ -3696,7 +3714,7 @@ const NbMain = (() => {
         }
     }
 
-    function _buildCsvChecklistPopup(groups, currentDescs, onSave) {
+    function _buildCsvChecklistPopup(groups, currentDescs, onSave, onCancel) {
         const pop = document.createElement('div');
         pop.className = 'nb-csv-cl-pop';
         const inner = document.createElement('div');
@@ -3736,12 +3754,13 @@ const NbMain = (() => {
         pop.appendChild(inner);
         const footer = document.createElement('div');
         footer.className = 'nb-csv-cl-footer';
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'nb-btn';
-        saveBtn.textContent = 'Save';
-        saveBtn.addEventListener('click', () => onSave(checkboxes.filter(({cb}) => cb.checked).map(({row}) => row)));
-        footer.appendChild(saveBtn);
+        const { row, saveBtn, cancelBtn } = NbWeb.formActions({
+            onSave: () => onSave(checkboxes.filter(({cb}) => cb.checked).map(({row}) => row)),
+            onCancel: () => onCancel?.(),
+        });
+        footer.appendChild(row);
         pop.appendChild(footer);
+        NbWeb.formKeys(pop, saveBtn, cancelBtn);
         return pop;
     }
 

@@ -2976,7 +2976,12 @@ body.nb-fullscreen #nb-cmd-bar::after {
 .nb-fm-edit-form textarea { width: 100%; font-size: 0.9em; padding: 2px 4px; box-sizing: border-box; background: var(--bg2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); }
 .nb-fm-edit-form textarea { resize: vertical; min-height: 3em; }
 .nb-fm-edit-form .nb-fm-inherited { font-size: 0.9em; padding: 2px 4px; color: var(--text-muted); font-style: italic; }
-.nb-fm-edit-actions { display: flex; gap: 0.4em; }
+/* In-note forms' Save/Cancel row: the editor's look, on the right (NbWeb.formActions, 2026-10-14) */
+.nb-form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 0.5em; }
+.nb-form-actions .nb-btn-primary.nb-tool-btn { color: #fff; }
+.nb-form-actions .nb-btn-primary.nb-tool-btn:hover { color: #fff; background: var(--accent); opacity: 0.85; }
+/* in a one-line form (tw/timedot add): pushed to the row's right end */
+.nb-form-actions-inline { margin: 0 0 0 auto; }
 
 /* config codeblock — inheritance tree */
 .nb-config-header { gap: 0.4em; }

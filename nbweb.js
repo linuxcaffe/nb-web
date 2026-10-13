@@ -823,6 +823,51 @@ const NbWeb = (() => {
         console.warn('NbWeb.openTerminal: NbTerminal not available');
     }
 
+    // In-note forms share the editor's Save/Cancel (2026-10-14, djp): a right-aligned row, Save
+    // coloured (nb-btn-primary) and Cancel outlined, both nb-tool-btn like #nb-editor-toolbar.
+    // formActions builds the row; formKeys makes Ctrl/Cmd+Enter click Save and Escape click Cancel
+    // inside `root`, stopping the event so ui-chrome's global Escape (which clicks the first
+    // visible "Cancel" anywhere on the page) can't cancel some other form. e2e form-actions.spec.js.
+    function formActions({ saveLabel, cancelLabel, onSave, onCancel } = {}) {
+        const row = document.createElement('div');
+        row.className = 'nb-form-actions';
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'nb-tool-btn nb-btn-primary';
+        saveBtn.textContent = saveLabel || t('btn_save');
+        row.appendChild(saveBtn);
+        let cancelBtn = null;
+        if (onCancel !== null) {
+            cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'nb-tool-btn';
+            cancelBtn.textContent = cancelLabel || t('btn_cancel');
+            row.appendChild(cancelBtn);
+        }
+        if (onSave)   saveBtn.addEventListener('click', onSave);
+        if (onCancel) cancelBtn.addEventListener('click', onCancel);
+        return { row, saveBtn, cancelBtn };
+    }
+
+    // A root reused for a rebuilt form (the toolbar's FM panel) gets the new buttons; the one
+    // listener always clicks whichever are current.
+    function formKeys(root, saveBtn, cancelBtn) {
+        if (!root) return;
+        root._nbFormBtns = { saveBtn, cancelBtn };
+        if (root.dataset.formKeys) return;
+        root.dataset.formKeys = '1';
+        root.addEventListener('keydown', e => {
+            const { saveBtn: s, cancelBtn: c } = root._nbFormBtns || {};
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && s && !s.disabled && s.isConnected) {
+                e.preventDefault(); e.stopPropagation();
+                s.click();
+            } else if (e.key === 'Escape' && c && c.isConnected) {
+                e.preventDefault(); e.stopPropagation();
+                c.click();
+            }
+        });
+    }
+
     // A date as local YYYY-MM-DD. Never the first ten characters of toISOString(): that's the UTC date, already
     // tomorrow from 20:00 in Toronto (2026-10-07; nb-web-tests/test_local_dates.py).
     function isoDate(d = new Date()) {
@@ -832,6 +877,8 @@ const NbWeb = (() => {
     return {
         t,
         isoDate,
+        formActions,
+        formKeys,
         loadLocale,
         applyI18n,
         registerModule,
