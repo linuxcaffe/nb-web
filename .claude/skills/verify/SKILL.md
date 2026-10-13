@@ -595,3 +595,23 @@ fails about 1 run in 6 under the full parallel suite (lands on `home:pinned-demo
 seen in 25 isolated runs with logging. Rerun before suspecting your change; it's parked in
 `claude:nb-web_help_single_source_design_2026-10-04.md`. `edit-session.spec.js` is the other
 known flake.
+
+## Known flaky: loading-skeleton fallback under load (2026-10-13)
+
+`e2e/tests/loading-skeleton.spec.js` "falls back to a titleless skeleton for a note outside the
+current list view" failed once in a slow full run (6.7 min, the :5002 dev server running beside
+it) and passed 3/3 alone. Same treatment as the deep-link flake: rerun it alone before treating
+it as real.
+
+## Gotchas found 2026-10-13
+
+- **`helpers.js` `openNote()` waits for a *visible* `.nb-rendered`.** A note whose blocks all
+  remove themselves (a gated block below the viewer's level calls `_cbDenyRead`) renders empty,
+  zero height, so the wait times out. Give such a fixture note a line of text.
+- **Help-topic check:** after writing a `docs:` topic, `GET /api/help/page?ctx=block:<lang>` must
+  list it. A frontmatter value with a `: ` in it (an unquoted caption) silently breaks the YAML,
+  `help_for:` turns into literal text, and the topic never shows (see the `topics` skill).
+- **Probing an access fix against real `~/.nb`:** a Flask test client with a hand-set session
+  (`s['user'] = {'username': 'probe', 'level': 'admin'}`) is quick for reads. Never probe a
+  *write* hole against real data (a still-open hole would really write); the pytest fixture
+  world proves the writes.
