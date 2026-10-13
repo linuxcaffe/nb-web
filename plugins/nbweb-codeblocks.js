@@ -2275,6 +2275,33 @@
         }
     }
 
+    // A row's data-tip as a floating element on the page: a CSS ::after inside the scrolling
+    // result list was clipped at the block's edge (2026-10-13). One element, shown below the
+    // row (above it when there's no room), gone on leave, click or scroll.
+    let _tipEl = null;
+    function _hideTip() { _tipEl?.remove(); _tipEl = null; }
+    function _showTip(row) {
+        _hideTip();
+        _tipEl = document.createElement('div');
+        _tipEl.className = 'nb-tip-float';
+        _tipEl.textContent = row.dataset.tip;
+        document.body.appendChild(_tipEl);
+        const r = row.getBoundingClientRect(), t = _tipEl.getBoundingClientRect();
+        const below = r.bottom + 2 + t.height <= window.innerHeight;
+        _tipEl.style.top  = `${below ? r.bottom + 2 : Math.max(4, r.top - 2 - t.height)}px`;
+        _tipEl.style.left = `${Math.max(4, Math.min(r.left + 60, window.innerWidth - t.width - 4))}px`;
+    }
+    document.addEventListener('mouseover', e => {
+        const row = e.target.closest?.('.nb-nav-item[data-tip]');
+        if (row && !row.contains(e.relatedTarget)) _showTip(row);
+    });
+    document.addEventListener('mouseout', e => {
+        const row = e.target.closest?.('.nb-nav-item[data-tip]');
+        if (row && !row.contains(e.relatedTarget)) _hideTip();
+    });
+    document.addEventListener('click', _hideTip, true);
+    document.addEventListener('scroll', _hideTip, true);
+
     // Shared row-builder for both the flat list (_frontRender) and each group's
     // sub-list (_frontRenderGrouped) — same tooltip/click-to-open/notebook-badge
     // behaviour either way.

@@ -2942,10 +2942,10 @@ body.nb-fullscreen #nb-cmd-bar::after {
   border: 1px solid var(--border); border-radius: 4px;
 }
 .nb-claude-ask-btn { align-self: flex-start; }
-.nb-nav-item[data-tip] { position: relative; }
-.nb-nav-item[data-tip]:hover::after {
-  content: attr(data-tip);
-  position: absolute; left: 10ch; top: 100%; z-index: 200;
+/* a row's tooltip (data-tip): a floating element on the page (nbweb-codeblocks.js _showTip), not
+   a ::after, which the scrolling .nb-nav-list clipped at the block's edge (2026-10-13) */
+.nb-tip-float {
+  position: fixed; z-index: 10000;
   background: var(--bg2); border: 1px solid var(--border);
   border-radius: 4px; padding: 5px 8px;
   font-size: 0.78em; white-space: pre; color: var(--text);
