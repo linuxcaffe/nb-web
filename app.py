@@ -3838,7 +3838,7 @@ def api_inline_query():
             args = query.strip().split(None, 1)
             if args and args[0] == 'count':
                 nb_list, folder_list, iq_filters, iq_sort, iq_limit = _parse_fm_scope(
-                    args[1] if len(args) > 1 else '')
+                    args[1] if len(args) > 1 else '', selector)
                 iq_user = session.get('user', {})
                 results, err = _run_front_query(iq_user, nb_list, folder_list, iq_filters, limit=500)
                 if err:
@@ -7714,11 +7714,18 @@ def _fm_compare(a, b, op) -> bool:
     """a <op> b for fm's '>'/'<' filter ops. Tries numeric comparison first
     (seq, wordcount, budget, or any other numeric FM field); falls back to
     string comparison, which is correct for ISO dates (mtime: YYYY-MM-DD) since
-    lexicographic order matches chronological order for that format."""
+    lexicographic order matches chronological order for that format.
+    A number in the filter only matches numbers: `budget:>5000` used to match
+    `budget: TBD`, compared as text (2026-10-13, test_fm_query_lang.py)."""
     try:
-        a_val, b_val = float(a), float(b)
+        b_val = float(b)
     except (TypeError, ValueError):
         a_val, b_val = str(a), str(b)
+    else:
+        try:
+            a_val = float(a)
+        except (TypeError, ValueError):
+            return False
     return a_val > b_val if op == '>' else a_val < b_val
 
 
@@ -7962,7 +7969,7 @@ def _run_front_query(user, nb_list_in, folder_list_in, filters, limit=200):
     return results, None
 
 
-def _parse_fm_scope(qpart):
+def _parse_fm_scope(qpart, current_selector=''):
     """Parse fm query grammar into (notebooks, folders, filters) — scope tokens
     (bare notebook name, or 'notebook:folder/path/' with a required trailing
     slash) followed by field:value filters. Mirrors _frontParseQuery in
@@ -7976,8 +7983,13 @@ def _parse_fm_scope(qpart):
     while i < len(tokens):
         tok = tokens[i]
         if ':' not in tok:
-            notebooks.append(tok)
-            folders.append('')
+            if tok == '.':   # this note's notebook, as in the block (2026-10-13)
+                if ':' in current_selector:
+                    notebooks.append(current_selector.split(':', 1)[0])
+                    folders.append('')
+            else:
+                notebooks.append(tok)
+                folders.append('')
             i += 1
         elif tok.split(':', 1)[1].endswith('/'):
             nb, _, folder = tok.partition(':')
@@ -8027,17 +8039,25 @@ def _fm_sort_limit(results, sort_field, limit_val):
     sort before non-numeric ones (same graceful-fallback shape _fm_compare
     already uses), so a field that's numeric on some notes and missing/text
     on others still produces a stable, sensible order rather than an error."""
+    # Numbers (as numbers), then text, then notes missing the field -- in both
+    # directions. A plain reverse put text and missing values first for sort:-x
+    # (2026-10-13). Mirrors _fmSortLimit in nbweb-codeblocks.js.
     if sort_field:
         desc  = sort_field.startswith('-')
         field = sort_field[1:] if desc else sort_field
-
-        def _key(n):
-            v = (n.get('meta') or {}).get(field, '')
+        nums, texts, missing = [], [], []
+        for n in results:
+            v = str((n.get('meta') or {}).get(field, '') or '').strip()
+            if not v:
+                missing.append(n)
+                continue
             try:
-                return (0, float(v))
-            except (TypeError, ValueError):
-                return (1, str(v))
-        results = sorted(results, key=_key, reverse=desc)
+                nums.append((float(v), n))
+            except ValueError:
+                texts.append((v.lower(), n))
+        nums.sort(key=lambda t: t[0], reverse=desc)
+        texts.sort(key=lambda t: t[0], reverse=desc)
+        results = [n for _, n in nums] + [n for _, n in texts] + missing
     if limit_val is not None:
         results = results[:limit_val]
     return results

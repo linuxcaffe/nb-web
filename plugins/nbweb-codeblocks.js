@@ -1902,19 +1902,21 @@
     // Applies sort:/limit: directives client-side, after the fetch — orthogonal
     // to /api/front-query's own scan-safety limit (a cap applied while walking,
     // default 200/max 500); this is a display-level truncation on whatever the
-    // scan already returned. Leading '-' on sortField means descending. Numeric-
-    // parseable values sort before non-numeric ones, matching the same graceful-
-    // fallback shape the backend's >/< comparison already uses.
+    // scan already returned. Leading '-' on sortField means descending. Numbers
+    // (as numbers), then text, then notes missing the field -- in both directions:
+    // flipping the whole comparison put text and missing values first for sort:-x
+    // (2026-10-13, e2e fm-query.spec.js). Mirrors _fm_sort_limit in app.py.
     function _fmSortLimit(notes, sortField, limitVal) {
         if (sortField) {
             const desc  = sortField[0] === '-';
             const field = desc ? sortField.slice(1) : sortField;
+            const rank  = v => String(v ?? '').trim() === '' ? 2 : Number.isNaN(_fmNum(v)) ? 1 : 0;
             notes = [...notes].sort((a, b) => {
-                const av = (a.meta && a.meta[field]) ?? '';
-                const bv = (b.meta && b.meta[field]) ?? '';
-                const an = _fmNum(av), bn = _fmNum(bv);
-                const bothNumeric = !Number.isNaN(an) && !Number.isNaN(bn);
-                const cmp = bothNumeric ? (an - bn) : String(av).localeCompare(String(bv));
+                const av = a.meta?.[field], bv = b.meta?.[field];
+                const ra = rank(av), rb = rank(bv);
+                if (ra !== rb) return ra - rb;
+                if (ra === 2) return 0;
+                const cmp = ra === 0 ? _fmNum(av) - _fmNum(bv) : String(av).localeCompare(String(bv));
                 return desc ? -cmp : cmp;
             });
         }
@@ -2142,6 +2144,22 @@
 
         const nb = NbMain?.activeNote?.()?.notebook || '';
         el.innerHTML = '<span class="nb-spin">⟳</span>';
+        // A scope no plugin registered used to send no key filter and list every key (2026-10-13).
+        if (scopeKeys && !scopeKeys.length) {
+            el.innerHTML = '';
+            const { hdr, meta } = _buildBarHeader(el, { lang: 'fm', onRefresh: () => _loadFmListBlock(el) });
+            const countEl = document.createElement('span');
+            countEl.className = 'nb-fm-count';
+            countEl.textContent = 'Unknown scope';
+            meta.appendChild(countEl);
+            const lbl = document.createElement('span');
+            lbl.className = 'nb-fm-label';
+            lbl.textContent = scopeLabel;
+            meta.appendChild(lbl);
+            el.appendChild(hdr);
+            _initCollapseToggle(el);
+            return;
+        }
         try {
             const params = new URLSearchParams({ notebook: nb });
             if (scopeKeys?.length) scopeKeys.forEach(k => params.append('keys', k));
@@ -2193,8 +2211,9 @@
 
                     tr.append(tdKey, tdCount, tdSamples);
                     tr.addEventListener('click', () => {
-                        // key: → op:'exists' (bare word without colon = notebook name in parser)
-                        el.dataset.query      = key + ':';
+                        // key: → op:'exists' (bare word without colon = notebook name in parser),
+                        // in the notebook being listed: without it, every notebook (2026-10-13)
+                        el.dataset.query      = (nb ? nb + ' ' : '') + key + ':';
                         el.dataset._fmListSrc = raw; // stash original query for back button
                         _loadFrontBlock(el);
                     });
