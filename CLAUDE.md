@@ -219,7 +219,7 @@ Numbers match `docs:dev/dev-invariants.md`, where each has its full story.
 81. In-note forms use `NbWeb.formActions()` + `NbWeb.formKeys(root, save, cancel)`
     (Ctrl+Enter saves, Escape cancels, stopped at the form). Save stays dim (`nb-clean`) until
     an input/change; `NbWeb.formDirty(root)` marks it dirty for other edits; csv uses
-    `_csvDirtyHooks`. Block-header actions use `nb-block-act`. The editor's own Save is
+    `_csvDirtyHooks`, and `_csvDirty` makes `openNote` ask before leaving. Block-header actions use `nb-block-act`. The editor's own Save is
     separate.
 
 ## nb notebook layout

@@ -706,11 +706,12 @@ const NbMain = (() => {
     }
 
     async function openNote(selector, pushHistory = true, opts = {}) {
-        if ((_editing || _sheetDirty) && selector !== _activeSelector) {
+        if ((_editing || _sheetDirty || _csvDirty) && selector !== _activeSelector) {
             if (opts.autoSelect) return;   // renderList auto-select: never disrupt editing
             if (!confirm('Discard unsaved changes?')) return;
             if (_editing) _closeEditor();
             _sheetDirty = false;
+            _csvDirty = false;
         }
 
         // Always update list visual selection — shows where cursor is even when pinned
@@ -3425,7 +3426,10 @@ const NbMain = (() => {
     // One Save saves every grid in the note, so an edit in any grid brightens them all, and a
     // save dims them all (NbWeb.formDirty). An empty row from + isn't saved, so it doesn't count.
     // Top-level callbacks, not in worksheets[] (see _sheetInitGrid).
+    // _csvDirty also makes openNote ask before leaving (unsaved grid edits used to vanish).
+    let _csvDirty = false;
     function _csvSetDirty(dirty) {
+        _csvDirty = dirty;
         document.querySelectorAll('#nb-preview-content .nb-csv-save-btn').forEach(b => NbWeb.formDirty(b, dirty));
     }
     const _csvDirtyHooks = {
