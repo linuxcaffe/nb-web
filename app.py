@@ -11786,8 +11786,9 @@ def api_nb_import():
 # API: Grep — ripgrep with context, structured per-file results
 # ---------------------------------------------------------------------------
 
-def _resolve_file_to_note(fpath_str):
-    """Resolve a filesystem path to nb note metadata dict, or None."""
+def _resolve_file_to_note(fpath_str, user=None):
+    """Resolve a filesystem path to nb note metadata dict, or None. When user is given, a note
+    outside that account's scope or access (invariant 79) resolves to None."""
     fpath = Path(fpath_str)
     if not fpath.exists():
         return None
@@ -11806,7 +11807,10 @@ def _resolve_file_to_note(fpath_str):
             raw = fpath.read_text(errors='replace')
         except OSError:
             return None
-        _, body = parse_frontmatter(raw)
+        meta, body = parse_frontmatter(raw)
+        if user is not None and (not _notebook_in_scope(user, nb_name)
+                                 or not _can_access(user, meta, _folder_config(nb_name, fpath))):
+            return None
         itype       = classify(fname, nb_name)
         todo_status = None
         if itype == 'todo':
@@ -11824,7 +11828,7 @@ def _resolve_file_to_note(fpath_str):
     return None
 
 
-def _parse_rg_json(stdout, limit=100):
+def _parse_rg_json(stdout, limit=100, user=None):
     """Parse ripgrep --json NDJSON output into per-file result dicts."""
     results = []
     current = None
@@ -11843,7 +11847,7 @@ def _parse_rg_json(stdout, limit=100):
             current['lines'].append({'text': text, 'match': t == 'match'})
         elif t == 'end' and current is not None:
             if current['lines'] and len(results) < limit:
-                note = _resolve_file_to_note(current['path'])
+                note = _resolve_file_to_note(current['path'], user=user)
                 if note:
                     note['lines'] = current['lines']
                     results.append(note)
@@ -11882,21 +11886,34 @@ def api_grep():
 
     try:
         proc    = subprocess.run(rg_args, capture_output=True, text=True, timeout=30)
-        results = _parse_rg_json(proc.stdout, limit)
+        results = _parse_rg_json(proc.stdout, limit, user=session.get('user', {}))
     except FileNotFoundError:
         # rg not available — fall back to plain nb search (no context lines)
         nb_prefix = '' if notebook == '_all' else notebook
         args = ([f'{nb_prefix}:search', query, '--list']
                 if nb_prefix else ['search', query, '--list'])
         r = run_nb(*args)
+        user = session.get('user', {})
         results = []
         pat = re.compile(r'^\[([^\]]+)\]\s+(.+)$')
-        for line in strip_ansi(r['stdout']).splitlines()[:limit]:
+        for line in strip_ansi(r['stdout']).splitlines():
+            if len(results) >= limit:
+                break
             m = pat.match(line.strip())
             if m:
                 raw_sel = m.group(1).strip()
                 title   = re.sub(r'^[\U00010000-\U0010ffff✔️✅📌🔖🔒📂🌄]+\s*', '',
                                  m.group(2).strip()).strip()
+                nb_part = raw_sel.split(':')[0] if ':' in raw_sel else ''
+                dp      = _selector_disk_path(raw_sel) if ':' in raw_sel else None
+                if not nb_part or dp is None:
+                    continue
+                try:
+                    _m, _ = parse_frontmatter(dp.read_text(errors='replace'))
+                except OSError:
+                    continue
+                if not _notebook_in_scope(user, nb_part) or not _can_access(user, _m, _folder_config(nb_part, dp)):
+                    continue  # invariant 79
                 results.append({'selector': raw_sel, 'title': title,
                                 'type': 'note', 'indicator': '', 'lines': []})
 
