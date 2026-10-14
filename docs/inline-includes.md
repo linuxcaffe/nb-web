@@ -62,6 +62,13 @@ toc: true
 {{inline: accts:guide/review.md}}
 ```
 
+**Chapters sit under the heading they're included under.** Each chapter keeps its own heading
+levels relative to each other, shifted so its top heading is one level below the nearest heading
+above the include line: here every chapter's `# Setup` shows as a level-2 heading under `# The
+Complete Guide`, and its `##` sections as level 3. A chapter with no heading above it keeps its
+levels. Headings are only ever moved down, never up, and stop at level 6. The README export does
+the same.
+
 The table of contents lists the headings of the included chapters, and updates as later chapters
 load. Each chapter is still a normal note you can open on its own. Use full selectors
 (`accts:guide/setup.md`) rather than relative paths, so the hub works from anywhere.
@@ -84,5 +91,6 @@ self-contained document.
 - [Wikilinks internals](dev/dev-wikilinks.md)
 - [Render pipeline](dev/dev-render-pipeline.md)
 
-`_resolveInlineInclude` and `_sliceSection` in `main.js`; the render pipeline is in
+`_resolveInlineInclude`, `_sliceSection` and `_hostHeadingLevel`/`_shiftChapterHeadings` in
+`main.js` (the export's twin is `shift_headings` in `.tools/readme-export.py`); the render pipeline is in
 [wikilinks](dev/dev-wikilinks.md) and nb-web's `CLAUDE.md` ("Inline queries").

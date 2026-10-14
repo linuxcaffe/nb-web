@@ -25,7 +25,9 @@ type: book
 ```
 
 **Chapters.** Each `{{inline:}}` on a line of its own becomes a chapter; `#Heading` takes just
-that section of a note. A chapter can include notes of its own, two levels deep. Chapters near
+that section of a note. A chapter's headings move down to sit under the heading above it, so
+a chapter's `# Title` is a level-2 heading under the book's own `# Title`. A chapter can include
+notes of its own, two levels deep. Chapters near
 the top load straight away, the rest as you scroll to them. See
 [Inline includes](inline-includes.md).
 

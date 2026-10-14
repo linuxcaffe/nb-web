@@ -58,6 +58,8 @@ The arrow keys act on whichever pane has focus, the **list** or the **preview**.
 | `Ctrl+Enter` (Add bar) | create it and open it in the editor |
 | `Ctrl+Enter` (editor) | save |
 | `Escape` (editor) | cancel without saving |
+| `Ctrl+Enter` (a form in a note) | save: the FM form, a block's add form, the users form, a `csv` grid |
+| `Escape` (a form in a note) | cancel it without saving |
 | `Ctrl+Shift+1` (editor) | embed an image at the cursor |
 
 ## Reference
@@ -85,4 +87,6 @@ Set in a `.{folder}.md` or `.{notebook}.md`, it applies to every note there (see
 - [Architecture](dev/dev-architecture.md)
 
 The key handler is in `ui-chrome.js` (one `keydown` listener on `document`); the editor's own keys
-are in `main.js`. nb-web `CLAUDE.md` invariant 60 explains how dialogs must handle `Escape`.
+are in `main.js`. A form in a note gets the same two keys from `NbWeb.formKeys` (`nbweb.js`), and
+its Save/Cancel row from `NbWeb.formActions`. nb-web `CLAUDE.md` invariant 60 explains how dialogs
+must handle `Escape`.

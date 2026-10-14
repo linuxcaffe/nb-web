@@ -194,19 +194,21 @@ Fenced codeblocks that render as live widgets — tasks, accounts, git, frontmat
 Write a query, read a live result, all from your own tools, no cloud involved. The same block can
 also sit in a note's frontmatter (`tw: +work`), where it shows in the header strip above the note.
 
-| Block | What it shows |
-|-------|--------------|
-| `tw` | Taskwarrior tasks, filterable, with inline Add |
-| `hl` | hledger balances, registers, income statement |
-| `git` | git log or status for a repo |
-| `nb` | notebooks panel or backlinks |
-| `t` / `timedot` | time tracking: timeclock status and reports, timedot journals |
-| `cfg` | where a setting comes from; an org chart of every config file |
-| `fm` | frontmatter queries across notes, and an edit form |
-| `nav` | a folder navigator |
-| `gallery` | an image gallery from a folder |
-| `csv` | a spreadsheet-style table |
-| `toc` | a table of contents |
+| Group | Block | What it shows |
+|-------|-------|--------------|
+| Navigation | `nav` | a folder navigator |
+| | `gallery` | an image gallery from a folder |
+| | `toc` | a table of contents |
+| Introspection | `fm` | frontmatter queries across notes, totals, a key browser, an edit form |
+| | `cfg` | where a setting comes from; an org chart of every config file |
+| Authoring | `toolbar:` | a list-header button that opens a note |
+| | `csv` | a spreadsheet grid; templates with totals and a pick-list; `.csv` files |
+| | `add` | a wizard that creates a project's (or anything's) notes and folders |
+| External data | `tw` | Taskwarrior tasks, filterable, with inline Add |
+| | `hl` | hledger balances, registers, income statement |
+| | `nb` | notebooks panel or backlinks |
+| | `git` | git log or status for a repo |
+| Time tracking | `t` / `timedot` | timeclock status and reports, timedot journals |
 
 A block's **?** opens its help. Full reference: [Codeblocks](docs/CODEBLOCKS.md).
 

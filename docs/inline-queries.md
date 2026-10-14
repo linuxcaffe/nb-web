@@ -14,7 +14,7 @@ single value; anything that's really a report belongs in a codeblock.
 ```
 Current cash: {{hledger: bal Assets:Cash --no-total}}
 Pending tasks: {{tw: count status:pending +work}}
-Story cards: {{fm: count Takeout:storylines/film-school/ type:story}}
+Open jobs: {{fm: count features:examples/jobs/ type:job -status:done}}
 This note's tags: {{fm: tags}}
 Date: {{date: %A, %B %d}}
 Today: {{day: }}
@@ -35,20 +35,27 @@ saved into the file. The colon is what makes a query live. Some providers echo p
 `shot`, …) or be limited to a folder. `nb`'s `--type` only knows its built-in kinds (note,
 bookmark, image…) and counts one folder level. `fm`'s folder scope is **recursive**.
 
-The full [fm codeblock](CODEBLOCKS.md) filter grammar works in `{{fm: count ...}}`, since it's
-the same query engine returning a number instead of a list:
+The whole [fm query](blocks/fm.md) works in `{{fm: count ...}}`, since it's the same query
+returning a number instead of a list:
 
 ```
-Story cards: {{fm: count Takeout:storylines/film-school/ type:story}}
-Not yet locked: {{fm: count Takeout:script/ -status:locked}}
-Story or plotline: {{fm: count Takeout:storylines/ type:story,plotline}}
-Touched this week: {{fm: count Takeout:storylines/ mtime:>2026-07-28}}
-Budget still unset: {{fm: count Takeout:storylines/ type:story budget:""}}
+Jobs: {{fm: count features:examples/jobs/ type:job}}
+Not done yet: {{fm: count features:examples/jobs/ type:job -status:done}}
+Quoted or active: {{fm: count features:examples/jobs/ type:job status:quoted,active}}
+Over $5,000: {{fm: count features:examples/jobs/ type:job budget:>5000}}
+No budget yet: {{fm: count features:examples/jobs/ type:job budget:""}}
 ```
+
+Live, against the example jobs in features:examples/jobs/:
+
+- Jobs: {{fm: count features:examples/jobs/ type:job}}
+- Not done yet: {{fm: count features:examples/jobs/ type:job -status:done}}
+- Over $5,000: {{fm: count features:examples/jobs/ type:job budget:>5000}}
 
 Only `count` renders inline; `sum:`/`group:` return more than one value and need the codeblock.
 
-**Scope**: a whole notebook is its bare name (`{{fm: count features topic:}}`); a folder is
+**Scope**: a whole notebook is its bare name (`{{fm: count features topic:}}`), and `.` is the
+current note's; a folder is
 `notebook:path/` with the trailing slash. `features:` with a colon and no slash is read as a
 filter on a field called `features`, and counts 0.
 
@@ -79,7 +86,7 @@ The quick test: if `hledger <query>` in a terminal prints more than a line or tw
 | `hledger` | an hledger query against the notebook's journal | `{{hledger: bal Assets:Cash --depth 1}}` |
 | `tw` | a Taskwarrior filter (a count by default) | `{{tw: count due:today}}` |
 | `nb` | `nb` count/list, built-in types only | `{{nb: count home:}}` |
-| `fm` | `count ...`: a frontmatter-filtered, folder-scoped count; or a single field name, read live from the **current note's** frontmatter | `{{fm: count Takeout:storylines/ type:story}}` / `{{fm: tags}}` |
+| `fm` | `count ...`: a frontmatter-filtered, folder-scoped count; or a single field name, read live from the **current note's** frontmatter | `{{fm: count features:examples/jobs/ type:job}}` / `{{fm: tags}}` |
 | `date` | a strftime format | `{{date: %Y-%m-%d}}` |
 | `day` | strftime, default `%A, %B %-d, %Y` | `{{day: }}` / `{{day: %A}}` |
 | `mtime` | the current note's last-modified time, default `%Y-%m-%d %H:%M` | `{{mtime: }}` |

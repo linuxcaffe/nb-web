@@ -101,6 +101,7 @@ These blocks are sysadmin tools — place them in dotfiles, not dashboards:
 | `cfg: access: .` | Chain view of access resolution to current location |
 | `fm: type:dotfile` | List all dotfiles in the notebook |
 | `test` | Embedded assertions / checks |
+| `sysadmin` | The installation at a glance; `users` for accounts, `crontab` for scheduled jobs. See [sysadmin](blocks/sysadmin.md) |
 
 ---
 

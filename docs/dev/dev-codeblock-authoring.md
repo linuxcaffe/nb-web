@@ -221,6 +221,34 @@ The only safe use of `marked.parse()` directly is for content you own entirely (
 
 ---
 
+## Forms inside a block: Save/Cancel and unsaved changes
+
+A block that edits something (an add form, an edit panel) builds its buttons and keys with the
+shared helpers, and gets the unsaved-changes policy for free:
+
+```javascript
+const { row, saveBtn, cancelBtn } = NbWeb.formActions({ onSave, onCancel });
+form.appendChild(row);
+NbWeb.formKeys(form, saveBtn, cancelBtn);   // Ctrl/Cmd+Enter saves, Escape cancels
+```
+
+- **Save is dim until something changes.** `formKeys` gives it `nb-clean` and lights it on any
+  `input`/`change` inside the form. If your form changes without those events (a row deleted, a
+  chip toggled, a value set from code), call `NbWeb.formDirty(form)`.
+- **Unsaved work is never lost silently** (djp, 2026-10-14). While a visible form's Save is lit,
+  switching notes asks "Discard unsaved changes?" and closing or reloading the tab gets the
+  browser's leave-page warning (`NbMain._hasUnsaved`: the editor, the sheet view, csv grids,
+  `NbWeb.unsavedForms()`). Cancelling or hiding the form drops it out on its own. After a
+  successful save that keeps the form open, call `NbWeb.formDirty(form, false)`.
+- A block with its own editing surface that isn't a form (a grid, a canvas) keeps a dirty flag
+  and adds it to `_hasUnsaved` in `main.js`, as csv does with `_csvDirty`.
+- Essential header actions (add `+`, edit `✎`) use `nb-tw-btn nb-block-act`; a Save in the
+  header is `nb-tool-btn nb-btn-primary`.
+
+Tests: `nb-web-tests/e2e/tests/form-actions.spec.js`.
+
+---
+
 ## Checklist
 
 - [ ] `NbWeb.statusPill?.add(blocks.length)` called before work begins
@@ -234,3 +262,5 @@ The only safe use of `marked.parse()` directly is for content you own entirely (
 - [ ] `html()` escapes `"` → `&quot;` in data attributes
 - [ ] `querySelectorAll` result spread to `[...]` before async work begins
 - [ ] `previewRenderer` uses `NbMain.renderMarkdown()`, not `marked.parse()`
+- [ ] Forms use `NbWeb.formActions` + `NbWeb.formKeys`; changes that fire no input event call `NbWeb.formDirty(form)`
+- [ ] A non-form editing surface reports its dirty state to `_hasUnsaved` (unsaved work never lost silently)
