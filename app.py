@@ -12776,6 +12776,18 @@ def api_nb_backlinks():
     if not title:
         return jsonify({'backlinks': []})
 
+    user = session.get('user', {})
+
+    def _allowed(nb_name, path):
+        # invariant 79: a scan across notes filters by account scope and per-note access
+        if not _notebook_in_scope(user, nb_name):
+            return False
+        try:
+            meta, _ = parse_frontmatter(Path(path).read_text(errors='replace'))
+        except OSError:
+            return False
+        return _can_access(user, meta, _folder_config(nb_name, Path(path)))
+
     pattern = f'[[{title}]]'
     try:
         proc = subprocess.run(
@@ -12799,6 +12811,8 @@ def api_nb_backlinks():
             nb_part   = raw_sel.split(':')[0] if ':' in raw_sel else ''
             selector  = raw_sel
             if (self_sel and selector == self_sel) or selector in seen: continue
+            _p = _selector_disk_path(selector) if ':' in selector else None
+            if not nb_part or _p is None or not _allowed(nb_part, _p): continue
             seen.add(selector)
             backlinks.append({'selector': selector, 'notebook': nb_part, 'title': hit_title})
             if len(backlinks) >= limit: break
@@ -12822,6 +12836,8 @@ def api_nb_backlinks():
             idx = read_index(nb_name)
             selector = f"{nb_name}:{idx.index(fname) + 1}" if fname in idx else f"{nb_name}:{fname}"
             if (self_sel and selector == self_sel) or selector in seen:
+                continue
+            if not _allowed(nb_name, p):
                 continue
             seen.add(selector)
             # Derive title from file
