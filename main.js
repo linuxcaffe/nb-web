@@ -1820,19 +1820,23 @@ const NbMain = (() => {
         // summary: a category dashboard as the README shows it, built by the server
         // (dashboard_summary.py, shared with the README exporter; 2026-10-08)
         const wantSummary = /^summary\s+/i.test(rawPath.trim());
-        let targetRaw   = rawPath.trim().replace(/^(card|summary)\s+/i, '');
+        // contents [<section>]: a section's pages, nested, from its .index (dashboard_summary.py
+        // contents(), shared with the README export); no target = this note (2026-10-13)
+        const wantContents = /^contents(\s|$)/i.test(rawPath.trim());
+        let targetRaw   = rawPath.trim().replace(/^(card|summary|contents)(\s+|$)/i, '');
         // note.md#Heading -- just that section (the help system's single-source docs)
         let section = null;
         const hashAt = targetRaw.indexOf('#');
         if (hashAt > 0) { section = targetRaw.slice(hashAt + 1).trim(); targetRaw = targetRaw.slice(0, hashAt).trim(); }
-        const selector  = _resolveRelPath(targetRaw, note?.selector || '');
+        const selector  = wantContents && !targetRaw ? (note?.selector || '') : _resolveRelPath(targetRaw, note?.selector || '');
         try {
-            if (wantSummary) {
-                const r = await fetch(`/api/summary?selector=${encodeURIComponent(selector)}`, { signal });
+            if (wantSummary || wantContents) {
+                const api = wantContents ? 'contents' : 'summary';
+                const r = await fetch(`/api/${api}?selector=${encodeURIComponent(selector)}`, { signal });
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 const d = await r.json();
                 const wrap = document.createElement('div');
-                wrap.className = 'nb-inline-content nb-inline-summary';
+                wrap.className = `nb-inline-content nb-inline-${api}`;
                 wrap.innerHTML = `<div class="nb-rendered">${_renderMarkdown(d.markdown || '', d.selector)}</div>`;
                 _shiftChapterHeadings(wrap, _hostHeadingLevel(span));
                 span.replaceWith(wrap);

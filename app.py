@@ -1057,6 +1057,17 @@ def api_summary():
     if not _can_access(user, meta, _folder_config(nb, path)):
         return jsonify({'error': 'forbidden'}), 403
 
+    read_page, find_topic, read_index, topics_under = _summary_readers(user, nb)
+    md = dashboard_summary.dashboard_summary(
+        text, read_page, find_topic,
+        contents=lambda: dashboard_summary.contents(sel, read_index, read_page, find_topic, topics_under, link='topic'))
+    return jsonify({'markdown': md, 'selector': sel, 'notebook': nb})
+
+
+def _summary_readers(user, nb):
+    """The callbacks dashboard_summary.py takes, reading live notes as this user: read_page,
+    find_topic, read_index, topics_under (see dashboard_summary.contents). What the user can't
+    open reads as missing."""
     def read_page(target):
         s = target if ':' in target else f'{nb}:{target}'
         pnb = s.split(':', 1)[0]
@@ -1076,7 +1087,43 @@ def api_summary():
                 return tsel, tmeta, (parse_frontmatter(tp.read_text(errors='replace'))[1] if tp else '')
         return None
 
-    md = dashboard_summary.dashboard_summary(text, read_page, find_topic)
+    def read_index(folder_sel):
+        fnb, folder = folder_sel.split(':', 1)
+        d = (_selector_disk_path(folder_sel) if folder else NB_DIR / fnb) if _safe_notebook(fnb) else None
+        if d is None or not d.is_dir() or not _notebook_in_scope(user, fnb):
+            return []
+        try:
+            return (d / '.index').read_text(errors='replace').splitlines()
+        except OSError:
+            return []
+
+    def topics_under(topic_sel):
+        """The help topics in <topic>/ (blocks/fm.md -> blocks/fm/*.md), its .index order first."""
+        prefix = topic_sel[:-3] + '/' if topic_sel.endswith('.md') else ''
+        found = {t: m for t, m, _ in _help_topics()
+                 if prefix and t.startswith(prefix) and '/' not in t[len(prefix):] and _help_topic_ok(user, t, m)}
+        order = [prefix + n.strip() for n in read_index(prefix.rstrip('/'))]
+        return [(t, found[t]) for t in order if t in found] + sorted((t, m) for t, m in found.items() if t not in order)
+
+    return read_page, find_topic, read_index, topics_under
+
+
+@app.route('/api/contents')
+def api_contents():
+    """{{inline: contents}}: a section's pages, nested, in its folder's .index order, linked to
+    the tour pages (dashboard_summary.contents; the README links the docs topics instead)."""
+    import dashboard_summary
+    user = session.get('user', {})
+    sel = request.args.get('selector', '').strip()
+    nb = sel.split(':', 1)[0] if ':' in sel else ''
+    path = _selector_disk_path(sel) if nb and _safe_notebook(nb) else None
+    if path is None or not path.is_file() or not _notebook_in_scope(user, nb):
+        return jsonify({'error': 'not found'}), 404
+    meta, _ = parse_frontmatter(path.read_text(errors='replace'))
+    if not _can_access(user, meta, _folder_config(nb, path)):
+        return jsonify({'error': 'forbidden'}), 403
+    read_page, find_topic, read_index, topics_under = _summary_readers(user, nb)
+    md = dashboard_summary.contents(sel, read_index, read_page, find_topic, topics_under)
     return jsonify({'markdown': md, 'selector': sel, 'notebook': nb})
 
 

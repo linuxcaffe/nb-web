@@ -320,6 +320,27 @@ class Book:
                 return f'docs:{k}', meta, body
         return None
 
+    def _index(self, folder_sel):
+        """A folder's .index lines: features at the tag, docs from the working tree."""
+        nb, folder = folder_sel.split(':', 1)
+        rel = f'{folder}/.index' if folder else '.index'
+        if nb == self.features:
+            text = _git_show(self.repo, self.rev, rel)
+        else:
+            p = self.docs.root / rel
+            text = p.read_text(errors='replace') if nb == 'docs' and p.is_file() else None
+        return (text or '').splitlines()
+
+    def _topics_under(self, topic_sel):
+        """The docs topics in <topic>/ (blocks/fm.md -> blocks/fm/*.md), .index order first."""
+        prefix = topic_sel[len('docs:'):-3] + '/'
+        found = {k: m for k, (m, _) in self.docs.notes.items()
+                 if k.startswith(prefix) and '/' not in k[len(prefix):] and m.get('help_for')
+                 and k not in self.docs.private}
+        order = [prefix + n.strip() for n in self._index('docs:' + prefix.rstrip('/'))]
+        return [(f'docs:{k}', found[k]) for k in order if k in found] + \
+            sorted((f'docs:{k}', m) for k, m in found.items() if k not in order)
+
     def chapter(self, arg, host):
         """(markdown, None) for one inline's argument, or (None, why)."""
         arg = arg.strip()
@@ -331,7 +352,9 @@ class Book:
             if dash is None:
                 return None, f'{target} not found at the {self.rev} tag'
             read = lambda t: self._feature(t) if t.startswith(self.features + ':') else None  # noqa: E731
-            head, _, rest = dashboard_summary.dashboard_summary(dash, read, self._topic).partition('\n')
+            contents = lambda: dashboard_summary.contents(  # noqa: E731
+                target, self._index, read, self._topic, self._topics_under, link='topic')
+            head, _, rest = dashboard_summary.dashboard_summary(dash, read, self._topic, contents=contents).partition('\n')
             return f'{head}\n{SECTION_MARK}\n{rest}', None
         target, _, heading = arg.partition('#')
         target = target.strip()

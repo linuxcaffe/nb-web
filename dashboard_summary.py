@@ -9,7 +9,9 @@ A summary: the dashboard's title as ###, its caption, its intro (the text betwee
 first chapter or subheading, minus a first sentence that only repeats the caption), then for each
 `{{inline:}}` chapter -- a tour page -- the docs topic note named by the page's topic:: a linked
 label (the page's title), the topic's caption, and its ## Summary.
-Tests: nb-web-tests/test_dashboard_summary.py.
+A section (type: section, 2026-10-13) is summarised by its own ## Summary instead, where an
+`{{inline: contents}}` line becomes contents(): its pages from the folder's .index, nested.
+Tests: nb-web-tests/test_dashboard_summary.py, test_section_contents.py.
 """
 import re
 
@@ -83,16 +85,80 @@ def qualify_links(text, selector):
     return ''.join(p if i % 2 else _WIKI_RE.sub(fix, p) for i, p in enumerate(parts))
 
 
-def dashboard_summary(dash_text, read_page, find_topic, heading='###'):
+_CONTENTS_RE = re.compile(r'^\{\{\s*inline:\s*contents\s*\}\}\s*$', re.M)
+
+
+def _label(meta, fallback):
+    """A short label: the title up to its " — " (blocks/fm/list.md is "fm list — Key Browser")."""
+    return str(meta.get('title') or fallback).split(' — ')[0].strip() or fallback
+
+
+def contents(section_sel, read_index, read_page, find_topic, topics_under, link='page'):
+    """A section's contents as a nested Markdown list, in its folder's .index order.
+    read_index(folder_selector) -> [names]; read_page(selector) -> text or None (missing or not
+    for this reader); find_topic(topic) -> (selector, meta, body) or None; topics_under(topic
+    selector) -> [(selector, meta)], the topics in its sub-folder, in order. link='page' links
+    the tour pages, 'topic' their docs topics (the README)."""
+    def entry(indent, sel, label, cap):
+        text = f'[[{sel}|{label}]]' if sel else label
+        return f'{indent}- {text}' + (f' — {cap}' if cap else '')
+
+    def walk(sec_sel, depth):
+        nb, path = sec_sel.split(':', 1)
+        folder = path.rsplit('/', 1)[0] if '/' in path else ''
+        out = []
+        for name in read_index(f'{nb}:{folder}'):
+            name = name.strip()
+            if not name or name.startswith('.') or '/' in name:
+                continue
+            ind = '  ' * depth
+            if not name.endswith('.md'):                        # a sub-section, or example data
+                sub = f'{nb}:{folder}/{name}/{name}.md' if folder else f'{nb}:{name}/{name}.md'
+                text = read_page(sub)
+                meta = split_fm(text)[0] if text else {}
+                if meta.get('type') != 'section':
+                    continue
+                out.append(entry(ind, sub if link == 'page' else '', _label(meta, name),
+                                 str(meta.get('caption') or '').strip()))
+                if depth < 2:
+                    out.extend(walk(sub, depth + 1))
+                continue
+            sel = f'{nb}:{folder}/{name}' if folder else f'{nb}:{name}'
+            if sel == sec_sel:
+                continue
+            text = read_page(sel)
+            meta = split_fm(text)[0] if text else {}
+            if meta.get('type') != 'feature':
+                continue
+            topic = str(meta.get('topic') or '').strip()
+            hit = find_topic(topic) if topic else None
+            cap = str(meta.get('caption') or (hit[1].get('caption') if hit else '') or '').strip()
+            target = sel if link == 'page' else (hit[0] if hit else '')
+            out.append(entry(ind, target, _label(meta, name[:-3]), cap))
+            if hit:
+                for tsel, tmeta in topics_under(hit[0]):
+                    out.append(entry(ind + '  ', tsel, _label(tmeta, tsel), str(tmeta.get('caption') or '').strip()))
+        return out
+    return '\n'.join(walk(section_sel, 0))
+
+
+def dashboard_summary(dash_text, read_page, find_topic, heading='###', contents=None):
     """Markdown for one dashboard. read_page(target) -> the chapter page's text, or None;
     find_topic(topic) -> (selector, meta, body) of its docs topic note, or None. Either returning
-    None (missing, or not for this reader) leaves that chapter out."""
+    None (missing, or not for this reader) leaves that chapter out. A section with a ## Summary
+    is that Summary, its {{inline: contents}} line replaced by contents() (a no-argument
+    callable; None drops the line)."""
     meta, body = split_fm(dash_text)
     title = str(meta.get('title') or '').strip() or 'Untitled'
     cap = str(meta.get('caption') or '').strip()
     parts = [f'{heading} {title}']
     if cap:
         parts.append(f'_{cap}_')
+    own = section(body, 'Summary') if meta.get('type') == 'section' else ''
+    if own:
+        own = _CONTENTS_RE.sub(lambda m: (contents() if contents else ''), own)
+        parts.append(re.sub(r'\n{3,}', '\n\n', own).strip())
+        return '\n\n'.join(parts)
     text = intro(body, cap)
     if text:
         parts.append(text)
