@@ -98,6 +98,8 @@ type, the live blocks in it, its frontmatter keys, its notebook. Each topic show
 with **More** for the full page and **Try it** for a live example you can edit. The help comes
 from the same docs you can read in the `docs:` notebook, so there's one copy of everything.
 
+[↑ Feature tour](#feature-tour) · [Linking →](#linking)
+
 ### Linking
 
 _Connect notes to each other_
@@ -130,6 +132,8 @@ Several includes plus `toc: true` make one long, navigable document out of separ
 A `tabs:` list in a note's frontmatter shows a row of tabs above the note, one per listed note or
 folder; the current note's tab is highlighted, and clicking another opens it. Put `tabs:` in a
 notebook or folder config and every note there gets the same strip.
+
+[← Basics](#basics) · [↑ Feature tour](#feature-tour) · [Structure →](#structure)
 
 ### Structure
 
@@ -185,105 +189,56 @@ contents across every chapter. Each chapter stays an ordinary note you can open 
 own. A check block placed in a chapter warns right there, so a failing check shows up in the
 book's contents beside the section it's about.
 
+[← Linking](#linking) · [↑ Feature tour](#feature-tour) · [Live blocks →](#live-blocks)
+
 ### Live blocks
 
 _Notes that do things_
 
-Fenced codeblocks that render as live widgets — tasks, accounts, git, frontmatter queries and more — in the body or the header strip.
+A live block is a fenced codeblock that runs when the note is shown: write a query, read the
+answer in place. Find notes by their frontmatter, browse folders, total a price list, add a job
+from a wizard, or see this month's books, all from plain text in your notes, all on your own
+machine, no cloud involved. Most blocks can also sit in a note's frontmatter (`fm: status:active`),
+where they show in the header strip above the note.
 
-Write a query, read a live result, all from your own tools, no cloud involved. The same block can
-also sit in a note's frontmatter (`tw: +work`), where it shows in the header strip above the note.
+**Before you start.** Blocks that read outside data need the tool installed: `hledger` for `hl`.
+An admin can limit any block to an access level (Settings → Codeblocks); a block you're below
+the level for simply doesn't show. Every block's **?** opens its help, and
+[Codeblocks](docs/CODEBLOCKS.md) is the full reference. The examples here use
+Pat's made-up business (Example data), never your own notes.
 
-| Group | Block | What it shows |
-|-------|-------|--------------|
-| Navigation | `nav` | a folder navigator |
-| | `gallery` | an image gallery from a folder |
-| | `toc` | a table of contents |
-| Introspection | `fm` | frontmatter queries across notes, totals, a key browser, an edit form |
-| | `cfg` | where a setting comes from; an org chart of every config file |
-| Authoring | `toolbar:` | a list-header button that opens a note |
-| | `csv` | a spreadsheet grid; templates with totals and a pick-list; `.csv` files |
-| | `add` | a wizard that creates a project's (or anything's) notes and folders |
-| External data | `tw` | Taskwarrior tasks, filterable, with inline Add |
-| | `hl` | hledger balances, registers, income statement |
-| | `nb` | notebooks panel or backlinks |
-| | `git` | git log or status for a repo |
-| Time tracking | `t` / `timedot` | timeclock status and reports, timedot journals |
+**Navigation**
 
-A block's **?** opens its help. Full reference: [Codeblocks](docs/CODEBLOCKS.md).
+- [nav](docs/blocks/nav.md) — a clickable folder/notebook browser embedded in a note
+- [gallery](docs/blocks/gallery.md) — a clickable image grid rendered from a note's nearest images/ folder
+- [toc](docs/blocks/toc.md) — a clickable heading list for the note, in the FM strip
 
-**[nav](docs/blocks/nav.md)** — a clickable folder/notebook browser embedded in a note
+**Introspection**
 
-A `nav` block renders a small, stateful file browser right inside the note: a breadcrumb trail
-plus a list of folders and notes you click through, no page navigation involved. Point it at a
-notebook folder, the current note's own folder, or — for admins — a raw filesystem path under
-`~/.nb/`. Leave the fence empty and it opens at the top, listing every notebook.
+- [fm](docs/blocks/fm.md) — find notes by their frontmatter, across notebooks
+  - [fm group, count, sum](docs/blocks/fm/aggregate.md) — count, total or group the notes an fm query finds
+  - [fm list](docs/blocks/fm/list.md) — every frontmatter key in a notebook, with counts and sample values
+  - [fm edit](docs/blocks/fm/edit.md) — edit a note's frontmatter in a form, with the fields its folder expects
+- [cfg](docs/blocks/cfg.md) — where a setting comes from, and a map of every config file
 
-**[gallery](docs/blocks/gallery.md)** — a clickable image grid rendered from a note's nearest images/ folder
+**Authoring**
 
-A `gallery` block renders a responsive grid of images from the nearest `images/` folder —
-walking up from the note's own location unless told otherwise — with a full-screen lightbox on
-click. It shares its size vocabulary and `images/` folder convention with the editor's own
-image-embed button, so dropping a photo in while editing shows up here automatically.
+- [toolbar](docs/blocks/toolbar.md) — a button in the list header that opens a note
+- [csv](docs/blocks/csv.md) — an editable spreadsheet grid inside a note
+  - [csv templates](docs/blocks/csv/templates.md) — reusable columns and totals for csv tables, and a price list to pick rows from
+  - [csv files](docs/blocks/csv/files.md) — a .csv file opens as a full-page spreadsheet
+- [add](docs/blocks/add.md) — a step-by-step wizard that creates the notes and folders a new thing needs
+  - [Writing a wizard](docs/blocks/add/wizards.md) — the .<name>-org.md file behind an add block and a [+] button
 
-**[toc](docs/blocks/toc.md)** — a clickable heading list for the note, in the FM strip
+**External data**
 
-`toc: true` in frontmatter adds a collapsible table of contents to the note's FM strip: the
-header shows the note's path and heading count, and expanding it lists every heading, indented
-by level, each a clickable link that scrolls smoothly to it.
+- [hl](docs/blocks/hl.md) — live hledger reports in a note
 
-**[fm](docs/blocks/fm.md)** — find notes by their frontmatter, across notebooks
+**Inline values**
 
-An `fm` block lists the notes whose frontmatter matches a query: `status:active` finds every
-note with that status, in every notebook you can open. Put notebook or folder names first to
-narrow where it looks, add more `field:value` filters to narrow what it finds, and sort or cap
-the list. Click a result to open it; hover it to see all its fields. The same block can also
-count, total or group the matches, list every key in a notebook, or show an edit form.
+- [Inline queries](docs/inline-queries.md) — live numbers and values right inside a sentence
 
-**[cfg](docs/blocks/cfg.md)** — where a setting comes from, and a map of every config file
-
-A `cfg` block shows how a setting is resolved: the chain from the global `~/.nb/.nb.md` down
-through the notebook and folder configs to the current note, and which level sets the value
-that wins. `access: .` traces one key here; a bare block lists every key; `tree` and `org` map
-all the config files in a notebook. Click a node to open its config file, or create one where
-none exists. Admin only by default.
-
-**[toolbar](docs/blocks/toolbar.md)** — a button in the list header that opens a note
-
-Put `toolbar: true` in a note's frontmatter and a button for it appears in the list header,
-next to the other list buttons, whenever that note's notebook is the one in the list. One click
-opens the note, whatever folder or sort you're in, so it suits the notes you go back to all day:
-a dashboard, a checklist, this month's books. `toolbar_icon:` picks the button's icon.
-
-**[csv](docs/blocks/csv.md)** — an editable spreadsheet grid inside a note
-
-A `csv` block turns comma-separated rows into a spreadsheet grid right in the note: the first row
-is the column headers, the rest is data. Edit cells, add and remove rows and columns from the
-right-click menu, then click **Save** to write the grid back into the note. Name a template after
-`csv` (`csv materials`) for a fixed set of columns, a totals row and a pick-list. The data stays in
-the note as plain text.
-
-**[add](docs/blocks/add.md)** — a step-by-step wizard that creates the notes and folders a new thing needs
-
-An `add` block shows a wizard as a small chart: the steps to create something new, such as a
-project with its folder, diary, reports page and config. Click a step and a form asks for the
-names and choices its templates need, shows what it will make, and creates it all in one go.
-The same wizard opens from the **[+]** in a project's (or other typed note's) header. A wizard is
-a note you write; see [writing a wizard](docs/blocks/add/wizards.md).
-
-**[hl](docs/blocks/hl.md)** — live hledger reports in a note
-
-An `hl` block runs an hledger report and shows the result in the note: balances, registers,
-income statement, balance sheet, cash flow. The body is an hledger command line (`bal expenses
---monthly -3`); it reads the note's `journal:` when the line names no file. `+` adds a
-transaction, ↻ re-runs the report, and the **hledger** label opens hledger itself.
-
-**[Inline queries](docs/inline-queries.md)** — live numbers and values right inside a sentence
-
-`{{provider: query}}` drops live data into a sentence and refreshes it every time the note is
-shown: `Pending tasks: {{tw: count status:pending}}`. Providers cover accounts (`hledger`), tasks
-(`tw`), note counts (`nb`, `fm`), dates (`date`, `day`, `mtime`) and `weather`. Use them for a
-single value; anything that's really a report belongs in a codeblock.
+[← Structure](#structure) · [↑ Feature tour](#feature-tour) · [Work →](#work)
 
 ### Work
 
@@ -302,6 +257,8 @@ A notebook named `contacts` shows its notes as contact cards with clickable emai
 address and links, sorted by last name; 📇 imports a `.vcf` file. See
 [Contacts](docs/CONTACTS.md).
 
+[← Live blocks](#live-blocks) · [↑ Feature tour](#feature-tour) · [Look →](#look)
+
 ### Look
 
 _Make it yours_
@@ -312,6 +269,8 @@ Themes are Markdown files in `~/.nb/.themes/` with a `dark:` and a `light:` pale
 with 🎨 on a notebook's dashboard; ☀/☾ switches light and dark everywhere. `theme:` cascades like
 any config key: set it globally, per notebook or per folder, and each note opens in its theme.
 See [Themes](docs/THEMES.md).
+
+[← Work](#work) · [↑ Feature tour](#feature-tour) · [Sharing →](#sharing)
 
 ### Sharing
 
@@ -326,6 +285,8 @@ once, then sync per notebook; the sync dialog shows what's pending before you pu
 Export any notebook as a `.nbz` archive (a ZIP with a manifest, git history optional) and import
 it on another machine. See [Import and export](docs/import-export.md).
 
+[← Look](#look) · [↑ Feature tour](#feature-tour) · [Health →](#health)
+
 ### Health
 
 _Keep everything in good shape_
@@ -337,6 +298,8 @@ key counts, access tints. Click a node to open its config, or an empty one (`○
 filter by any `key` or `key:value` to see which configs set it. New folder configs made from the
 `dotfile` template come with it built in. See [Sysadmin](docs/SYSADMIN.md) and
 [Checks](docs/CHECKS.md).
+
+[← Sharing](#sharing) · [↑ Feature tour](#feature-tour) · [Plugins →](#plugins)
 
 ### Plugins
 
@@ -359,6 +322,8 @@ sort options, toolbar buttons and notebook sections without touching core files.
 | claude | ask Claude about a note (separate repo) |
 
 See [Plugins](docs/PLUGINS.md).
+
+[← Health](#health) · [↑ Feature tour](#feature-tour)
 
 ## Installation
 
