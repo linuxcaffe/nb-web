@@ -31,7 +31,11 @@ def split_fm(text):
         meta = yaml.safe_load(m.group(1)) or {}
     except yaml.YAMLError:
         meta = {}
-    return (meta if isinstance(meta, dict) else {}), text[m.end():]
+    if not isinstance(meta, dict) or not meta:
+        # not strict YAML (xref: docs:): line by line, like the app's parse_frontmatter
+        meta = {k.strip(): v.strip() for k, _, v in
+                (ln.partition(':') for ln in m.group(1).splitlines() if ':' in ln and not ln[:1].isspace())}
+    return meta, text[m.end():]
 
 
 def section(body, name):
@@ -165,6 +169,9 @@ def dashboard_summary(dash_text, read_page, find_topic, heading='###', contents=
     if cap:
         parts.append(f'_{cap}_')
     own = section(body, 'Summary') if meta.get('type') == 'section' else ''
+    # like an intro: it ends at a --- rule (the tour's reset link sits below one); comments go
+    own = re.split(r'^\s*(?:-{3,}|\*{3,})\s*$', own, maxsplit=1, flags=re.M)[0]
+    own = re.sub(r'<!--.*?-->', '', own, flags=re.S).strip()
     if own:
         own = _CONTENTS_RE.sub(lambda m: (contents() if contents else ''), own)
         parts.append(re.sub(r'\n{3,}', '\n\n', own).strip())
