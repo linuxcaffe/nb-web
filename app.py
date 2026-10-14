@@ -3879,6 +3879,17 @@ _HLEDGER_TEXT_CMDS = {'check', 'stats', 'tags', 'commodities', 'files',
                       'accounts', 'acc', 'a', 'prices', 'payees', 'notes',
                       'activity'}
 
+# hledger writes its report to a file with -o/--output-file, so a read-only report block could
+# create or overwrite any file the server can write. Refuse those options on every user-supplied
+# query (2026-10-13; sibling of the tw command-injection fix). --output-format (-O) only names a
+# format and is safe; -f/--file is confined to $HOME by _hledger_resolve_file.
+def _hledger_reject_output(args):
+    """Raise ValueError if args carry an output-file option."""
+    for a in args:
+        if a in ('-o', '--output-file') or a.startswith('--output-file=') or (a.startswith('-o') and len(a) > 2):
+            raise ValueError('output-file option not allowed')
+
+
 # Cache: (args_tuple, journal_mtime) → (stdout, stderr, returncode)
 # Keyed on full arg list so different queries never collide.
 # Invalidated automatically when journal mtime changes (e.g. after adding a transaction).
@@ -3949,6 +3960,10 @@ def api_inline_query():
 
     try:
         if provider == 'hledger':
+            try:
+                _hledger_reject_output(shlex.split(query))
+            except ValueError as e:
+                return jsonify({'error': str(e)}), 400
             # Note-level journal: FM key overrides notebook config when selector provided
             journal = None
             if selector:
@@ -4088,6 +4103,10 @@ def api_hledger_query():
     q        = request.args.get('q', '').strip()
     notebook = request.args.get('notebook', '').strip()
     args = shlex.split(q) if q else ['balance']
+    try:
+        _hledger_reject_output(args)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     # Positional file path: first token starting with ~ or / is the ledger file.
     file_path = None
