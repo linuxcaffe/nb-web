@@ -902,6 +902,11 @@ def _help_topic_notebooks():
     return out
 
 
+def _dashboard_like(t):
+    """type: dashboard, or a section (a tour category: a dashboard that knows its neighbours)."""
+    return str(t or '') in ('dashboard', 'section')
+
+
 def _help_topic_ok(user, sel, tmeta):
     """May this user see this help note? Its own access:, under its own notebook's config."""
     return _can_access(user, tmeta, _notebook_config(sel.split(':', 1)[0]))
@@ -1003,9 +1008,9 @@ def _help_for_matches(meta, body, notebook, itype, inherited_keys=(), note_path=
         for sel, tmeta, tctx in topics:
             if ctx in tctx and _help_topic_ok(user, sel, tmeta):
                 out.append(sel)
-    # Specific topics first, then categories (dashboards with help_for:, e.g. Basics).
-    kinds = {sel: str(tmeta.get('type') or '') for sel, tmeta, _ in topics}
-    return [x for x in out if kinds.get(x) != 'dashboard'] + [x for x in out if kinds.get(x) == 'dashboard']
+    # Specific topics first, then categories (dashboards or sections with help_for:, e.g. Basics).
+    cats = {sel for sel, tmeta, _ in topics if _dashboard_like(tmeta.get('type'))}
+    return [x for x in out if x not in cats] + [x for x in out if x in cats]
 
 
 def _features_notebook():
@@ -1075,6 +1080,66 @@ def api_summary():
     return jsonify({'markdown': md, 'selector': sel, 'notebook': nb})
 
 
+@app.route('/api/section/nav')
+def api_section_nav():
+    """A section's neighbours, for its header: {prev, up, next}, each {selector, title} or null.
+    Sections are <folder>/<folder>.md notes with type: section; their order is the parent
+    folder's .index (hand-edited). up is the parent folder's own note (<notebook>.md at the
+    root). Sections the user can't open are skipped. The README gets the same line from
+    .tools/readme-export.py, in the README's own order."""
+    user = session.get('user', {})
+    sel = request.args.get('selector', '').strip()
+    nb = sel.split(':', 1)[0] if ':' in sel else ''
+    path = _selector_disk_path(sel) if nb and _safe_notebook(nb) else None
+    if path is None or not path.is_file() or not _notebook_in_scope(user, nb):
+        return jsonify({'error': 'not found'}), 404
+    out = {'prev': None, 'up': None, 'next': None}
+
+    def readable(p):
+        """The note's frontmatter if this user may open it, else None."""
+        if not p.is_file():
+            return None
+        m, _ = parse_frontmatter(p.read_text(errors='replace'))
+        return m if _can_access(user, m, _folder_config(nb, p)) else None
+
+    meta = readable(path)
+    if meta is None:
+        return jsonify({'error': 'forbidden'}), 403
+    root = NB_DIR / nb
+    folder = path.parent
+    if meta.get('type') != 'section' or folder == root or path.stem != folder.name:
+        return jsonify(out)
+
+    def entry(p, m):
+        rel = p.relative_to(root).as_posix()
+        return {'selector': f'{nb}:{rel}', 'title': str(m.get('title') or p.stem)}
+
+    parent = folder.parent
+    up = parent / f'{nb if parent == root else parent.name}.md'
+    if (m := readable(up)) is not None:
+        out['up'] = entry(up, m)
+    try:
+        names = [n.strip() for n in (parent / '.index').read_text(errors='replace').splitlines()]
+    except OSError:
+        names = []
+    sections = []
+    for n in names:
+        if not n or n.startswith('.') or '/' in n or n.endswith('.md'):
+            continue
+        p = parent / n / f'{n}.md'
+        if p == path:
+            sections.append((p, meta))
+        elif (m := readable(p)) is not None and m.get('type') == 'section':
+            sections.append((p, m))
+    i = next((k for k, (p, _) in enumerate(sections) if p == path), None)
+    if i is not None:
+        if i > 0:
+            out['prev'] = entry(*sections[i - 1])
+        if i + 1 < len(sections):
+            out['next'] = entry(*sections[i + 1])
+    return jsonify(out)
+
+
 @app.route('/api/help/category')
 def api_help_category():
     """A category: a dashboard's topics in its chapter order, for a category line in the ?
@@ -1107,7 +1172,7 @@ def api_help_category():
     by_topic = {}
     for tsel, tmeta, _ in _help_topics():
         t = str(tmeta.get('topic') or '').strip()
-        if t and t not in by_topic and str(tmeta.get('type') or '') != 'dashboard' and _help_topic_ok(user, tsel, tmeta):
+        if t and t not in by_topic and not _dashboard_like(tmeta.get('type')) and _help_topic_ok(user, tsel, tmeta):
             by_topic[t] = tsel
     folder = dash.parent
     for cat, page in _CHAPTER_RE.findall(text):
@@ -2505,6 +2570,7 @@ INDICATORS = {
     'report':      '📊',
     'invoice':     '🧾',
     'dashboard':   '🗂️',
+    'section':     '📑',
     'production':  '🎥',
     'help':        '❓',
     'topic':       '📘',
@@ -2547,12 +2613,13 @@ INDICATORS = {
 #   help      — a .lib/help-*.md help-popover source note  ❓  (core, so fm queries can list them)
 #   topic     — a docs: topic note (help_for:, ## Summary layers) 📘  (core, help system)
 #   feature   — a features: tour page, scratchpad in its sidecar  🎯  (core, help system)
+#   section   — a features-tour category: a dashboard that knows its neighbours (/api/section/nav) 📑
 #   book      — chapters stitched with {{inline:}}; turns the TOC on  📚  (core)
 #   doc       — a docs: page checked against the code, not a help topic (dev docs, More pages);
 #               untyped docs are the unreviewed backlog  📃  (core)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'character', 'location', 'day', 'resource', 'dotfile', 'journal',
                        'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production', 'report', 'book',
-                       'topic', 'feature', 'doc'})
+                       'topic', 'feature', 'doc', 'section'})
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.

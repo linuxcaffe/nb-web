@@ -102,6 +102,7 @@
         reports:   { icon: '📊', label: 'Reports'  },
         invoice:   { icon: '🧾', label: 'Invoice' },
         dashboard: { icon: '🗂️', label: 'Dashboard' },
+        section:   { icon: '📑', label: 'Section'   },   // a features: tour category (a dashboard + neighbours)
         dotfile:   { icon: '⚙️', label: 'Config'    },
         topic:     { icon: '📘', label: 'Topic'     },   // a docs: topic note (help system)
         feature:   { icon: '🎯', label: 'Feature'   },   // a features: tour page
@@ -431,7 +432,7 @@
             const dir     = cfgPath.includes('/') ? cfgPath.slice(0, cfgPath.lastIndexOf('/')) : '';
             const d = await fetch(`/api/notes?notebook=${encodeURIComponent(nb)}` + (dir ? `&folder=${encodeURIComponent(dir)}` : ''))
                 .then(r => r.json()).catch(() => ({}));
-            const dashes = (d.notes || []).filter(n => n.type === 'dashboard');
+            const dashes = (d.notes || []).filter(n => n.type === 'dashboard' || n.type === 'section');
             const own = `${dir ? dir.split('/').pop() : nb}.md`;
             dashSel = (dashes.find(n => (n.filename || n.selector.split('/').pop()) === own) || dashes[0])?.selector || '';
         }
@@ -461,11 +462,23 @@
         const dashPath = (note.selector || '').split(':').slice(1).join(':');
         const dashDir  = dashPath.includes('/') ? dashPath.slice(0, dashPath.lastIndexOf('/')) : '';
         const listUrl  = `/api/notes?notebook=${encodeURIComponent(nb)}` + (dashDir ? `&folder=${encodeURIComponent(dashDir)}` : '');
-        const [listData, syncData] = await Promise.all([
+        const isSection = note.type === 'section';
+        const [listData, syncData, navData] = await Promise.all([
             fetch(listUrl).then(r => r.json()).catch(() => ({})),
             nb ? fetch(`/api/nb/sync/status?notebook=${encodeURIComponent(nb)}`).then(r => r.json()).catch(() => ({}))
                : Promise.resolve({}),
+            isSection ? fetch(`/api/section/nav?selector=${encodeURIComponent(note.selector || '')}`).then(r => r.json()).catch(() => ({}))
+                      : Promise.resolve({}),
         ]);
+        // A section's neighbours (/api/section/nav: the parent's .index order), as pair chips;
+        // the README export writes the same line under each section.
+        const navChip = (n, label) => n?.selector
+            ? `<a class="nb-specialty-link nb-pair-chip" href="#" title="${_esc(n.selector)}" data-open="${_esc(n.selector)}" data-pair="section">${_esc(label)}</a>`
+            : '';
+        const sectionNav = isSection
+            ? navChip(navData.prev, `← ${navData.prev?.title}`) + navChip(navData.up, `↑ ${navData.up?.title}`)
+              + navChip(navData.next, `${navData.next?.title} →`)
+            : '';
 
         const items       = listData.notes || [];
         const fileCount   = items.filter(n => n.type !== 'folder').length;
@@ -523,7 +536,7 @@
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(nb, '🗂️')}
             <span class="nb-specialty-label">${_esc(domain)}</span>
-            ${configLink}
+            ${configLink}${sectionNav}
             <span class="nb-specialty-pill">${fileCount} files</span>
             <span class="nb-specialty-pill">${folderCount} folders</span>
             <span class="nb-specialty-right">
@@ -744,7 +757,7 @@
         // replacing cine's real board/story UI with a bare FM-field dump.
         previewRendererDetect: note => !!_cfg[note.type] && note.type !== 'item' && !_cfg[note.type]?.noRender,
         previewRenderer: note => {
-            if (note.type === 'dashboard') return _renderDashboardNote(note);
+            if (note.type === 'dashboard' || note.type === 'section') return _renderDashboardNote(note);
             if (note.type === 'dotfile')   return _renderDotfileNote(note);
             if (note.type === 'reports')   return _renderReportsNote(note);
             return _cfg[note.type] ? _renderSpecialtyNote(note) : null;

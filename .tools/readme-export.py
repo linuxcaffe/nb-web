@@ -253,6 +253,44 @@ def _headings(text):
     return found
 
 
+SECTION_MARK = '<!-- nb-section -->'
+
+
+def section_nav(text):
+    """The README has no tab strip: end each summarised section (its heading is followed by
+    SECTION_MARK) with a line to the previous and next section and up to the heading they sit
+    under, all in the document's own order; the marks go. The app's header gets the same from
+    /api/section/nav."""
+    lines = text.split('\n')
+    heads, fence = [], False                       # (line, level, title), outside code
+    for i, ln in enumerate(lines):
+        if ln.lstrip().startswith(('```', '~~~')):
+            fence = not fence
+        elif not fence and (m := re.match(r'^(#{1,6})\s+(.*?)\s*#*\s*$', ln)):
+            heads.append((i, len(m.group(1)), m.group(2)))
+    secs = [h for h in heads if h[0] + 1 < len(lines) and lines[h[0] + 1].strip() == SECTION_MARK]
+    if not secs:
+        return text
+    link = lambda label, title: f'[{label}](#{github_slug(title)})'  # noqa: E731
+    inserts = []
+    for k, (i, level, title) in enumerate(secs):
+        up = next((h for h in reversed(heads) if h[0] < i and h[1] < level), None)
+        parts = []
+        if k > 0:
+            parts.append(link(f'← {secs[k - 1][2]}', secs[k - 1][2]))
+        if up:
+            parts.append(link(f'↑ {up[2]}', up[2]))
+        if k + 1 < len(secs):
+            parts.append(link(f'{secs[k + 1][2]} →', secs[k + 1][2]))
+        end = next((h[0] for h in heads if h[0] > i and h[1] <= level), len(lines))
+        while end > i + 2 and not lines[end - 1].strip():
+            end -= 1
+        inserts.append((end, ' · '.join(parts)))
+    for end, nav in reversed(inserts):
+        lines[end:end] = ['', nav]
+    return '\n'.join(ln for ln in lines if ln.strip() != SECTION_MARK)
+
+
 def shift_headings(md, base):
     """A chapter under a level-`base` heading: shift its headings so the top one is base + 1.
     Never promotes; capped at 6; code untouched; base 0 (no heading above) changes nothing.
@@ -293,7 +331,8 @@ class Book:
             if dash is None:
                 return None, f'{target} not found at the {self.rev} tag'
             read = lambda t: self._feature(t) if t.startswith(self.features + ':') else None  # noqa: E731
-            return dashboard_summary.dashboard_summary(dash, read, self._topic), None
+            head, _, rest = dashboard_summary.dashboard_summary(dash, read, self._topic).partition('\n')
+            return f'{head}\n{SECTION_MARK}\n{rest}', None
         target, _, heading = arg.partition('#')
         target = target.strip()
         if target.startswith(self.features + ':'):
@@ -357,7 +396,7 @@ def _build(nb_root, features='features'):
             continue
         done.add(rel)
         linked = set()
-        body = book.expand(docs.notes[rel][1].lstrip('\n'), rel, warnings, strict=(rel == 'README.md'))
+        body = section_nav(book.expand(docs.notes[rel][1].lstrip('\n'), rel, warnings, strict=(rel == 'README.md')))
         text = translate(body, rel, docs, warnings, linked, assets)
         outputs[out_path(rel)] = HEADER.format(src=rel) + text.rstrip() + '\n'
         todo.extend(sorted(linked - done))

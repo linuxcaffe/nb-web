@@ -476,7 +476,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯', doc:'📃', report:'📊', book:'📚'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯', doc:'📃', report:'📊', book:'📚', section:'📑'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -919,7 +919,7 @@ const NbMain = (() => {
                         if (j.body) { d = j; break; }
                     }
                     if (!d) continue;
-                    if (d.type === 'dashboard' && d.meta?.help_for) {
+                    if ((d.type === 'dashboard' || d.type === 'section') && d.meta?.help_for) {
                         const r = await fetch(`/api/help/category?selector=${encodeURIComponent(d.selector)}`);
                         const c = r.ok ? await r.json() : null;
                         if (c?.topics?.length) cats.push(c);
