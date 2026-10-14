@@ -55,48 +55,17 @@ Your notes are always a browser tab away — searchable, readable, and editable 
 
 _Your nb notes, in a browser_
 
-Notebooks, the note list, search and tags, the editor, the keyboard and the ? help — everything you touch in the first five minutes.
+Everything you touch in the first five minutes. nb-web shows your nb notebooks in a browser: pick
+a notebook, find a note in the list or by search and tags, read it rendered, edit it, move around
+from the keyboard, and press **?** for help on whatever is in front of you. Your notes stay plain
+Markdown files in `~/.nb/`, each notebook its own git repo; nothing is locked away in a database.
 
-**[Notebooks](docs/NOTEBOOKS.md)** — separate collections of notes, each its own folder and git repo
-
-A notebook is a folder of notes under `~/.nb/` with its own git history: `home`, `work`,
-`recipes`… Pick one from the notebook selector at the top left to list and add notes there, or
-choose **all** to see every notebook at once. **Menu → Notebooks** shows each one's size and sync
-state, and is where you set its defaults, connect it to a remote, or delete it.
-
-**[Note list and preview](docs/note-list.md)** — the list of notes on the left, and the preview on the right
-
-The left pane lists the notes in the current notebook or folder; click one (or move with the
-arrow keys) to show it on the right. Folders come first, then pinned notes, then the rest. The
-row above the list filters by type (notes, bookmarks, todos, contacts, folders, images), the
-**⇅** button changes the sort, and Ctrl-click selects several notes to move, export or delete
-together. Notes pinned in their frontmatter (dashboards, usually) come first, then ones you pin
-from the menu.
-
-**[Search and tags](docs/SEARCH_TAGS.md)** — find notes by their text, by their tags, or both
-
-Type in the **search** bar (or start search with `/`) to narrow the list to notes containing those words, or in the **tags** field (use `#yourtag` to jump there) to show only notes with those tags. Both work together and update the list as you type. Put `-` before a tag to leave notes with it out (`recipes -tested`), and switch the notebook selector to **all** to search every notebook.
-
-**[Editor](docs/editor.md)** — editing a note's Markdown right in the browser
-
-Click **Edit** (or press `e`) to edit the open note: its whole text, frontmatter included,
-appears in a plain Markdown editor. `Ctrl+Enter` saves and `Escape` cancels. The toolbar adds
-line numbers, a Markdown cheat sheet and image embedding (`Ctrl+Shift+1`). Every save is a git
-commit, so an earlier version is always in the notebook's history.
-
-**[Keyboard](docs/KEYBOARD.md)** — keyboard shortcuts for moving around, finding and editing notes
-
-Most of nb-web works without the mouse. `↑`/`↓` move through the list and `→` steps into the
-preview; `/` searches, `#` filters by tag, `a` adds a note and `e` edits the open one. `Escape`
-always backs you out to somewhere safe. Shortcuts are single keys, so they only work when you're
-not typing in a field.
-
-**[Help](docs/help.md)** — the ? button, and how help finds what to show
-
-The **?** at the far right of the toolbar opens help for whatever you're looking at: the note's
-type, the live blocks in it, its frontmatter keys, its notebook. Each topic shows a short summary,
-with **More** for the full page and **Try it** for a live example you can edit. The help comes
-from the same docs you can read in the `docs:` notebook, so there's one copy of everything.
+- [Notebooks](docs/NOTEBOOKS.md) — separate collections of notes, each its own folder and git repo
+- [Note list and preview](docs/note-list.md) — the list of notes on the left, and the preview on the right
+- [Search and tags](docs/SEARCH_TAGS.md) — find notes by their text, by their tags, or both
+- [Editor](docs/editor.md) — editing a note's Markdown right in the browser
+- [Keyboard](docs/KEYBOARD.md) — keyboard shortcuts for moving around, finding and editing notes
+- [Help](docs/help.md) — the ? button, and how help finds what to show
 
 [↑ Feature tour](#feature-tour) · [Linking →](#linking)
 
@@ -104,34 +73,18 @@ from the same docs you can read in the `docs:` notebook, so there's one copy of 
 
 _Connect notes to each other_
 
-Wikilinks between notes, links that run commands in the terminal, pulling one note into another, and cross-references.
+Notes that point at each other. Link by name with `[[wikilinks]]`, pull another note (or one of
+its sections) into this one with `{{inline:}}`, put a strip of tabs over a set of related notes,
+see what links to what with xref, and give a note links that run commands in the terminal.
 
-**[Wikilinks](docs/wikilinks.md)** — making connections across paragraphs, files and notebooks
+**Before you start.** Terminal links run in nb-web's built-in terminal, which only tech-level
+accounts can open.
 
-Write `[[Note Title]]` in a note to link to another note; click it to open the target. Links
-find notes by title or filename, in the current notebook or another one (`[[docs:THEMES.md]]`),
-and can jump straight to a heading (`[[Page#Heading]]`). The label shown is the target's `alias:`,
-then its `title:`, so renaming a note's display never breaks a link.
-
-**[Terminal links](docs/terminal-links.md)** — links that run a command in the built-in terminal
-
-A Markdown link whose URL starts with `term:` runs a shell command in nb-web's terminal pane
-when clicked: `[Today's tasks](term:task%20due:today)`. Write spaces in the command as `%20`.
-Commands can name the current note with `{file}`, `{dir}`, `{notebook}` and friends, so one link
-in a template gives every note a "run this" button.
-
-**[Inline includes](docs/inline-includes.md)** — show another note, or one section of it, inside this one
-
-`{{inline: notebook:path/note.md}}` on its own line shows another note's body right there, as if
-it were part of this note. Add `#Heading` to include just one section
-(`{{inline: docs:wikilinks.md#Summary}}`), or `card` to show the note's card instead of its text.
-Several includes plus `toc: true` make one long, navigable document out of separate notes.
-
-**[Tab strip](docs/tabs.md)** — a row of tabs linking a set of related notes
-
-A `tabs:` list in a note's frontmatter shows a row of tabs above the note, one per listed note or
-folder; the current note's tab is highlighted, and clicking another opens it. Put `tabs:` in a
-notebook or folder config and every note there gets the same strip.
+- [Wikilinks](docs/wikilinks.md) — making connections across paragraphs, files and notebooks
+- [Terminal links](docs/terminal-links.md) — links that run a command in the built-in terminal
+- [Inline includes](docs/inline-includes.md) — show another note, or one section of it, inside this one
+- [Tab strip](docs/tabs.md) — a row of tabs linking a set of related notes
+- [xref](docs/xref.md) — headings that link themselves to matching notes elsewhere
 
 [← Basics](#basics) · [↑ Feature tour](#feature-tour) · [Structure →](#structure)
 
@@ -139,55 +92,22 @@ notebook or folder config and every note there gets the same strip.
 
 _Shape notebooks to fit what's in them_
 
-Folder and notebook config, templates, typed notes, foldable headings, locks and books.
+Make a notebook fit what's in it. A config note in a folder sets rules for the notes in it:
+fields, types, access, checks. Templates start new notes in the right shape, a `type:` gives a
+note its own header and behaviour, foldable headings and locks keep long or finished notes in
+hand, and a book stitches notes into one long read.
 
-**[Folder config](docs/FOLDER-CONFIG.md)** — settings for a whole folder or notebook, kept in a hidden note inside it
+**Before you start.** Configs are notes too (`.<folder>.md`, `.<notebook>.md`, and the global
+`~/.nb/.nb.md`), and settings cascade: a folder's config wins over its notebook's, which wins over
+the global one. Who may lock and unlock is set the same way (`lock_level:`, admins by default).
 
-A folder can carry its own settings in a hidden note named after it: `projects/.projects.md` for
-the `projects` folder, `.work.md` at the top of the `work` notebook. Its frontmatter sets things
-like who may see the folder (`access:`), which note it opens on (`pinned:`), its tab strip
-(`tabs:`) and field rules for its notes (`constraints:`). Settings pass down to every subfolder
-and note below, and the nearest one wins, so you only write down what's different.
-
-**[Templates](docs/TEMPLATES.md)** — notes to start new notes from, with placeholders filled in as they're created
-
-A template is a note that new notes start from. Click **📋** in the **Add** bar to pick one; its
-`{{title}}`, `{{date}}` and other placeholders are filled in as the note is created. Templates
-live in a `.templates` folder: `~/.nb/.templates/` for every notebook, a notebook's own for that
-notebook, or a folder's own for that folder. If a folder (or notebook) has exactly one template,
-**Add** uses it without asking.
-
-**[Typed notes](docs/TYPED-NOTES.md)** — a type: in frontmatter, and the header bar some types get
-
-`type:` in a note's frontmatter says what kind of note it is: `project`, `dashboard`, `invoice`
-and so on. The list shows its icon, and many types get a **header bar** above the note: the
-icon, the type's name, details taken from the note's frontmatter (status, client, due date) and
-links to related notes, such as a folder's dashboard and its config. A type nb-web doesn't
-know is simply shown as a plain note.
-
-**[Foldable headings](docs/foldable.md)** — headings that fold away the section under them
-
-`foldable: [Notes, Ideas]` in a note's frontmatter puts a ▾ before every heading containing
-"Notes" or "Ideas"; click the heading (or the ▾) to fold away the section under it, and again to
-open it. Each heading remembers whether it's folded. Set `foldable:` in a folder's config and
-every note in the folder gets it, which suits long diaries: fold every past day with a date
-pattern.
-
-**[Locks](docs/LOCKS.md)** — make a note, folder or notebook read-only
-
-A lock makes something read-only, for everyone. Lock a single note with `lock: yes` in its
-frontmatter, or a whole folder or notebook from its menu; nothing inside can then be edited,
-moved, renamed or deleted until it's unlocked, and a note's annotation is locked with it. Who may
-lock and unlock is up to each notebook or folder (`lock_level:`, admins by default); others see a
-🔒.
-
-**[Books](docs/BOOKS.md)** — one long document stitched from chapter notes, with a table of contents
-
-A book is a note with `type: book` whose chapters are other notes, pulled in with
-`{{inline: notebook:chapter.md}}`, one per line. It reads as one long document, with a table of
-contents across every chapter. Each chapter stays an ordinary note you can open and edit on its
-own. A check block placed in a chapter warns right there, so a failing check shows up in the
-book's contents beside the section it's about.
+- [Folder config](docs/FOLDER-CONFIG.md) — settings for a whole folder or notebook, kept in a hidden note inside it
+- [Templates](docs/TEMPLATES.md) — notes to start new notes from, with placeholders filled in as they're created
+- [Typed notes](docs/TYPED-NOTES.md) — a type: in frontmatter, and the header bar some types get
+- [Foldable headings](docs/foldable.md) — headings that fold away the section under them
+- [Locks](docs/LOCKS.md) — make a note, folder or notebook read-only
+- [Books](docs/BOOKS.md) — one long document stitched from chapter notes, with a table of contents
+- [Sections](docs/sections.md) — a header note for a folder of pages, with a contents list that writes itself
 
 [← Linking](#linking) · [↑ Feature tour](#feature-tour) · [Live blocks →](#live-blocks)
 
@@ -205,7 +125,7 @@ where they show in the header strip above the note.
 An admin can limit any block to an access level (Settings → Codeblocks); a block you're below
 the level for simply doesn't show. Every block's **?** opens its help, and
 [Codeblocks](docs/CODEBLOCKS.md) is the full reference. The examples here use
-Pat's made-up business (Example data), never your own notes.
+Pat's made-up business, never your own notes.
 
 **Navigation**
 
@@ -244,7 +164,7 @@ Pat's made-up business (Example data), never your own notes.
 
 _Run real work from your notes_
 
-Project diaries and reports, quotes and invoices, contacts, and the scaffolding wizard that sets a new project up.
+Project diaries and reports, quotes and invoices, contacts, and the wizard that sets a new project up.
 
 A `type: project` note is a **diary**: dated headings, prose, time entries, expenses, decisions.
 Nothing is forced; you write what happened and nb-web reads it. Its `type: reports` companion is a

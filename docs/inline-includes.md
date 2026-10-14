@@ -42,6 +42,12 @@ This is how the `features:` pages show each topic's Summary without copying it.
 its type has one, and its plain body otherwise. Only the card is shown, not the note's text below
 it, and the whole card is a link: click it to open the source note.
 
+### Summaries and contents: `summary`, `contents`
+
+`{{inline: summary features:basics/basics.md}}` shows a tour category the way the README does: its
+title, caption and Summary. `{{inline: contents}}` lists the pages of the current note's section,
+generated from its folder's order; see [Sections](sections.md).
+
 ### Stitched documents
 
 Includes and `toc: true` together build one navigable document from separate notes:
