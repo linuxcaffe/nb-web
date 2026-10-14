@@ -212,6 +212,79 @@ also sit in a note's frontmatter (`tw: +work`), where it shows in the header str
 
 A block's **?** opens its help. Full reference: [Codeblocks](docs/CODEBLOCKS.md).
 
+**[nav](docs/blocks/nav.md)** — a clickable folder/notebook browser embedded in a note
+
+A `nav` block renders a small, stateful file browser right inside the note: a breadcrumb trail
+plus a list of folders and notes you click through, no page navigation involved. Point it at a
+notebook folder, the current note's own folder, or — for admins — a raw filesystem path under
+`~/.nb/`. Leave the fence empty and it opens at the top, listing every notebook.
+
+**[gallery](docs/blocks/gallery.md)** — a clickable image grid rendered from a note's nearest images/ folder
+
+A `gallery` block renders a responsive grid of images from the nearest `images/` folder —
+walking up from the note's own location unless told otherwise — with a full-screen lightbox on
+click. It shares its size vocabulary and `images/` folder convention with the editor's own
+image-embed button, so dropping a photo in while editing shows up here automatically.
+
+**[toc](docs/blocks/toc.md)** — a clickable heading list for the note, in the FM strip
+
+`toc: true` in frontmatter adds a collapsible table of contents to the note's FM strip: the
+header shows the note's path and heading count, and expanding it lists every heading, indented
+by level, each a clickable link that scrolls smoothly to it.
+
+**[fm](docs/blocks/fm.md)** — find notes by their frontmatter, across notebooks
+
+An `fm` block lists the notes whose frontmatter matches a query: `status:active` finds every
+note with that status, in every notebook you can open. Put notebook or folder names first to
+narrow where it looks, add more `field:value` filters to narrow what it finds, and sort or cap
+the list. Click a result to open it; hover it to see all its fields. The same block can also
+count, total or group the matches, list every key in a notebook, or show an edit form.
+
+**[cfg](docs/blocks/cfg.md)** — where a setting comes from, and a map of every config file
+
+A `cfg` block shows how a setting is resolved: the chain from the global `~/.nb/.nb.md` down
+through the notebook and folder configs to the current note, and which level sets the value
+that wins. `access: .` traces one key here; a bare block lists every key; `tree` and `org` map
+all the config files in a notebook. Click a node to open its config file, or create one where
+none exists. Admin only by default.
+
+**[toolbar](docs/blocks/toolbar.md)** — a button in the list header that opens a note
+
+Put `toolbar: true` in a note's frontmatter and a button for it appears in the list header,
+next to the other list buttons, whenever that note's notebook is the one in the list. One click
+opens the note, whatever folder or sort you're in, so it suits the notes you go back to all day:
+a dashboard, a checklist, this month's books. `toolbar_icon:` picks the button's icon.
+
+**[csv](docs/blocks/csv.md)** — an editable spreadsheet grid inside a note
+
+A `csv` block turns comma-separated rows into a spreadsheet grid right in the note: the first row
+is the column headers, the rest is data. Edit cells, add and remove rows and columns from the
+right-click menu, then click **Save** to write the grid back into the note. Name a template after
+`csv` (`csv materials`) for a fixed set of columns, a totals row and a pick-list. The data stays in
+the note as plain text.
+
+**[add](docs/blocks/add.md)** — a step-by-step wizard that creates the notes and folders a new thing needs
+
+An `add` block shows a wizard as a small chart: the steps to create something new, such as a
+project with its folder, diary, reports page and config. Click a step and a form asks for the
+names and choices its templates need, shows what it will make, and creates it all in one go.
+The same wizard opens from the **[+]** in a project's (or other typed note's) header. A wizard is
+a note you write; see [writing a wizard](docs/blocks/add/wizards.md).
+
+**[hl](docs/blocks/hl.md)** — live hledger reports in a note
+
+An `hl` block runs an hledger report and shows the result in the note: balances, registers,
+income statement, balance sheet, cash flow. The body is an hledger command line (`bal expenses
+--monthly -3`); it reads the note's `journal:` when the line names no file. `+` adds a
+transaction, ↻ re-runs the report, and the **hledger** label opens hledger itself.
+
+**[Inline queries](docs/inline-queries.md)** — live numbers and values right inside a sentence
+
+`{{provider: query}}` drops live data into a sentence and refreshes it every time the note is
+shown: `Pending tasks: {{tw: count status:pending}}`. Providers cover accounts (`hledger`), tasks
+(`tw`), note counts (`nb`, `fm`), dates (`date`, `day`, `mtime`) and `weather`. Use them for a
+single value; anything that's really a report belongs in a codeblock.
+
 ### Work
 
 _Run real work from your notes_
