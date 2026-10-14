@@ -154,6 +154,7 @@ Pat's made-up business, never your own notes.
 
 - [tw](docs/blocks/tw.md) — live Taskwarrior tasks in a note
 - [hl](docs/blocks/hl.md) — live hledger reports in a note
+- [nb](docs/blocks/nb.md) — a notebooks list or backlinks panel in a note
 
 **Inline values**
 
