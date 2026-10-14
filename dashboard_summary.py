@@ -98,7 +98,8 @@ def contents(section_sel, read_index, read_page, find_topic, topics_under, link=
     read_index(folder_selector) -> [names]; read_page(selector) -> text or None (missing or not
     for this reader); find_topic(topic) -> (selector, meta, body) or None; topics_under(topic
     selector) -> [(selector, meta)], the topics in its sub-folder, in order. link='page' links
-    the tour pages, 'topic' their docs topics (the README)."""
+    the tour pages, 'topic' their docs topics (the README). A top-level page's group: starts a
+    labelled group (**Group**) where it changes."""
     def entry(indent, sel, label, cap):
         text = f'[[{sel}|{label}]]' if sel else label
         return f'{indent}- {text}' + (f' — {cap}' if cap else '')
@@ -106,7 +107,14 @@ def contents(section_sel, read_index, read_page, find_topic, topics_under, link=
     def walk(sec_sel, depth):
         nb, path = sec_sel.split(':', 1)
         folder = path.rsplit('/', 1)[0] if '/' in path else ''
-        out = []
+        out, group = [], ''
+
+        def start_group(meta):
+            nonlocal group
+            g = str(meta.get('group') or '').strip()
+            if depth == 0 and g and g != group:
+                out.extend(([''] if out else []) + [f'**{g}**', ''])
+                group = g
         for name in read_index(f'{nb}:{folder}'):
             name = name.strip()
             if not name or name.startswith('.') or '/' in name:
@@ -118,6 +126,7 @@ def contents(section_sel, read_index, read_page, find_topic, topics_under, link=
                 meta = split_fm(text)[0] if text else {}
                 if meta.get('type') != 'section':
                     continue
+                start_group(meta)
                 out.append(entry(ind, sub if link == 'page' else '', _label(meta, name),
                                  str(meta.get('caption') or '').strip()))
                 if depth < 2:
@@ -130,6 +139,7 @@ def contents(section_sel, read_index, read_page, find_topic, topics_under, link=
             meta = split_fm(text)[0] if text else {}
             if meta.get('type') != 'feature':
                 continue
+            start_group(meta)
             topic = str(meta.get('topic') or '').strip()
             hit = find_topic(topic) if topic else None
             cap = str(meta.get('caption') or (hit[1].get('caption') if hit else '') or '').strip()
