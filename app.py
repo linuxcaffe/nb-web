@@ -3707,6 +3707,50 @@ def api_open():
         return jsonify({'error': str(e)}), 500
 
 
+# Taskwarrior is handed user-written filters (tw blocks, {{tw:}} queries). `task` treats any word
+# that names a command as the command, abbreviations included (`exec` runs `execute`, which runs a
+# shell command), and rc./rc: words as config overrides. So a bare filter word may not be a
+# command or alias or the start of one (abbreviation minimum pinned at 2), and no word an override;
+# the only command is the one nb-web appends (2026-10-13). Abbreviations stay on: switching them
+# off breaks attribute abbreviations (`pro:`, `pri:`), which have a colon and are never commands.
+_TW_RC = ['rc.hooks=off', 'rc.confirmation=no', 'rc.abbreviation.minimum=2']
+_TW_COMMANDS = frozenset((
+    'active add all annotate append blocked blocking burndown.daily burndown.monthly burndown.weekly '
+    'calc calendar colors columns commands completed config context count delete denotate diagnostics '
+    'done duplicate edit execute export ghistory.annual ghistory.daily ghistory.monthly ghistory.weekly '
+    'help history.annual history.daily history.monthly history.weekly ids import information list log '
+    'logo long ls minimal modify newest news next oldest overdue prepend projects purge ready recurring '
+    'reports show start stats stop summary synchronize sync tags timesheet udas unblocked undo uuids '
+    'version waiting rm burndown ghistory history').split())   # 2.6.2 `task _commands` + default aliases
+_tw_alias_cache = None
+
+
+def _tw_reserved():
+    """Command names plus this machine's aliases (`task _aliases`, read once)."""
+    global _tw_alias_cache
+    if _tw_alias_cache is None:
+        try:
+            out = subprocess.run(['task', 'rc.hooks=off', '_aliases'], capture_output=True, text=True,
+                                 timeout=5, env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'}).stdout
+            _tw_alias_cache = frozenset(w for w in out.split() if re.fullmatch(r'[A-Za-z][\w.-]*', w))
+        except (OSError, subprocess.TimeoutExpired):
+            _tw_alias_cache = frozenset()
+    return _TW_COMMANDS | _tw_alias_cache
+
+
+def _tw_filter_args(words):
+    """The filter words, or ValueError naming the first that task would not read as a filter."""
+    reserved = _tw_reserved()
+    for w in words:
+        for piece in re.split(r'[()\s]+', w):
+            if piece.startswith(('rc.', 'rc:')):
+                raise ValueError(f'not a filter: {piece}')
+            bare = piece and not re.search(r'[:=]', piece) and piece[0] not in '+-/0123456789'
+            if bare and (piece in reserved or (len(piece) >= 2 and any(c.startswith(piece) for c in reserved))):
+                raise ValueError(f'not a filter: {piece}')
+    return list(words)
+
+
 @app.route('/api/task-info')
 def api_task_info():
     uuid = request.args.get('uuid', '').strip()
@@ -3728,13 +3772,13 @@ def api_task_info():
 def api_task_query():
     """Run a read-only taskwarrior filter and return exported JSON tasks."""
     q = request.args.get('q', '').strip()
-    # Block write verbs — this endpoint is read-only
-    if q and re.search(r'\b(add|modify|delete|done|start|stop|annotate|denotate|edit|import|sync|undo|purge)\b', q, re.I):
-        return jsonify({'error': 'Only read filters are allowed'}), 400
-    filter_args = q.split() if q else []
+    try:
+        filter_args = _tw_filter_args(q.split())
+    except ValueError as e:
+        return jsonify({'error': f'Only a filter is allowed ({e})'}), 400
     try:
         result = subprocess.run(
-            ['task', 'rc.hooks=off', 'rc.confirmation=no'] + filter_args + ['export'],
+            ['task'] + _TW_RC + filter_args + ['export'],
             capture_output=True, text=True,
             env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
             timeout=10,
@@ -3760,7 +3804,7 @@ def api_task_query():
 @app.route('/api/task-action', methods=['POST'])
 def api_task_action():
     """Perform a single-task action: done, start, or stop."""
-    if not _cb_write_allowed('tw'):
+    if not _level_gte(session.get('user', {}).get('level', ''), 'user') or not _cb_write_allowed('tw'):
         return jsonify({'error': 'Write access denied'}), 403
     data   = request.get_json(silent=True) or {}
     uuid   = data.get('uuid', '').strip()
@@ -3771,7 +3815,7 @@ def api_task_action():
         return jsonify({'error': 'action must be done, start, or stop'}), 400
     try:
         result = subprocess.run(
-            ['task', 'rc.hooks=off', 'rc.confirmation=no', f'uuid:{uuid}', action],
+            ['task'] + _TW_RC + [f'uuid:{uuid}', action],
             capture_output=True, text=True,
             env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'},
             timeout=10,
@@ -3783,14 +3827,14 @@ def api_task_action():
 
 @app.route('/api/task-add', methods=['POST'])
 def api_task_add():
-    """Add a new task."""
-    if not _cb_write_allowed('tw'):
+    """Add a new task. The description goes after `--`, so it is only ever a description."""
+    if not _level_gte(session.get('user', {}).get('level', ''), 'user') or not _cb_write_allowed('tw'):
         return jsonify({'error': 'Write access denied'}), 403
     data = request.get_json(silent=True) or {}
     desc = data.get('description', '').strip()
     if not desc:
         return jsonify({'error': 'description required'}), 400
-    cmd = ['task', 'rc.hooks=off', 'rc.confirmation=no', 'add', desc]
+    cmd = ['task'] + _TW_RC + ['add']
     if data.get('project'):
         cmd.append(f'project:{data["project"].strip()}')
     date_field = data.get('date_field', 'due').strip()
@@ -3804,6 +3848,7 @@ def api_task_add():
         t = tag.strip().lstrip('+')
         if t:
             cmd.append(f'+{t}')
+    cmd += ['--', desc]
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True,
@@ -3940,11 +3985,14 @@ def api_inline_query():
             args = shlex.split(query)
             if not args:
                 return jsonify({'error': 'empty tw query'}), 400
-            # bare filter with no subcommand → treat as count
-            if args[0] not in safe_cmds:
-                args = args + ['count']
+            # `count <filter>` or a bare filter (counted); the command always goes last
+            cmd, words = (args[0], args[1:]) if args[0] in safe_cmds else ('count', args)
+            try:
+                words = _tw_filter_args(words)
+            except ValueError as e:
+                return jsonify({'error': f'Only a filter is allowed ({e})'}), 400
             r = subprocess.run(
-                ['task'] + args,
+                ['task'] + _TW_RC + words + [cmd],
                 capture_output=True, text=True, timeout=5,
                 env={**os.environ, 'NO_COLOR': '1'},
             )
