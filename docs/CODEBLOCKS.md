@@ -1416,18 +1416,31 @@ Live views of your other tools: tasks, accounts, notebooks, git.
 
 ### tw — Taskwarrior
 
+#### Summary
+
+A `tw` block runs a Taskwarrior filter and shows the matching tasks as a live table in the note,
+sorted by urgency. The body is a task filter (`project:kitchen +next`); columns for project,
+priority, due and tags appear only when some task uses them. Each row has a ✓ to finish it and a
+▶/◼ to start or stop its timer, clicking an id shows `task information`, and `+` opens a form to
+add a task. The **task** label in the header opens Taskwarrior itself.
+
+#### How it works
+
 ````markdown
 ```tw
-project:myproject +next
+project:kitchen +next
 ```
 ````
 
-Renders a live task table from any `task` filter or report expression.
+The body is a Taskwarrior filter, the same words you'd type before a report: tags (`+next`,
+`-waiting`), attributes (`project:kitchen`, `priority:H`, `status:pending`), and ranges
+(`due.before:eow`). It is only ever a filter: a word that names a Taskwarrior command is refused,
+so a block can read tasks but never run other task commands. Tasks come back sorted by urgency,
+highest first.
 
-- Columns auto-hide when empty (project, priority, due, tags)
-- Click any **ID** to expand `task information` inline (one at a time)
-- **+** button opens an inline form to create tasks with description, project, due, priority, tags
-- Override column selection with a `columns:` line in the fence body:
+**Columns.** Id and description always show; project, priority, due and tags appear only when at
+least one task in the result has them. Fix the columns yourself with a `columns:` line in the
+body:
 
 ````markdown
 ```tw
@@ -1436,18 +1449,58 @@ columns:id,description,due
 ```
 ````
 
+**Rows.** Due dates are tinted (overdue, soon, later) and a started task is highlighted. Per row:
+
+| Control | Does |
+|---|---|
+| ✓ | marks the task done (it fades out) |
+| id | shows `task information` below the row; click again to close (one open at a time) |
+| ▶ / ◼ | starts or stops the task's timer |
+
+**Adding a task (`+`).** Opens a form under the header: description, project, a date (due,
+scheduled, wait or until, with a date picker), priority and tags. It adds the task with your
+account's own `task`, so you can only create what you could create by hand.
+
+**The task label.** Clicking it opens Taskwarrior as set in Settings → Codeblocks: in the
+terminal, or in [tw-web](https://github.com/linuxcaffe/taskwarrior-web) if a web command is set
+(until it's set, the click opens that setting). An admin script `.lib/open-block-tw-<level>.sh`
+takes over the click when present.
+
+**In a reports note.** A body of `source:` / `filter:` / `timeframe:` lines reads the `tw` blocks
+of another note (a project diary) sliced to a timeframe, instead of a plain filter; see
+[CBQL](dev/dev-cbql.md#cbql-read-path). #REVIEW
+
+#### Reference
+
+- Needs `task` (Taskwarrior) on the server's `$PATH`. Without it the block shows a short card
+  saying what to install.
+- Reads your live Taskwarrior data (the server's `~/.task`); there's no per-note task file yet,
+  the way `hl` has `journal:`.
+- Anyone who can see the note can read a `tw` block (an admin can still limit it with
+  `codeblock_access: tw: {read:}`, see [Access gates](#access-gates)); adding,
+  finishing, starting or stopping a task needs at least a `user`-level account.
+- In frontmatter (`tw: +work`) it shows in the note's header strip instead of the body.
+
+#### For developers
+
+Renderer: `_loadTwBlock` / `_buildTwTable` (`plugins/nbweb-codeblocks.js`), reports-note variant
+`_loadTwCBQLBlock`; backed by `/api/task-query` (read) and `/api/task-add` · `/api/task-action` ·
+`/api/task-info` (write and detail). A filter is screened by `_tw_filter_args` in `app.py` so it
+can name no Taskwarrior command, alias or `rc` override. Taskwarrior domain notes: the
+`taskwarrior` skill.
+
 ---
 
-#### hl — Accounting
+### hl — Accounting
 
-##### Summary
+#### Summary
 
 An `hl` block runs an hledger report and shows the result in the note: balances, registers,
 income statement, balance sheet, cash flow. The body is an hledger command line (`bal expenses
 --monthly -3`); it reads the note's `journal:` when the line names no file. `+` adds a
 transaction, ↻ re-runs the report, and the **hledger** label opens hledger itself.
 
-##### How it works
+#### How it works
 
 ````markdown
 ```hl
@@ -1496,7 +1549,7 @@ note's codeblocks instead of a journal file (a project diary's timedot and csv b
 **Example entries.** Use a ` ```ledger ` block, not `hl`, for sample journal text in docs and
 tutorials: it's shown highlighted and never run.
 
-##### Reference
+#### Reference
 
 - Needs `hledger` on the server's `$PATH` (`hledger-ui` / `hledger-web` for those bodies).
 - Who can see blocks and who can add transactions: `codeblock_access: hl: {read:, write:}`
@@ -1504,7 +1557,7 @@ tutorials: it's shown highlighted and never run.
 - Also released on its own: [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock).
 - In frontmatter (`hl: bal -2`) it shows in the note's header strip instead of the body.
 
-##### For developers
+#### For developers
 
 Renderer: `_loadHledgerBlock` (`plugins/nbweb-codeblocks.js`), backed by `/api/hledger-query`;
 the add form is `_showHledgerAddForm`. Accounting domain notes: the `hledger` skill and

@@ -152,6 +152,7 @@ Pat's made-up business, never your own notes.
 
 **External data**
 
+- [tw](docs/blocks/tw.md) — live Taskwarrior tasks in a note
 - [hl](docs/blocks/hl.md) — live hledger reports in a note
 
 **Inline values**
