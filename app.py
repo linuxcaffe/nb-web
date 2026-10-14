@@ -12746,6 +12746,43 @@ def api_nb_notebook_prefs():
 _GIT_ALLOWED = {'log', 'status', 'diff', 'show', 'branch', 'shortlog',
                  'stash', 'tag', 'describe', 'ls-files', 'remote'}
 
+# git has write-capable corners even behind a read-only subcommand list (found 2026-10-13):
+#   - diff/log/show --output=<file> (and -o) write to any path -> arbitrary file write;
+#   - stash / branch <name> / tag <name> mutate the repo.
+# So: no output-file option on any git block, and stash/branch/tag only in listing/showing forms.
+_GIT_OUTPUT_OPT = lambda a: a in ('-o', '--output') or a.startswith('--output=') or (a.startswith('-o') and len(a) > 2)  # noqa: E731
+# branch/tag: flags that mutate; a bare positional also mutates unless a listing flag is present.
+_GIT_MUTATING_FLAGS = {
+    'branch': {'-d', '-D', '--delete', '-m', '-M', '--move', '-c', '-C', '--copy', '-f', '--force',
+               '--edit-description', '-u', '--set-upstream', '--set-upstream-to', '--unset-upstream',
+               '--track', '--no-track', '--create-reflog'},
+    'tag':    {'-a', '--annotate', '-s', '--sign', '-u', '--local-user', '-d', '--delete', '-m',
+               '--message', '-F', '--file', '-f', '--force', '-e', '--edit', '--create-reflog'},
+}
+_GIT_LISTING_FLAGS = {
+    'branch': {'-l', '--list', '-a', '--all', '-r', '--remotes', '--contains', '--no-contains',
+               '--merged', '--no-merged', '--points-at'},
+    'tag':    {'-l', '--list', '-n', '--contains', '--no-contains', '--merged', '--no-merged',
+               '--points-at'},
+}
+
+
+def _git_read_only(subcmd, args):
+    """Raise ValueError if these git args would write (output file, or a mutating stash/branch/tag)."""
+    for a in args:
+        if _GIT_OUTPUT_OPT(a):
+            raise ValueError('output-file option not allowed')
+    if subcmd == 'stash':
+        if not args or args[0] not in ('list', 'show'):
+            raise ValueError('only `stash list` and `stash show` are allowed')
+    elif subcmd in ('branch', 'tag'):
+        has_listing = any(a in _GIT_LISTING_FLAGS[subcmd] for a in args)
+        for a in args:
+            if a in _GIT_MUTATING_FLAGS[subcmd]:
+                raise ValueError(f'git {subcmd}: {a} would change the repo')
+            if not a.startswith('-') and not has_listing:
+                raise ValueError(f'git {subcmd}: a name here would change the repo (use -l to list)')
+
 @app.route('/api/nb/git')
 def api_nb_git():
     """Run a read-only git command in a configured repo alias."""
@@ -12770,6 +12807,10 @@ def api_nb_git():
     subcmd = parts[0]
     if subcmd not in _GIT_ALLOWED:
         return jsonify({'error': f'git {subcmd} not allowed. Permitted: {", ".join(sorted(_GIT_ALLOWED))}'})
+    try:
+        _git_read_only(subcmd, parts[1:])
+    except ValueError as e:
+        return jsonify({'error': str(e)})
     try:
         env = {**os.environ, 'GIT_PAGER': 'cat', 'NO_COLOR': '1', 'TERM': 'dumb'}
         r = subprocess.run(
