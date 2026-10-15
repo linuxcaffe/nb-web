@@ -97,8 +97,9 @@ It only shows them; edit the crontab in a terminal.
 tests
 ```
 
-The nb-web test suite's last recorded run — passed/total, when it ran, and the commit it ran
-against. The snapshot is `.test-status.json` committed in the nb-web repo, so it **ships in the
+The nb-web test suite's last recorded run — passed/total across how many test files, when it
+ran, and the commit it ran against (plus, on a red run, the failing tests with each one's first
+message line). The snapshot is `.test-status.json` committed in the nb-web repo, so it **ships in the
 container image**; `.tools/run-tests.sh` (in nb-web-tests) rewrites it after a run, and committing
 it blesses a number. `GET /api/test-status` reads it and flags **stale** when real code has
 landed since the run. It pairs with the `test_badge:` pill (a note or notebook-config flag) in the
