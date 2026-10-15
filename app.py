@@ -14560,11 +14560,12 @@ def api_test_status():
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'tech'):
         return jsonify({'error': 'forbidden'}), 403
-    f = _TESTS_DIR / '.last-run.json'
+    if not _TESTS_DIR.is_dir():
+        return jsonify({'available': False, 'reason': 'no-tests-repo'})   # e.g. the container
     try:
-        data = json.loads(f.read_text())
+        data = json.loads((_TESTS_DIR / '.last-run.json').read_text())
     except (OSError, ValueError):
-        return jsonify({'available': False})
+        return jsonify({'available': False, 'reason': 'never-run'})
     cur = _app_git_head()
     ran = str(data.get('nb_web_commit') or '')
     stale = bool(cur and ran and cur != ran)
