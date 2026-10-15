@@ -998,8 +998,8 @@ The nb-web test suite's last recorded run — passed/total, when it ran, and the
 against (`GET /api/test-status`, reading the snapshot `.tools/run-tests.sh` writes). It flags
 **stale** when the app has moved past that commit, and carries `term:` links to re-run pytest (or
 pytest + the Playwright e2e suite) in the terminal. It pairs with the `test_badge:` pill (a note
-or notebook-config flag) in the note's third bar, which links here. In a container there's no
-tests repo, so it shows *no runs*.
+or notebook-config flag) in the note's third bar, which links here. In a deployment with no tests repo (the container) it says so and offers no
+run link; where the repo is present but nothing has run yet, it invites a run.
 
 #### Reference
 
