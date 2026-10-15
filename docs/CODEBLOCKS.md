@@ -995,11 +995,13 @@ tests
 ```
 
 The nb-web test suite's last recorded run — passed/total, when it ran, and the commit it ran
-against (`GET /api/test-status`, reading the snapshot `.tools/run-tests.sh` writes). It flags
-**stale** when the app has moved past that commit, and carries `term:` links to re-run pytest (or
-pytest + the Playwright e2e suite) in the terminal. It pairs with the `test_badge:` pill (a note
-or notebook-config flag) in the note's third bar, which links here. In a deployment with no tests repo (the container) it says so and offers no
-run link; where the repo is present but nothing has run yet, it invites a run.
+against. The snapshot is `.test-status.json` committed in the nb-web repo, so it **ships in the
+container image**; `.tools/run-tests.sh` (in nb-web-tests) rewrites it after a run, and committing
+it blesses a number. `GET /api/test-status` reads it and flags **stale** when real code has
+landed since the run. It pairs with the `test_badge:` pill (a note or notebook-config flag) in the
+note's third bar, which links here. The `term:` Run links appear only where the suite can actually
+launch (`can_run`: the tests repo is present, i.e. a dev box) — in the container they'd no-op, so
+it says to run on a dev box and rebuild instead.
 
 #### Reference
 
