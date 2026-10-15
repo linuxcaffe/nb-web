@@ -209,7 +209,10 @@ Numbers match `docs:dev/dev-invariants.md`, where each has its full story.
     annotation's own `lock:`. Changing a lock needs `lock_level:` (`_may_lock`). Every new
     writing endpoint needs `_locked(...)`.
 77. A request's `file=` goes through `_time_file_refusal` / `@_time_file_gate`; folders and
-    destinations through `_place_refusal`. The terminal (`/ws/pty`) is tech-only.
+    destinations through `_place_refusal`. The terminal (`/ws/pty`) is tech-only — so a `term:`
+    link is tech-only too; a lower-level action button belongs on a gated endpoint (`/api/check`,
+    `/api/regen`), not a term-link, and a term-link to a dev-only path (`~/dev/…`) silently no-ops
+    in the container.
 78. Fresh install: `/setup` (one-time code) → git identity → `home` → `starter/` →
     `home:welcome.md`. nb does nothing without a git user.name and user.email.
 79. Every scan across notes filters by account scope (`_notebook_in_scope`) and

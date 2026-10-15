@@ -39,6 +39,10 @@ djp watches the UI with his own eyes all the time, so browser runs are for what 
      the endpoint exercises neither real path. To test the ripgrep branch deterministically, fake
      `nb_app.subprocess.run` to return the hit list (plain `-l` output) or rg `--json` NDJSON; see
      `test_backlinks_scope.py` / `test_grep_scope.py`.
+   - **The blessed snapshot** the in-app test badge reads is written by `.tools/run-tests.sh`
+     (runs pytest, writes `nb-web/.test-status.json` with counts + the commit it ran against).
+     Committing that file ships the number into the container image; `GET /api/test-status`
+     (tech) serves it, `test_badge:` renders it, `sysadmin tests` shows the breakdown.
 
 2. **Playwright e2e suite** (`e2e/` subfolder, own `package.json`) — real browser automation
    against a real, but *synthetic and disposable*, server instance. `playwright.config.js`
