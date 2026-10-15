@@ -157,6 +157,11 @@ Pat's made-up business, never your own notes.
 - [nb](docs/blocks/nb.md) — a notebooks list or backlinks panel in a note
 - [git](docs/blocks/git.md) — a read-only git view of a repo in a note
 
+**Time tracking**
+
+- [t](docs/blocks/t.md) — clock in and out, with a live period report
+- [timedot](docs/blocks/timedot.md) — log time as dots and hours, in the note or a file
+
 **Inline values**
 
 - [Inline queries](docs/inline-queries.md) — live numbers and values right inside a sentence
