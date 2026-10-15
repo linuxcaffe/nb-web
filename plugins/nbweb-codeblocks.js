@@ -5402,11 +5402,10 @@
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const d = await r.json();
             const body = _saFrame(el, 'tests', d.available ? `${d.passed}/${d.total}` : 'no runs');
-            const noRepo = !d.available && d.reason === 'no-tests-repo';
             if (!d.available) {
-                const msg = noRepo
-                    ? "The test battery doesn't run in this deployment (no tests repo here)."
-                    : 'No recorded run yet. Run the suite below, then refresh.';
+                const msg = d.can_run
+                    ? 'No recorded run yet. Run the suite below, then refresh.'
+                    : 'No recorded run shipped with this build. Run it on a dev box, commit the snapshot, and rebuild.';
                 body.innerHTML = `<div class="nb-sa-section"><span class="nb-sa-muted">${msg}</span></div>`;
             } else {
                 const stale = d.stale
@@ -5424,8 +5423,8 @@
                 </div>`;
             }
             // Run links go through the tech-gated terminal (invariant 77) -- no server-run endpoint.
-            // Skip them where the repo isn't present (the container) -- they'd just no-op silently.
-            if (noRepo) return;
+            // Only where the suite can actually launch (dev box); in the container they'd no-op.
+            if (!d.can_run) return;
             const run = NbMain.renderMarkdown(
                 '[▶ Run pytest](term:cd%20~/dev/nb-web-tests%20%26%26%20.tools/run-tests.sh) · '
                 + '[+ e2e (~4 min)](term:cd%20~/dev/nb-web-tests%20%26%26%20.tools/run-tests.sh%20--e2e)',

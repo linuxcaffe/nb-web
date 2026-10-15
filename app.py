@@ -14535,54 +14535,52 @@ def api_write_marker():
     return jsonify(ok=True, line=line)
 
 
-# Test battery snapshot: the app can't run its own pytest/Playwright suite (the container has no
-# tests repo, read-only root), so .tools/run-tests.sh writes a .last-run.json after a local run
-# and the badge / `sysadmin tests` block read it here (2026-10-14). _TESTS_DIR is the sibling repo
-# in the bare dev deployment; absent in the container -> {available: false}, badge stays off.
-_TESTS_DIR = Path(__file__).resolve().parent.parent / 'nb-web-tests'
+# Test battery snapshot: the app can't run its own pytest/Playwright suite, so the snapshot of the
+# last run lives in .test-status.json committed in THIS repo (2026-10-15) -- so COPY . . ships it
+# into the container image, where the badge is actually read (the first cut read the sibling
+# nb-web-tests repo, absent from the image, so the badge never showed there). .tools/run-tests.sh
+# (in nb-web-tests) writes it after a run; djp commits it to bless a number, and a rebuild ships
+# it. _TESTS_DIR is only for can_run -- whether the suite can be launched from here at all.
+_APP_DIR   = Path(__file__).resolve().parent
+_TESTS_DIR = _APP_DIR.parent / 'nb-web-tests'
 
 
-def _app_git_head():
-    """Short HEAD of the nb-web repo, or None."""
+def _test_snapshot_behind(ran_commit):
+    """Real commits on HEAD since the run, ignoring a commit that only re-blesses the snapshot
+    file (committing .test-status.json shouldn't make the badge call itself stale). None when git
+    isn't available here (e.g. the container image has no .git)."""
+    if not ran_commit:
+        return None
     try:
-        r = subprocess.run(['git', '-C', str(Path(__file__).resolve().parent), 'rev-parse', '--short', 'HEAD'],
+        r = subprocess.run(['git', '-C', str(_APP_DIR), 'rev-list', '--count',
+                            f'{ran_commit}..HEAD', '--', '.', ':(exclude).test-status.json'],
                            capture_output=True, text=True, timeout=5)
-        return r.stdout.strip() or None if r.returncode == 0 else None
-    except (OSError, subprocess.TimeoutExpired):
+        return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip().isdigit() else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
         return None
 
 
 @app.route('/api/test-status')
 def api_test_status():
     """The test battery's last recorded run (tech), for the test_badge pill and `sysadmin tests`.
-    Reads _TESTS_DIR/.last-run.json (written by .tools/run-tests.sh); flags stale when the run's
-    nb-web commit differs from the running HEAD."""
+    Reads the committed snapshot .test-status.json; `stale` when real code has landed since the
+    run; `can_run` when the tests repo is present (so the Run links only show where they work)."""
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'tech'):
         return jsonify({'error': 'forbidden'}), 403
-    if not _TESTS_DIR.is_dir():
-        return jsonify({'available': False, 'reason': 'no-tests-repo'})   # e.g. the container
+    can_run = _TESTS_DIR.is_dir()
     try:
-        data = json.loads((_TESTS_DIR / '.last-run.json').read_text())
+        data = json.loads((_APP_DIR / '.test-status.json').read_text())
     except (OSError, ValueError):
-        return jsonify({'available': False, 'reason': 'never-run'})
-    cur = _app_git_head()
+        return jsonify({'available': False, 'reason': 'never-run', 'can_run': can_run})
     ran = str(data.get('nb_web_commit') or '')
-    stale = bool(cur and ran and cur != ran)
-    behind = None
-    if stale:
-        try:
-            rb = subprocess.run(['git', '-C', str(Path(__file__).resolve().parent),
-                                 'rev-list', '--count', f'{ran}..HEAD'],
-                                capture_output=True, text=True, timeout=5)
-            behind = int(rb.stdout.strip()) if rb.returncode == 0 and rb.stdout.strip().isdigit() else None
-        except (OSError, subprocess.TimeoutExpired, ValueError):
-            behind = None
+    behind = _test_snapshot_behind(ran)
     return jsonify({
         'available': True,
         'passed': data.get('passed'), 'total': data.get('total'), 'failed': data.get('failed'),
-        'ran': data.get('ran'), 'commit': ran or None, 'current': cur,
-        'tests_commit': data.get('tests_commit'), 'stale': stale, 'behind': behind,
+        'ran': data.get('ran'), 'commit': ran or None,
+        'tests_commit': data.get('tests_commit'),
+        'stale': bool(behind), 'behind': behind, 'can_run': can_run,
     })
 
 
