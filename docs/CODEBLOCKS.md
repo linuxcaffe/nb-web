@@ -904,12 +904,13 @@ Parser: `_loadConfigBlock` (`plugins/nbweb-codeblocks.js`); org chart: `_configO
 A `sysadmin` block is the installation's control panel, for the person who runs nb-web. Empty,
 it lists every notebook (its config, whether it syncs, its plugins and checks, how many notes),
 the installed plugins, and whether the key config files exist. `users` lists the accounts and
-lets you add, remove and change their level; `crontab` shows the jobs scheduled on the server.
+lets you add, remove and change their level; `crontab` shows the jobs scheduled on the server;
+`tests` shows the test battery's last recorded run.
 It's for `tech` accounts; anyone below doesn't see it at all.
 
 #### How it works
 
-Three forms, one per thing you'd want to check on:
+Four forms, one per thing you'd want to check on:
 
 ````markdown
 ```sysadmin
@@ -921,6 +922,10 @@ users
 
 ```sysadmin
 crontab
+```
+
+```sysadmin
+tests
 ```
 ````
 
@@ -983,6 +988,19 @@ The server's scheduled jobs (`crontab -l` for the account nb-web runs as): each 
 its command, and a description taken from the `#` comment line(s) just above it in the crontab.
 It only shows them; edit the crontab in a terminal.
 
+##### Test battery: `tests`
+
+```sysadmin
+tests
+```
+
+The nb-web test suite's last recorded run — passed/total, when it ran, and the commit it ran
+against (`GET /api/test-status`, reading the snapshot `.tools/run-tests.sh` writes). It flags
+**stale** when the app has moved past that commit, and carries `term:` links to re-run pytest (or
+pytest + the Playwright e2e suite) in the terminal. It pairs with the `test_badge:` pill (a note
+or notebook-config flag) in the note's third bar, which links here. In a container there's no
+tests repo, so it shows *no runs*.
+
 #### Reference
 
 - **Access:** `tech` (`codeblock_access: sysadmin:` in `~/.nb/.nb.md`). Each form's data is also
@@ -996,8 +1014,8 @@ It only shows them; edit the crontab in a terminal.
 #### For developers
 
 Renderer: `_dispatchSysadminBlock` (`plugins/nbweb-codeblocks.js`) picks the form;
-`_loadSysadminBlock`, `_loadSysadminUsersBlock` and `_loadSysadminCrontabBlock` draw into
-`_saFrame` (the shared header and a body). Backend: `/api/sysadmin`, `/api/sysadmin/crontab`, and
+`_loadSysadminBlock`, `_loadSysadminUsersBlock`, `_loadSysadminCrontabBlock` and `_loadSysadminTestsBlock` draw into
+`_saFrame` (the shared header and a body). Backend: `/api/sysadmin`, `/api/sysadmin/crontab`, `/api/test-status`, and
 `/api/users` (GET/POST, PUT/DELETE `/api/users/<name>`), whose `_may_manage_user` keeps an admin
 to accounts below its level (nb-web `CLAUDE.md` invariant 80). Codeblock architecture:
 [codeblocks](dev/dev-codeblocks.md) #REVIEW.
