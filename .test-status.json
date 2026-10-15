@@ -1,0 +1,11 @@
+{
+  "suite": "pytest",
+  "passed": 810,
+  "total": 810,
+  "failed": 0,
+  "skipped": 0,
+  "ran": "2026-10-15T10:09:18",
+  "nb_web_commit": "97c1b56",
+  "tests_commit": "3e8c770",
+  "exit_code": 0
+}
