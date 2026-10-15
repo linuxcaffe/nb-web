@@ -5010,20 +5010,31 @@ def _t_timedot_last(td_file: Path) -> dict:
     return {'state': 'empty'}
 
 
+def _t_period_bounds(period, today):
+    """(start_date, end_date|None) for a report period; end is exclusive, None means up to now.
+    Periods: today, thisweek/week, thismonth/month, lastweek, lastmonth; anything else is today."""
+    from datetime import timedelta as _td
+    monday = today - _td(days=today.weekday())
+    month1 = today.replace(day=1)
+    if period in ('thisweek', 'week'):
+        return monday, None
+    if period in ('thismonth', 'month'):
+        return month1, None
+    if period == 'lastweek':
+        return monday - _td(days=7), monday
+    if period == 'lastmonth':
+        prev_end = month1                      # exclusive end = first of this month
+        prev_start = (month1 - _td(days=1)).replace(day=1)
+        return prev_start, prev_end
+    return today, None                         # today, '', or unknown
+
+
 def _t_timedot_parse_report(td_file: Path, period: str) -> dict:
     """Parse a timedot file and return hours-by-account for the period."""
     from datetime import date as _date, timedelta as _td
     if not td_file.exists():
         return {'rows': [], 'total_hours': 0}
-    today = _date.today()
-    if period in ('today', ''):
-        cutoff = today
-    elif period in ('thisweek', 'week'):
-        cutoff = today - _td(days=today.weekday())
-    elif period in ('thismonth', 'month'):
-        cutoff = today.replace(day=1)
-    else:
-        cutoff = today
+    cutoff, end = _t_period_bounds(period, _date.today())
 
     by_account: dict = {}
     cur_date = None
@@ -5039,7 +5050,7 @@ def _t_timedot_parse_report(td_file: Path, period: str) -> dict:
             except ValueError:
                 cur_date = None
             continue
-        if cur_date is None or cur_date < cutoff:
+        if cur_date is None or cur_date < cutoff or (end and cur_date >= end):
             continue
         em = re.match(r'^(.+?)\s{2,}([.\s\d]+[hm]?)\s*(?:;.*)?$', t)
         if not em:
@@ -5102,16 +5113,9 @@ def _t_parse_report(tc_file: Path, period: str) -> dict:
     from datetime import datetime as _dt, date as _date, timedelta as _td
     if not tc_file.exists():
         return {'rows': [], 'total_seconds': 0}
-    today = _date.today()
-    if period in ('today', ''):
-        cutoff = _dt(today.year, today.month, today.day)
-    elif period in ('thisweek', 'week'):
-        week_start = today - _td(days=today.weekday())
-        cutoff = _dt(week_start.year, week_start.month, week_start.day)
-    elif period in ('thismonth', 'month'):
-        cutoff = _dt(today.year, today.month, 1)
-    else:
-        cutoff = _dt(today.year, today.month, today.day)
+    start_d, end_d = _t_period_bounds(period, _date.today())
+    cutoff = _dt(start_d.year, start_d.month, start_d.day)
+    end    = _dt(end_d.year, end_d.month, end_d.day) if end_d else None
 
     by_account: dict = {}
     last_i: dict | None = None
@@ -5127,17 +5131,18 @@ def _t_parse_report(tc_file: Path, period: str) -> dict:
             parts = line.split()
             try:
                 dt_out = _dt.strptime(f"{parts[1]} {parts[2]}", '%Y/%m/%d %H:%M:%S')
-                if last_i['dt'] >= cutoff or dt_out > cutoff:
-                    # Clip to cutoff
-                    start = max(last_i['dt'], cutoff)
-                    secs  = max(0, int((dt_out - start).total_seconds()))
-                    acct  = last_i['account']
+                if (last_i['dt'] >= cutoff or dt_out > cutoff) and (end is None or last_i['dt'] < end):
+                    # Clip to the [cutoff, end) window
+                    start   = max(last_i['dt'], cutoff)
+                    dt_stop = min(dt_out, end) if end else dt_out
+                    secs    = max(0, int((dt_stop - start).total_seconds()))
+                    acct    = last_i['account']
                     by_account[acct] = by_account.get(acct, 0) + secs
                 last_i = None
             except Exception:
                 last_i = None
-    # Add open entry
-    if last_i and last_i['dt'] >= cutoff:
+    # Add open entry (only for an open-ended period — a past window has a fixed end)
+    if last_i and end is None and last_i['dt'] >= cutoff:
         start = max(last_i['dt'], cutoff)
         secs  = max(0, int((_dt.now() - start).total_seconds()))
         acct  = last_i['account']
