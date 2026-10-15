@@ -1542,6 +1542,27 @@ body {
 .nb-claude-badge[data-model="sonnet"] { background: #1b3a2e; color: #a8e6c9; }
 .nb-claude-badge[data-model="haiku"]  { background: #3a2a1b; color: #f0c98a; }
 
+/* test_badge — the test battery's last run; same pill as the badges above, next to them.
+   Green pass / red fail / dimmed when stale (ran against an older commit than the app). */
+.nb-test-badge {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.18em 0.6em;
+    border-radius: 999px;
+    font-family: var(--font-mono, monospace);
+    white-space: nowrap;
+    flex-shrink: 0;
+    background: #d4edda;
+    color: #1a6330;
+}
+.nb-test-badge--fail  { background: #f8d7da; color: #721c24; }
+.nb-test-badge--stale { opacity: 0.55; }
+.nb-test-badge--link  { cursor: pointer; }
+.nb-test-badge--link:hover { filter: brightness(0.95); text-decoration: underline; }
+
 /* ── Barblock shared chrome ─────────────────────────────────────────────────
    All collapsible codeblocks (nav, front, config, git, gallery, nb, tw, hledger)
    add .nb-barblock to their header div alongside their block-specific class.

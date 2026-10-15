@@ -14535,6 +14535,56 @@ def api_write_marker():
     return jsonify(ok=True, line=line)
 
 
+# Test battery snapshot: the app can't run its own pytest/Playwright suite (the container has no
+# tests repo, read-only root), so .tools/run-tests.sh writes a .last-run.json after a local run
+# and the badge / `sysadmin tests` block read it here (2026-10-14). _TESTS_DIR is the sibling repo
+# in the bare dev deployment; absent in the container -> {available: false}, badge stays off.
+_TESTS_DIR = Path(__file__).resolve().parent.parent / 'nb-web-tests'
+
+
+def _app_git_head():
+    """Short HEAD of the nb-web repo, or None."""
+    try:
+        r = subprocess.run(['git', '-C', str(Path(__file__).resolve().parent), 'rev-parse', '--short', 'HEAD'],
+                           capture_output=True, text=True, timeout=5)
+        return r.stdout.strip() or None if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+@app.route('/api/test-status')
+def api_test_status():
+    """The test battery's last recorded run (tech), for the test_badge pill and `sysadmin tests`.
+    Reads _TESTS_DIR/.last-run.json (written by .tools/run-tests.sh); flags stale when the run's
+    nb-web commit differs from the running HEAD."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'tech'):
+        return jsonify({'error': 'forbidden'}), 403
+    f = _TESTS_DIR / '.last-run.json'
+    try:
+        data = json.loads(f.read_text())
+    except (OSError, ValueError):
+        return jsonify({'available': False})
+    cur = _app_git_head()
+    ran = str(data.get('nb_web_commit') or '')
+    stale = bool(cur and ran and cur != ran)
+    behind = None
+    if stale:
+        try:
+            rb = subprocess.run(['git', '-C', str(Path(__file__).resolve().parent),
+                                 'rev-list', '--count', f'{ran}..HEAD'],
+                                capture_output=True, text=True, timeout=5)
+            behind = int(rb.stdout.strip()) if rb.returncode == 0 and rb.stdout.strip().isdigit() else None
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            behind = None
+    return jsonify({
+        'available': True,
+        'passed': data.get('passed'), 'total': data.get('total'), 'failed': data.get('failed'),
+        'ran': data.get('ran'), 'commit': ran or None, 'current': cur,
+        'tests_commit': data.get('tests_commit'), 'stale': stale, 'behind': behind,
+    })
+
+
 @app.route('/api/sysadmin')
 def api_sysadmin():
     """Return sysadmin dashboard data: notebook inventory, plugin list, config file status."""

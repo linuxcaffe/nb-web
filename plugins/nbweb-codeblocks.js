@@ -5341,6 +5341,7 @@
         if (!_cbCan(el, 'sysadmin', 'read')) { _cbDenyRead(el); return; }
         if (el.dataset.mode === 'users')    return _loadSysadminUsersBlock(el);
         if (el.dataset.mode === 'crontab')  return _loadSysadminCrontabBlock(el);
+        if (el.dataset.mode === 'tests')    return _loadSysadminTestsBlock(el);
         return _loadSysadminBlock(el);
     }
 
@@ -5385,6 +5386,49 @@
                           </table>`
                         : '<span class="nb-sa-muted">No crontab entries.</span>'}
                 </div>`;
+        } catch(e) {
+            _cbError(el, 'sysadmin', String(e.message || e), () => _dispatchSysadminBlock(el));
+        }
+    }
+
+    // `sysadmin tests`: the test battery's last recorded run (/api/test-status) plus term: links
+    // to re-run it. The badge (main.js _injectTestBadge) is the glance; this is the detail + the
+    // two-step run (open page, then click Run -- so a stray tap never kicks off a minutes-long run).
+    async function _loadSysadminTestsBlock(el) {
+        el.innerHTML = '<span class="nb-spin">⟳</span>';
+        try {
+            const r = await fetch('/api/test-status');
+            if (r.status === 403) { _cbDenyRead(el); return; }
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            const body = _saFrame(el, 'tests', d.available ? `${d.passed}/${d.total}` : 'no runs');
+            if (!d.available) {
+                body.innerHTML = '<div class="nb-sa-section"><span class="nb-sa-muted">No recorded run. '
+                    + 'Run the suite below, then refresh.</span></div>';
+            } else {
+                const stale = d.stale
+                    ? `<div class="nb-sa-muted">⚠ ran against <code>${_esc(d.commit || '?')}</code>; `
+                      + `app now at <code>${_esc(d.current || '?')}</code>`
+                      + (d.behind ? ` (${d.behind} commit${d.behind === 1 ? '' : 's'} ahead)` : '') + ' — re-run</div>'
+                    : '';
+                body.innerHTML = `<div class="nb-sa-section">
+                    <table class="nb-sa-table"><tbody>
+                        <tr><td>Passed</td><td><code>${d.passed}/${d.total}</code>${d.failed ? ` · <strong>${d.failed} failed</strong>` : ''}${d.skipped ? ` · ${d.skipped} skipped` : ''}</td></tr>
+                        <tr><td>Ran</td><td class="nb-sa-muted">${_esc(String(d.ran || '').replace('T', ' '))}</td></tr>
+                        <tr><td>Commit</td><td class="nb-sa-muted"><code>${_esc(d.commit || '?')}</code></td></tr>
+                    </tbody></table>
+                    ${stale}
+                </div>`;
+            }
+            // Run links go through the tech-gated terminal (invariant 77) -- no server-run endpoint.
+            const run = NbMain.renderMarkdown(
+                '[▶ Run pytest](term:cd%20~/dev/nb-web-tests%20%26%26%20.tools/run-tests.sh) · '
+                + '[+ e2e (~4 min)](term:cd%20~/dev/nb-web-tests%20%26%26%20.tools/run-tests.sh%20--e2e)',
+                el.dataset.selector || '');
+            const runEl = document.createElement('div');
+            runEl.className = 'nb-sa-section nb-rendered';
+            runEl.innerHTML = run;
+            body.appendChild(runEl);
         } catch(e) {
             _cbError(el, 'sysadmin', String(e.message || e), () => _dispatchSysadminBlock(el));
         }

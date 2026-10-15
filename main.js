@@ -2422,6 +2422,7 @@ const NbMain = (() => {
         if (note?.effective_xref ?? note?.meta?.xref) _enrichXref(container, note);
         _injectAccessBadge(note);
         _injectClaudeBadge(note);
+        _injectTestBadge(note);
         NbUiChrome.refreshExtrasState(note);
     }
 
@@ -2773,6 +2774,50 @@ const NbMain = (() => {
         badge.dataset.model = model;
         badge.textContent   = `claude: ${model}`;
         badge.title = `claude: ${model}${inherited ? ' (inherited from notebook)' : ''}`;
+        bar.insertBefore(badge, clearBtn);
+        bar.hidden = false;
+    }
+
+    // test_badge: a tech-only pill in the 3rd bar showing the test battery's last recorded run
+    // (GET /api/test-status -> .last-run.json). Unlike access_badge it may come from the note's
+    // own frontmatter OR the notebook config -- it's a harmless informational flag, no dotfile
+    // gotcha to guard. A string value is a note selector the pill links to (the `sysadmin tests`
+    // page); a bare `true` shows the pill with its tooltip and no link. Absent when there's no
+    // snapshot or the viewer isn't tech (the endpoint 403s/[]'s) -- so it stays off in the
+    // container and for everyone below tech, with no special-casing here.
+    async function _injectTestBadge(note) {
+        document.getElementById('nb-test-badge')?.remove();
+        const nbCfg = NbWeb.getCachedNotebookConfig(note?.notebook);
+        const raw   = note?.meta?.test_badge ?? nbCfg?.test_badge;
+        if (raw === undefined || raw === null || raw === false || /^(false|no|0|off)$/i.test(String(raw))) return;
+        const target = /[:/]/.test(String(raw)) ? String(raw).trim() : '';   // a selector, else no link
+
+        let d;
+        try {
+            const r = await fetch('/api/test-status');
+            if (!r.ok) return;
+            d = await r.json();
+        } catch { return; }
+        if (!d?.available) return;
+
+        const clearBtn = document.getElementById('nb-cmd-output-clear');
+        const bar      = document.getElementById('nb-cmd-output-bar');
+        if (!clearBtn || !bar) return;
+
+        const failed = Number(d.failed) > 0;
+        const badge  = document.createElement('span');
+        badge.id        = 'nb-test-badge';
+        badge.className = 'nb-test-badge' + (failed ? ' nb-test-badge--fail' : '') + (d.stale ? ' nb-test-badge--stale' : '');
+        badge.textContent = `${failed ? '⚠' : '✓'} ${d.passed}/${d.total}`;
+        const bits = [`tests: ${d.passed}/${d.total} passed${d.failed ? `, ${d.failed} failed` : ''}`];
+        if (d.ran)    bits.push(`ran ${String(d.ran).replace('T', ' ')}`);
+        if (d.commit) bits.push(`against ${d.commit}`);
+        if (d.stale)  bits.push(`app now at ${d.current}${d.behind ? ` (${d.behind} commit${d.behind === 1 ? '' : 's'} ahead)` : ''} — re-run`);
+        badge.title = bits.join(' · ');
+        if (target) {
+            badge.classList.add('nb-test-badge--link');
+            badge.addEventListener('click', () => NbMain.openNote(target));
+        }
         bar.insertBefore(badge, clearBtn);
         bar.hidden = false;
     }
