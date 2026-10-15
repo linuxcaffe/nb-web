@@ -222,6 +222,15 @@ Numbers match `docs:dev/dev-invariants.md`, where each has its full story.
     silently:** `_hasUnsaved()` (the editor, the sheet view, `_csvDirty`, `NbWeb.unsavedForms()`)
     makes `openNote` ask and `beforeunload` warn; a new editing surface must feed it. Policy:
     `docs:dev/dev-codeblock-authoring.md`. Block-header actions use `nb-block-act`.
+82. A codeblock that shells out to a tool (`tw`→`task`, `hl`→`hledger`, `git`→`git`) takes
+    user-written text, so constrain it to a filter/report, never a command: the tool's own
+    command/subcommand is appended by nb-web and goes last; a user word can't name a command,
+    alias or abbreviation (`_tw_filter_args`), use an output-file option (`-o`/`--output`,
+    `_hledger_reject_output`, `_git_read_only`), set an `rc`/config override, or run a mutating
+    subcommand (`git` stash/branch/tag listing-only). A read block must not be able to write a
+    file or run anything. Each `/api/*` write path still needs its own `user` floor (17). All
+    four external-data blocks had a hole here (2026-10-13/14); full story + commits in
+    `docs:dev/dev-invariants.md`.
 
 ## nb notebook layout
 

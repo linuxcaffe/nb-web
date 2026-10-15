@@ -33,6 +33,12 @@ djp watches the UI with his own eyes all the time, so browser runs are for what 
    reachable without a browser. See `test_cbql.py` for the style (docstring states the
    invariants being tested up front, including known-red security tests that are supposed to
    fail until a real bug is fixed — don't "fix" those by weakening the assertion).
+   - **`rg` (ripgrep) is not on PATH in this pytest env** (2026-10-14): endpoints that shell to
+     ripgrep (`/api/nb/backlinks`, `/api/grep`) hit `FileNotFoundError` and silently take their
+     `nb search` fallback, which finds nothing in the synthetic world — so a test that just calls
+     the endpoint exercises neither real path. To test the ripgrep branch deterministically, fake
+     `nb_app.subprocess.run` to return the hit list (plain `-l` output) or rg `--json` NDJSON; see
+     `test_backlinks_scope.py` / `test_grep_scope.py`.
 
 2. **Playwright e2e suite** (`e2e/` subfolder, own `package.json`) — real browser automation
    against a real, but *synthetic and disposable*, server instance. `playwright.config.js`
