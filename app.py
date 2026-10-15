@@ -14580,6 +14580,7 @@ def api_test_status():
         'passed': data.get('passed'), 'total': data.get('total'), 'failed': data.get('failed'),
         'ran': data.get('ran'), 'commit': ran or None,
         'tests_commit': data.get('tests_commit'),
+        'files': data.get('files'), 'failures': data.get('failures') or [],
         'stale': bool(behind), 'behind': behind, 'can_run': can_run,
     })
 

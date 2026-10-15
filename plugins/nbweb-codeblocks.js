@@ -5415,10 +5415,16 @@
                     : '';
                 body.innerHTML = `<div class="nb-sa-section">
                     <table class="nb-sa-table"><tbody>
-                        <tr><td>Passed</td><td><code>${d.passed}/${d.total}</code>${d.failed ? ` · <strong>${d.failed} failed</strong>` : ''}${d.skipped ? ` · ${d.skipped} skipped` : ''}</td></tr>
+                        <tr><td>Passed</td><td><code>${d.passed}/${d.total}</code>${d.files ? ` · ${d.files} files` : ''}${d.failed ? ` · <strong>${d.failed} failed</strong>` : ''}${d.skipped ? ` · ${d.skipped} skipped` : ''}</td></tr>
                         <tr><td>Ran</td><td class="nb-sa-muted">${_esc(String(d.ran || '').replace('T', ' '))}</td></tr>
                         <tr><td>Commit</td><td class="nb-sa-muted"><code>${_esc(d.commit || '?')}</code></td></tr>
                     </tbody></table>
+                    ${(d.failures && d.failures.length)
+                        ? '<div class="nb-sa-fails"><div class="nb-sa-muted">Failed:</div><ul>'
+                          + d.failures.map(f => `<li><code>${_esc(f.id)}</code>`
+                              + (f.msg ? ` — <span class="nb-sa-muted">${_esc(f.msg)}</span>` : '') + '</li>').join('')
+                          + '</ul></div>'
+                        : ''}
                     ${stale}
                 </div>`;
             }

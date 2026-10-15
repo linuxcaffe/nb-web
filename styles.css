@@ -1562,6 +1562,8 @@ body {
 .nb-test-badge--stale { opacity: 0.55; }
 .nb-test-badge--link  { cursor: pointer; }
 .nb-test-badge--link:hover { filter: brightness(0.95); text-decoration: underline; }
+.nb-sa-fails ul { margin: 0.2em 0 0; padding-left: 1.2em; }
+.nb-sa-fails li { font-size: 0.85em; margin: 0.1em 0; }
 
 /* ── Barblock shared chrome ─────────────────────────────────────────────────
    All collapsible codeblocks (nav, front, config, git, gallery, nb, tw, hledger)
