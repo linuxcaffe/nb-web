@@ -162,6 +162,10 @@ Pat's made-up business, never your own notes.
 - [t](docs/blocks/t.md) — clock in and out, with a live period report
 - [timedot](docs/blocks/timedot.md) — log time as dots and hours, in the note or a file
 
+**Testing**
+
+- [check](docs/blocks/check.md) — run a check script in a note and show only what's wrong
+
 **Inline values**
 
 - [Inline queries](docs/inline-queries.md) — live numbers and values right inside a sentence

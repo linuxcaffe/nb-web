@@ -9,7 +9,7 @@
 **Authoring:** [toolbar](#toolbar--shortcut-buttons) · [csv](#csv--spreadsheet-table) · [add](#add--create-wizards)  
 **External data:** [tw](#tw--taskwarrior) · [hl](#hl--accounting) · [nb](#nb--nb-panel) · [git](#git--git-log)  
 **Time tracking:** [t](#t--timeclock) · [timedot](#timedot--time-journal)  
-**Testing:** [test](#test--embedded-assertions)  
+**Testing:** [check](#check--embedded-checks)  
 **Under review:** [chart](#chart--financial-charts) · [cine](#cine--film-production)
 
 ---
@@ -1831,247 +1831,108 @@ also stubs the project's master journal (`_ensure_journal_stubs`). Billing:
 
 Checks that warn you when something is wrong.
 
-### test — Embedded Assertions
+### check — Embedded Checks
 
-Script-driven checks embedded directly in notes. Scripts live in `~/.nb/.checks/` and run via the nb-web Flask server — no terminal needed. Browse the bundled scripts with a `nav` block:
+#### Summary
+
+A `check` block runs one or more check scripts from `~/.nb/.checks/` and shows the result in the
+note — no terminal needed. Give it a script name with no label and it runs as the note renders,
+staying invisible when all is well and surfacing only on a problem; give it a label and it becomes
+a button you click. It's how a note carries its own health check: a dashboard that's blank until
+something needs attention.
+
+#### How it works
+
+A `check` block's body is one or more script names (the `.sh` is optional). There are four forms:
+
+**On demand — with a label.** Renders a `▶ <label>` button; clicking runs the script and shows
+its output.
+
+````markdown
+```check
+hl-recent-txn | Recent transactions
+```
+````
+
+**Automatic — no label.** Runs as the note renders. **Exit 0 with no output → the block
+disappears entirely**; any output or a non-zero exit renders as Markdown. A note with several of
+these is blank when everything is healthy.
+
+````markdown
+```check
+hl-ok
+```
+````
+
+**A group — several scripts, one per line.** All run in parallel; all pass → the block vanishes;
+any fail → an `N of M checks failed` header with a row per failure. A `| Label` line (on its own,
+or after the first script) makes the group an on-demand button instead.
+
+````markdown
+```check
+hl-ok
+nb-dirty
+tw-due
+```
+````
+
+**A family — a dangling dash.** A name ending in `-` runs every matching script, so adding a
+`nb-schem-size.sh` to the family makes it appear with no edit to the note.
+
+````markdown
+```check
+nb-schem-
+```
+````
+
+**Where scripts live.** All check scripts are in `~/.nb/.checks/`, named by domain
+(`hl-` hledger, `nb-` nb/nb-web, `tw-` Taskwarrior, `note-` system), with families adding a second
+hyphen (`hl-budget-`, `nb-schem-`). Browse them with a `nav` block:
 
 ````markdown
 ```nav
-~/.nb/.test
+~/.nb/.checks
 ```
 ````
 
-**Form 1 — on-demand (with label):**
-
-````markdown
-```check
-hl-recent-txn | Recent transactions
-```
-````
-
-Renders a `▶ Recent transactions` button. Click to run; output replaces the button area.
-
-**Form 2 — automatic (no label):**
-
-````markdown
-```check
-hl-ok
-```
-````
-
-Runs at render time. **Exit 0 + no output → block vanishes completely.** Output or non-zero exit → renders as full markdown. A note peppered with Form 2 blocks is invisible when everything is healthy.
-
-**Form 3 — group (multiple scripts, one per line):**
-
-````markdown
-```check
-hl-ok
-tw-due
-nb-dirty
-```
-````
-
-All run in parallel. All pass → block vanishes. Any fail → `N of M checks failed` header with a collapsible toggle row per failure. Add a label to auto-run as a button instead:
-
-````markdown
-```check
-hl-ok | Health checks
-tw-due
-nb-dirty
-```
-````
-
-A bare `| Label` line sets the group label without labelling individual scripts:
-
-````markdown
-```check
-| Dashboard checks
-hl-ok
-tw-due
-```
-````
-
----
-
-#### Bundled scripts
-
-| Script | Form | Purpose |
-|--------|------|---------|
-| `hl-test` | 2 | hledger binary self-test; silent when all 245 pass |
-| `hl-ok` | 2 | Silent when journal is clean; shows `hledger check` errors |
-| `hl-strict` | 2 | `hledger check --strict`; explains undeclared commodity errors |
-| `hl-optional` | 2 | Radar sweep — all 5 optional checks; silent when all pass |
-| `hl-ordereddates` | 2 | Transactions out of date order within a file |
-| `hl-recentassertions` | 2 | Balance assertions older than 7 days |
-| `hl-tags` | 2 | Undeclared tag names |
-| `hl-payees` | 2 | Undeclared payees |
-| `hl-uniqueleafnames` | 2 | Two accounts share a leaf name |
-| `hl-budget-has-periodic` | 2 | Guides setup if no `~ monthly` rules found |
-| `hl-budget-balanced` | 2 | Detects unbalanced budget transactions |
-| `hl-budget-include-check` | 2 | Verifies periodic journal is included in main journal |
-| `hl-budget-has-actuals` | 2 | Checks that actual transactions exist |
-| `hl-budget-has-income` | 2 | Checks that income postings exist in the budget |
-| `hl-budget-runs` | 2 | Verifies `hledger bal --budget` runs without error |
-| `nb-dirty` | 2 | Silent when committed; lists dirty files in current notebook |
-| `note-disk-warn` | 2 | Silent under 80% disk; warns above that |
-| `note-slow` | 2 | Notice when file >50 KB or ≥5 inline includes |
-| `tw-due` | 2 | Silent with no due tasks; lists overdue/today tasks |
-| `note-approved` | 2 | Amber banner when `approved:` frontmatter is blank |
-| `hl-recent-txn` | 1 | Last 14 days of transactions — on demand |
-| `note-context` | 1 | Markdown table of all context variables — on demand |
-| `hl-balances` | 1 | Depth-1 balance table — on demand |
-
-**Form 4 — glob prefix (dangling dash):**
-
-A script name ending in `-` expands to all matching scripts in `~/.nb/.checks/` at render time:
-
-````markdown
-```check
-nb-schem-
-```
-````
-
-Runs every `nb-schem-*.sh` script as a group. Add a new script to the family and it appears automatically — no codeblock edits needed. Works in single-line and multi-line forms:
-
-````markdown
-```check
-| nb checks
-nb-config-
-nb-schem-
-nb-ref-
-```
-````
-
----
-
-**Script naming convention:**
-
-Scripts use hyphen-separated names. The prefix is the application domain; sub-families add a second level separated by another hyphen. The dangling-dash glob runs an entire family.
-
-| Prefix | App | Example families |
-|--------|-----|-----------------|
-| `hl-` | hledger | `hl-budget-`, `hl-entry-`, `hl-reconcile-`, `hl-close-`, `hl-tax-` |
-| `nb-` | nb / nb-web | `nb-config-`, `nb-schem-`, `nb-ref-` |
-| `tw-` | Taskwarrior | — |
-| `note-` | system/global | — |
-
----
-
-#### Placement patterns
-
-**Health dashboard** — Form 2 blocks at the top of a hub note. Invisible when healthy; surface on failure:
-
-````markdown
-```check
-hl-ok
-```
-```check
-nb-dirty
-```
-```check
-tw-due
-```
-
-# My Hub Note
-````
-
-**On-demand reference** — Form 1 in a journal or guide:
-
-````markdown
-```check
-hl-recent-txn | Recent transactions
-```
-```check
-hl-balances | Account balances
-```
-````
-
-**Invisible guardrail** — embed a check in a setup note. New users see the error; experienced users with everything configured see nothing.
-
----
-
-#### `check:` as a config directive
-
-Declared in a config note's frontmatter, `check:` specifies scripts that auto-run (Form 2) on every note that inherits that config — no explicit codeblock in the body needed:
+**`check:` as a config directive.** The same names in a notebook or folder config's `check:` key
+run automatically on every note in scope, as if each had an unlabelled block — a policy you set
+once, not a block you paste into every note.
 
 ```yaml
-# in .notebook.md or .folder.md
+# in a .notebook or .folder config note
 check: |
   nb-dirty
   note-disk-warn
 ```
 
-Notes inheriting this config behave as if they had an unlabelled ` ```check``` ` block at render time. All pass → invisible. Any fail → surfaces at the top of the note.
+**Status notes.** A note of nothing but automatic blocks (`accts:status.md`) has no footprint
+when healthy; `{{inline: accts:status.md}}` at the top of any note surfaces its failures there,
+with the host note's context — so `nb-dirty` reports on the notebook you're actually in. In a
+`type: book`, failing checks in chapter notes show as `⚠` entries in the table of contents; see
+[Books](BOOKS.md) and [Inline includes](inline-includes.md).
 
-Inherited through the config chain: notebook config → folder config → note. A folder config scopes checks to that folder only; a notebook config applies across the whole notebook.
+#### Reference
 
-`check:` is **not** a toolbar block (it has no FM-mode incarnation). It is a policy directive — declare it in config files, not in regular notes.
+- A script's first output line should be a headline (`**Name** — why`, or a `### ⚠` heading so a
+  book TOC picks it up); see `.rules/checks.md`.
+- Running a check needs a `user`-level account. Check scripts live in `.checks/`, which only a
+  tech account may write (invariant 80) — so the scripts are trusted and admin-authored; a block
+  only names one, it can't define one.
+- Automatic (ambient) checks run last, after the rest of the note, deferred; only
+  frontmatter/config (`check:`) checks reach the status badge, body checks render in place
+  (invariant 20).
+- Config `check:` cascades global → notebook → folder → note; it has no frontmatter-strip
+  (toolbar) form — it's a policy directive, declared in config notes.
 
----
+#### For developers
 
-#### Status panels
-
-A dedicated `status.md` note containing only Form 2 blocks, included anywhere via `{{inline:}}`:
-
-```markdown
-{{inline: accts:status.md}}
-
-# My Note
-```
-
-`status.md` has **zero visual footprint when everything is healthy** — the inline renders nothing. The moment any check fails, its output surfaces right at the top of whatever note you're reading. Because `{{inline:}}` runs the full render pipeline on the included content, test blocks in `status.md` receive the **host note's context** — `nb-dirty` reports on the right notebook automatically.
-
-Different notebooks have different concerns:
-
-```markdown
-{{inline: accts:status.md}}     ← journal health, uncommitted changes
-{{inline: home:status.md}}      ← disk space, overdue tasks
-```
-
----
-
-#### Books — the diagnostic TOC
-
-When Form 2 blocks are embedded in chapter notes inside a `type: book`, failing checks produce `### ⚠ Heading` output that gets picked up by the book's TOC rebuild. The table of contents becomes simultaneously a chapter navigator and a live health dashboard — `⚠` entries appear inline with chapter headings, positioned exactly where the problem lives.
-
-A healthy book shows a clean TOC. A book with problems shows `⚠` entries. No separate dashboard, no extra code — an emergent property of the test + inline + TOC pipeline.
-
-See [BOOKS](BOOKS.md) for the full pattern.
-
----
-
-#### Self-censoring includes
-
-`{{inline:}}` silently respects access levels — inaccessible content renders as nothing, leaving the note looking normal to lower-level users.
-
-**Markdown notes** — any note with `access:` frontmatter self-censors when inlined:
-
-```yaml
----
-title: Q4 Payroll Summary
-access: admin
----
-```
-
-```markdown
-{{inline: accts:q4-payroll.md}}
-```
-
-Users below `admin` see an empty render. The note is not visible, not 403'd — just absent.
-
-**`.lib/` components** — HTML and other non-markdown files declare their level in the filename suffix:
-
-```markdown
-{{inline: .lib:dashboard-user.html}}
-{{inline: .lib:dashboard-office.html}}
-{{inline: .lib:dashboard-admin.html}}
-```
-
-Each file renders for users at that level and above; others see nothing. Stack multiple inlines for additive tiers — guest through admin each see their appropriate layer accumulate.
-
-See [security](dev/dev-security.md#ii-access-control) and `.rules/access.md` for the full convention.
-
----
+Renderer: `_loadTestBlock` (`plugins/nbweb-codeblocks.js`, lang `check`; the header's `?` still
+uses the legacy `block:test` context, hence both in `help_for:`); deferred by `_deferCheckBlocks`
+(`main.js`). Backed by `/api/check/run`, `/api/check/batch`, `/api/check/glob`, `/api/check/sweep`;
+`_check_script_path` resolves the name under `CHECK_DIR`. The sweep never runs `nb`, and
+`_note_check_tokens` (py) / `_virtualTestPrefix` (js) are twins (invariant 63). Authoring a check:
+the `checks` skill, `.rules/checks.md`, [dev-checks-authoring](dev/dev-checks-authoring.md). #REVIEW
 
 ---
 
