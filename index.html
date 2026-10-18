@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="vendor/jspreadsheet.min.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" id="nb-prism-theme" href="vendor/prism-tomorrow.min.css">
+  <link rel="icon" type="image/svg+xml" href="/nw-logo.svg">
   <link rel="manifest" href="manifest.json">
   <script src="/nb-auth.js"></script>
 </head>
@@ -27,7 +28,7 @@
 
 <!-- ── Command bar ──────────────────────────────────────────────── -->
 <header id="nb-cmd-bar">
-  <button id="nb-logo-btn" class="nb-logo-btn" data-i18n-title="tip_menu" title="Menu"><img src="/nb-logo.png" alt="nb" class="nb-logo-img"></button>
+  <button id="nb-logo-btn" class="nb-logo-btn" data-i18n-title="tip_menu" title="Menu"><svg class="nb-logo-img" viewBox="0 0 112.34027 112.34027" role="img" aria-label="nb-web"><use href="/nw-logo.svg#nw"/></svg></button>
   <span class="nb-cmd-group-sep" aria-hidden="true"></span>
   <div id="nb-cmds-builtin">
     <button class="nb-cmd nb-action-write" data-cmd="add" data-i18n="btn_add">Add</button>
@@ -181,7 +182,7 @@
 <div id="nb-menu-overlay" hidden></div>
 <aside id="nb-side-menu" aria-label="Application menu">
   <div id="nb-menu-header">
-    <img src="/nb-logo.png" alt="nb" class="nb-menu-logo-img">
+    <img src="/nb-web-logo.svg" alt="nb-web" class="nb-menu-logo-img">
     <span class="nb-menu-subtitle">nb-web</span>
     <span id="nb-menu-build" class="nb-menu-build">…</span>
     <button id="nb-menu-sync-btn" class="nb-menu-sync-btn" data-i18n="btn_sync_home">Sync home</button>

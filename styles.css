@@ -114,12 +114,11 @@ body {
   transition: filter 0.2s;
 }
 .nb-logo-btn:hover { filter: brightness(1.2); }
-.nb-logo-btn.nb-sync-pending {
-  filter: sepia(1) saturate(6) hue-rotate(5deg) brightness(1.15);
-}
+/* nw-logo.svg's tile reads --nw-tile (inherited through <use>): sync-pending turns only the tile amber */
+.nb-logo-btn.nb-sync-pending { --nw-tile: var(--alert); }
 .nb-logo-img {
   height: 26px;
-  width: auto;
+  width: 26px;
   display: block;
 }
 
