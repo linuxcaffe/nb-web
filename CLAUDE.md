@@ -23,6 +23,7 @@ Flask (`app.py`, port 5001) + vanilla JS, no build step. Run with `python3 app.p
 | `nav.js` | `NbNav`: notebook/folder scope, breadcrumb, sync dialog, menu |
 | `nbweb.js` | `NbWeb`: plugin/renderer registry, shared helpers (`formActions`, `formKeys`, `isoDate`) |
 | `terminal.js`, `dialog.js`, `drag-handles.js`, `note-actions.js`, `search.js`, `sync.js`, `plugins-page.js`, `notebooks-page.js`, `templates.js`, `ui-chrome.js` | Satellites extracted from main.js (`NbTerminal`, `NbDialog`, …) |
+| `tw-add.js` | `NbTwAdd.open()`: frames tw-web's `/embed-add`, then makes the task's note (`docs:dev/dev-tw-interop.md`) |
 | `ui-access.js` | `NbUiAccess.can(el, group, mode)`; loads right after `nav.js` |
 | `dashboard_summary.py` | `{{inline: summary <dashboard>}}`, shared with `.tools/readme-export.py` |
 | `starter/` | Files `/setup` copies into a fresh install |
@@ -234,6 +235,11 @@ Numbers match `docs:dev/dev-invariants.md`, where each has its full story.
     file or run anything. Each `/api/*` write path still needs its own `user` floor (17). All
     four external-data blocks had a hole here (2026-10-13/14); full story + commits in
     `docs:dev/dev-invariants.md`.
+83. Task notes (`docs:dev/dev-tw-interop.md`): run `nb tw` only through `run_nb`, which holds
+    the nb lock and sets `NB_LOCK_HELD=1` (the plugin takes the same flock and would wait on
+    nb-web forever). Never act on a task by a bare uuid: the header endpoints are keyed by the
+    note, and the uuid must be one of its own `tw:`. Adding a task frames tw-web's `/embed-add`,
+    which needs `tw_web_url` plus tw-web's `nb` launcher naming this nb-web's origin.
 
 ## nb notebook layout
 
