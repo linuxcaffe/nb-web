@@ -4551,3 +4551,24 @@ body[data-user-level="office"] .nb-action-admin { display: none !important; }
   border: 1px solid var(--border); background: var(--bg); color: var(--text); }
 .nb-sa-form-err { color: var(--red, #c44); font-size: 0.85em; margin-top: 4px; }
 .nb-sa-notebooks { font-size: 0.82em; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── NbTwAdd: tw-web's Add dialog framed over nb-web (tw-add.js, tw-nb-interop M6) ── */
+.nb-tw-add-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9000;
+}
+/* tw-web's page is transparent and centres its own editor: the frame fills the overlay */
+.nb-tw-add-frame {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border: 0; background: transparent; color-scheme: inherit;
+}
+.nb-tw-add-card {
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px 24px; max-width: 34rem; margin: 1rem;
+}
+.nb-tw-add-card h4 { margin: 0 0 .6rem; }
+.nb-tw-add-card code { font-size: .9em; }
+.nb-tw-add-btns { display: flex; justify-content: flex-end; margin-top: 1rem; }

@@ -126,6 +126,10 @@ _SETTINGS_SCHEMA = {
                         'coerce': lambda v: str(v).strip()},
     'tw_terminal':     {'type': bool, 'default': False,
                         'coerce': lambda v: bool(v)},
+    # tw-web's origin as the *browser* reaches it (tw-nb-interop M6: nb-web frames its
+    # /embed-add). Only scheme://host[:port]; anything else reads as unset.
+    'tw_web_url':      {'type': str,  'default': '',
+                        'coerce': lambda v: _web_origin(v)},
     'pty_height':      {'type': int,  'default': 320,
                         'coerce': lambda v: max(60, min(1200, int(v)))},
     'pty_init':        {'type': str,  'default': '',
@@ -161,6 +165,13 @@ _SETTINGS_SCHEMA = {
                                 for p in v if isinstance(p, dict) and p.get('url')
                             ] if isinstance(v, list) else []},
 }
+
+_ORIGIN_RE = re.compile(r'(https?)://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?/?')
+
+def _web_origin(v):
+    """`scheme://host[:port]` from v (a trailing / dropped), or '' if v is anything else."""
+    m = _ORIGIN_RE.fullmatch(str(v or '').strip())
+    return f'{m.group(1)}://{m.group(2).lower()}{m.group(3) or ""}' if m else ''
 
 def _load_settings():
     out = {k: m['default'] for k, m in _SETTINGS_SCHEMA.items()}
@@ -376,7 +387,9 @@ def run_nb(*args, input_text=None, readonly=False):
             cmd,
             capture_output=True, text=True,
             input=input_text if input_text is not None else '',
-            env={**os.environ, 'NO_COLOR': '1'},
+            # NB_LOCK_HELD: we hold the lock, so a plugin that takes it (tw.nb-plugin)
+            # must not wait on its own parent
+            env={**os.environ, 'NO_COLOR': '1', 'NB_LOCK_HELD': '1'},
         )
     return {
         'stdout':     result.stdout.strip(),
@@ -3858,6 +3871,58 @@ def api_task_add():
         return jsonify({'success': result.returncode == 0, 'stderr': result.stderr.strip()})
     except FileNotFoundError:
         return jsonify({'error': 'taskwarrior not found'}), 500
+
+
+# ── tw-nb-interop M6: a task's note, for a task tw-web's own Add dialog just made ──────────
+
+_UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+_TASKNOTES_NB = 'tasknotes'   # tw.nb-plugin's default notebook (plan decision 13)
+
+
+@app.route('/api/tw/embed-url')
+def api_tw_embed_url():
+    """Where the browser reaches tw-web, for framing its /embed-add ('' = not configured)."""
+    if not _level_gte(session.get('user', {}).get('level', ''), 'user'):
+        return jsonify({'error': 'forbidden'}), 403
+    return jsonify({'url': _load_settings().get('tw_web_url', '')})
+
+
+@app.route('/api/tw/note', methods=['POST'])
+def api_tw_note():
+    """Find or make task <uuid>'s note: `nb tw note <uuid> --porcelain [--notebook <nb>]`.
+    The uuid is the only user value that reaches the command, and must be exactly a uuid
+    (invariant 82). The notebook is gated like any create (17, 76, 79)."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user') or not _cb_write_allowed('tw'):
+        return jsonify({'error': 'Write access denied'}), 403
+    data = request.get_json(silent=True) or {}
+    uuid = data.get('uuid')
+    uuid = uuid.lower() if isinstance(uuid, str) else ''   # exact: no stripping, no padding
+    if not _UUID_RE.fullmatch(uuid):
+        return jsonify({'error': 'uuid required'}), 400
+    given = data.get('notebook') or ''
+    notebook = _safe_notebook(given) if isinstance(given, str) else None
+    if given and (not notebook or notebook.startswith('-')):
+        return jsonify({'error': 'bad notebook'}), 400
+    target = notebook or _TASKNOTES_NB
+    if not (NB_DIR / target).is_dir():
+        return jsonify({'error': f'no notebook {target}'}), 404
+    if not _notebook_in_scope(user, target) or not _can_write(user, None, target):
+        return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(NB_DIR / target, note=False)
+    if blocked:
+        return blocked
+    r = run_nb('tw', 'note', uuid, '--porcelain', *(['--notebook', notebook] if notebook else []))
+    if r['returncode'] != 0:
+        return jsonify({'error': strip_ansi(r['stderr'] or r['stdout']) or 'nb tw note failed'}), 502
+    out = {}
+    for line in strip_ansi(r['stdout']).splitlines():
+        k, sep, v = line.partition(': ')
+        if sep:
+            out[k.strip()] = v.strip()
+    if not out.get('selector'):
+        return jsonify({'error': 'nb tw note printed no selector'}), 502
+    return jsonify({'selector': out['selector'], 'created': out.get('created') == 'yes'})
 
 
 _HLEDGER_READ_CMDS = {

@@ -301,6 +301,7 @@ const NbNav = (() => {
             { val: 'note',     label: '📝 Note'     },
             { val: 'bookmark', label: '🔖 Bookmark' },
             { val: 'todo',     label: '✔ Todo'      },
+            { val: 'task',     label: '☑ Task'      },   // a Taskwarrior task + its note (NbTwAdd)
             { val: 'folder',   label: '📂 Folder'   },
             { val: 'notebook', label: '📒 Notebook' },
         ], st.type, val => {
@@ -309,7 +310,8 @@ const NbNav = (() => {
             if (scopeWrap)  scopeWrap.hidden = val === 'notebook';
             if (titleInput) titleInput.placeholder =
                 val === 'folder'   ? 'Folder name…'   :
-                val === 'notebook' ? 'Notebook name…' : 'Title…';
+                val === 'notebook' ? 'Notebook name…' :
+                val === 'task'     ? 'Task description…' : 'Title…';
             if (tmplBtn) {
                 tmplBtn.hidden = val !== 'note';
                 if (val !== 'note' && _tmplMode) {
@@ -387,7 +389,8 @@ const NbNav = (() => {
         titleInput.type        = 'text';
         titleInput.className   = 'nb-opt-input nb-add-title';
         titleInput.placeholder = st.type === 'folder'   ? 'Folder name…'   :
-                                 st.type === 'notebook' ? 'Notebook name…' : 'Title…';
+                                 st.type === 'notebook' ? 'Notebook name…' :
+                                 st.type === 'task'     ? 'Task description…' : 'Title…';
         titleInput.value       = st.title;
         titleInput.addEventListener('input', () => { st.title = titleInput.value; _markDirty(); });
         titleInput.addEventListener('keydown', e => {
@@ -489,7 +492,20 @@ const NbNav = (() => {
             };
         }
 
+        // ☑ Task: tw-web's own Add dialog (pre-filled with the title) adds the task, then
+        // nb-web makes its note. From home or All the note goes to tasknotes:, the plugin's
+        // default; from any other notebook, there.
+        async function _doAddTask() {
+            const notebook = (_scope === '_all' || _scope === 'home') ? '' : _scope;
+            const result = await NbTwAdd.open({ description: st.title, notebook });
+            if (result && result.selector) {
+                _doCancel(false);
+                await _openCreated(result.selector);
+            }
+        }
+
         async function _doSave() {
+            if (st.type === 'task') return _doAddTask();
             if (!st.title && !st.url) return;
             if (saveBtn.disabled) return;
             if (st.encrypt && !st.password) { encPwInput?.focus(); return; }
@@ -510,6 +526,7 @@ const NbNav = (() => {
         }
 
         async function _doEdit() {
+            if (st.type === 'task') return _doAddTask();
             if (!st.title && !st.url) return;
             if (editBtn.disabled) return;
             if (st.encrypt && !st.password) { encPwInput?.focus(); return; }
@@ -994,6 +1011,7 @@ const NbNav = (() => {
             case 'add': {
                 const t = st.type === 'bookmark' ? 'bookmark'      :
                           st.type === 'todo'     ? 'todo add'      :
+                          st.type === 'task'     ? 'tw add'        :
                           st.type === 'folder'   ? 'add folder'    :
                           st.type === 'notebook' ? 'notebooks add' : 'add';
                 tokens.push({ text: t });

@@ -4,7 +4,7 @@
 const CACHE = 'nb-web-v328';
 const SHELL = [
     '/', '/index.html', '/styles.css',
-    '/main.js', '/nav.js', '/nbweb.js', '/theme.js', '/terminal.js', '/dialog.js', '/drag-handles.js', '/note-actions.js', '/search.js', '/sync.js', '/plugins-page.js', '/notebooks-page.js', '/templates.js', '/ui-access.js', '/ui-chrome.js',
+    '/main.js', '/nav.js', '/nbweb.js', '/theme.js', '/terminal.js', '/dialog.js', '/drag-handles.js', '/note-actions.js', '/search.js', '/sync.js', '/plugins-page.js', '/notebooks-page.js', '/templates.js', '/ui-access.js', '/ui-chrome.js', '/tw-add.js',
     '/nb-logo.png', '/nw-logo.svg', '/nb-web-logo.svg',
     '/settings.html',
     '/vendor/marked.min.js',
