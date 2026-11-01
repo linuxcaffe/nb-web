@@ -107,7 +107,73 @@
         topic:     { icon: '📘', label: 'Topic'     },   // a docs: topic note (help system)
         feature:   { icon: '🎯', label: 'Feature'   },   // a features: tour page
         doc:       { icon: '📃', label: 'Doc'       },   // a docs: page checked against the code
+        task:      { icon: '☐', label: 'Task'      },   // a Taskwarrior task's note (tw-nb-interop)
     };
+
+    // ── Task header (tw-nb-interop M6 d) ────────────────────────────────────────────────────
+    // Live fields from Taskwarrior (/api/tw/note-tasks, keyed by the note), ✓ done, ▶ start /
+    // ◼ stop (/api/tw/note-action, which then mirrors tw_status into the note), and + to add
+    // another task in the same project with tw-web's own dialog (NbTwAdd).
+    const _TASK_ICON = { pending: '☐', waiting: '⏳', recurring: '🔁', completed: '☑', deleted: '✖' };
+
+    function _twDate(s) {   // Taskwarrior's 20261105T050000Z → a local Date
+        const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(s || '');
+        return m ? new Date(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6])) : null;
+    }
+
+    function _taskStatus(t) {
+        if (t.status === 'pending' && t.wait && _twDate(t.wait) > new Date()) return 'waiting';
+        return t.status || 'pending';
+    }
+
+    function _taskRowHtml(t, sel) {
+        const st = _taskStatus(t);
+        const pill = (text, cls = '', title = '') =>
+            `<span class="nb-specialty-pill ${cls}"${title ? ` title="${_esc(title)}"` : ''}>${_esc(text)}</span>`;
+        const out = [pill(`${_TASK_ICON[st] || '☐'} ${st}`, `nb-task-st nb-task-st-${st}`)];
+        if (t.start && st === 'pending') out.push(pill('▶ active', 'nb-task-active', 'started ' + NbWeb.isoDate(_twDate(t.start))));
+        if (t.project) out.push(pill(t.project, '', 'project'));
+        for (const [k, label] of [['due', 'due'], ['scheduled', 'sched'], ['wait', 'wait'], ['until', 'until']]) {
+            const d = _twDate(t[k]);
+            if (!d || (k === 'wait' && st !== 'waiting')) continue;
+            const late = k === 'due' && (st === 'pending' || st === 'waiting') && d < new Date();
+            out.push(pill(`${label} ${NbWeb.isoDate(d)}`, late ? 'nb-task-late' : '', t[k]));
+        }
+        if (t.priority) out.push(pill(`pri ${t.priority}`));
+        (t.tags || []).forEach(tag => out.push(pill('+' + tag, 'nb-task-tag')));
+        if (t.recur) out.push(pill(`🔁 ${t.recur}`, '', 'recurs'));
+        const btn = (act, text, title) =>
+            `<button class="nb-specialty-action nb-task-act" data-act="${act}" data-uuid="${_esc(t.uuid)}"
+                data-sel="${_esc(sel)}" title="${_esc(title)}">${text}</button>`;
+        if (st === 'pending' || st === 'waiting') {
+            out.push(btn('done', '✓', 'Mark done'));
+            if (st === 'pending') out.push(t.start ? btn('stop', '◼', 'Stop') : btn('start', '▶', 'Start'));
+        }
+        return out.join('');
+    }
+
+    function _taskPillsHtml(note) {
+        const tasks = note._twTasks;
+        if (!tasks) return `<span class="nb-specialty-pill" title="${_esc(note._twError || '')}">Taskwarrior unavailable</span>`;
+        if (!tasks.length) {
+            return `<span class="nb-specialty-pill nb-task-late" title="Purged, or not synced to this machine yet">task not found here</span>`;
+        }
+        if (tasks.length === 1) return _taskRowHtml(tasks[0], note.selector);
+        // A shared note: one row per task, each with its own description
+        return `<div class="nb-task-rows">${tasks.map(t =>
+            `<div class="nb-task-row"><span class="nb-task-desc">${_esc(t.description || '')}</span>${_taskRowHtml(t, note.selector)}</div>`
+        ).join('')}</div>`;
+    }
+
+    async function _renderTaskNote(note) {
+        try {
+            const r = await fetch('/api/tw/note-tasks?selector=' + encodeURIComponent(note.selector || ''));
+            const d = await r.json().catch(() => ({}));
+            if (r.ok) note._twTasks = d.tasks || [];
+            else note._twError = d.error || String(r.status);
+        } catch (e) { note._twError = e.message; }
+        return _renderSpecialtyNote(note);
+    }
 
     // Type help popover moved to main.js (NbMain's internal _showTypeHelp) as part of
     // "Help Everywhere" — the ? button now lives in the always-visible preview toolbar
@@ -320,6 +386,8 @@
         } else if (note.type === 'feature') {
             pills.push(`<button class="nb-specialty-action nb-feature-try" title="Jump to this page's scratchpad">Try it ↓</button>`);
             pillsHtml = pills.join('');
+        } else if (note.type === 'task') {
+            pillsHtml = _taskPillsHtml(note);
         } else {
             if (note.meta?.status)       pills.push(note.meta.status);
             if (note.meta?.billing_type) pills.push(note.meta.billing_type);
@@ -376,7 +444,9 @@
                 data-pair="docs">docs</a>`;
         }
 
-        const addBtn        = _addOrgBtnHtml(note);
+        const addBtn        = note.type === 'task'
+            ? `<button class="nb-specialty-add nb-task-add" title="Add another task in this project (tw-web's Add dialog)">+</button>`
+            : _addOrgBtnHtml(note);
         const extraActions = window.NbSpecialty?.getActions?.(note) ?? '';
         // addBtn sits rightmost (its own margin-left:auto pushes it, and
         // extraActions after it, flush to the header's right edge) rather
@@ -760,13 +830,46 @@
             if (note.type === 'dashboard' || note.type === 'section') return _renderDashboardNote(note);
             if (note.type === 'dotfile')   return _renderDotfileNote(note);
             if (note.type === 'reports')   return _renderReportsNote(note);
+            if (note.type === 'task')      return _renderTaskNote(note);
             return _cfg[note.type] ? _renderSpecialtyNote(note) : null;
         },
         previewTypes: Object.keys(_cfg).filter(t => t !== 'item' && !_cfg[t]?.noRender),
     });
 
+    // Task header: ✓ ▶ ◼ act on the note's own task, then redraw (the note's tw_status and its
+    // list icon follow, via nb tw status); + adds another task in the same project.
+    document.addEventListener('click', async e => {
+        const act = e.target.closest('.nb-task-act');
+        if (act) {
+            e.preventDefault();
+            if (act.disabled) return;
+            act.disabled = true;
+            const sel = act.dataset.sel;
+            try {
+                const r = await fetch('/api/tw/note-action', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: sel, uuid: act.dataset.uuid, action: act.dataset.act }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { alert(`Task ${act.dataset.act} failed: ${d.error || r.status}`); return; }
+                NbMain.bustNoteCache?.(sel);
+                await NbMain.openNote(sel, false);
+                const st = NbMain.activeNote()?.status;
+                const icon = document.querySelector(`li[data-selector="${CSS.escape(sel)}"] .nb-list-icon`);
+                if (icon && _TASK_ICON[st]) icon.textContent = _TASK_ICON[st];
+            } finally { act.disabled = false; }
+            return;
+        }
+        if (!e.target.closest('.nb-task-add')) return;
+        e.preventDefault();
+        const note = NbMain.activeNote();
+        const first = (note?._twTasks || [])[0] || {};
+        const result = await NbTwAdd.open({ project: first.project || '', notebook: note?.notebook || '' });
+        if (result?.selector) NbMain.openNote(result.selector);
+    });
+
     document.addEventListener('click', e => {
-        if (!e.target.closest('.nb-specialty-add')) return;
+        if (!e.target.closest('.nb-specialty-add') || e.target.closest('.nb-task-add')) return;
         e.preventDefault();
         // Target org-source(s) come from the note's own effective_add_org
         // (app.py _resolve_add_org_list) -- type-derived default (.{type}

@@ -3951,6 +3951,98 @@ def api_tw_note():
     return jsonify({'selector': out['selector'], 'created': out.get('created') == 'yes'})
 
 
+
+# ── tw-nb-interop M6 (d): the task header's data and actions, keyed by the note ────────────
+
+def _tw_run(args, hooks):
+    """Run `task <args>` → (returncode, stdout, stderr). Reads run with hooks off; writes with
+    hooks on, as tw-web's do (timelog on start/stop, recurrence on done, gittw). stdin is
+    empty so a hook that prompts gets EOF instead of hanging the request."""
+    rc = ['rc.confirmation=no', 'rc.abbreviation.minimum=2'] if hooks else list(_TW_RC)
+    try:
+        r = subprocess.run(['task'] + rc + list(args), capture_output=True, text=True, input='',
+                           env={**os.environ, 'NO_COLOR': '1', 'TERM': 'dumb'}, timeout=30)
+    except FileNotFoundError:
+        return 127, '', 'taskwarrior not found'
+    except subprocess.TimeoutExpired:
+        return 124, '', 'task timed out'
+    return r.returncode, r.stdout, strip_ansi(r.stderr).strip()
+
+
+def _task_note(selector, write):
+    """(path, uuids, None) for a readable (write=True: writable, unlocked) type: task note,
+    else (None, None, error response). The uuids come from the note's own `tw:` (a uuid or a
+    list), each checked to be exactly a uuid."""
+    user = session.get('user', {})
+    if not isinstance(selector, str) or not selector or '..' in selector.split(':', 1)[-1].split('/'):
+        return None, None, (jsonify({'error': 'selector required'}), 400)
+    path = _resolve_to_nb_path(selector)
+    if path is None or not path.is_file():
+        return None, None, (jsonify({'error': 'no such note'}), 404)
+    nb = path.relative_to(NB_DIR).parts[0]
+    allowed = (_can_write(user, selector) if write else _can_access_abs_path(user, path)) \
+        and _notebook_in_scope(user, nb)
+    if not allowed:
+        return None, None, (jsonify({'error': 'forbidden'}), 403)
+    meta, _ = parse_frontmatter(path.read_text(errors='replace'))
+    if str(meta.get('type', '')).strip().lower() != 'task':
+        return None, None, (jsonify({'error': 'not a task note'}), 400)
+    if write:
+        blocked = _locked(path)
+        if blocked:
+            return None, None, blocked
+    tw = meta.get('tw')
+    tw = tw if isinstance(tw, list) else [tw]
+    uuids = [u.lower() for u in tw if isinstance(u, str) and _UUID_RE.fullmatch(u.lower())]
+    return path, uuids, None
+
+
+@app.route('/api/tw/note-tasks')
+def api_tw_note_tasks():
+    """The tasks a task note names (`tw:`), exported, for its header."""
+    _, uuids, err = _task_note(request.args.get('selector', ''), write=False)
+    if err:
+        return err
+    if not uuids:
+        return jsonify({'tasks': [], 'uuids': []})
+    filt = []
+    for u in uuids:
+        filt += (['or'] if filt else []) + [f'uuid:{u}']
+    code, out, errtext = _tw_run(filt + ['export'], hooks=False)
+    try:
+        tasks = json.loads(out or '[]')
+    except json.JSONDecodeError:
+        return jsonify({'error': errtext or 'task export failed'}), 502
+    return jsonify({'tasks': tasks, 'uuids': uuids})
+
+
+_NOTE_TASK_ACTIONS = ('done', 'start', 'stop')
+
+
+@app.route('/api/tw/note-action', methods=['POST'])
+def api_tw_note_action():
+    """done / start / stop on one of a task note's own tasks, then mirror its status into the
+    note with `nb tw status`. Gates: user floor, tw write level, note write access, lock."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user') or not _cb_write_allowed('tw'):
+        return jsonify({'error': 'Write access denied'}), 403
+    data = request.get_json(silent=True) or {}
+    action = data.get('action')
+    if action not in _NOTE_TASK_ACTIONS:
+        return jsonify({'error': 'action must be done, start or stop'}), 400
+    _, uuids, err = _task_note(data.get('selector'), write=True)
+    if err:
+        return err
+    uuid = data.get('uuid')
+    if not isinstance(uuid, str) or uuid.lower() not in uuids:
+        return jsonify({'error': "not one of this note's tasks"}), 400
+    uuid = uuid.lower()
+    code, _, errtext = _tw_run([f'uuid:{uuid}', action], hooks=True)
+    if code != 0:
+        return jsonify({'error': errtext or f'task {action} failed'}), 502
+    r = run_nb('tw', 'status', uuid)
+    return jsonify({'success': True, 'mirrored': r['returncode'] == 0})
+
 _HLEDGER_READ_CMDS = {
     'balance','bal','b',
     'register','reg','r',

@@ -4572,3 +4572,16 @@ body[data-user-level="office"] .nb-action-admin { display: none !important; }
 .nb-tw-add-card h4 { margin: 0 0 .6rem; }
 .nb-tw-add-card code { font-size: .9em; }
 .nb-tw-add-btns { display: flex; justify-content: flex-end; margin-top: 1rem; }
+
+/* ── Task header (nbweb-specialty.js, tw-nb-interop M6 d) ── */
+.nb-specialty-header:has(.nb-task-st, .nb-task-rows) { flex-wrap: wrap; }
+.nb-task-st-completed { color: var(--green); }
+.nb-task-st-deleted   { color: var(--text-dim); }
+.nb-task-st-waiting   { color: var(--yellow); }
+.nb-task-active       { color: var(--accent); border-color: var(--accent); }
+.nb-task-late         { color: var(--red); border-color: var(--red); }
+.nb-task-tag          { color: var(--text-muted); }
+.nb-task-act          { min-width: 2em; }
+.nb-task-rows         { display: flex; flex-direction: column; gap: 4px; flex: 1 1 100%; }
+.nb-task-row          { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.nb-task-desc         { font-weight: 600; margin-right: 4px; }
