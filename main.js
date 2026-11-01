@@ -2021,6 +2021,22 @@ const NbMain = (() => {
         rendered.prepend(el);
     }
 
+    // A relative href against a note selector ('home:recipes/x.md' + '../y.md' ->
+    // 'home:y.md'). Drops any #fragment / ?query; null if it climbs out of the notebook.
+    function _resolveRelativeHref(selector, href) {
+        const colon = selector.indexOf(':');
+        if (colon < 0) return null;
+        const parts = selector.slice(colon + 1).split('/').slice(0, -1);
+        let rel = href.replace(/[?#].*$/, '');
+        try { rel = decodeURIComponent(rel); } catch (_) { /* keep as written */ }
+        for (const seg of rel.split('/')) {
+            if (seg === '' || seg === '.') continue;
+            if (seg === '..') { if (!parts.length) return null; parts.pop(); }
+            else parts.push(seg);
+        }
+        return parts.length ? `${selector.slice(0, colon)}:${parts.join('/')}` : null;
+    }
+
     // ── Synchronous wiring ─────────────────────────────────────────────────────
     // Pure DOM work: event handlers, Prism, copy buttons, CSV → spreadsheet.
     // No network calls.  Safe to call multiple times (copy buttons are guarded
@@ -2145,6 +2161,15 @@ const NbMain = (() => {
             } else if (/^[a-z][a-z0-9_-]*:[^/]/.test(href)) {
                 el.addEventListener('click', e => { e.preventDefault(); openNote(href); });
                 el.classList.add('nb-nb-link');
+            } else if (note?.selector && !/^([a-z][a-z0-9+.-]*:|[#/?])/i.test(href)) {
+                // Plain relative link ([x](s5.journal), ./x, ../x), as the phone's Documents
+                // app writes them: open it in-app, resolved against this note's folder.
+                // Left alone, the browser loads /<file> and the 404 fallback reboots the app.
+                const target = _resolveRelativeHref(note.selector, href);
+                if (target) {
+                    el.addEventListener('click', e => { e.preventDefault(); openNote(target); });
+                    el.classList.add('nb-nb-link');
+                }
             }
         });
 
