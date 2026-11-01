@@ -163,24 +163,35 @@ theorizing about *why* something is slow.
 
 ## Build/launch the real container (not the test fixtures)
 
-What actually shipped a real fix live, 2026-07-20 (see `nb-web/Containerfile`'s own header
-comment for the full annotated version):
+Use the script (it replaced the hand-run recipe that used to live here, which lacked the git
+identity build args):
 
 ```bash
-cd ~/dev/nb-web
-podman build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) \
-    -t localhost/nb-web:phase2-vN -f Containerfile .        # bump vN from `podman images`
-podman tag localhost/nb-web:phase2-vN localhost/nb-web:phase2
-systemctl --user restart container-nb-web.service
-# Confirm the fix is actually live, not just committed:
-podman exec nb-web md5sum /app/app.py
-md5sum ~/dev/nb-web/app.py                                   # must match
+cd ~/dev/nb-web && .tools/rebuild-container.sh
 ```
+
+It builds `localhost/nb-web:phase2-v<N+1>` from HEAD (commit first), retags `phase2`, restarts
+`container-nb-web.service`, then checks the running container reports this checkout's commit
+and the external plugins match their origin. Afterwards a read-only smoke test against :5001
+with the claude login (memory `reference_nbweb_claude_login`) confirms a new endpoint is live.
 
 **Gotcha**: `~/.nb` and `~/dev` are live bind-mounts into the container (edits there apply
 immediately, no rebuild needed) — but `/app` (the actual running code) is baked into the image
 at build time. A code change is *not* live until rebuild + restart, even though the container
 itself never stopped running. Diff the md5s above before believing a fix is live.
+
+## Taskwarrior and tw-web in verification (2026-11-01, tw-nb-interop)
+
+- **e2e:** don't start tw-web or touch Taskwarrior. Stub with `page.route`: `/api/tw/embed-url`
+  to a fake origin (`http://tw.test`), that origin's `/embed-add` to a small page that
+  `postMessage`s what tw-web's does, and the `/api/tw/*` endpoints themselves. Examples:
+  `e2e/tests/tw-add.spec.js`, `tw-task-header.spec.js`.
+- **pytest:** monkeypatch `run_nb` and `_tw_run` (the task runner) rather than running `task`.
+- **Live on the host** (`NB_WEB_PORT=5002 python3 app.py`, claude login): a scratch task in
+  the real Taskwarrior fires djp's real hooks. A done task gets a tw2nb entry in today's
+  daily note, and start/stop write the time log, so don't live-test start/stop. Clean up
+  after: remove the journal block, delete the scratch note, purge the task (GC first, see
+  memory `feedback_tw_scratch_tasks`).
 
 ## A real Fly.io dry-run instance exists — `nb-web-dryrun`
 
