@@ -2637,6 +2637,13 @@ INDICATORS = {
     'feature':     '🎯',
     'doc':         '📃',
     'book':        '📚',
+    # tw-nb-interop: a Taskwarrior task's note (tw.nb-plugin); the icon follows tw_status:
+    'task':           '☐',
+    'task_pending':   '☐',
+    'task_waiting':   '⏳',
+    'task_recurring': '🔁',
+    'task_completed': '☑',
+    'task_deleted':   '✖',
     'note':        '',
     'dotfile':     '⚙',
     'code':        '📋',
@@ -2679,7 +2686,24 @@ INDICATORS = {
 #               untyped docs are the unreviewed backlog  📃  (core)
 _FM_TYPES = frozenset({'strip', 'script', 'shot', 'scene', 'storyline', 'plotline', 'story', 'milestone', 'actor', 'character', 'location', 'day', 'resource', 'dotfile', 'journal',
                        'tools', 'materials', 'transport', 'quote', 'budget', 'project', 'reports', 'invoice', 'dashboard', 'item', 'help', 'production', 'report', 'book',
-                       'topic', 'feature', 'doc', 'section'})
+                       'topic', 'feature', 'doc', 'section', 'task'})
+
+# The statuses tw.nb-plugin mirrors into a tasknote's tw_status: (waiting is its own, since
+# Taskwarrior 2.6 stores a waiting task as pending).
+_TASK_STATUSES = ('pending', 'waiting', 'recurring', 'completed', 'deleted')
+
+
+def _note_status(itype, meta, body):
+    """A list item's status: a todo's open/closed from its first line, a task's tw_status:
+    (pending when absent or not one of _TASK_STATUSES), else None."""
+    if itype == 'todo':
+        first = next((l.strip() for l in body.splitlines() if l.strip()), '')
+        return 'closed' if first.startswith('# [x]') else 'open'
+    if itype == 'task':
+        st = meta.get('tw_status')
+        st = st.strip().lower() if isinstance(st, str) else ''
+        return st if st in _TASK_STATUSES else 'pending'
+    return None
 
 # FM block keys: codeblock renderer langs that can appear in frontmatter and render as barblocks.
 # Used to propagate inherited values from notebook/folder config via effective_fm.
@@ -2743,6 +2767,8 @@ def _indicator(itype, todo_status=None, fpath=None):
             pass
     if itype == 'todo' and todo_status:
         return INDICATORS.get(f'todo_{todo_status}', '✔️')
+    if itype == 'task':
+        return INDICATORS.get(f'task_{todo_status}', INDICATORS['task'])
     return INDICATORS.get(itype, '')
 
 
@@ -8798,10 +8824,7 @@ def _build_all_notes() -> list:
                 excerpt = ' · '.join(parts)
             else:
                 excerpt = _first_excerpt_line(body, meta)
-            todo_status = None
-            if itype == 'todo':
-                first = next((l.strip() for l in body.splitlines() if l.strip()), '')
-                todo_status = 'closed' if first.startswith('# [x]') else 'open'
+            todo_status = _note_status(itype, meta, body)
             try:
                 mtime = fpath.stat().st_mtime
             except OSError:
@@ -8906,10 +8929,7 @@ def _list_notes(notebook, folder, limit):
             continue
         title = meta.get('title') or meta.get('name') or note_title(fname, body)
         excerpt = _first_excerpt_line(body, meta)
-        todo_status = None
-        if itype == 'todo':
-            first = next((l.strip() for l in body.splitlines() if l.strip()), '')
-            todo_status = 'closed' if first.startswith('# [x]') else 'open'
+        todo_status = _note_status(itype, meta, body)
         sel_path = (folder + '/' if folder else '') + fname
         item = {
             'type':       itype,
@@ -9111,10 +9131,7 @@ def _grep_tag_notes(notebook: str, tag_query: str, limit: int):
                     excerpt = str(meta.get('desc', '')).strip()
                 else:
                     excerpt = _first_excerpt_line(body, meta)
-                todo_status = None
-                if itype == 'todo':
-                    first = next((l.strip() for l in body.splitlines() if l.strip()), '')
-                    todo_status = 'closed' if first.startswith('# [x]') else 'open'
+                todo_status = _note_status(itype, meta, body)
                 slim = _slim_meta(meta) if itype in _FM_TYPES else None
             except Exception:
                 title = note_title(fname, '')
@@ -9542,10 +9559,7 @@ def api_note():
         ann_tags = re.findall(r'#([\w/-]+)', annotation_text)
         tags = list(dict.fromkeys(tags + ann_tags))  # merge, dedupe, preserve order
 
-    todo_status = None
-    if itype == 'todo':
-        first = body.lstrip().splitlines()[0] if body.strip() else ''
-        todo_status = 'closed' if first.startswith('# [x]') else 'open'
+    todo_status = _note_status(itype, meta, body)
 
     lk          = _find_nb_lock(fpath)
     locked      = lk is not None

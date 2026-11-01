@@ -476,7 +476,7 @@ const NbMain = (() => {
         // type breakdown
         const types = {};
         notes.forEach(n => { types[n.type] = (types[n.type] || 0) + 1; });
-        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯', doc:'📃', report:'📊', book:'📚', section:'📑'};
+        const icons = {note:'📝', bookmark:'🔖', todo:'✔️', folder:'📂', image:'🌄', strip:'🎞️', shot:'🎬', actor:'🧑', location:'📍', day:'📅', resource:'🎁', production:'🎥', topic:'📘', feature:'🎯', doc:'📃', report:'📊', book:'📚', section:'📑', task:'☐'};
         const breakdown = Object.entries(types)
             .filter(([t]) => t in icons && t !== 'note')
             .map(([t,c]) => `${icons[t]}${c}`)
@@ -541,7 +541,9 @@ const NbMain = (() => {
                                '○': 'Open todo', '✔': 'Closed todo', '✔️': 'Closed todo',
                                '🔖': 'Bookmark', '🔗': 'Linked file', '🔒': 'Encrypted', '📂': 'Folder',
                                '🌄': 'Image', '🔉': 'Audio', '📹': 'Video',
-                               '📖': 'Ebook', '📄': 'Document', '📃': 'Doc', '📚': 'Book', '🗃️': 'Sheet', '🪪': 'Contact' };
+                               '📖': 'Ebook', '📄': 'Document', '📃': 'Doc', '📚': 'Book', '🗃️': 'Sheet', '🪪': 'Contact',
+                               '☐': 'Task: pending', '⏳': 'Task: waiting', '🔁': 'Task: recurring',
+                               '☑': 'Task: completed', '✖': 'Task: deleted' };
             const _extIcon = { md:'📝', txt:'📝', markdown:'📝',
                                 pdf:'📄', doc:'📄', docx:'📄', odt:'📄', rtf:'📄',
                                 png:'🌄', jpg:'🌄', jpeg:'🌄', gif:'🌄', webp:'🌄', svg:'🌄', avif:'🌄',
