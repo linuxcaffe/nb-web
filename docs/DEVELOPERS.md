@@ -29,4 +29,5 @@ nb-web is a Flask + vanilla JS web interface for [nb](https://github.com/xwmx/nb
 | [xref](dev/dev-xref.md) | Stemming algorithm, prefix matching, `/api/xref` reference, `forceAll()` book behavior |
 | [security](dev/dev-security.md) | Auth scheme — session login, user cards, dotfolder notebooks, level-based access |
 | [notebook config](dev/dev-notebook-config.md) | `.<notebook>.md` config file — themes, icon, colour, plugin config, UI flags, vision doc |
+| [Taskwarrior ↔ nb-web: task notes](dev/dev-tw-interop.md) | Taskwarrior task notes: `tw.nb-plugin`, `tasknotes:`, framing tw-web's Add dialog, the task header and its endpoints |
 | [claude integration](dev/dev-claude-integration.md) | nbweb-claude internals — MCP tool wrapper, tier gating, barblock rendering, session/token tracking |

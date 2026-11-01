@@ -84,6 +84,14 @@ A link ending in `/` points at a folder: `[[features:basics/|Basics]]` opens the
 in the list and shows its dashboard, `basics/basics.md`, if there is one; otherwise the folder's
 first note, as when you click a folder in the list.
 
+### Markdown links
+
+Plain Markdown links to other files open the note in nb-web too: `[Journal](s5.journal)`,
+`[Up](../index.md)`, `[Soup](recipes/soup.md)`. The path is relative to the linking note's own
+folder and stays within its notebook. These are the links other editors write (the phone's
+Documents app, Codeberg's file view), so a note keeps working links wherever it's read.
+`[x](notebook:path)` selectors work as well; `http(s):` links open in a new tab.
+
 ### Backlinks
 
 An `nb` codeblock with `backlinks` lists every note that links to the current note's title:
