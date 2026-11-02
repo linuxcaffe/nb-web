@@ -464,7 +464,12 @@ const NbNav = (() => {
         async function _openCreated(sel) {
             NbMain.setNoAutoSelect(true);
             activateCmd('list', { internal: true });
-            try { await NbMain.openNote(sel); } finally { NbMain.setNoAutoSelect(false); }
+            try {
+                await NbMain.openNote(sel);
+                // A note filed elsewhere (a task note into its project folder, djp 2026-11-01):
+                // show its folder, or it's open but not in the list you're looking at
+                NbNav.followHashNotebook();
+            } finally { NbMain.setNoAutoSelect(false); }
         }
 
         function _doCancel(reload = true) {

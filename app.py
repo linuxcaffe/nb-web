@@ -17036,15 +17036,19 @@ def index():
 
 @app.route('/sw.js')
 def serve_sw():
-    """Serve sw.js with the current git hash as the cache key.
-    Ensures every commit auto-invalidates the SW cache without manual bumps."""
-    try:
-        rev = subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            cwd=str(Path(__file__).parent), text=True
-        ).strip()
-    except Exception:
-        rev = 'dev'
+    """Serve sw.js with the current commit as the cache key, so every build invalidates the
+    (cache-first) SW cache without manual bumps. The container has no .git: its image carries
+    the commit as NB_WEB_COMMIT (Containerfile). Without either, every image served
+    'nb-web-dev' and a rebuild never reached the browser (2026-11-01)."""
+    rev = os.environ.get('NB_WEB_COMMIT', '').strip()
+    if not re.fullmatch(r'[0-9a-f]{7,40}', rev):
+        try:
+            rev = subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=str(Path(__file__).parent), text=True
+            ).strip()
+        except Exception:
+            rev = 'dev'
     content = (Path(__file__).parent / 'sw.js').read_text()
     content = re.sub(r"const CACHE = 'nb-web-[^']*'",
                      f"const CACHE = 'nb-web-{rev}'", content)

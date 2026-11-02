@@ -74,7 +74,9 @@ Numbers match `docs:dev/dev-invariants.md`, where each has its full story.
 5. Template schema: change generator functions and seeded templates together.
 6. `run_nb()` passes `input=''`, never `None` (Flask hangs on interactive prompts).
 7. `renderPreview` must stay `async`; making it sync kills the whole NbMain IIFE.
-8. Bump `sw.js` `CACHE` with asset changes. `serve_sw()` rewrites it to the git hash anyway.
+8. `serve_sw()` stamps the commit into `sw.js`'s `CACHE` (cache-first SW): `NB_WEB_COMMIT` in
+   the container (no `.git`; set by the Containerfile), else `git rev-parse`. Never constant:
+   until 2026-11-01 every image served `nb-web-dev`, so rebuilds never reached the browser.
 9. `api_note` GET special-case selectors must also be handled in `api_edit_note` PUT.
 10. Every `renderPreview` branch that reaches the shared `innerHTML` + `_finishRendered` must
     include `_checkHtml +`; early-return branches are exempt.

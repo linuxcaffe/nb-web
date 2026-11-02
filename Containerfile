@@ -310,6 +310,8 @@ RUN python3 -c "import yaml, markdown" || \
 # none of their own real inputs changed.
 ARG GIT_COMMIT=unknown
 LABEL nb_web_commit=$GIT_COMMIT
+# the app reads it for /sw.js's cache key (no .git in the image): see serve_sw()
+ENV NB_WEB_COMMIT=$GIT_COMMIT
 
 COPY . .
 RUN chown -R nbweb:nbweb /app

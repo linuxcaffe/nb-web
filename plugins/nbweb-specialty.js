@@ -152,10 +152,10 @@
         return out.join('');
     }
 
-    // Task #89 (the CLI's handle; IDs change after gc, so the uuid is in the tooltip), or the
+    // Task 89 (the CLI's handle; IDs change after gc, so the uuid is in the tooltip), or the
     // short uuid for a task with no ID (completed, deleted). A click opens tw-web's Edit dialog.
     function _taskEditBtn(t, prefix) {
-        const name = t.id ? `#${t.id}` : String(t.uuid).slice(0, 8);
+        const name = t.id ? String(t.id) : String(t.uuid).slice(0, 8);
         return `<button class="nb-specialty-label nb-task-edit" data-uuid="${_esc(t.uuid)}"
             title="Edit in tw-web · ${_esc(t.uuid)}">${_esc(prefix ? `${prefix} ${name}` : name)}</button>`;
     }
@@ -895,6 +895,7 @@
         try {
             await NbMain.loadNotes();
             await NbMain.openNote(result.selector);
+            NbNav.followHashNotebook();   // filed in its project folder: show that folder
         } finally { NbMain.setNoAutoSelect(false); }
     });
 
