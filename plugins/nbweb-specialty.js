@@ -865,7 +865,14 @@
         const note = NbMain.activeNote();
         const first = (note?._twTasks || [])[0] || {};
         const result = await NbTwAdd.open({ project: first.project || '', notebook: note?.notebook || '' });
-        if (result?.selector) NbMain.openNote(result.selector);
+        if (!result?.selector) return;
+        // Like the add bar's _openCreated (nav.js): reload the list so the new note is in it,
+        // with auto-select off so the list's first note can't open over the new one
+        NbMain.setNoAutoSelect(true);
+        try {
+            await NbMain.loadNotes();
+            await NbMain.openNote(result.selector);
+        } finally { NbMain.setNoAutoSelect(false); }
     });
 
     document.addEventListener('click', e => {
