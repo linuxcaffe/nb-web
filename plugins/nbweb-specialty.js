@@ -152,6 +152,14 @@
         return out.join('');
     }
 
+    // Task #89 (the CLI's handle; IDs change after gc, so the uuid is in the tooltip), or the
+    // short uuid for a task with no ID (completed, deleted). A click opens tw-web's Edit dialog.
+    function _taskEditBtn(t, prefix) {
+        const name = t.id ? `#${t.id}` : String(t.uuid).slice(0, 8);
+        return `<button class="nb-specialty-label nb-task-edit" data-uuid="${_esc(t.uuid)}"
+            title="Edit in tw-web · ${_esc(t.uuid)}">${_esc(prefix ? `${prefix} ${name}` : name)}</button>`;
+    }
+
     function _taskPillsHtml(note) {
         const tasks = note._twTasks;
         if (!tasks) return `<span class="nb-specialty-pill" title="${_esc(note._twError || '')}">Taskwarrior unavailable</span>`;
@@ -161,7 +169,7 @@
         if (tasks.length === 1) return _taskRowHtml(tasks[0], note.selector);
         // A shared note: one row per task, each with its own description
         return `<div class="nb-task-rows">${tasks.map(t =>
-            `<div class="nb-task-row"><span class="nb-task-desc">${_esc(t.description || '')}</span>${_taskRowHtml(t, note.selector)}</div>`
+            `<div class="nb-task-row">${_taskEditBtn(t, '')}<span class="nb-task-desc">${_esc(t.description || '')}</span>${_taskRowHtml(t, note.selector)}</div>`
         ).join('')}</div>`;
     }
 
@@ -452,9 +460,13 @@
         // extraActions after it, flush to the header's right edge) rather
         // than inline with pairLink/pillsHtml -- none of those are removed
         // or reordered, they just stay in their normal left-flowing spot.
+        const oneTask = note.type === 'task' && note._twTasks?.length === 1 ? note._twTasks[0] : null;
+        const labelHtml = oneTask
+            ? _taskEditBtn(oneTask, 'Task')
+            : `<span class="nb-specialty-label">${_esc(label)}</span>`;
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
-            <span class="nb-specialty-label">${_esc(label)}</span>
+            ${labelHtml}
             ${pairLink}${sourceWarn}${pillsHtml}${extraActions}${addBtn}
         </div>`;
     }
@@ -858,6 +870,17 @@
                 const icon = document.querySelector(`li[data-selector="${CSS.escape(sel)}"] .nb-list-icon`);
                 if (icon && _TASK_ICON[st]) icon.textContent = _TASK_ICON[st];
             } finally { act.disabled = false; }
+            return;
+        }
+        const edit = e.target.closest('.nb-task-edit');
+        if (edit) {
+            e.preventDefault();
+            const sel = NbMain.activeNote()?.selector;
+            const result = await NbTwAdd.open({ edit: edit.dataset.uuid });
+            if (result?.saved && sel) {
+                NbMain.bustNoteCache?.(sel);
+                await NbMain.openNote(sel, false);
+            }
             return;
         }
         if (!e.target.closest('.nb-task-add')) return;

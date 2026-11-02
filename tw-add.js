@@ -9,7 +9,7 @@
 // annotation launcher pointing at this nb-web's origin (that's what lets tw-web be framed
 // here). Either missing shows a message in the overlay saying which, never a silent nothing.
 //
-// Callers: the add bar's ☑ Task chip (nav.js); later the task header's + (M6 d).
+// Callers: the add bar's ☑ Task chip (nav.js), the task header's + and its Task #ID (edit).
 
 const NbTwAdd = (() => {
     const READY_MS = 6000;   // tw-web must say it's ready within this, or we explain why not
@@ -20,6 +20,8 @@ const NbTwAdd = (() => {
 
     // open({description, project, tags, notebook}) → resolves with
     // {selector, created} once the note exists, or null if closed / it failed.
+    // open({edit: uuid}) opens tw-web's Edit dialog on that task instead (/embed-edit) and
+    // resolves with {saved: true, uuid} after a save; no note is made.
     async function open(opts = {}) {
         let url = '';
         try {
@@ -69,11 +71,12 @@ const NbTwAdd = (() => {
             }
 
             const q = new URLSearchParams();
-            for (const k of ['description', 'project', 'tags']) if (opts[k]) q.set(k, opts[k]);
+            if (opts.edit) q.set('uuid', opts.edit);
+            else for (const k of ['description', 'project', 'tags']) if (opts[k]) q.set(k, opts[k]);
             const frame = document.createElement('iframe');
             frame.className = 'nb-tw-add-frame';
-            frame.title = 'Add task (tw-web)';
-            frame.src = `${url}/embed-add${q.toString() ? '?' + q : ''}`;
+            frame.title = opts.edit ? 'Edit task (tw-web)' : 'Add task (tw-web)';
+            frame.src = `${url}/${opts.edit ? 'embed-edit' : 'embed-add'}${q.toString() ? '?' + q : ''}`;
             overlay.appendChild(frame);
 
             async function onMessage(e) {
@@ -84,6 +87,14 @@ const NbTwAdd = (() => {
                     frame.focus();
                 } else if (m.type === 'tw-add-closed') {
                     finish(null);
+                } else if (m.type === 'tw-task-saved') {
+                    finish({ saved: true, uuid: m.uuid });
+                } else if (m.type === 'tw-edit-failed') {
+                    clearTimeout(readyTimer);
+                    window.removeEventListener('message', onMessage);
+                    explain(`<h4>Edit task</h4><p>tw-web couldn't open task
+                        <code>${_esc(String(m.uuid || '').slice(0, 8))}</code>: it isn't in this
+                        Taskwarrior (purged, or not synced here yet).</p>`);
                 } else if (m.type === 'tw-task-added' && typeof m.uuid === 'string') {
                     window.removeEventListener('message', onMessage);
                     frame.remove();
