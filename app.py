@@ -4016,6 +4016,37 @@ def api_tw_note_tasks():
     return jsonify({'tasks': tasks, 'uuids': uuids})
 
 
+def _path_selector(path):
+    """`notebook:rel/path` for a file under NB_DIR, or None."""
+    try:
+        rel = Path(path).relative_to(NB_DIR)
+    except ValueError:
+        return None
+    return f'{rel.parts[0]}:' + '/'.join(rel.parts[1:]) if len(rel.parts) > 1 else None
+
+
+def _relink_task_note(old_path, new_path):
+    """After a move or rename, point a type: task note's task(s) at its new path and drop the
+    old annotation (`nb tw link <new> <uuid> --from <old>`). Returns how many relinked; never
+    raises (the move itself already succeeded)."""
+    try:
+        meta, _ = parse_frontmatter(Path(new_path).read_text(errors='replace'))
+    except OSError:
+        return 0
+    if str(meta.get('type', '')).strip().lower() != 'task':
+        return 0
+    old_sel, new_sel = _path_selector(old_path), _path_selector(new_path)
+    if not old_sel or not new_sel:
+        return 0
+    tw = meta.get('tw')
+    tw = tw if isinstance(tw, list) else [tw]
+    n = 0
+    for u in tw:
+        if isinstance(u, str) and _UUID_RE.fullmatch(u.lower()):
+            n += run_nb('tw', 'link', new_sel, u.lower(), '--from', old_sel)['returncode'] == 0
+    return n
+
+
 _NOTE_TASK_ACTIONS = ('done', 'start', 'stop')
 
 
@@ -15173,8 +15204,9 @@ def api_rename():
         except OSError:
             pass
 
+    relinked = _relink_task_note(fpath, fpath.parent / new_name)   # a task note's task follows it
     _sidecar_scan_cache.clear()
-    return jsonify({'success': True, 'ann_moved': ann_moved})
+    return jsonify({'success': True, 'ann_moved': ann_moved, 'relinked': relinked})
 
 
 @app.route('/api/note/move', methods=['POST'])
@@ -15215,8 +15247,10 @@ def api_move():
         except OSError:
             pass
 
+    dest_dir = _resolve_dest_dir(dest)
+    relinked = _relink_task_note(fpath, dest_dir / fpath.name) if fpath and dest_dir else 0
     _sidecar_scan_cache.clear()
-    return jsonify({'success': True, 'ann_moved': ann_moved})
+    return jsonify({'success': True, 'ann_moved': ann_moved, 'relinked': relinked})
 
 
 @app.route('/api/note/copy', methods=['POST'])
