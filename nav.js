@@ -1700,6 +1700,25 @@ const NbNav = (() => {
         updateBreadcrumb([folderName]);
     }
 
+    // ── The tw-web link (tw-nb-interop M7) ──────────────────────────
+    // A "tw-web" link in the menu footer (and the W key, ui-chrome.js), from nb-web's own
+    // tw_web_url setting, only when set. Same tab, so Back returns; in the bundle (nb-web at /,
+    // tw-web at /tw/) both stay in one window. Below `user` the endpoint says 403: no link.
+    async function _addTwWebLink() {
+        if (document.getElementById('nb-menu-tw')) return;
+        let url = '';
+        try { url = (await fetch('/api/tw/embed-url').then(r => r.ok ? r.json() : {})).url || ''; }
+        catch { return; }
+        if (!/^https?:\/\//.test(url)) return;
+        const a = document.createElement('a');
+        a.id = 'nb-menu-tw';
+        a.className = 'nb-menu-sibling';
+        a.href = url.replace(/\/?$/, '/');
+        a.title = 'tw-web (W)';
+        a.textContent = 'tw-web';
+        document.querySelector('#nb-menu-footer .nb-menu-logout')?.before(a);
+    }
+
     // ── Public ────────────────────────────────────────────────────
 
     return {
@@ -1708,10 +1727,16 @@ const NbNav = (() => {
             _initCmdBar();
             _initMenu();
             _initSyncDialog();
-            document.addEventListener('nb-auth-ready', () => {
+            // nb-auth.js fires nb-auth-ready at page load, before this init (main.js awaits
+            // first), so a listener alone never heard it: the menu's user name was always blank.
+            // body[data-user-level] is stamped when it fires.
+            const onAuth = () => {
                 const el = document.getElementById('nb-menu-user');
                 if (el && window.NbUser?.name) el.textContent = window.NbUser.name;
-            });
+                _addTwWebLink();
+            };
+            if (document.body?.dataset.userLevel) onAuth();
+            else document.addEventListener('nb-auth-ready', onAuth, { once: true });
             setInterval(_pollNbSyncStatus, 60_000);
             document.getElementById('nb-cmd-output-clear').addEventListener('click', _clearOutputBar);
 

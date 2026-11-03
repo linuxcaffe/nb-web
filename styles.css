@@ -2234,6 +2234,14 @@ mark.nb-highlight {
   flex-shrink: 0;
 }
 .nb-menu-logout:hover { color: #ff8080; }
+.nb-menu-sibling {            /* the tw-web link (tw-nb-interop M7) */
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  margin-left: auto;
+}
+.nb-menu-sibling:hover { text-decoration: underline; }
 
 /* Foldable group */
 .nb-menu-section {

@@ -989,6 +989,11 @@ const NbUiChrome = (() => {
                 case 'p': e.preventDefault(); NbMain.setKbPane('preview');          break;
                 case 'e': if (NbMain.activeSelector()) { e.preventDefault(); NbMain.openEditor(); } break;
                 case 'T': e.preventDefault(); NbTerminal.open();               break;
+                case 'W': {   // tw-web, when tw_web_url is set (the menu's link, nav.js)
+                    const tw = document.getElementById('nb-menu-tw');
+                    if (tw) { e.preventDefault(); location.href = tw.href; }
+                    break;
+                }
                 case ',': e.preventDefault(); NbTerminal.openSettings();       break;
                 case '.': e.preventDefault(); document.getElementById('nb-extras-btn')?.click(); break;
             }
