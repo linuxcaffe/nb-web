@@ -129,7 +129,7 @@ _SETTINGS_SCHEMA = {
     # tw-web's origin as the *browser* reaches it (tw-nb-interop M6: nb-web frames its
     # /embed-add). Only scheme://host[:port]; anything else reads as unset.
     'tw_web_url':      {'type': str,  'default': '',
-                        'coerce': lambda v: _web_origin(v)},
+                        'coerce': lambda v: _web_base(v)},
     'pty_height':      {'type': int,  'default': 320,
                         'coerce': lambda v: max(60, min(1200, int(v)))},
     'pty_init':        {'type': str,  'default': '',
@@ -166,12 +166,16 @@ _SETTINGS_SCHEMA = {
                             ] if isinstance(v, list) else []},
 }
 
-_ORIGIN_RE = re.compile(r'(https?)://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?/?')
+# scheme://host[:port], then optional plain path segments (a proxy prefix such as /tw: tw-web
+# beside nb-web on one origin, tw-nb-interop M7). No query, fragment, '.'/'..' or odd characters:
+# the value goes into an iframe src and the frame's postMessage origin check.
+_ORIGIN_RE = re.compile(r'(https?)://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?'
+                        r'((?:/(?!\.{1,2}(?:/|$))[A-Za-z0-9._~-]+)*)/?')
 
-def _web_origin(v):
-    """`scheme://host[:port]` from v (a trailing / dropped), or '' if v is anything else."""
+def _web_base(v):
+    """`scheme://host[:port][/path]` from v (a trailing / dropped), or '' if v is anything else."""
     m = _ORIGIN_RE.fullmatch(str(v or '').strip())
-    return f'{m.group(1)}://{m.group(2).lower()}{m.group(3) or ""}' if m else ''
+    return f'{m.group(1)}://{m.group(2).lower()}{m.group(3) or ""}{m.group(4)}' if m else ''
 
 def _load_settings():
     out = {k: m['default'] for k, m in _SETTINGS_SCHEMA.items()}

@@ -77,6 +77,8 @@ Numbers match `docs:dev/dev-invariants.md`, where each has its full story.
 8. `serve_sw()` stamps the commit into `sw.js`'s `CACHE` (cache-first SW): `NB_WEB_COMMIT` in
    the container (no `.git`; set by the Containerfile), else `git rev-parse`. Never constant:
    until 2026-11-01 every image served `nb-web-dev`, so rebuilds never reached the browser.
+   It answers only its own `SHELL` from its own cache and deletes only `nb-web-*` caches: a
+   proxy may share the origin with tw-web (`/tw/`, tw-nb-interop M7).
 9. `api_note` GET special-case selectors must also be handled in `api_edit_note` PUT.
 10. Every `renderPreview` branch that reaches the shared `innerHTML` + `_finishRendered` must
     include `_checkHtml +`; early-return branches are exempt.

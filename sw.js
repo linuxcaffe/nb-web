@@ -13,6 +13,7 @@ const SHELL = [
     '/vendor/xterm.js', '/vendor/xterm.css', '/vendor/xterm-addon-fit.js',
     '/manifest.json', '/logo-192.png', '/logo-512.png', '/logo-maskable-512.png',
 ];
+const SHELL_PATHS = new Set(SHELL);
 
 self.addEventListener('install', e => {
     e.waitUntil(
@@ -23,18 +24,24 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
     e.waitUntil(
         caches.keys()
-            .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+            // Only our own old caches: behind a proxy that puts tw-web on this origin (tw-nb-interop
+            // M7), the cache storage is shared, and tw-web's caches aren't ours to delete.
+            .then(keys => Promise.all(keys.filter(k => k.startsWith('nb-web-') && k !== CACHE).map(k => caches.delete(k))))
             .then(() => self.clients.claim())
     );
 });
 
 self.addEventListener('fetch', e => {
-    // API calls and WebSocket upgrades: always network, never cache.
-    if (e.request.url.includes('/api/') || e.request.url.includes('/ws/')) return;
+    // Only our own shell, from our own cache. Everything else (API calls, WebSocket upgrades,
+    // plugins, notes' files, and anything of tw-web's behind a shared-origin proxy, which this
+    // worker's scope / also covers) goes to the network untouched.
+    const url = new URL(e.request.url);
+    if (e.request.method !== 'GET' || url.origin !== self.location.origin || !SHELL_PATHS.has(url.pathname)) return;
 
     // App shell: cache-first, network fallback
     e.respondWith(
-        caches.match(e.request)
+        caches.open(CACHE)
+            .then(c => c.match(e.request))
             .then(cached => cached || fetch(e.request))
             .catch(() => fetch(e.request))
     );

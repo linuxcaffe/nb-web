@@ -5,9 +5,9 @@
 // tw-web's own endpoint (hooks, recurrence, parent links), then posts the new uuid back here.
 // nb-web then calls /api/tw/note, which runs `nb tw note <uuid>`, and opens the note.
 //
-// Needs: the `tw_web_url` setting (tw-web's origin as the browser sees it), and tw-web's `nb`
-// annotation launcher pointing at this nb-web's origin (that's what lets tw-web be framed
-// here). Either missing shows a message in the overlay saying which, never a silent nothing.
+// Needs: the `tw_web_url` setting (tw-web's address as the browser sees it, maybe with a
+// proxy path such as /tw), and tw-web's `nb` annotation launcher pointing at this nb-web's
+// origin (that's what lets tw-web be framed here). Either missing shows a message in the overlay saying which, never a silent nothing.
 //
 // Callers: the add bar's ☑ Task chip (nav.js), the task header's + and its Task #ID (edit).
 
@@ -79,8 +79,11 @@ const NbTwAdd = (() => {
             frame.src = `${url}/${opts.edit ? 'embed-edit' : 'embed-add'}${q.toString() ? '?' + q : ''}`;
             overlay.appendChild(frame);
 
+            // tw_web_url may carry a path (tw-web behind a proxy at /tw on this origin, M7):
+            // a message's origin is only scheme://host[:port]
+            const twOrigin = new URL(url, location.href).origin;
             async function onMessage(e) {
-                if (e.origin !== url || e.source !== frame.contentWindow) return;
+                if (e.origin !== twOrigin || e.source !== frame.contentWindow) return;
                 const m = e.data || {};
                 if (m.type === 'tw-add-ready') {
                     clearTimeout(readyTimer);
