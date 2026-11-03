@@ -211,12 +211,20 @@
         return { hdr, meta, acts, refBtn, helpBtn };
     }
 
+    // A web address from a block's title: this origin (the bundle: tw-web at /tw/ beside nb-web)
+    // opens in this tab, so Back returns; another origin, a plain new tab. Never a named window
+    // (in an Epiphany web app that made an empty popup; tw-nb-interop M7 (d), 2026-11-03).
+    function _openWebUrl(url) {
+        if (new URL(url, location.href).origin === location.origin) location.href = url;
+        else window.open(url, '_blank', 'noopener');
+    }
+
     function _dispatchLibOpen(out) {
         if (!out) return;
         if (out.startsWith('nb:'))   { NbMain.openNote(out.slice(3)); return; }
         if (out.startsWith('file:')) { NbMain.openNote(out.slice(5)); return; }
         if (out.startsWith('term:')) { NbTerminal.run(out.slice(5)); return; }
-        if (/^https?:\/\//.test(out)) { window.open(out, '_blank'); return; }
+        if (/^https?:\/\//.test(out)) { _openWebUrl(out); return; }
     }
 
     function _execLibOpen(trigger, lang, { journal: journalOverride } = {}) {
@@ -585,7 +593,7 @@
             twNameEl.classList.add('nb-tw-name-launching');
             try {
                 const d = await fetch('/api/tw/launch', {method: 'POST'}).then(r => r.json());
-                if (d.url) window.open(d.url, 'tw-web');
+                if (d.url) _openWebUrl(d.url.replace(/\/?$/, '/'));
             } catch(e) { console.error('tw launch:', e); }
             finally { twNameEl.classList.remove('nb-tw-name-launching'); }
         });

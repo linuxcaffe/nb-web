@@ -126,8 +126,9 @@ _SETTINGS_SCHEMA = {
                         'coerce': lambda v: str(v).strip()},
     'tw_terminal':     {'type': bool, 'default': False,
                         'coerce': lambda v: bool(v)},
-    # tw-web's origin as the *browser* reaches it (tw-nb-interop M6: nb-web frames its
-    # /embed-add). Only scheme://host[:port]; anything else reads as unset.
+    # tw-web's address as the *browser* reaches it (tw-nb-interop M6: nb-web frames its
+    # /embed-add; M7: the tw block opens it). scheme://host[:port] plus an optional plain path
+    # (the bundle's /tw); anything else reads as unset.
     'tw_web_url':      {'type': str,  'default': '',
                         'coerce': lambda v: _web_base(v)},
     'pty_height':      {'type': int,  'default': 320,
@@ -3828,16 +3829,7 @@ def api_task_query():
         )
         # task exits 1 for "no tasks match" — still valid
         tasks = json.loads(result.stdout or '[]')
-        tw_cmd      = _settings.get('tw_web_cmd', '').strip()
-        tw_terminal = _settings.get('tw_terminal', False)
-        if tw_cmd and tw_terminal:
-            tw_extra = {'twTerminalMode': True, 'twLaunchCmd': tw_cmd}
-        elif tw_cmd:
-            tw_h, tw_p = _parse_web_host_port(tw_cmd, 3000)
-            tw_extra = {'twWebUrl': f'http://{tw_h}:{tw_p}'}
-        else:
-            tw_extra = {}
-        return jsonify({'tasks': tasks, **tw_extra})
+        return jsonify({'tasks': tasks, **_tw_launch_info()})
     except FileNotFoundError:
         return jsonify({'error': 'taskwarrior not found'}), 500
     except (json.JSONDecodeError, subprocess.TimeoutExpired) as e:
@@ -4672,7 +4664,9 @@ def api_lib_block_open():
             [str(script)],
             capture_output=True, text=True, timeout=10,
             env={**os.environ, 'NB_DIR': str(NB_DIR),
-                 'NB_NOTEBOOK': notebook, 'NB_JOURNAL': journal},
+                 'NB_NOTEBOOK': notebook, 'NB_JOURNAL': journal,
+                 # where the browser reaches tw-web, for open-block-tw-*.sh (M7)
+                 'NB_TW_WEB_URL': _load_settings().get('tw_web_url') or ''},
         )
         stdout = r.stdout.strip()
         return jsonify({'output': stdout,
@@ -4715,7 +4709,12 @@ def api_hledger_launch():
 
 @app.route('/api/tw/launch', methods=['POST'])
 def api_tw_launch():
-    """Start tw-web if not running, return its URL."""
+    """Start tw-web if not running, return its URL. With tw_web_url set, that's the answer
+    and nothing is started: the browser's address is known, and starting a desktop program
+    can't work from the container (tw-nb-interop M7)."""
+    url = _load_settings().get('tw_web_url') or ''
+    if url:
+        return jsonify({'url': url})
     cmd_str = _settings.get('tw_web_cmd', '').strip()
     if not cmd_str:
         return jsonify({'error': 'tw_web_cmd not configured'}), 400
@@ -4741,6 +4740,23 @@ def api_tw_launch():
                 break
 
     return jsonify({'url': url})
+
+
+def _tw_launch_info():
+    """How a tw block's "task" title opens Taskwarrior: the terminal command when the user
+    chose terminal mode, else tw-web at tw_web_url (the browser's address for it, maybe behind
+    the bundle's /tw), else the host:port in tw_web_cmd. Read per request, like
+    /api/tw/embed-url, so `bundle.sh settings apply` needs no restart (tw-nb-interop M7)."""
+    st = _load_settings()
+    tw_cmd = (st.get('tw_web_cmd') or '').strip()
+    if tw_cmd and st.get('tw_terminal'):
+        return {'twTerminalMode': True, 'twLaunchCmd': tw_cmd}
+    if st.get('tw_web_url'):
+        return {'twWebUrl': st['tw_web_url']}
+    if tw_cmd:
+        tw_h, tw_p = _parse_web_host_port(tw_cmd, 3000)
+        return {'twWebUrl': f'http://{tw_h}:{tw_p}'}
+    return {}
 
 
 @app.route('/api/hledger-add', methods=['POST'])
