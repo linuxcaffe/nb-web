@@ -194,6 +194,8 @@ const NbMain = (() => {
             e.preventDefault();
             e.returnValue = '';   // the browser shows its own "Leave site?" text
         });
+        window.addEventListener('focus', _checkOutsideChange);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkOutsideChange(); });
         _loadNavHistory();
         _updateNavBtns();
         await NbNav.init();
@@ -716,6 +718,36 @@ const NbMain = (() => {
     // any in-note form with its Save lit. openNote asks before leaving; beforeunload (init) warns.
     function _hasUnsaved() {
         return _editing || _sheetDirty || _csvDirty || NbWeb.unsavedForms().length > 0;
+    }
+
+    // A change made outside the page (a hook rewriting tw_status after `task done`, an edit on
+    // another device, a git pull) reaches the open note when you come back to the tab (M7,
+    // nb-web's bug 19, 2026-11-04): refetch, and redraw in place if /api/note's stamp moved.
+    // Never over unsaved work (invariant 81) or an open dialog: the next return checks again.
+    // Closing the terminal already reopens the note (NbTerminal.close).
+    let _outsideChecking = false;   // a focus + visibilitychange pair checks once
+    function _modalOpen() {   // a shown one: some (nb-sync-backdrop) stay in the DOM, hidden
+        return [...document.querySelectorAll('body > [class*="-overlay"], body > [class*="-backdrop"], '
+                                             + '.nb-claude-config-modal, #nb-action-panel')]
+            .some(el => !el.hidden && el.getClientRects().length > 0);
+    }
+    async function _checkOutsideChange() {
+        const sel = _activeSelector, stamp = _activeNote?.stamp;
+        if (!sel || !stamp || document.hidden || _outsideChecking) return;
+        if (_hasUnsaved() || _modalOpen()) return;
+        _outsideChecking = true;
+        try {
+            const r = await fetch('/api/note?selector=' + encodeURIComponent(sel));
+            if (!r.ok) return;
+            const d = await r.json();
+            if (sel !== _activeSelector || !d.stamp || d.stamp === _activeNote?.stamp) return;
+            if (_hasUnsaved() || _modalOpen()) return;
+            const top = document.getElementById('nb-preview-content')?.scrollTop || 0;
+            _bustCache(sel);
+            await openNote(sel, false, top ? { restoreScrollTop: top } : {});
+            document.dispatchEvent(new CustomEvent('nb-note-changed-outside', { detail: { selector: sel } }));
+        } catch { /* offline, or the note went away: the next return checks again */ }
+        finally { _outsideChecking = false; }
     }
 
     async function openNote(selector, pushHistory = true, opts = {}) {

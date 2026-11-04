@@ -9751,6 +9751,9 @@ def api_note():
         'annotation': annotation_text,
         'size':     Path(fpath).stat().st_size,
         'mtime':    datetime.fromtimestamp(Path(fpath).stat().st_mtime).strftime('%Y-%m-%d'),
+        # Moves when the note or its annotation changes on disk: an open page refetches on
+        # coming back to the tab and redraws if it moved (a hook's tw_status, M7 bug 19)
+        'stamp':    _note_stamp(fpath),
         'locked':   locked,
         'lock_reason': lock_reason,
         'editing_by':           edit_session['username'] if edit_session else None,
@@ -9800,6 +9803,18 @@ _SIDECAR_RE = re.compile(r'^\.(.*?)\.annotations\.md$')
 def _annotation_path(note_path: str) -> Path:
     p = Path(note_path)
     return p.parent / f'.{p.name}.annotations.md'
+
+
+def _note_stamp(note_path: str) -> str:
+    """mtime + size of a note and its annotation sidecar: changes when either changes on disk."""
+    parts = []
+    for p in (Path(note_path), _annotation_path(note_path)):
+        try:
+            st = p.stat()
+            parts.append(f'{st.st_mtime_ns}.{st.st_size}')
+        except OSError:
+            parts.append('-')
+    return ':'.join(parts)
 
 def _read_annotation(note_path: str) -> str | None:
     ap = _annotation_path(note_path)

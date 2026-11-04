@@ -858,6 +858,15 @@
         previewTypes: Object.keys(_cfg).filter(t => t !== 'item' && !_cfg[t]?.noRender),
     });
 
+    // The list row's icon follows the open note's task status (after ✓ ▶ ◼, or a change made
+    // outside the page: NbMain's nb-note-changed-outside, M7 bug 19).
+    function _syncTaskListIcon(sel) {
+        const st = NbMain.activeNote()?.status;
+        const icon = document.querySelector(`li[data-selector="${CSS.escape(sel)}"] .nb-list-icon`);
+        if (icon && _TASK_ICON[st]) icon.textContent = _TASK_ICON[st];
+    }
+    document.addEventListener('nb-note-changed-outside', e => _syncTaskListIcon(e.detail.selector));
+
     // Task header: ✓ ▶ ◼ act on the note's own task, then redraw (the note's tw_status and its
     // list icon follow, via nb tw status); + adds another task in the same project.
     document.addEventListener('click', async e => {
@@ -876,9 +885,7 @@
                 if (!r.ok) { alert(`Task ${act.dataset.act} failed: ${d.error || r.status}`); return; }
                 NbMain.bustNoteCache?.(sel);
                 await NbMain.openNote(sel, false);
-                const st = NbMain.activeNote()?.status;
-                const icon = document.querySelector(`li[data-selector="${CSS.escape(sel)}"] .nb-list-icon`);
-                if (icon && _TASK_ICON[st]) icon.textContent = _TASK_ICON[st];
+                _syncTaskListIcon(sel);
             } finally { act.disabled = false; }
             return;
         }
