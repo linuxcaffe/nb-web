@@ -10605,6 +10605,32 @@ def api_note_edit_session_end():
 # API: Edit note
 # ---------------------------------------------------------------------------
 
+def _split_raw(text: str) -> tuple:
+    """(frontmatter block with its --- lines, body); ('', text) when there is none."""
+    if text.startswith('---\n'):
+        end = text.find('\n---\n', 3)
+        if end != -1:
+            return text[:end + 5], text[end + 5:]
+    return '', text
+
+
+def _merge_save(base: str, current: str, mine: str):
+    """What to write when the editor started from `base`, the file now holds `current` and the
+    editor has `mine`: (text, merged), or None when both sides changed the same part (a
+    conflict). The parts are the frontmatter and the body; trailing newlines don't count."""
+    same = lambda a, b: a.rstrip('\n') == b.rstrip('\n')
+    if same(current, base):
+        return mine, False
+    if same(mine, base):
+        return current, False                       # nothing of mine changed: keep theirs
+    (bf, bb), (cf, cb), (mf, mb) = _split_raw(base), _split_raw(current), _split_raw(mine)
+    if same(cb, bb) and mf == bf:                   # they changed the frontmatter, I the body
+        return cf + mb, True
+    if cf == bf and same(mb, bb):                   # they changed the body, I the frontmatter
+        return mf + cb, True
+    return None
+
+
 @app.route('/api/note', methods=['PUT'])
 def api_edit_note():
     data     = request.get_json() or {}
@@ -10684,6 +10710,23 @@ def api_edit_note():
         if note_path is None or not note_path.is_file():
             return jsonify({'error': 'not found'}), 404
 
+    # A save never silently undoes a change made while you were editing (M7, 2026-11-04: a
+    # task hook rewrote tw_status, then the editor wrote pending back). `base` is the text the
+    # editor started from; without it (other writers, "save mine anyway") this writes as before.
+    base = data.get('base')
+    merged = False
+    if isinstance(base, str):
+        try:
+            current = note_path.read_text(errors='replace')
+        except OSError:
+            current = None
+        if current is not None:
+            outcome = _merge_save(base, current, content)
+            if outcome is None:
+                return jsonify({'error': 'changed while you were editing', 'conflict': True,
+                                'current': current}), 409
+            content, merged = outcome
+
     try:
         note_path.write_text(content)
         # this note's cached check results are stale now (they're kept 30 s per script and
@@ -10714,7 +10757,7 @@ def api_edit_note():
     subprocess.run(['git', 'commit', '-m', f'[nb] Edit: {note_path.name}'],
                    cwd=str(nb_root), capture_output=True, env=env)
 
-    return jsonify({'success': True, 'stderr': ''})
+    return jsonify({'success': True, 'stderr': '', **({'merged': True} if merged else {})})
 
 
 # ---------------------------------------------------------------------------

@@ -5156,6 +5156,7 @@ const NbMain = (() => {
                 if (_saveBtn) _saveBtn.disabled = false;
                 const fold = d.meta?.foldable ?? d.effective_fm?.foldable;
                 if (d.meta?.date_headers || _foldableImpliesDates(fold)) await _ensureTodayHeading(sel, d);
+                _editBase = typeof d.raw === 'string' ? d.raw : null;   // what the save compares against
                 _populateEditor(sel, d.raw || d.body || '', _saveNote, d);
             })
             .catch(() => { if (_saveBtn) _saveBtn.disabled = false; });
@@ -5189,7 +5190,11 @@ const NbMain = (() => {
         }
     }
 
-    async function _saveNote() {
+    // A save sends the text the editor started from (_editBase): the server merges a change made
+    // meanwhile in the part you didn't touch (a hook's tw_status beside your body edit), and
+    // answers 409 when both changed the same part (M7, 2026-11-04). Then you choose.
+    let _editBase = null;
+    async function _saveNote(force = false) {
         if (!_activeSelector) return;
         const content = document.getElementById('nb-editor').value;
         const btn = document.getElementById('nb-save-btn');
@@ -5198,9 +5203,33 @@ const NbMain = (() => {
             const r = await fetch('/api/note', {
                 method: 'PUT',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({selector: _activeSelector, content}),
+                body: JSON.stringify({selector: _activeSelector, content,
+                                      ...(_editBase !== null && force !== true ? { base: _editBase } : {})}),
             });
             const d = await r.json();
+            if (r.status === 409 && d.conflict) {
+                btn.textContent = _t('btn_save');
+                const v = await NbWeb.choose({
+                    title: 'This note changed while you were editing',
+                    body: ['Something else saved it meanwhile (a task hook, another device, a sync), '
+                           + 'in the same part you changed.'],
+                    choices: [
+                        { value: 'keep', label: 'Keep editing', primary: true,
+                          hint: 'your text stays here; nothing is saved yet' },
+                        { value: 'mine', label: 'Save mine anyway', danger: true,
+                          hint: 'replaces their change' },
+                        { value: 'theirs', label: 'Load the new version', hint: 'your edits are dropped' },
+                    ],
+                });
+                if (v === 'mine') return _saveNote(true);
+                if (v === 'theirs') {
+                    const sel = _activeSelector;
+                    _closeEditor();
+                    _bustCache(sel);
+                    openNote(sel, false);
+                }
+                return;
+            }
             if (d.success) {
                 _bustCache(_activeSelector);
                 const savedSel = _activeSelector;
@@ -5223,6 +5252,7 @@ const NbMain = (() => {
     function _closeEditor() {
         _stopEditSession(_activeSelector);
         _editing = false;
+        _editBase = null;
         _setPaneMode('preview');
         document.getElementById('nb-editor').value = '';  // never let stale content survive into next edit session
     }
