@@ -149,7 +149,15 @@
             out.push(btn('done', '✓', 'Mark done'));
             if (st === 'pending') out.push(t.start ? btn('stop', '◼', 'Stop') : btn('start', '▶', 'Start'));
         }
+        if (st === 'deleted') out.push(_orphanBtn(t.uuid, sel, false));
         return out.join('');
+    }
+
+    // An orphan (djp 2026-11-04): its task was deleted elsewhere (CLI, tw-web, vit, the phone)
+    // or is gone. The note is never deleted behind your back; this offers what to do with it.
+    function _orphanBtn(uuid, sel, gone) {
+        return `<button class="nb-specialty-action nb-task-orphan" data-uuid="${_esc(uuid)}" data-sel="${_esc(sel)}"
+            data-gone="${gone ? 1 : 0}" title="Undelete the task, keep a plain note, or delete the note">Orphaned ⋯</button>`;
     }
 
     // Task 89 (the CLI's handle; IDs change after gc, so the uuid is in the tooltip), or the
@@ -164,7 +172,9 @@
         const tasks = note._twTasks;
         if (!tasks) return `<span class="nb-specialty-pill" title="${_esc(note._twError || '')}">Taskwarrior unavailable</span>`;
         if (!tasks.length) {
-            return `<span class="nb-specialty-pill nb-task-late" title="Purged, or not synced to this machine yet">task not found here</span>`;
+            const uuid = (note._twUuids || [])[0];
+            return `<span class="nb-specialty-pill nb-task-late" title="Purged, or not synced to this machine yet">task not found here</span>` +
+                (uuid && (note._twUuids || []).length === 1 ? _orphanBtn(uuid, note.selector, true) : '');
         }
         if (tasks.length === 1) return _taskRowHtml(tasks[0], note.selector);
         // A shared note: one row per task, each with its own description
@@ -177,7 +187,7 @@
         try {
             const r = await fetch('/api/tw/note-tasks?selector=' + encodeURIComponent(note.selector || ''));
             const d = await r.json().catch(() => ({}));
-            if (r.ok) note._twTasks = d.tasks || [];
+            if (r.ok) { note._twTasks = d.tasks || []; note._twUuids = d.uuids || []; }
             else note._twError = d.error || String(r.status);
         } catch (e) { note._twError = e.message; }
         return _renderSpecialtyNote(note);
@@ -870,6 +880,34 @@
                 const icon = document.querySelector(`li[data-selector="${CSS.escape(sel)}"] .nb-list-icon`);
                 if (icon && _TASK_ICON[st]) icon.textContent = _TASK_ICON[st];
             } finally { act.disabled = false; }
+            return;
+        }
+        const orphan = e.target.closest('.nb-task-orphan');
+        if (orphan) {
+            e.preventDefault();
+            const { sel, uuid } = orphan.dataset, gone = orphan.dataset.gone === '1';
+            const v = await NbWeb.choose({
+                title: 'This note\'s task is ' + (gone ? 'gone' : 'deleted'),
+                body: [gone ? "It isn't on this machine: purged, or not synced here yet."
+                            : 'It was deleted outside nb-web; the note stays until you say.'],
+                choices: [
+                    ...(gone ? [] : [{ value: 'undelete', label: 'Undelete the task', primary: true,
+                                       hint: 'back to pending, linked as before' }]),
+                    { value: 'plain', label: 'Keep it as a plain note', primary: gone,
+                      hint: 'type: note, frontmatter kept, tw_was: remembers the task' },
+                    { value: 'delete', label: 'Delete the note', danger: true },
+                ],
+            });
+            if (!v) return;
+            if (v === 'delete') { await NbMain.deleteNote({ confirmed: true }); return; }
+            const r = await fetch('/api/tw/note-action', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ selector: sel, uuid, action: v === 'plain' ? 'unlink' : 'undelete' }),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) { alert(`Couldn't ${v === 'plain' ? 'make it a plain note' : 'undelete the task'}: ${d.error || r.status}`); return; }
+            NbMain.bustNoteCache?.(sel);
+            await NbMain.openNote(sel, false);
             return;
         }
         const edit = e.target.closest('.nb-task-edit');

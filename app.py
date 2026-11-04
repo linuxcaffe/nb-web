@@ -4046,7 +4046,8 @@ def _relink_task_note(old_path, new_path):
 # delete and unlink: asked by nb-web's Delete on a task note (djp 2026-11-04), whose task was
 # otherwise left linked to nothing. unlink is the plugin's (`nb tw unlink`: the link goes, a
 # note kept becomes a plain one), not a task command.
-_NOTE_TASK_ACTIONS = ('done', 'start', 'stop', 'delete', 'unlink')
+# undelete: from the header of an orphan (its task deleted elsewhere), only for a deleted task.
+_NOTE_TASK_ACTIONS = ('done', 'start', 'stop', 'delete', 'unlink', 'undelete')
 
 
 @app.route('/api/tw/note-action', methods=['POST'])
@@ -4061,7 +4062,7 @@ def api_tw_note_action():
     action = data.get('action')
     if action not in _NOTE_TASK_ACTIONS:
         return jsonify({'error': 'action must be done, start or stop'}), 400
-    _, uuids, err = _task_note(data.get('selector'), write=True)
+    path, uuids, err = _task_note(data.get('selector'), write=True)
     if err:
         return err
     uuid = data.get('uuid')
@@ -4069,11 +4070,22 @@ def api_tw_note_action():
         return jsonify({'error': "not one of this note's tasks"}), 400
     uuid = uuid.lower()
     if action == 'unlink':
-        r = run_nb('tw', 'unlink', uuid)
+        r = run_nb('tw', 'unlink', uuid, '--note', _path_selector(path) or data.get('selector'))
         if r['returncode'] != 0:
             return jsonify({'error': strip_ansi(r['stderr']).strip() or 'nb tw unlink failed'}), 502
         return jsonify({'success': True})
-    code, _, errtext = _tw_run([f'uuid:{uuid}', action], hooks=True)
+    if action == 'undelete':
+        code, out, errtext = _tw_run([f'uuid:{uuid}', 'export'], hooks=False)
+        try:
+            st = (json.loads(out or '[]') or [{}])[0].get('status')
+        except (json.JSONDecodeError, AttributeError):
+            st = None
+        if st != 'deleted':
+            return jsonify({'error': f'the task is {st or "not here"}, not deleted'}), 409
+        args = [f'uuid:{uuid}', 'modify', 'status:pending']
+    else:
+        args = [f'uuid:{uuid}', action]
+    code, _, errtext = _tw_run(args, hooks=True)
     if code != 0:
         return jsonify({'error': errtext or f'task {action} failed'}), 502
     r = run_nb('tw', 'status', uuid)

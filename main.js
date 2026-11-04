@@ -5214,12 +5214,22 @@ const NbMain = (() => {
     // A task note (type: task) is half of a pair: deleting it alone left its task linked to
     // nothing (djp 2026-11-04). Ask what becomes of the task. Returns false to stop the delete.
     async function _deleteTaskNoteFirst(sel) {
-        let tasks = [];
+        let all = null;
         try {
             const d = await (await fetch('/api/tw/note-tasks?selector=' + encodeURIComponent(sel))).json();
-            tasks = (d.tasks || []).filter(t => t.status === 'pending' || t.status === 'waiting' || t.status === 'recurring');
+            all = d.tasks || [];
         } catch {}
-        if (!tasks.length) return confirm(`Delete "${sel}"?`);   // its task is closed, or gone
+        const tasks = (all || []).filter(t => t.status === 'pending' || t.status === 'waiting' || t.status === 'recurring');
+        if (!tasks.length) {
+            // Closed or gone: the task is left alone (editing a closed one is history noise), but
+            // say what still points here (djp 2026-11-04)
+            const st = all && all.length ? all[0].status : null;
+            const why = st === 'completed'
+                ? '\n\nIts task is completed. The journal entry made when it was done may link here.'
+                : st === 'deleted' ? '\n\nIts task is deleted: only that task still links here.'
+                : all ? "\n\nIts task isn't on this machine (purged, or not synced yet)." : '';
+            return confirm(`Delete "${sel}"?${why}`);
+        }
         const t = tasks[0];
         const name = `task ${t.id || t.uuid.slice(0, 8)} "${t.description}"`;
         const act = action => fetch('/api/tw/note-action', { method: 'POST',
@@ -5254,10 +5264,13 @@ const NbMain = (() => {
         return true;
     }
 
-    async function _deleteNote() {
+    // opts.confirmed: the caller already asked (the task header's orphan prompt). As a click
+    // listener this gets the event, which has no `confirmed`.
+    async function _deleteNote(opts) {
         if (!_activeSelector) return;
         const isTask = String((_activeNote || {}).type || '').toLowerCase() === 'task';
-        if (isTask ? !(await _deleteTaskNoteFirst(_activeSelector)) : !confirm(`Delete "${_activeSelector}"?`)) return;
+        if (opts?.confirmed !== true &&
+            (isTask ? !(await _deleteTaskNoteFirst(_activeSelector)) : !confirm(`Delete "${_activeSelector}"?`))) return;
         const r = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector), {method:'DELETE'});
         const d = await r.json();
         if (d.success) {
