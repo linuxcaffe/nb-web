@@ -4976,16 +4976,21 @@
     // A check's first line is its headline -- "### ⚠ Title" or "**Title** — why" -- shown beside
     // the check's name in the badge, so seeing what failed takes no extra click; the rest opens on
     // click (djp, 2026-10-08). No recognisable headline (a table, plain text): headline ''.
+    // Leading lines that are only an HTML tag (<div data-xref-heading=...>) are skipped and kept
+    // at the front of rest, so the wrapper stays balanced (2026-11-04; twin: app.py _sweep_finding).
     function _checkHeadline(text) {
         const lines = String(text || '').split('\n');
-        const i = lines.findIndex(l => l.trim());
-        if (i < 0) return { headline: '', rest: '' };
+        const bareTag = l => /^<\/?[A-Za-z][^<>]*>$/.test(l.trim());
+        const i = lines.findIndex(l => l.trim() && !bareTag(l));
+        if (i < 0) return { headline: '', rest: String(text || '').trim() ? String(text) : '' };
+        const tags = lines.slice(0, i).filter(l => l.trim()).map(l => l.trim());
+        const pre = tags.length ? tags.join('\n') + '\n\n' : '';
         const first = lines[i].trim();
         let m = first.match(/^#{1,6}\s+(.+)$/);
         if (m) return { headline: m[1].replace(/^[⚠✗✘❌]\uFE0F?\s*/u, ''),
-                        rest: lines.slice(i + 1).join('\n').trim() };
+                        rest: pre + lines.slice(i + 1).join('\n').trim() };
         m = first.match(/^\*\*(.+?)\*\*\s*(?:[—–-]\s*)?(.*)$/);
-        if (m) return { headline: m[1], rest: [m[2], ...lines.slice(i + 1)].join('\n').trim() };
+        if (m) return { headline: m[1], rest: pre + [m[2], ...lines.slice(i + 1)].join('\n').trim() };
         return { headline: '', rest: String(text) };
     }
 

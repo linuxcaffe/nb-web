@@ -14326,6 +14326,11 @@ _script_scope_cache: dict = {}
 # A script can only vary per note through these. One that never mentions them
 # (and sources nothing) gives the same answer for every note in a notebook.
 _PER_NOTE_CHECK_RE = re.compile(r'NB_NOTE_|NB_FM_LINES|^\s*(source|\.)\s', re.MULTILINE)
+# A script that mentions per-note variables without depending on the note (check-env-guard
+# greps other scripts for NB_NOTE_PATH) says so on a line of its own (2026-11-04).
+_NOTEBOOK_SCOPE_MARK_RE = re.compile(r'^#\s*check-scope:\s*notebook\s*$', re.MULTILINE)
+# A line that is only an HTML tag (<div data-xref-heading=...>, </div>): never a headline.
+_BARE_TAG_LINE_RE = re.compile(r'^</?[A-Za-z][^<>]*>$')
 
 
 def _sweep_lock_for(notebook):
@@ -14363,7 +14368,8 @@ def _check_script_scope(script_path):
     key = (str(script_path), st.st_mtime_ns, st.st_size)
     if key not in _script_scope_cache:
         text = script_path.read_text(errors='replace')
-        _script_scope_cache[key] = 'note' if _PER_NOTE_CHECK_RE.search(text) else 'notebook'
+        per_note = _PER_NOTE_CHECK_RE.search(text) and not _NOTEBOOK_SCOPE_MARK_RE.search(text)
+        _script_scope_cache[key] = 'note' if per_note else 'notebook'
     return _script_scope_cache[key]
 
 
@@ -14478,7 +14484,9 @@ def _sweep_finding(result):
     if code == 0:
         return None
     lines = [l.strip() for l in (result.get('stdout') or '').splitlines() if l.strip()]
-    return {'level': 'warn' if code == 2 else 'error', 'message': lines[0] if lines else '(no output)'}
+    text = [l for l in lines if not _BARE_TAG_LINE_RE.match(l)]   # twin: _checkHeadline (js)
+    head = text[0] if text else (lines[0] if lines else '(no output)')
+    return {'level': 'warn' if code == 2 else 'error', 'message': head}
 
 
 def _frontmatter_yaml_error(text):
