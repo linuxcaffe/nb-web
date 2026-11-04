@@ -11,6 +11,11 @@
         const cached = sessionStorage.getItem(CACHE_KEY);
         if (cached) {
             user = JSON.parse(cached);
+            // The cache outlives the session (a web-app window restored after its cookie went):
+            // check once, or the SW's cached shell loads with every call answering 401.
+            fetch('/api/me').then(r => {
+                if (r.status === 401) { sessionStorage.removeItem(CACHE_KEY); location.href = '/login'; }
+            }).catch(() => {});
         } else {
             const r = await fetch('/api/me');
             if (r.ok) {
