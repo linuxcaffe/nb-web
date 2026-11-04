@@ -8182,6 +8182,17 @@ def _fm_compare(a, b, op) -> bool:
     return a_val > b_val if op == '>' else a_val < b_val
 
 
+# project:legal catches legal and legal.<anything>, as taskwarrior's project: filter does, but
+# stops at a dot (legalese isn't legal's). Only these fields; the rest match exactly (djp 2026-11-04).
+_FM_FAMILY_FIELDS = frozenset({'project', 'tw_project'})
+
+
+def _fm_value_is(field: str, v, want) -> bool:
+    """v equals want (case ignored); for a project field, v may also sit under want."""
+    v, want = str(v).lower(), str(want).lower()
+    return v == want or (field in _FM_FAMILY_FIELDS and bool(want) and v.startswith(want + '.'))
+
+
 def _fm_eval_one(meta: dict, field: str, op: str, value) -> bool:
     """Evaluate one filter condition against meta, ignoring negation — whether
     the note satisfies this condition before any '-' prefix is applied.
@@ -8200,8 +8211,7 @@ def _fm_eval_one(meta: dict, field: str, op: str, value) -> bool:
         v = meta.get(field)
         if v is None:
             return False
-        values = {str(x).lower() for x in value}
-        return str(v).lower() in values
+        return any(_fm_value_is(field, v, x) for x in value)
     if op in ('>', '<'):
         v = meta.get(field)
         if v is None:
@@ -8211,7 +8221,7 @@ def _fm_eval_one(meta: dict, field: str, op: str, value) -> bool:
     v = meta.get(field)
     if v is None:
         return False
-    return str(v).lower() == str(value).lower()
+    return _fm_value_is(field, v, value)
 
 
 def _front_matches(meta: dict, filters: list) -> bool:
