@@ -899,9 +899,71 @@ const NbWeb = (() => {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
+    // ── choose(): one small modal for "which of these?" (djp 2026-11-04) ──────
+    // The shared overlay helper (M7 (c) wants the same): a title, a line or two of body, a
+    // button per choice, Cancel. Resolves to the chosen value, or null (Cancel, Escape, the
+    // backdrop). Takes focus when it opens, on the default choice; every key stops here (invariant
+    // 60: ui-chrome's global Escape clicks any "Cancel", and its Enter would take the key from the
+    // focused button). Theme colours only (invariant 64).
+    //   const v = await NbWeb.choose({ title, body, choices: [{ label, value, primary, danger, hint }] });
+    function choose({ title = '', body = '', choices = [], cancelLabel = 'Cancel' } = {}) {
+        return new Promise(resolve => {
+            const back = document.createElement('div');
+            back.className = 'nb-choose-overlay';
+            const box = document.createElement('div');
+            box.className = 'nb-choose';
+            box.setAttribute('role', 'dialog');
+            box.setAttribute('aria-modal', 'true');
+            const h = document.createElement('h4');
+            h.textContent = title;
+            box.appendChild(h);
+            for (const line of [].concat(body).filter(Boolean)) {
+                const p = document.createElement('p');
+                p.textContent = line;
+                box.appendChild(p);
+            }
+            const list = document.createElement('div');
+            list.className = 'nb-choose-list';
+            let first = null;
+            const done = v => { back.remove(); resolve(v); };
+            for (const c of choices) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'nb-choose-btn' + (c.primary ? ' nb-choose-primary' : '') + (c.danger ? ' nb-choose-danger' : '');
+                b.dataset.value = c.value;
+                b.textContent = c.label;
+                if (c.hint) {
+                    const s = document.createElement('span');
+                    s.className = 'nb-choose-hint';
+                    s.textContent = c.hint;
+                    b.appendChild(s);
+                }
+                b.addEventListener('click', () => done(c.value));
+                list.appendChild(b);
+                if (c.primary && !first) first = b;
+            }
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.className = 'nb-choose-cancel';
+            cancel.textContent = cancelLabel;
+            cancel.addEventListener('click', () => done(null));
+            list.appendChild(cancel);
+            box.appendChild(list);
+            back.appendChild(box);
+            back.addEventListener('click', e => { if (e.target === back) done(null); });
+            back.addEventListener('keydown', e => {
+                e.stopPropagation();          // no page shortcut under a modal (Enter, letters)
+                if (e.key === 'Escape') { e.preventDefault(); done(null); }
+            });
+            document.body.appendChild(back);
+            (first || list.querySelector('.nb-choose-btn') || cancel).focus();
+        });
+    }
+
     return {
         t,
         isoDate,
+        choose,
         formActions,
         formKeys,
         formDirty,

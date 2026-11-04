@@ -5211,9 +5211,53 @@ const NbMain = (() => {
         ta.focus();
     }
 
+    // A task note (type: task) is half of a pair: deleting it alone left its task linked to
+    // nothing (djp 2026-11-04). Ask what becomes of the task. Returns false to stop the delete.
+    async function _deleteTaskNoteFirst(sel) {
+        let tasks = [];
+        try {
+            const d = await (await fetch('/api/tw/note-tasks?selector=' + encodeURIComponent(sel))).json();
+            tasks = (d.tasks || []).filter(t => t.status === 'pending' || t.status === 'waiting' || t.status === 'recurring');
+        } catch {}
+        if (!tasks.length) return confirm(`Delete "${sel}"?`);   // its task is closed, or gone
+        const t = tasks[0];
+        const name = `task ${t.id || t.uuid.slice(0, 8)} "${t.description}"`;
+        const act = action => fetch('/api/tw/note-action', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selector: sel, uuid: t.uuid, action }) })
+            .then(r => r.json()).catch(e => ({ error: e.message }));
+        const v = await NbWeb.choose({
+            title: `Delete "${sel}"?`,
+            body: [`This note belongs to ${name}, still ${t.status}.` +
+                   (tasks.length > 1 ? ` (It serves ${tasks.length} open tasks; this asks about the first.)` : '')],
+            choices: [
+                { value: 'unlink', label: 'Delete the note, keep the task', primary: true,
+                  hint: 'the task loses its link to this note' },
+                { value: 'delete', label: 'Delete the note and the task', danger: true },
+                { value: 'plain', label: 'Keep it as a plain note',
+                  hint: 'nothing deleted: type: note, frontmatter kept, the task unlinked' },
+            ],
+        });
+        if (!v) return false;
+        const r = await act(v === 'plain' ? 'unlink' : v);
+        if (r.error) {
+            // Taskwarrior missing (the container) or the plugin failed: say so, let them choose
+            return confirm(`Couldn't ${v === 'delete' ? 'delete' : 'unlink'} the task: ${r.error}\n\n` +
+                           `Delete the note anyway? The task keeps its link to it ` +
+                           `(the tasknotes dashboard lists it, with a way to restore or unlink).`);
+        }
+        if (v === 'plain') {
+            _bustCache(sel);
+            openNote(sel, false);
+            return false;
+        }
+        return true;
+    }
+
     async function _deleteNote() {
         if (!_activeSelector) return;
-        if (!confirm(`Delete "${_activeSelector}"?`)) return;
+        const isTask = String((_activeNote || {}).type || '').toLowerCase() === 'task';
+        if (isTask ? !(await _deleteTaskNoteFirst(_activeSelector)) : !confirm(`Delete "${_activeSelector}"?`)) return;
         const r = await fetch('/api/note?selector=' + encodeURIComponent(_activeSelector), {method:'DELETE'});
         const d = await r.json();
         if (d.success) {

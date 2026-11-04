@@ -4043,13 +4043,17 @@ def _relink_task_note(old_path, new_path):
     return n
 
 
-_NOTE_TASK_ACTIONS = ('done', 'start', 'stop')
+# delete and unlink: asked by nb-web's Delete on a task note (djp 2026-11-04), whose task was
+# otherwise left linked to nothing. unlink is the plugin's (`nb tw unlink`: the link goes, a
+# note kept becomes a plain one), not a task command.
+_NOTE_TASK_ACTIONS = ('done', 'start', 'stop', 'delete', 'unlink')
 
 
 @app.route('/api/tw/note-action', methods=['POST'])
 def api_tw_note_action():
-    """done / start / stop on one of a task note's own tasks, then mirror its status into the
-    note with `nb tw status`. Gates: user floor, tw write level, note write access, lock."""
+    """done / start / stop / delete on one of a task note's own tasks, then mirror its status
+    into the note with `nb tw status`; or unlink it (`nb tw unlink`). Gates: user floor, tw
+    write level, note write access, lock."""
     user = session.get('user', {})
     if not _level_gte(user.get('level', ''), 'user') or not _cb_write_allowed('tw'):
         return jsonify({'error': 'Write access denied'}), 403
@@ -4064,6 +4068,11 @@ def api_tw_note_action():
     if not isinstance(uuid, str) or uuid.lower() not in uuids:
         return jsonify({'error': "not one of this note's tasks"}), 400
     uuid = uuid.lower()
+    if action == 'unlink':
+        r = run_nb('tw', 'unlink', uuid)
+        if r['returncode'] != 0:
+            return jsonify({'error': strip_ansi(r['stderr']).strip() or 'nb tw unlink failed'}), 502
+        return jsonify({'success': True})
     code, _, errtext = _tw_run([f'uuid:{uuid}', action], hooks=True)
     if code != 0:
         return jsonify({'error': errtext or f'task {action} failed'}), 502
