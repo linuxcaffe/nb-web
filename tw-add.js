@@ -96,6 +96,8 @@ const NbTwAdd = (() => {
                     explain(`<h4>Edit task</h4><p>tw-web couldn't open task
                         <code>${_esc(String(m.uuid || '').slice(0, 8))}</code>: it isn't in this
                         Taskwarrior (purged, or not synced here yet).</p>`);
+                } else if (m.type === 'tw-task-added' && typeof m.uuid === 'string' && opts.note === false) {
+                    finish({ added: true, uuid: m.uuid });           // a plain task: no note (the tw block's +)
                 } else if (m.type === 'tw-task-added' && typeof m.uuid === 'string') {
                     window.removeEventListener('message', onMessage);
                     frame.remove();

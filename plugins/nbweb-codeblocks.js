@@ -928,9 +928,10 @@
         return text.trimEnd();
     }
 
-    function _showTwAddForm(el, q, trigger) {
-        const existing = trigger._cbForm || el.querySelector('.nb-tw-addform');
-        if (existing) { existing.remove(); trigger._cbForm = null; trigger?.classList.remove('active'); return; }
+    // The tw block's + goes through the one Add entry point (M7 c): tw-web's own dialog when it's
+    // up, else nb-web's form. note: false: a plain task, as the block always added (no note).
+    async function _showTwAddForm(el, q, trigger) {
+        if (trigger?.classList.contains('active')) return;
         if (document.getElementById('nb-preview-content')?.dataset.noteLocked === 'true') {
             trigger.title = "Can't add — this file is locked";
             trigger.textContent = '🔒';
@@ -938,79 +939,11 @@
             return;
         }
         trigger?.classList.add('active');
-
-        const form = document.createElement('div');
-        form.className = 'nb-tw-addform';
-        form.innerHTML = `
-            <input type="text" class="nb-tw-inp nb-tw-adesc" placeholder="Description" autocomplete="off">
-            <div class="nb-tw-addform-row">
-                <input type="text" class="nb-tw-inp nb-tw-aproj" placeholder="project">
-                <select class="nb-tw-inp nb-tw-adtype">
-                    <option value="due">due:</option>
-                    <option value="scheduled">sched:</option>
-                    <option value="wait">wait:</option>
-                    <option value="until">until:</option>
-                </select>
-                <input type="text" class="nb-tw-inp nb-tw-adval" placeholder="tomorrow">
-                <button type="button" class="nb-tw-btn nb-tw-datepick" title="Pick date">📅</button>
-                <input type="date" class="nb-tw-datepick-hidden" tabindex="-1">
-                <input type="text" class="nb-tw-inp nb-tw-apri" placeholder="priority">
-            </div>
-            <div class="nb-tw-addform-row">
-                <input type="text" class="nb-tw-inp nb-tw-atags" placeholder="tag1, tag2">
-                <span class="nb-form-actions nb-form-actions-inline">
-                    <button type="button" class="nb-tool-btn nb-btn-primary nb-tw-asave">Add</button>
-                    <button type="button" class="nb-tool-btn nb-tw-acancel">Cancel</button>
-                </span>
-                <span class="nb-tw-form-status"></span>
-            </div>`;
-
-        const dateValInput = form.querySelector('.nb-tw-adval');
-        const datePicker   = form.querySelector('.nb-tw-datepick-hidden');
-        form.querySelector('.nb-tw-datepick').addEventListener('click', () =>
-            datePicker.showPicker ? datePicker.showPicker() : datePicker.click());
-        datePicker.addEventListener('change', () => { dateValInput.value = datePicker.value; });
-
-        const doAdd = async () => {
-            const desc = form.querySelector('.nb-tw-adesc').value.trim();
-            if (!desc) { form.querySelector('.nb-tw-adesc').focus(); return; }
-            const status = form.querySelector('.nb-tw-form-status');
-            status.textContent = 'Saving…'; status.style.color = '';
-            try {
-                const d = await fetch('/api/task-add', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        description: desc,
-                        project:    form.querySelector('.nb-tw-aproj').value.trim(),
-                        date_field: form.querySelector('.nb-tw-adtype').value,
-                        date_value: dateValInput.value.trim(),
-                        priority:   form.querySelector('.nb-tw-apri').value.trim(),
-                        tags:       form.querySelector('.nb-tw-atags').value.trim(),
-                    }),
-                }).then(r => r.json());
-                if (!d.success) {
-                    status.textContent = '✗ ' + (d.error || d.stderr || 'failed');
-                    status.style.color = 'var(--red, #ef4444)';
-                } else {
-                    dismiss();
-                    await _loadTwBlock(el);
-                }
-            } catch(e) {
-                status.textContent = '✗ ' + e.message;
-                status.style.color = 'var(--red, #ef4444)';
-            }
-        };
-
-        const dismiss = _cbFormAttach(form, trigger, el,
-            f => el.querySelector('.nb-tw-header').insertAdjacentElement('afterend', f));
-
-        form.querySelector('.nb-tw-adesc').addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) doAdd();   // Ctrl+Enter / Escape: formKeys
-        });
-        form.querySelector('.nb-tw-asave').addEventListener('click', doAdd);
-        form.querySelector('.nb-tw-acancel').addEventListener('click', dismiss);
-        NbWeb.formKeys(form, form.querySelector('.nb-tw-asave'), form.querySelector('.nb-tw-acancel'));
-        form.querySelector('.nb-tw-adesc')?.focus();
+        try {
+            const project = (/(?:^|\s)(?:project|pro):(\S+)/.exec(q || '') || [])[1] || '';
+            const result = await NbTwAdd.open({ note: false, project });
+            if (result?.added) await _loadTwBlock(el);
+        } finally { trigger?.classList.remove('active'); }
     }
 
     // ── nb ────────────────────────────────────────────────────────────────────
