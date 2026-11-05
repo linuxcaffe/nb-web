@@ -1007,7 +1007,7 @@ const NbUiChrome = (() => {
                 case 'T': e.preventDefault(); NbTerminal.open();               break;
                 case 'W': {   // tw-web, when tw_web_url is set (the menu's link, nav.js)
                     const tw = document.getElementById('nb-menu-tw');
-                    if (tw) { e.preventDefault(); location.href = tw.href; }
+                    if (tw) { e.preventDefault(); tw.click(); }   // checks first (NbWeb.goTwWeb)
                     break;
                 }
                 case ',': e.preventDefault(); NbTerminal.openSettings();       break;

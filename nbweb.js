@@ -918,6 +918,20 @@ const NbWeb = (() => {
         unset:  "tw-web isn't set up here (tw_web_url)",
     };
     let _twHealth = null, _twHealthAt = 0;
+    // This device's own address for tw-web, when the server's doesn't work from here (djp
+    // 2026-11-05: the phone reaches yoga's nb-web over Tailscale, but tw_web_url names yoga's
+    // localhost). Kept in this browser only; it wins over tw_web_url for every link to tw-web.
+    const TW_WEB_HERE_KEY = 'nb-tw-web-here';
+    const _WEB_ADDR_RE = /^https?:\/\/[^\s"'<>`]+$/;
+    function twWebHere() {
+        try { const v = localStorage.getItem(TW_WEB_HERE_KEY) || ''; return _WEB_ADDR_RE.test(v) ? v : ''; }
+        catch { return ''; }
+    }
+    function setTwWebHere(url) {
+        try { url ? localStorage.setItem(TW_WEB_HERE_KEY, url) : localStorage.removeItem(TW_WEB_HERE_KEY); } catch {}
+        _twHealth = null;
+        document.dispatchEvent(new CustomEvent('nb-tw-web-here'));
+    }
     async function _probeTwWeb(url) {
         if (!url) return 'unset';
         const ctl = new AbortController();
@@ -940,18 +954,52 @@ const NbWeb = (() => {
                 const r = await fetch('/api/tw/health');
                 if (r.ok) d = await r.json();
             } catch { /* offline: reported as unknown below */ }
-            const url = d.tw_web_url || '';
+            const serverUrl = d.tw_web_url || '';
+            const here = twWebHere();
+            const url = here || serverUrl;
             return {
                 task:   d.task   || { ok: false, version: '', error: TW_MISSING.task },
                 nb:     d.nb     || { ok: false },
                 plugin: d.plugin || { ok: false },
-                twWeb:  { state: await _probeTwWeb(url), url },
+                twWeb:  { state: await _probeTwWeb(url), url, serverUrl, here: !!here },
             };
         })();
         return _twHealth;
     }
 
-    function choose({ title = '', body = '', choices = [], cancelLabel = 'Cancel' } = {}) {
+    // With `input: {value, placeholder, label}` it also shows a text field (focused, Enter picks
+    // the primary choice) and resolves {value, text} instead of the bare value.
+    // Switch to tw-web (the menu link, W): same tab, so Back returns, but only once it answers.
+    // When it doesn't, say so and take this device's address instead of leaving a dead page.
+    // `serverUrl`: the server's tw_web_url, as the caller already has it.
+    async function goTwWeb(serverUrl) {
+        const slash = u => u.replace(/\/?$/, '/');
+        const url = twWebHere() || serverUrl || '';
+        if (url && await _probeTwWeb(url) === 'up') { location.href = slash(url); return; }
+        let why = url ? `tw-web doesn't answer at ${url} from this device.` : "tw-web's address isn't set.";
+        let text = url;
+        for (;;) {
+            const choices = [{ label: 'Save and go', value: 'save', primary: true }];
+            if (twWebHere()) choices.push({ label: "Use the server's address", value: 'server',
+                                            hint: serverUrl || 'none set' });
+            const v = await choose({
+                title: 'tw-web',
+                body: [why, "If it runs somewhere else from here (this phone's own, say), give that " +
+                            'address. It is kept in this browser only.'],
+                input: { value: text, placeholder: 'http://localhost:5000/', label: "tw-web's address on this device" },
+                choices,
+            });
+            if (!v) return;
+            if (v.value === 'server') { setTwWebHere(''); return; }
+            text = v.text.trim();
+            if (!_WEB_ADDR_RE.test(text)) { why = 'An address starts with http:// or https://.'; continue; }
+            setTwWebHere(text);
+            location.href = slash(text);
+            return;
+        }
+    }
+
+    function choose({ title = '', body = '', choices = [], cancelLabel = 'Cancel', input = null } = {}) {
         return new Promise(resolve => {
             const back = document.createElement('div');
             back.className = 'nb-choose-overlay';
@@ -967,10 +1015,22 @@ const NbWeb = (() => {
                 p.textContent = line;
                 box.appendChild(p);
             }
+            let field = null;
+            if (input) {
+                field = document.createElement('input');
+                field.type = 'text';
+                field.className = 'nb-choose-input';
+                field.value = input.value || '';
+                field.placeholder = input.placeholder || '';
+                field.setAttribute('aria-label', input.label || title);
+                field.spellcheck = false;
+                field.autocapitalize = 'off';
+                box.appendChild(field);
+            }
             const list = document.createElement('div');
             list.className = 'nb-choose-list';
             let first = null;
-            const done = v => { back.remove(); resolve(v); };
+            const done = v => { back.remove(); resolve(field && v !== null ? { value: v, text: field.value } : v); };
             for (const c of choices) {
                 const b = document.createElement('button');
                 b.type = 'button';
@@ -1000,8 +1060,11 @@ const NbWeb = (() => {
                 e.stopPropagation();          // no page shortcut under a modal (Enter, letters)
                 if (e.key === 'Escape') { e.preventDefault(); done(null); }
             });
+            if (field) field.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); (first || list.querySelector('.nb-choose-btn'))?.click(); }
+            });
             document.body.appendChild(back);
-            (first || list.querySelector('.nb-choose-btn') || cancel).focus();
+            (field || first || list.querySelector('.nb-choose-btn') || cancel).focus();
         });
     }
 
@@ -1010,6 +1073,9 @@ const NbWeb = (() => {
         isoDate,
         twHealth,
         TW_MISSING,
+        twWebHere,
+        setTwWebHere,
+        goTwWeb,
         choose,
         formActions,
         formKeys,

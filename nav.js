@@ -1704,19 +1704,29 @@ const NbNav = (() => {
     // A "tw-web" link in the menu footer (and the W key, ui-chrome.js), from nb-web's own
     // tw_web_url setting, only when set. Same tab, so Back returns; in the bundle (nb-web at /,
     // tw-web at /tw/) both stay in one window. Below `user` the endpoint says 403: no link.
+    // A device may have its own address (NbWeb.twWebHere, djp 2026-11-05: the phone); the link
+    // and W check that tw-web answers before going (NbWeb.goTwWeb), and ask when it doesn't.
+    let _twServerUrl = '';
+    function _setTwWebHref() {
+        const a = document.getElementById('nb-menu-tw');
+        const url = NbWeb.twWebHere() || _twServerUrl;
+        if (a) a.href = url.replace(/\/?$/, '/');
+    }
     async function _addTwWebLink() {
         if (document.getElementById('nb-menu-tw')) return;
-        let url = '';
-        try { url = (await fetch('/api/tw/embed-url').then(r => r.ok ? r.json() : {})).url || ''; }
+        try { _twServerUrl = (await fetch('/api/tw/embed-url').then(r => r.ok ? r.json() : {})).url || ''; }
         catch { return; }
-        if (!/^https?:\/\//.test(url)) return;
+        if (!/^https?:\/\//.test(_twServerUrl)) _twServerUrl = '';
+        if (!_twServerUrl && !NbWeb.twWebHere()) return;
         const a = document.createElement('a');
         a.id = 'nb-menu-tw';
         a.className = 'nb-menu-sibling';
-        a.href = url.replace(/\/?$/, '/');
         a.title = 'tw-web (W)';
         a.textContent = 'tw-web';
+        a.addEventListener('click', e => { e.preventDefault(); NbWeb.goTwWeb(_twServerUrl); });
         document.querySelector('#nb-menu-footer .nb-menu-logout')?.before(a);
+        _setTwWebHref();
+        document.addEventListener('nb-tw-web-here', _setTwWebHref);
     }
 
     // ── Public ────────────────────────────────────────────────────

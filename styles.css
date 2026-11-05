@@ -4627,6 +4627,12 @@ body[data-user-level="office"] .nb-action-admin { display: none !important; }
 .nb-choose-btn:hover, .nb-choose-btn:focus-visible { border-color: var(--accent); }
 .nb-choose-primary { border-color: var(--accent); }
 .nb-choose-danger { color: var(--red); }
+.nb-choose-input {
+  width: 100%; box-sizing: border-box; margin: 4px 0 0; padding: 6px 8px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+  font: inherit;
+}
+.nb-choose-input:focus { outline: none; border-color: var(--accent); }
 .nb-choose-hint { display: block; font-size: 0.85em; color: var(--text-muted); margin-top: 2px; }
 .nb-choose-cancel { text-align: center; background: transparent; }
 
