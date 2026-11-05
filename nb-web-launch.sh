@@ -147,6 +147,8 @@ _set_profile() {   # <url>
     [ -n "$EPIPHANY_PROFILE" ] && CACHE_BASE="$HOME/.cache/$(basename "$EPIPHANY_PROFILE")"
     WEBKIT_CACHE="${CACHE_BASE}/WebKitCache"
     SW_CACHE_STORAGE="${CACHE_BASE}/CacheStorage"
+    # no web app: no folders, so --clean's rm -rf never gets a root-anchored path
+    [ -n "$EPIPHANY_PROFILE" ] || { SW_DIR=""; WEBKIT_CACHE=""; SW_CACHE_STORAGE=""; }
 }
 if [ "$BUNDLE_SH" != "off" ] && [ -x "$BUNDLE_SH" ]; then _set_profile "$BUNDLE_OPEN"; else _set_profile "$FLASK_URL"; fi
 
