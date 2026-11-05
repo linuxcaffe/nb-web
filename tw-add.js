@@ -126,7 +126,22 @@ const NbTwAdd = (() => {
             readyTimer = setTimeout(() => {
                 if (done) return;
                 window.removeEventListener('message', onMessage);
-                explain(`<h4>Add task</h4><p>tw-web didn't answer at <code>${_esc(url)}</code>.</p>
+                const title = opts.edit ? 'Edit task' : 'Add task';
+                if (twWeb.state === 'up') {
+                    // It answered the health probe, so it's running: it refused to be framed here
+                    // (its nb launcher names another nb-web origin, e.g. the bundle's :5080 while
+                    // this page is :5001). Say that, and carry on with nb-web's own form (djp).
+                    explain(`<h4>${title}</h4><p>tw-web is running but won't show its dialog here: it
+                        lets only the nb-web its <code>nb</code> annotation launcher names frame it,
+                        and this page is <code>${_esc(location.origin)}</code>.</p>
+                        <p>Open nb-web at that address (with the bundle, its own one), or use
+                        nb-web's form.</p>
+                        <p><button type="button" class="nb-tool-btn nb-btn-primary nb-tw-add-own">Use nb-web's form</button></p>`);
+                    overlay.querySelector('.nb-tw-add-own')?.addEventListener('click',
+                        () => ownForm(overlay, opts, health, explain, finish));
+                    return;
+                }
+                explain(`<h4>${title}</h4><p>tw-web didn't answer at <code>${_esc(url)}</code>.</p>
                     <ul><li>Is tw-web running? <a href="${_esc(url)}" target="tw-web">Open it</a>.</li>
                     <li>tw-web only lets the nb-web its <code>nb</code> annotation launcher points
                     at frame it; this page is <code>${_esc(location.origin)}</code>.</li></ul>`);
