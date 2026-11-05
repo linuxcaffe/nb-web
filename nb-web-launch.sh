@@ -7,8 +7,14 @@
 #   nb-web-launch.sh --stop    stop the Flask server
 #
 # First-time setup:
-#   Open http://localhost:5001/ in Epiphany, then ⋮ → Install as Web App.
-#   After that, this script auto-detects the generated profile.
+#   Open http://localhost:5080/ (with the tw-nb bundle; else http://localhost:5001/) in
+#   Epiphany, then ⋮ → Install as Web App. After that, this script auto-detects the profile.
+#
+# The tw-nb bundle (~/dev/tw-nb-bundle, tw-nb-interop M7): when it's there, this script runs
+# `bundle.sh up` (tw-web and the proxy too) and opens nb-web through it, at localhost:5080, the
+# address tw-web's `nb` launcher names, so tw-web's dialogs frame in nb-web. If the bundle
+# isn't there or doesn't come up, it opens nb-web's own address and says why.
+#   NB_WEB_BUNDLE=<path to bundle.sh>   somewhere else;  NB_WEB_BUNDLE=off   never
 #
 # nb-web runs containerized (rootless Podman) as a systemd --user unit --
 # see claude:nb-web_phase2_docker_and_permissions_2026-07-18.md. This
@@ -26,6 +32,9 @@
 # .checks/sys-container-stale.sh's own header for the first incident).
 
 FLASK_URL="http://localhost:5001/"
+OPEN_URL="$FLASK_URL"
+BUNDLE_SH="${NB_WEB_BUNDLE:-$HOME/dev/tw-nb-bundle/bundle.sh}"
+BUNDLE_OPEN="${BUNDLE_URL:-http://localhost:5080}/"
 NBWEB_UNIT="container-nb-web.service"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -220,13 +229,24 @@ else
     echo "nb-web-launch: server ready"
 fi
 
+# ── The tw-nb bundle: tw-web and the proxy, then open nb-web through it ──────
+if [ "$BUNDLE_SH" != "off" ] && [ -x "$BUNDLE_SH" ]; then
+    "$BUNDLE_SH" up | sed 's/^/  /'
+    if curl -s -o /dev/null -m 2 "$BUNDLE_OPEN"; then
+        OPEN_URL="$BUNDLE_OPEN"
+    else
+        echo "nb-web-launch: the bundle isn't answering at $BUNDLE_OPEN -- opening $FLASK_URL"
+        echo "  (tw-web's dialogs won't show inside nb-web there; nb-web's own forms still work)"
+    fi
+fi
+
 # ── Launch Epiphany PWA (detaches; server keeps running) ─────────────────────
 if [ -z "$EPIPHANY_PROFILE" ]; then
     echo "nb-web-launch: PWA not installed yet — opening in regular Epiphany."
     echo "  Install via ⋮ → Install as Web App, then re-run this script."
     # Only open if not already showing nb-web (avoid stacking tabs on re-run)
     if ! pgrep -x epiphany > /dev/null; then
-        epiphany-browser "$FLASK_URL" &
+        epiphany-browser "$OPEN_URL" &
     else
         echo "nb-web-launch: Epiphany already running — skipping open."
     fi
@@ -234,7 +254,7 @@ else
     if ! pgrep -x epiphany > /dev/null; then
         epiphany-browser --application-mode \
             "--profile=$EPIPHANY_PROFILE" \
-            "$FLASK_URL" &
+            "$OPEN_URL" &
     else
         echo "nb-web-launch: Epiphany PWA already running — skipping open."
     fi
