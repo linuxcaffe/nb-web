@@ -111,7 +111,8 @@
         return el;
     }
 
-    // Attach a codeblock form: floats as fixed popover when block is collapsed,
+    // Attach a codeblock form: floats as fixed popover when block is collapsed or in the
+    // frontmatter strip (#nb-fm-blocks: inline would push it into the compact header row, M7 c),
     // inserts inline otherwise. Returns a dismiss function that cleans up both.
     function _cbFormAttach(form, trigger, el, inlineInsertFn) {
         let outside;
@@ -121,11 +122,11 @@
             trigger.classList.remove('active', 'nb-hl-btn-active');
             if (outside) document.removeEventListener('click', outside, true);
         };
-        if (el.classList.contains('nb-collapsed')) {
+        if (el.classList.contains('nb-collapsed') || el.closest('#nb-fm-blocks')) {
             const rect = trigger.getBoundingClientRect();
             form.style.cssText =
                 `position:fixed;z-index:9000;top:${rect.bottom+4}px;right:${window.innerWidth-rect.right}px;` +
-                `background:var(--bg2,#22272e);border:1px solid var(--border);border-radius:6px;` +
+                `background:var(--bg2);border:1px solid var(--border);border-radius:6px;` +
                 `padding:10px;box-shadow:0 4px 20px rgba(0,0,0,.5);min-width:340px`;
             document.body.appendChild(form);
             trigger._cbForm = form;
@@ -151,6 +152,8 @@
         const apply = collapsed => block.classList.toggle('nb-collapsed', collapsed);
         apply(localStorage.getItem(key) === '1');
         const toggle = e => {
+            // an action in the header (⏱ In, +, ↻) isn't a collapse: it used to toggle it too (M7 c)
+            if (e.target.closest('button, a, input, select, textarea, label')) return;
             e.stopPropagation();
             const collapsed = !block.classList.contains('nb-collapsed');
             apply(collapsed);
