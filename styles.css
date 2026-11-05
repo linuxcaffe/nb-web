@@ -4580,6 +4580,13 @@ body[data-user-level="office"] .nb-action-admin { display: none !important; }
 .nb-tw-add-card h4 { margin: 0 0 .6rem; }
 .nb-tw-add-card code { font-size: .9em; }
 .nb-tw-add-btns { display: flex; justify-content: flex-end; margin-top: 1rem; }
+/* nb-web's own Add/Edit form when tw-web isn't up (M7 c) */
+.nb-tw-own { width: min(34rem, 100% - 2rem); display: flex; flex-direction: column; gap: 8px; }
+.nb-tw-own .nb-tw-addform-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.nb-tw-own .nb-tw-addform-row .nb-tw-inp { flex: 1 1 7rem; min-width: 0; }
+.nb-tw-own-why { margin: 0; color: var(--text-dim); font-size: 0.9em; }
+.nb-tw-own .nb-tw-form-status { margin: 0; min-height: 1.2em; font-size: 0.9em; color: var(--red); }
+.nb-tw-own .nb-form-actions { justify-content: flex-end; }
 
 /* ── Task header (nbweb-specialty.js, tw-nb-interop M6 d) ── */
 .nb-specialty-header:has(.nb-task-st, .nb-task-rows) { flex-wrap: wrap; }

@@ -931,7 +931,7 @@
         if (edit) {
             e.preventDefault();
             const sel = NbMain.activeNote()?.selector;
-            const result = await NbTwAdd.open({ edit: edit.dataset.uuid });
+            const result = await NbTwAdd.open({ edit: edit.dataset.uuid, selector: sel });   // the fallback edits by the note
             if (result?.saved && sel) {
                 NbMain.bustNoteCache?.(sel);
                 await NbMain.openNote(sel, false);

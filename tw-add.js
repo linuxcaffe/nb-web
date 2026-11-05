@@ -24,7 +24,8 @@ const NbTwAdd = (() => {
     // resolves with {saved: true, uuid} after a save; no note is made.
     async function open(opts = {}) {
         // Ask first (M7 a): tw-web down is said at once, not after the 6 s ready wait
-        const { twWeb } = await NbWeb.twHealth({ fresh: true });
+        const health = await NbWeb.twHealth({ fresh: true });
+        const { twWeb } = health;
         const url = twWeb.url;
 
         return new Promise(resolve => {
@@ -61,17 +62,9 @@ const NbTwAdd = (() => {
             });
             overlay.addEventListener('click', e => { if (e.target === overlay) finish(null); });
 
-            if (!url) {
-                explain(`<h4>Add task</h4><p>nb-web doesn't know where tw-web is.</p>
-                    <p>Set <code>tw_web_url</code> in <code>nb-settings.json</code> to tw-web's
-                    address as this browser reaches it, e.g. <code>http://localhost:5000</code>.</p>`);
-                return;
-            }
-            if (twWeb.state === 'down') {
-                explain(`<h4>Add task</h4><p>${_esc(NbWeb.TW_MISSING.down)} at <code>${_esc(url)}</code>,
-                    so it can't add the task from here.</p>
-                    <p>Start it, then try again (<a href="${_esc(url)}" target="tw-web">open it</a>
-                    to check).</p>`);
+            // tw-web not up (M7 c): nb-web's own form, saying it's the fallback and why
+            if (twWeb.state !== 'up') {
+                ownForm(overlay, opts, health, explain, finish);
                 return;
             }
 
@@ -136,6 +129,110 @@ const NbTwAdd = (() => {
                     <li>tw-web only lets the nb-web its <code>nb</code> annotation launcher points
                     at frame it; this page is <code>${_esc(location.origin)}</code>.</li></ul>`);
             }, READY_MS);
+        });
+    }
+
+    // nb-web's own Add/Edit form (tw-nb-interop M7 c): the tw block's fields, as a modal. Add goes
+    // through `nb tw add` (task and note in one step, hooks on); Edit through /api/tw/note-edit,
+    // keyed by the note (invariant 83). opts.note === false adds a plain task (the tw block's +).
+    function _localDate(stamp) {    // 20261201T050000Z → this machine's date (invariant 75)
+        const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(stamp || '');
+        return m ? NbWeb.isoDate(new Date(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]))) : '';
+    }
+
+    async function ownForm(overlay, opts, health, explain, finish) {
+        const editing = !!opts.edit;
+        const title = editing ? 'Edit task' : 'Add task';
+        const why = health.twWeb.state === 'unset' ? NbWeb.TW_MISSING.unset : NbWeb.TW_MISSING.down;
+        if (!health.task.ok) {
+            explain(`<h4>${title}</h4><p>${_esc(why)}, and ${_esc(health.task.error || NbWeb.TW_MISSING.task)},
+                so the task can't be ${editing ? 'changed' : 'added'} from here.</p>`);
+            return;
+        }
+        if (!editing && opts.note !== false && !health.plugin.ok) {
+            explain(`<h4>${title}</h4><p>${_esc(why)}, and ${_esc(NbWeb.TW_MISSING.plugin)}, so the task's
+                note can't be made here.</p><p>Install it: <code>nb plugins install
+                https://raw.githubusercontent.com/linuxcaffe/nb-plugins/main/tw.nb-plugin</code></p>`);
+            return;
+        }
+        if (editing && !opts.selector) {
+            explain(`<h4>${title}</h4><p>${_esc(why)}, and nb-web edits a task only from its note.</p>`);
+            return;
+        }
+        let cur = { description: opts.description || '', project: opts.project || '', due: '',
+                    priority: '', tags: opts.tags || '' };
+        if (editing) {
+            const r = await fetch('/api/tw/note-tasks?selector=' + encodeURIComponent(opts.selector)).catch(() => null);
+            const d = r ? await r.json().catch(() => ({})) : {};
+            const t = (d.tasks || []).find(x => x.uuid === opts.edit);
+            if (!t) {
+                explain(`<h4>${title}</h4><p>${_esc(d.error || "This note's task isn't in this Taskwarrior")}.</p>`);
+                return;
+            }
+            cur = { description: t.description || '', project: t.project || '', due: _localDate(t.due),
+                    priority: t.priority || '', tags: (t.tags || []).join(', ') };
+        }
+        const card = document.createElement('div');
+        card.className = 'nb-tw-add-card nb-tw-own';
+        card.setAttribute('role', 'dialog');
+        card.setAttribute('aria-modal', 'true');
+        card.setAttribute('aria-label', title);
+        card.innerHTML = `<h4>${title}</h4>
+            <p class="nb-tw-own-why">${_esc(why)}: using nb-web's form.</p>
+            <input type="text" class="nb-tw-inp nb-tw-f-desc" placeholder="Description" autocomplete="off">
+            <div class="nb-tw-addform-row">
+              <input type="text" class="nb-tw-inp nb-tw-f-project" placeholder="project">
+              <input type="text" class="nb-tw-inp nb-tw-f-due" placeholder="due: tomorrow, 2026-12-01">
+              <input type="date" class="nb-tw-datepick-hidden" tabindex="-1">
+              <button type="button" class="nb-tw-btn nb-tw-f-pick" title="Pick a date">📅</button>
+              <input type="text" class="nb-tw-inp nb-tw-f-priority" placeholder="priority">
+            </div>
+            <input type="text" class="nb-tw-inp nb-tw-f-tags" placeholder="tag1, tag2">
+            <p class="nb-tw-form-status" aria-live="polite"></p>`;
+        const f = name => card.querySelector(`.nb-tw-f-${name}`);
+        f('desc').value = cur.description; f('project').value = cur.project; f('due').value = cur.due;
+        f('priority').value = cur.priority; f('tags').value = cur.tags;
+        const picker = card.querySelector('.nb-tw-datepick-hidden');
+        f('pick').addEventListener('click', () => picker.showPicker ? picker.showPicker() : picker.click());
+        picker.addEventListener('change', () => { f('due').value = picker.value; NbWeb.formDirty(card); });
+        const status = card.querySelector('.nb-tw-form-status');
+
+        const save = async () => {
+            const body = { description: f('desc').value.trim(), project: f('project').value.trim(),
+                           due: f('due').value.trim(), priority: f('priority').value.trim(),
+                           tags: f('tags').value.trim() };
+            if (!body.description) { f('desc').focus(); return; }
+            status.textContent = 'Saving…';
+            let url, payload;
+            if (editing) { url = '/api/tw/note-edit'; payload = { ...body, selector: opts.selector, uuid: opts.edit }; }
+            else if (opts.note === false) {
+                url = '/api/task-add';
+                payload = { description: body.description, project: body.project, date_field: 'due',
+                            date_value: body.due, priority: body.priority, tags: body.tags };
+            } else { url = '/api/tw/note-add'; payload = { ...body, notebook: opts.notebook || '' }; }
+            try {
+                const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                             body: JSON.stringify(payload) });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok || d.error || d.success === false) {
+                    status.textContent = '✗ ' + (d.error || d.stderr || r.status);
+                    return;
+                }
+                NbWeb.formDirty(card, false);
+                finish(editing ? { saved: true, uuid: opts.edit }
+                       : opts.note === false ? { added: true } : d);
+            } catch (err) { status.textContent = '✗ ' + err.message; }
+        };
+        const { row, saveBtn, cancelBtn } = NbWeb.formActions({
+            saveLabel: editing ? 'Save' : 'Add', onSave: save, onCancel: () => finish(null) });
+        card.appendChild(row);
+        overlay.innerHTML = '';
+        overlay.appendChild(card);
+        NbWeb.formKeys(card, saveBtn, cancelBtn);
+        NbWeb.formDirty(card, false);
+        f('desc').focus();
+        f('desc').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); save(); }
         });
     }
 

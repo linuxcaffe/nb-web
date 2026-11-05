@@ -3993,6 +3993,106 @@ def api_tw_note():
 
 
 
+# ── tw-nb-interop M7 (c): nb-web's own Add/Edit form, for when tw-web isn't up ─────────────
+# Every field is checked before it reaches `task` (invariant 82): project, due and priority are
+# one safe token each, tags must work as +tag, the description goes after `--` (and may not look
+# like an option of `nb tw add`).
+_TW_FORM_TOKEN = {
+    'project':  re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.-]*'),
+    'due':      re.compile(r'[A-Za-z0-9][A-Za-z0-9:+.-]*'),
+    'priority': re.compile(r'[A-Za-z0-9]{1,10}'),
+}
+_TW_FORM_TAG = re.compile(r'[A-Za-z0-9_]+')
+
+
+def _tw_form_fields(data, editing):
+    """(description, attrs, tags, None) from a form's fields, or (…, error response).
+    attrs: 'name:value' for each set field; when editing, 'name:' for a cleared one."""
+    desc = data.get('description')
+    desc = desc.strip() if isinstance(desc, str) else ''
+    if not desc or desc.startswith('-'):
+        return None, None, None, (jsonify({'error': 'a description, not starting with -'}), 400)
+    attrs = []
+    for name, rx in _TW_FORM_TOKEN.items():
+        v = data.get(name) or ''
+        v = v.strip() if isinstance(v, str) else ''
+        if v and (not rx.fullmatch(v) or v.lower().startswith('rc.')):
+            return None, None, None, (jsonify({'error': f'{name}: one word, no spaces ({v})'}), 400)
+        if v or editing:
+            attrs.append(f'{name}:{v}')
+    raw = data.get('tags') or ''
+    tags = [t.lstrip('+') for t in re.split(r'[\s,]+', raw if isinstance(raw, str) else '') if t]
+    bad = [t for t in tags if not _TW_FORM_TAG.fullmatch(t)]
+    if bad:
+        return None, None, None, (jsonify({'error': f'tags: letters, digits and _ only ({", ".join(bad)})'}), 400)
+    return desc, attrs, list(dict.fromkeys(tags)), None
+
+
+@app.route('/api/tw/note-add', methods=['POST'])
+def api_tw_note_add():
+    """Add a task and make its note in one step: `nb tw add` (hooks on). Gated like /api/tw/note."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user') or not _cb_write_allowed('tw'):
+        return jsonify({'error': 'Write access denied'}), 403
+    data = request.get_json(silent=True) or {}
+    desc, attrs, tags, err = _tw_form_fields(data, editing=False)
+    if err:
+        return err
+    given = data.get('notebook') or ''
+    notebook = _safe_notebook(given) if isinstance(given, str) else None
+    if given and (not notebook or notebook.startswith('-')):
+        return jsonify({'error': 'bad notebook'}), 400
+    target = notebook or _TASKNOTES_NB
+    if not (NB_DIR / target).is_dir():
+        return jsonify({'error': f'no notebook {target}'}), 404
+    if not _notebook_in_scope(user, target) or not _can_write(user, None, target):
+        return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(NB_DIR / target, note=False)
+    if blocked:
+        return blocked
+    r = run_nb('tw', 'add', desc, *attrs, *[f'+{t}' for t in tags], '--porcelain',
+               *(['--notebook', notebook] if notebook else []))
+    if r['returncode'] != 0:
+        return jsonify({'error': strip_ansi(r['stderr'] or r['stdout']).strip() or 'nb tw add failed'}), 502
+    out = dict(line.partition(': ')[::2] for line in strip_ansi(r['stdout']).splitlines() if ': ' in line)
+    if not out.get('selector'):
+        return jsonify({'error': 'nb tw add printed no selector'}), 502
+    return jsonify({'selector': out['selector'].strip(), 'created': out.get('created', '').strip() == 'yes'})
+
+
+@app.route('/api/tw/note-edit', methods=['POST'])
+def api_tw_note_edit():
+    """Change one of a task note's own tasks (description, project, due, priority, tags), hooks
+    on, then copy it into the note (`nb tw status`). Keyed by the note (invariant 83)."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user') or not _cb_write_allowed('tw'):
+        return jsonify({'error': 'Write access denied'}), 403
+    data = request.get_json(silent=True) or {}
+    path, uuids, err = _task_note(data.get('selector'), write=True)
+    if err:
+        return err
+    uuid = data.get('uuid')
+    if not isinstance(uuid, str) or uuid.lower() not in uuids:
+        return jsonify({'error': "not one of this note's tasks"}), 400
+    uuid = uuid.lower()
+    desc, attrs, tags, err = _tw_form_fields(data, editing=True)
+    if err:
+        return err
+    code, out, errtext = _tw_run([f'uuid:{uuid}', 'export'], hooks=False)
+    if code == 127:
+        return jsonify({'error': TW_MISSING_TASK, 'missing': 'task'}), 503
+    try:
+        have = set((json.loads(out or '[]') or [{}])[0].get('tags') or [])
+    except (json.JSONDecodeError, AttributeError):
+        return jsonify({'error': errtext or 'task export failed'}), 502
+    changes = attrs + [f'+{t}' for t in tags if t not in have] + [f'-{t}' for t in sorted(have - set(tags))]
+    code, _, errtext = _tw_run([f'uuid:{uuid}', 'modify', *changes, '--', desc], hooks=True)
+    if code != 0:
+        return jsonify({'error': errtext or 'task modify failed'}), 502
+    run_nb('tw', 'status', uuid)
+    return jsonify({'saved': True, 'uuid': uuid})
+
+
 # ── tw-nb-interop M6 (d): the task header's data and actions, keyed by the note ────────────
 
 def _tw_run(args, hooks):
