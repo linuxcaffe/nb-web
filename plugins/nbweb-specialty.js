@@ -520,7 +520,7 @@
         // than inline with pairLink/pillsHtml -- none of those are removed
         // or reordered, they just stay in their normal left-flowing spot.
         const labelHtml = note.type === 'task'
-            ? `<button class="nb-specialty-label nb-task-open" title="Open in tw-web (W)">Task</button>`
+            ? `<button class="nb-specialty-label nb-task-open" title="tw-web (W)">Task</button>`
             : `<span class="nb-specialty-label">${_esc(label)}</span>`;
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
@@ -983,13 +983,12 @@
             await NbMain.openNote(sel, false);
             return;
         }
-        // "Task" opens tw-web on this note's task(s): ?rawfilter=uuid:…, same tab on this origin
-        // (like the W key), a plain new tab elsewhere, inside the click (health warmed at render)
+        // "Task" opens tw-web, the same as the W key (djp 2026-11-04: a list filtered to the one
+        // task read as a dead end): same tab on this origin, a plain new tab elsewhere, inside the
+        // click (health warmed at render); tw-web down or unset says so
         const openTw = e.target.closest('.nb-task-open');
         if (openTw) {
             e.preventDefault();
-            const note = NbMain.activeNote();
-            const uuids = (note?._twTasks || []).map(t => t.uuid).concat(note?._twTasks?.length ? [] : (note?._twUuids || []));
             const h = await Promise.race([NbWeb.twHealth(), new Promise(r => setTimeout(() => r(null), 50))]);
             const tw = h?.twWeb;
             if (tw && tw.state !== 'up') {
@@ -999,7 +998,6 @@
             let url = tw?.url || (await fetch('/api/tw/embed-url').then(r => r.json()).catch(() => ({}))).url;
             if (!url) { alert(NbWeb.TW_MISSING.unset); return; }
             url = url.replace(/\/?$/, '/');
-            if (uuids.length) url += '?rawfilter=' + encodeURIComponent(uuids.map(u => `uuid:${u}`).join(' or '));
             if (new URL(url, location.href).origin === location.origin) location.href = url;
             else window.open(url, '_blank', 'noopener');
             return;
