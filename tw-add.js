@@ -23,11 +23,9 @@ const NbTwAdd = (() => {
     // open({edit: uuid}) opens tw-web's Edit dialog on that task instead (/embed-edit) and
     // resolves with {saved: true, uuid} after a save; no note is made.
     async function open(opts = {}) {
-        let url = '';
-        try {
-            const r = await fetch('/api/tw/embed-url');
-            url = r.ok ? ((await r.json()).url || '') : '';
-        } catch (_) { /* reported below */ }
+        // Ask first (M7 a): tw-web down is said at once, not after the 6 s ready wait
+        const { twWeb } = await NbWeb.twHealth({ fresh: true });
+        const url = twWeb.url;
 
         return new Promise(resolve => {
             const overlay = document.createElement('div');
@@ -67,6 +65,13 @@ const NbTwAdd = (() => {
                 explain(`<h4>Add task</h4><p>nb-web doesn't know where tw-web is.</p>
                     <p>Set <code>tw_web_url</code> in <code>nb-settings.json</code> to tw-web's
                     address as this browser reaches it, e.g. <code>http://localhost:5000</code>.</p>`);
+                return;
+            }
+            if (twWeb.state === 'down') {
+                explain(`<h4>Add task</h4><p>${_esc(NbWeb.TW_MISSING.down)} at <code>${_esc(url)}</code>,
+                    so it can't add the task from here.</p>
+                    <p>Start it, then try again (<a href="${_esc(url)}" target="tw-web">open it</a>
+                    to check).</p>`);
                 return;
             }
 

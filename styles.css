@@ -4588,6 +4588,8 @@ body[data-user-level="office"] .nb-action-admin { display: none !important; }
 .nb-task-st-waiting   { color: var(--yellow); }
 .nb-task-active       { color: var(--accent); border-color: var(--accent); }
 .nb-task-late         { color: var(--red); border-color: var(--red); }
+.nb-task-missing      { color: var(--yellow); border-color: var(--yellow); }
+.nb-task-notlive      { border-style: dashed; opacity: 0.8; }
 .nb-task-tag          { color: var(--text-muted); }
 .nb-task-act          { min-width: 2em; }
 .nb-task-rows         { display: flex; flex-direction: column; gap: 4px; flex: 1 1 100%; }

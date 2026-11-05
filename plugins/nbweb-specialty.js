@@ -170,6 +170,15 @@
 
     function _taskPillsHtml(note) {
         const tasks = note._twTasks;
+        // No task here (the container, a fresh machine, M7 a): say so, and show what the note
+        // itself last heard (tw_status, tw_end), marked as not live. Never "orphaned": the task
+        // may be fine wherever Taskwarrior is.
+        if (note._twMissing) {
+            const st = String(note.meta?.tw_status || '').trim(), end = note.meta?.tw_end;
+            return `<span class="nb-specialty-pill nb-task-missing">${_esc(note._twMissing)}</span>` +
+                (st ? `<span class="nb-specialty-pill nb-task-st nb-task-st-${_esc(st)} nb-task-notlive"
+                       title="From the note's tw_status: not live">${_TASK_ICON[st] || '☐'} ${_esc(st)}${end ? ` ${_esc(String(end))}` : ''} · not live</span>` : '');
+        }
         if (!tasks) return `<span class="nb-specialty-pill" title="${_esc(note._twError || '')}">Taskwarrior unavailable</span>`;
         if (!tasks.length) {
             const uuid = (note._twUuids || [])[0];
@@ -188,6 +197,7 @@
             const r = await fetch('/api/tw/note-tasks?selector=' + encodeURIComponent(note.selector || ''));
             const d = await r.json().catch(() => ({}));
             if (r.ok) { note._twTasks = d.tasks || []; note._twUuids = d.uuids || []; }
+            else if (d.missing === 'task') note._twMissing = d.error || NbWeb.TW_MISSING.task;
             else note._twError = d.error || String(r.status);
         } catch (e) { note._twError = e.message; }
         return _renderSpecialtyNote(note);

@@ -3909,6 +3909,51 @@ def api_tw_embed_url():
     return jsonify({'url': _load_settings().get('tw_web_url', '')})
 
 
+# ── tw-nb-interop M7 (a): what of Taskwarrior is here, asked before acting ─────────────────
+
+TW_MISSING_TASK = "Taskwarrior isn't available here"
+_tw_health_cache = {}   # {'at': monotonic, 'value': dict}
+
+
+def _tw_health() -> dict:
+    """`task` (found, version), `nb` and the `nb tw` plugin (found), and tw_web_url, for every
+    feature to ask before acting instead of finding out by failing. 30 s cache; no subprocess
+    when task isn't on PATH, so it's quick there too. tw-web's reachability is probed by the
+    browser (NbWeb.twHealth): tw_web_url is the browser's address, and from the container
+    localhost is the container."""
+    hit = _tw_health_cache.get('value')
+    if hit and time.monotonic() - _tw_health_cache.get('at', 0) < 30:
+        return hit
+    task = {'ok': False, 'version': '', 'error': TW_MISSING_TASK}
+    if shutil.which('task'):
+        try:
+            r = subprocess.run(['task', '--version'], capture_output=True, text=True, input='',
+                               env={**os.environ, 'NO_COLOR': '1'}, timeout=3)
+            if r.returncode == 0 and r.stdout.strip():
+                task = {'ok': True, 'version': r.stdout.strip().splitlines()[0], 'error': ''}
+            else:
+                task['error'] = "Taskwarrior is installed but doesn't start: " + \
+                    (strip_ansi(r.stderr).strip().splitlines() or ['no output'])[0]
+        except (OSError, subprocess.TimeoutExpired):
+            task['error'] = "Taskwarrior is installed but didn't answer"
+    plugin = NB_DIR / '.plugins' / 'tw.nb-plugin'
+    value = {
+        'task': task,
+        'nb': {'ok': bool(shutil.which('nb'))},
+        'plugin': {'ok': plugin.exists()},           # exists(): a symlink must resolve
+        'tw_web_url': _load_settings().get('tw_web_url', ''),
+    }
+    _tw_health_cache.update(at=time.monotonic(), value=value)
+    return value
+
+
+@app.route('/api/tw/health')
+def api_tw_health():
+    if not _level_gte(session.get('user', {}).get('level', ''), 'user'):
+        return jsonify({'error': 'forbidden'}), 403
+    return jsonify(_tw_health())
+
+
 @app.route('/api/tw/note', methods=['POST'])
 def api_tw_note():
     """Find or make task <uuid>'s note: `nb tw note <uuid> --porcelain [--notebook <nb>]`.
@@ -4005,6 +4050,8 @@ def api_tw_note_tasks():
     for u in uuids:
         filt += (['or'] if filt else []) + [f'uuid:{u}']
     code, out, errtext = _tw_run(filt + ['export'], hooks=False)
+    if code == 127:   # no task here: not "no such task" (every note looked orphaned, M7 a)
+        return jsonify({'error': TW_MISSING_TASK, 'missing': 'task'}), 503
     try:
         tasks = json.loads(out or '[]')
     except json.JSONDecodeError:

@@ -906,6 +906,51 @@ const NbWeb = (() => {
     // 60: ui-chrome's global Escape clicks any "Cancel", and its Enter would take the key from the
     // focused button). Theme colours only (invariant 64).
     //   const v = await NbWeb.choose({ title, body, choices: [{ label, value, primary, danger, hint }] });
+    // tw-nb-interop M7 (a): what of Taskwarrior is here, asked before acting, so a feature takes
+    // the path that works and says plainly what's missing (one answer, one wording).
+    // {task: {ok, version, error}, nb: {ok}, plugin: {ok}, twWeb: {state: up|down|unset, url}}.
+    // The server answers for task/nb/plugin; tw-web is probed from here, since tw_web_url is the
+    // browser's address (from the container, localhost is the container). Cached 30 s.
+    const TW_MISSING = {
+        task:   "Taskwarrior isn't available here",
+        plugin: "nb's tw plugin isn't installed here",
+        down:   "tw-web isn't running",
+        unset:  "tw-web isn't set up here (tw_web_url)",
+    };
+    let _twHealth = null, _twHealthAt = 0;
+    async function _probeTwWeb(url) {
+        if (!url) return 'unset';
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 800);
+        try {
+            const ping = new URL('api/ping', url.endsWith('/') ? url : url + '/');
+            // no-cors: another origin answers opaquely, which still means it's up
+            await fetch(ping, { mode: ping.origin === location.origin ? 'same-origin' : 'no-cors',
+                                cache: 'no-store', credentials: 'omit', signal: ctl.signal });
+            return 'up';
+        } catch { return 'down'; }
+        finally { clearTimeout(timer); }
+    }
+    function twHealth({ fresh = false } = {}) {
+        if (!fresh && _twHealth && Date.now() - _twHealthAt < 30_000) return _twHealth;
+        _twHealthAt = Date.now();
+        _twHealth = (async () => {
+            let d = {};
+            try {
+                const r = await fetch('/api/tw/health');
+                if (r.ok) d = await r.json();
+            } catch { /* offline: reported as unknown below */ }
+            const url = d.tw_web_url || '';
+            return {
+                task:   d.task   || { ok: false, version: '', error: TW_MISSING.task },
+                nb:     d.nb     || { ok: false },
+                plugin: d.plugin || { ok: false },
+                twWeb:  { state: await _probeTwWeb(url), url },
+            };
+        })();
+        return _twHealth;
+    }
+
     function choose({ title = '', body = '', choices = [], cancelLabel = 'Cancel' } = {}) {
         return new Promise(resolve => {
             const back = document.createElement('div');
@@ -963,6 +1008,8 @@ const NbWeb = (() => {
     return {
         t,
         isoDate,
+        twHealth,
+        TW_MISSING,
         choose,
         formActions,
         formKeys,

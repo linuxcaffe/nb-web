@@ -5279,6 +5279,13 @@ const NbMain = (() => {
         let all = null;
         try {
             const d = await (await fetch('/api/tw/note-tasks?selector=' + encodeURIComponent(sel))).json();
+            // No task here (M7 a): the task can't be asked about or touched, which isn't the
+            // same as "not on this machine"; it keeps its link, the dashboard lists it
+            if (d.missing === 'task') {
+                return confirm(`Delete "${sel}"?\n\n${d.error}: its task isn't touched and keeps ` +
+                               `its link to this note (the tasknotes dashboard lists it, with a ` +
+                               `way to restore or unlink, where Taskwarrior is).`);
+            }
             all = d.tasks || [];
         } catch {}
         const tasks = (all || []).filter(t => t.status === 'pending' || t.status === 'waiting' || t.status === 'recurring');
