@@ -42,6 +42,7 @@ const NbMain = (() => {
         }
     }
     let _noAutoSelect   = false;     // suppresses renderList auto-select during explicit openNote
+    const LAST_NOTE_KEY = 'nb-last-note';   // the note to reopen on a bare load (init)
     let _hashWeWrote    = location.hash;   // the URL hash openNote last set (or the one we loaded with)
     let _listDisplayMode = 'title';  // 'title' | 'filename' — resets on every new fetch
     let _kbPane         = 'list';   // 'list' | 'preview'
@@ -189,6 +190,17 @@ const NbMain = (() => {
     // ── Boot ───────────────────────────────────────────────────────
 
     async function init() {
+        // Opened at the bare address (a launcher, tw-web's N key): back to the note open last
+        // time, in its notebook, as if the address named it (djp 2026-11-05). An address that
+        // names a note wins. Saved where the hash follows the open note (openNote, invariant 30).
+        if (!location.hash) {
+            let last = '';
+            try { last = localStorage.getItem(LAST_NOTE_KEY) || ''; } catch {}
+            if (last.includes(':')) {
+                history.replaceState(null, '', '#' + encodeURI(last));
+                _hashWeWrote = location.hash;
+            }
+        }
         window.addEventListener('beforeunload', e => {
             if (!_hasUnsaved()) return;
             e.preventDefault();
@@ -786,6 +798,7 @@ const NbMain = (() => {
         const _hash = '#' + encodeURI(selector);
         if (location.hash !== _hash) history.replaceState(null, '', _hash);
         _hashWeWrote = location.hash;
+        try { localStorage.setItem(LAST_NOTE_KEY, selector); } catch {}
         document.getElementById('nb-pin-indicator').hidden = !_pinnedSelectors.has(selector);
 
         // Show toolbar, reset TOC bar until note is rendered
