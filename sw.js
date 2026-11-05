@@ -38,7 +38,15 @@ self.addEventListener('fetch', e => {
     const url = new URL(e.request.url);
     if (e.request.method !== 'GET' || url.origin !== self.location.origin || !SHELL_PATHS.has(url.pathname)) return;
 
-    // App shell: cache-first, network fallback
+    // A page load asks the server first, so a browser with no session gets its redirect to
+    // /login; the cached page only when the network fails (djp 2026-11-05: cache-first, a
+    // logged-out web app showed the cached page with every API call refused).
+    if (e.request.mode === 'navigate') {
+        e.respondWith(fetch(e.request).catch(() => caches.open(CACHE).then(c => c.match(e.request))));
+        return;
+    }
+
+    // App shell assets: cache-first, network fallback
     e.respondWith(
         caches.open(CACHE)
             .then(c => c.match(e.request))
