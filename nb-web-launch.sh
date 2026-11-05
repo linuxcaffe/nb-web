@@ -127,12 +127,28 @@ _warn_if_stale() {
     esac
 }
 
-# Auto-detect Epiphany profile (created when you install the PWA)
-EPIPHANY_PROFILE=$(ls -d ~/.local/share/org.gnome.Epiphany.WebApp-nb-web-* 2>/dev/null | head -1)
-SW_DIR="${EPIPHANY_PROFILE}/serviceworkers"
-CACHE_BASE=$(ls -d ~/.cache/org.gnome.Epiphany.WebApp-nb-web-* 2>/dev/null | head -1)
-WEBKIT_CACHE="${CACHE_BASE}/WebKitCache"
-SW_CACHE_STORAGE="${CACHE_BASE}/CacheStorage"
+# Find the Epiphany web app (created when you install the PWA) by the address it opens, not its
+# name: the one at the bundle's address is whatever you called it ("tw-nb" here, 2026-11-05).
+# Its profile and cache folders share the .desktop file's name.
+_profile_for() {   # <url> -> the profile of a web app that opens it, if one does
+    local f
+    for f in ~/.local/share/applications/org.gnome.Epiphany.WebApp-*.desktop; do
+        [ -f "$f" ] || continue
+        grep -q "^Exec=.* ${1%/}/\?\$" "$f" || continue
+        sed -n 's/^Exec=.*--profile=\([^" ]*\).*/\1/p' "$f" | head -1
+        return 0
+    done
+}
+_set_profile() {   # <url>
+    EPIPHANY_PROFILE=$(_profile_for "$1")
+    [ -n "$EPIPHANY_PROFILE" ] || EPIPHANY_PROFILE=$(ls -d ~/.local/share/org.gnome.Epiphany.WebApp-nb-web-* 2>/dev/null | head -1)
+    SW_DIR="${EPIPHANY_PROFILE}/serviceworkers"
+    CACHE_BASE=""
+    [ -n "$EPIPHANY_PROFILE" ] && CACHE_BASE="$HOME/.cache/$(basename "$EPIPHANY_PROFILE")"
+    WEBKIT_CACHE="${CACHE_BASE}/WebKitCache"
+    SW_CACHE_STORAGE="${CACHE_BASE}/CacheStorage"
+}
+if [ "$BUNDLE_SH" != "off" ] && [ -x "$BUNDLE_SH" ]; then _set_profile "$BUNDLE_OPEN"; else _set_profile "$FLASK_URL"; fi
 
 # ── --stop: stop the container ────────────────────────────────────────────────
 if [ "$1" = "--stop" ]; then
@@ -237,6 +253,7 @@ if [ "$BUNDLE_SH" != "off" ] && [ -x "$BUNDLE_SH" ]; then
     else
         echo "nb-web-launch: the bundle isn't answering at $BUNDLE_OPEN -- opening $FLASK_URL"
         echo "  (tw-web's dialogs won't show inside nb-web there; nb-web's own forms still work)"
+        _set_profile "$FLASK_URL"
     fi
 fi
 
