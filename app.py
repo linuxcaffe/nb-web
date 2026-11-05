@@ -11336,6 +11336,65 @@ def _git_run_killable(args, cwd, timeout, env):
         raise
 
 
+def _sync_station():
+    """This station's name for conflict copies: gittw.device from ~/.task/local.rc (as m-sync
+    reads it), else 'nb-web'."""
+    try:
+        for line in (Path.home() / '.task' / 'local.rc').read_text().splitlines():
+            m = re.match(r'\s*gittw\.device\s*=\s*([\w.-]{1,64})\s*$', line)
+            if m:
+                return m.group(1)
+    except OSError:
+        pass
+    return 'nb-web'
+
+
+def _conflict_copy_name(nb_path, rel, station):
+    """notes/plan.md -> notes/plan.conflict-yoga.md (-2, -3 ... when taken), as m-sync names them."""
+    p = Path(rel)
+    stem, ext = (p.stem, p.suffix) if p.suffix and p.stem else (p.name, '')
+    n, name = 1, f'{stem}.conflict-{station}{ext}'
+    while (nb_path / p.parent / name).exists():
+        n += 1
+        name = f'{stem}.conflict-{station}-{n}{ext}'
+    return str(p.parent / name) if str(p.parent) != '.' else name
+
+
+def _resolve_sync_conflicts(nb_path, notebook, git_env):
+    """The pull stopped on conflicts (djp 2026-11-05: Sync left the half-done merge, and the
+    next nb run committed its markers into a note). As m-sync does: the remote's version keeps
+    each name, this station's goes to a conflict copy; deleted there and changed here keeps this
+    station's. Commits the merge. Returns [(note, its copy)], or None when it isn't a conflict
+    (the merge is then undone)."""
+    g = lambda *a: subprocess.run(['git', *a], capture_output=True, cwd=str(nb_path), env=git_env, timeout=30)
+    files = [f for f in g('diff', '--name-only', '--diff-filter=U', '-z').stdout.decode().split('\0') if f]
+    if not files:
+        g('merge', '--abort')
+        return None
+    station, copies = _sync_station(), []
+    for f in files:
+        ours, theirs = g('show', f':2:{f}'), g('show', f':3:{f}')
+        if theirs.returncode == 0:
+            if ours.returncode == 0:
+                copy = _conflict_copy_name(nb_path, f, station)
+                (nb_path / copy).write_bytes(ours.stdout)
+                g('add', '--', copy)
+                copies.append((f, copy))
+            (nb_path / f).write_bytes(theirs.stdout)
+            g('add', '--', f)
+        elif ours.returncode == 0:              # deleted there, changed here: keep this station's
+            (nb_path / f).write_bytes(ours.stdout)
+            g('add', '--', f)
+        else:
+            g('rm', '-q', '--cached', '--', f)
+    word = '1 conflict copy' if len(copies) == 1 else f'{len(copies)} conflict copies'
+    r = g('commit', '-q', '--no-edit', '-m', f'[nb-web] Merge origin/{notebook}: {word} from {station}')
+    if r.returncode != 0:
+        g('merge', '--abort')
+        return None
+    return copies
+
+
 def _sync_one_notebook(notebook, message=''):
     """Core sync logic for one notebook: commit optional message, pull, push,
     verify. Returns (success, no_remote, output_str). Factored out of
@@ -11362,6 +11421,16 @@ def _sync_one_notebook(notebook, message=''):
     lines = []
     git_push_ok = False
 
+    # nb's .index is one filename per line: two stations adding notes both keep theirs (m-sync too)
+    attrs = nb_path / '.git' / 'info' / 'attributes'
+    try:
+        attrs.parent.mkdir(parents=True, exist_ok=True)
+        if '/.index merge=union' not in (attrs.read_text() if attrs.exists() else '').splitlines():
+            with open(attrs, 'a') as f:
+                f.write('/.index merge=union\n')
+    except OSError:
+        pass
+
     # Optional pre-commit with user message
     if message:
         cr = subprocess.run(
@@ -11382,6 +11451,17 @@ def _sync_one_notebook(notebook, message=''):
     except subprocess.TimeoutExpired:
         lines.append('Pull timed out after 30s')
         return False, False, '\n'.join(lines)
+
+    copies = []
+    if pull_r.returncode != 0 and (nb_path / '.git' / 'MERGE_HEAD').exists():
+        # stopped mid-merge: resolve it as m-sync does, or undo it; never leave it half done
+        copies = _resolve_sync_conflicts(nb_path, notebook, git_env)
+        if copies is None:
+            lines.append(f'Pull failed, merge undone: {pull_r.stderr.strip() or pull_r.stdout.strip()}')
+            return False, False, '\n'.join(lines)
+        pull_r = subprocess.CompletedProcess(pull_r.args, 0, pull_r.stdout, '')
+        for note, copy in copies:
+            lines.append(f"⚠ Conflict in {note}: the remote's version kept; this station's is {copy}")
 
     if pull_r.returncode != 0:
         pull_combined = pull_r.stderr + pull_r.stdout
@@ -11406,8 +11486,23 @@ def _sync_one_notebook(notebook, message=''):
         return git_push_ok, False, '\n'.join(lines)
 
     pull_msg = pull_r.stdout.strip() or pull_r.stderr.strip()
-    if pull_msg and pull_msg != 'Already up to date.':
+    if pull_msg and pull_msg != 'Already up to date.' and not copies:
         lines.append(pull_msg)
+
+    # Never push conflict markers, whoever wrote them (m-sync's rule)
+    changed = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=AM', '-z', f'origin/{notebook}', 'HEAD'],
+                             capture_output=True, cwd=str(nb_path), env=git_env, timeout=30)
+    marked = []
+    for f in (x for x in changed.stdout.decode(errors='replace').split('\0') if x):
+        try:
+            if re.search(r'^(<<<<<<<|>>>>>>>) ', (nb_path / f).read_text(errors='replace'), re.M):
+                marked.append(f)
+        except OSError:
+            pass
+    if marked:
+        lines.append(f"Not pushed: conflict markers in {', '.join(marked)}. Choose a version in "
+                     f"each, save, and sync again.")
+        return False, False, '\n'.join(lines)
 
     # Push
     try:
