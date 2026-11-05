@@ -344,6 +344,7 @@ const NbUiChrome = (() => {
                 { label: 'Rename…',              disabled: !hasNote, action: () => NbDialog.open('rename') },
                 { label: 'Move to…',             disabled: !hasNote, action: () => NbDialog.open('move') },
                 { label: 'Copy to…',             disabled: !hasNote, action: () => NbDialog.open('copy') },
+                { label: '☑ Link to a task…',    disabled: !hasNote, action: _doLinkTask },
                 { label: '📋 Save as template…', disabled: !hasNote || !NbUiAccess.can(btn, 'template', 'use'), action: _doSaveAsTemplate },
                 'sep',
                 { label: '↩ Undo last edit',
@@ -354,6 +355,21 @@ const NbUiChrome = (() => {
                 { label: '⬇ Save as…', disabled: !hasNote, action: () => NbDialog.open('export') },
             ]);
         });
+    }
+
+    // Join this note to an existing task (djp 2026-11-04): nb tw link resolves the ID or uuid,
+    // annotates the task, and makes the note type: task unless it has a type of its own.
+    async function _doLinkTask() {
+        const sel = NbMain.activeSelector();
+        if (!sel) return;
+        const ref = (prompt("Link this note to a task: its ID, or its uuid (short or full)") || '').trim();
+        if (!ref) return;
+        const r = await fetch('/api/tw/link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ selector: sel, task: ref }) }).catch(() => null);
+        const d = r ? await r.json().catch(() => ({})) : {};
+        if (!r?.ok) { alert(`Couldn't link task ${ref}: ${d.error || (r ? r.status : 'no answer')}`); return; }
+        NbMain.bustNoteCache?.(sel);
+        await NbMain.openNote(sel, false);
     }
 
     async function _doUndoLastEdit() {

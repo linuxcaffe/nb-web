@@ -4028,6 +4028,70 @@ def _tw_form_fields(data, editing):
     return desc, attrs, list(dict.fromkeys(tags)), None
 
 
+# ── Join an existing note and an existing task (djp 2026-11-04) ──────────────────────────
+# A save whose tw: gained a value, or the note menu's "Link to a task…", runs `nb tw link`: the
+# plugin resolves an ID or a short uuid to the full uuid, annotates the task, and makes the note
+# type: task unless it has a type of its own. A ref must look like one (invariant 82).
+_TW_REF_RE = re.compile(r'\d{1,6}|[0-9a-f]{8}(?:-[0-9a-f]{4}){0,3}(?:-[0-9a-f]{12})?')
+
+
+def _tw_refs(text):
+    meta, _ = parse_frontmatter(text or '')
+    v = meta.get('tw') if isinstance(meta, dict) else None
+    return [str(x).strip() for x in (v if isinstance(v, list) else [v]) if x not in (None, '')]
+
+
+def _link_new_tw_refs(path, old_text, new_text, user):
+    """After a save: `nb tw link` each tw: value the save added. None when it added none."""
+    new = [r for r in _tw_refs(new_text) if r not in _tw_refs(old_text)]
+    if not new:
+        return None
+    out = {'linked': [], 'errors': []}
+    sel = _path_selector(path)
+    if not sel or not _level_gte(user.get('level', ''), 'user') or not _cb_write_allowed('tw'):
+        out['errors'].append('linking a task needs write access to tasks')
+        return out
+    for ref in new:
+        if not _TW_REF_RE.fullmatch(ref.lower()):
+            out['errors'].append(f'tw: {ref} is not a task ID or uuid')
+            continue
+        r = run_nb('tw', 'link', sel, ref.lower())
+        if r['returncode'] != 0:
+            out['errors'].append(strip_ansi(r['stderr'] or r['stdout']).strip() or f'nb tw link {ref} failed')
+        else:
+            out['linked'].append(ref)
+    return out
+
+
+@app.route('/api/tw/link', methods=['POST'])
+def api_tw_link():
+    """The note menu's "Link to a task…": `nb tw link <note> <task>`. Write access to the note."""
+    user = session.get('user', {})
+    if not _level_gte(user.get('level', ''), 'user') or not _cb_write_allowed('tw'):
+        return jsonify({'error': 'Write access denied'}), 403
+    data = request.get_json(silent=True) or {}
+    ref = data.get('task')
+    ref = ref.strip().lower() if isinstance(ref, str) else ''
+    if not _TW_REF_RE.fullmatch(ref):
+        return jsonify({'error': 'a task ID or uuid'}), 400
+    sel = data.get('selector')
+    if not isinstance(sel, str) or not sel or '..' in sel.split(':', 1)[-1].split('/'):
+        return jsonify({'error': 'selector required'}), 400
+    path = _resolve_to_nb_path(sel)
+    if path is None or not path.is_file():
+        return jsonify({'error': 'no such note'}), 404
+    nb = path.relative_to(NB_DIR).parts[0]
+    if not _notebook_in_scope(user, nb) or not _can_write(user, sel):
+        return jsonify({'error': 'forbidden'}), 403
+    blocked = _locked(path)
+    if blocked:
+        return blocked
+    r = run_nb('tw', 'link', _path_selector(path) or sel, ref)
+    if r['returncode'] != 0:
+        return jsonify({'error': strip_ansi(r['stderr'] or r['stdout']).strip() or 'nb tw link failed'}), 502
+    return jsonify({'success': True})
+
+
 @app.route('/api/tw/note-add', methods=['POST'])
 def api_tw_note_add():
     """Add a task and make its note in one step: `nb tw add` (hooks on). Gated like /api/tw/note."""
@@ -10893,6 +10957,10 @@ def api_edit_note():
             content, merged = outcome
 
     try:
+        _old_text = note_path.read_text(errors='replace')      # its tw: before (link on save)
+    except OSError:
+        _old_text = ''
+    try:
         note_path.write_text(content)
         # this note's cached check results are stale now (they're kept 30 s per script and
         # note; a fixed problem kept showing its warning until they expired, 2026-10-07)
@@ -10922,7 +10990,9 @@ def api_edit_note():
     subprocess.run(['git', 'commit', '-m', f'[nb] Edit: {note_path.name}'],
                    cwd=str(nb_root), capture_output=True, env=env)
 
-    return jsonify({'success': True, 'stderr': '', **({'merged': True} if merged else {})})
+    tw_link = _link_new_tw_refs(note_path, _old_text, content, user)
+    return jsonify({'success': True, 'stderr': '', **({'merged': True} if merged else {}),
+                    **({'tw_link': tw_link} if tw_link else {})})
 
 
 # ---------------------------------------------------------------------------

@@ -2017,6 +2017,7 @@
                     body:    JSON.stringify({ selector, content: _fmPatch(noteRaw, updates) }),
                 }).then(r => r.json());
                 if (r.error) throw new Error(r.error);
+                if (r.tw_link?.errors?.length) alert(`Saved. Linking the task failed: ${r.tw_link.errors.join('; ')}`);
                 NbMain.bustNoteCache?.(selector);  // invariant 25
                 onDone(true);
                 NbMain.openNote(selector);

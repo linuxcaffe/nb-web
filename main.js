@@ -5231,6 +5231,8 @@ const NbMain = (() => {
                 return;
             }
             if (d.success) {
+                // a tw: this save added was linked to its task (nb tw link); say if that failed
+                if (d.tw_link?.errors?.length) alert(`Saved. Linking the task failed: ${d.tw_link.errors.join('; ')}`);
                 _bustCache(_activeSelector);
                 const savedSel = _activeSelector;
                 delete _toolbarCache[NbNav.notebook];  // bust so toolbar: changes show immediately
