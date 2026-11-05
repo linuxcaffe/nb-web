@@ -972,11 +972,22 @@ const NbWeb = (() => {
     // Switch to tw-web (the menu link, W): same tab, so Back returns, but only once it answers.
     // When it doesn't, say so and take this device's address instead of leaving a dead page.
     // `serverUrl`: the server's tw_web_url, as the caller already has it.
+    // Before asking, in order (djp 2026-11-05): this device's address, the server's, tw-web's
+    // usual port where this page is (yoga without the bundle, or over Tailscale), and this
+    // device's own (localhost:5000: the phone's tw-web in Termux). All probed at once, the first
+    // that answers wins; a fallback isn't saved, so the bundle is used again once it's back.
+    function _twWebCandidates(serverUrl) {
+        const own = `${location.protocol}//${location.hostname}:5000/`;
+        const all = [twWebHere(), serverUrl, own, 'http://localhost:5000/'].filter(u => u && _WEB_ADDR_RE.test(u));
+        return [...new Set(all.map(u => u.replace(/\/?$/, '/')))];
+    }
     async function goTwWeb(serverUrl) {
         const slash = u => u.replace(/\/?$/, '/');
         const url = twWebHere() || serverUrl || '';
-        if (url && await _probeTwWeb(url) === 'up') { location.href = slash(url); return; }
-        let why = url ? `tw-web doesn't answer at ${url} from this device.` : "tw-web's address isn't set.";
+        const tries = _twWebCandidates(serverUrl).map(u => ({ u, up: _probeTwWeb(u) }));
+        for (const t of tries) if (await t.up === 'up') { location.href = t.u; return; }
+        let why = url ? `tw-web doesn't answer at ${url} from this device, nor at its usual port.`
+                      : "tw-web's address isn't set, and it doesn't answer at its usual port.";
         let text = url;
         for (;;) {
             const choices = [{ label: 'Save and go', value: 'save', primary: true }];
