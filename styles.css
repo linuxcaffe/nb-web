@@ -4629,3 +4629,26 @@ body[data-user-level="office"] .nb-action-admin { display: none !important; }
 .nb-choose-danger { color: var(--red); }
 .nb-choose-hint { display: block; font-size: 0.85em; color: var(--text-muted); margin-top: 2px; }
 .nb-choose-cancel { text-align: center; background: transparent; }
+
+/* Task header (djp's review, 2026-11-04): Task · ID · description … actions, and the strip */
+.nb-specialty-header:has(.nb-task-open):not(:has(.nb-task-rows)) { flex-wrap: nowrap; }
+.nb-specialty-header .nb-task-open, .nb-specialty-header .nb-task-info { cursor: pointer; }
+.nb-task-desc { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                background: none; border: none; padding: 0 4px; color: var(--text); font: inherit;
+                text-align: left; cursor: pointer; }
+.nb-task-desc:hover { text-decoration: underline; }
+.nb-task-acts { display: inline-flex; gap: 4px; margin-left: auto; flex: none; }
+.nb-specialty-header .nb-task-acts ~ .nb-task-add { margin-left: 4px; }
+.nb-task-row { flex-wrap: nowrap; min-width: 0; }
+.nb-task-strip { padding: 2px 12px 6px; font-size: 0.85em; color: var(--text-dim); }
+.nb-task-strip-line { display: flex; flex-wrap: wrap; align-items: baseline; }
+.nb-task-strip-id { margin-right: 8px; color: var(--text-muted); }
+.nb-task-strip.nb-task-notlive { border: 1px dashed var(--border); border-radius: 4px; margin: 2px 12px 6px; }
+.nb-task-info-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9000;
+                        display: flex; align-items: center; justify-content: center; }
+.nb-task-info-box { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+                    border-radius: 8px; width: min(44rem, 100% - 2rem); max-height: 85vh;
+                    display: flex; flex-direction: column; }
+.nb-task-info-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px;
+                     border-bottom: 1px solid var(--border); }
+.nb-task-info-text { margin: 0; padding: 10px 14px; overflow: auto; font-size: 0.85em; white-space: pre; }

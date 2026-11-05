@@ -126,31 +126,34 @@
         return t.status || 'pending';
     }
 
-    function _taskRowHtml(t, sel) {
+    // The task header (djp's review, 2026-11-04): `Task 89 do fun thing … ▶ ✓ +`. "Task" opens
+    // tw-web on this task, the ID shows `task info`, the description opens Edit; the actions sit
+    // at the right end. The attributes moved to the strip under the header (_taskStripHtml).
+    function _taskActsHtml(t, sel) {
         const st = _taskStatus(t);
-        const pill = (text, cls = '', title = '') =>
-            `<span class="nb-specialty-pill ${cls}"${title ? ` title="${_esc(title)}"` : ''}>${_esc(text)}</span>`;
-        const out = [pill(`${_TASK_ICON[st] || '☐'} ${st}`, `nb-task-st nb-task-st-${st}`)];
-        if (t.start && st === 'pending') out.push(pill('▶ active', 'nb-task-active', 'started ' + NbWeb.isoDate(_twDate(t.start))));
-        if (t.project) out.push(pill(t.project, '', 'project'));
-        for (const [k, label] of [['due', 'due'], ['scheduled', 'sched'], ['wait', 'wait'], ['until', 'until']]) {
-            const d = _twDate(t[k]);
-            if (!d || (k === 'wait' && st !== 'waiting')) continue;
-            const late = k === 'due' && (st === 'pending' || st === 'waiting') && d < new Date();
-            out.push(pill(`${label} ${NbWeb.isoDate(d)}`, late ? 'nb-task-late' : '', t[k]));
-        }
-        if (t.priority) out.push(pill(`pri ${t.priority}`));
-        (t.tags || []).forEach(tag => out.push(pill('+' + tag, 'nb-task-tag')));
-        if (t.recur) out.push(pill(`🔁 ${t.recur}`, '', 'recurs'));
         const btn = (act, text, title) =>
             `<button class="nb-specialty-action nb-task-act" data-act="${act}" data-uuid="${_esc(t.uuid)}"
                 data-sel="${_esc(sel)}" title="${_esc(title)}">${text}</button>`;
-        if (st === 'pending' || st === 'waiting') {
-            out.push(btn('done', '✓', 'Mark done'));
-            if (st === 'pending') out.push(t.start ? btn('stop', '◼', 'Stop') : btn('start', '▶', 'Start'));
-        }
+        const out = [];
+        if (st === 'pending') out.push(t.start ? btn('stop', '◼', 'Stop') : btn('start', '▶', 'Start'));
+        if (st === 'pending' || st === 'waiting') out.push(btn('done', '✓', 'Mark done'));
         if (st === 'deleted') out.push(_orphanBtn(t.uuid, sel, false));
         return out.join('');
+    }
+
+    // 89 (the CLI's handle; IDs change after gc, so the uuid is in the tooltip), or the short
+    // uuid for a task with no ID (completed, deleted): a click shows `task info`.
+    function _taskIdBtn(t, sel) {
+        const name = t.id ? String(t.id) : String(t.uuid).slice(0, 8);
+        return `<button class="nb-specialty-label nb-task-info" data-uuid="${_esc(t.uuid)}" data-sel="${_esc(sel)}"
+            title="Task info · ${_esc(t.uuid)}">${_esc(name)}</button>`;
+    }
+
+    // The description, truncated to fit (the full text on hover): a click opens Edit (tw-web's
+    // dialog, or nb-web's own form when tw-web isn't up, M7 c).
+    function _taskDescBtn(t) {
+        return `<button class="nb-task-edit nb-task-desc" data-uuid="${_esc(t.uuid)}"
+            title="Edit · ${_esc(t.description || '')}">${_esc(t.description || '')}</button>`;
     }
 
     // An orphan (djp 2026-11-04): its task was deleted elsewhere (CLI, tw-web, vit, the phone)
@@ -160,36 +163,71 @@
             data-gone="${gone ? 1 : 0}" title="Undelete the task, keep a plain note, or delete the note">Orphaned ⋯</button>`;
     }
 
-    // Task 89 (the CLI's handle; IDs change after gc, so the uuid is in the tooltip), or the
-    // short uuid for a task with no ID (completed, deleted). A click opens tw-web's Edit dialog.
-    function _taskEditBtn(t, prefix) {
-        const name = t.id ? String(t.id) : String(t.uuid).slice(0, 8);
-        return `<button class="nb-specialty-label nb-task-edit" data-uuid="${_esc(t.uuid)}"
-            title="Edit in tw-web · ${_esc(t.uuid)}">${_esc(prefix ? `${prefix} ${name}` : name)}</button>`;
-    }
-
     function _taskPillsHtml(note) {
-        const tasks = note._twTasks;
-        // No task here (the container, a fresh machine, M7 a): say so, and show what the note
-        // itself last heard (tw_status, tw_end), marked as not live. Never "orphaned": the task
-        // may be fine wherever Taskwarrior is.
-        if (note._twMissing) {
-            const st = String(note.meta?.tw_status || '').trim(), end = note.meta?.tw_end;
-            return `<span class="nb-specialty-pill nb-task-missing">${_esc(note._twMissing)}</span>` +
-                (st ? `<span class="nb-specialty-pill nb-task-st nb-task-st-${_esc(st)} nb-task-notlive"
-                       title="From the note's tw_status: not live">${_TASK_ICON[st] || '☐'} ${_esc(st)}${end ? ` ${_esc(String(end))}` : ''} · not live</span>` : '');
-        }
+        const tasks = note._twTasks, sel = note.selector;
+        // No task here (the container, a fresh machine, M7 a): say so; the strip shows what the
+        // note itself last heard, marked not live. Never "orphaned": the task may be fine
+        // wherever Taskwarrior is.
+        if (note._twMissing) return `<span class="nb-specialty-pill nb-task-missing">${_esc(note._twMissing)}</span>`;
         if (!tasks) return `<span class="nb-specialty-pill" title="${_esc(note._twError || '')}">Taskwarrior unavailable</span>`;
         if (!tasks.length) {
             const uuid = (note._twUuids || [])[0];
             return `<span class="nb-specialty-pill nb-task-late" title="Purged, or not synced to this machine yet">task not found here</span>` +
-                (uuid && (note._twUuids || []).length === 1 ? _orphanBtn(uuid, note.selector, true) : '');
+                (uuid && (note._twUuids || []).length === 1 ? `<span class="nb-task-acts">${_orphanBtn(uuid, sel, true)}</span>` : '');
         }
-        if (tasks.length === 1) return _taskRowHtml(tasks[0], note.selector);
-        // A shared note: one row per task, each with its own description
+        if (tasks.length === 1) {
+            const t = tasks[0];
+            return `${_taskIdBtn(t, sel)}${_taskDescBtn(t)}<span class="nb-task-acts">${_taskActsHtml(t, sel)}</span>`;
+        }
+        // A shared note: one row per task, each with its own ID, description and actions
         return `<div class="nb-task-rows">${tasks.map(t =>
-            `<div class="nb-task-row">${_taskEditBtn(t, '')}<span class="nb-task-desc">${_esc(t.description || '')}</span>${_taskRowHtml(t, note.selector)}</div>`
+            `<div class="nb-task-row">${_taskIdBtn(t, sel)}${_taskDescBtn(t)}<span class="nb-task-acts">${_taskActsHtml(t, sel)}</span></div>`
         ).join('')}</div>`;
+    }
+
+    // The strip under the header (djp 2026-11-04): the task's attributes as one quiet line, not
+    // interactive. No description: the header, the note's `# heading` and its tw block have it.
+    // Live from Taskwarrior; without it, the note's own tw_ copy, dashed and marked not live.
+    function _taskAttrs(t) {
+        const st = _taskStatus(t);
+        const item = (text, cls = '', title = '') =>
+            `<span class="nb-task-attr ${cls}"${title ? ` title="${_esc(title)}"` : ''}>${_esc(text)}</span>`;
+        const out = [item(`${_TASK_ICON[st] || '☐'} ${st}`, `nb-task-st nb-task-st-${st}`)];
+        if (t.start && st === 'pending') out.push(item('▶ active', 'nb-task-active', 'started ' + NbWeb.isoDate(_twDate(t.start))));
+        if (t.project) out.push(item(t.project, '', 'project'));
+        for (const [k, label] of [['due', 'due'], ['scheduled', 'sched'], ['wait', 'wait'], ['until', 'until']]) {
+            const d = _twDate(t[k]);
+            if (!d || (k === 'wait' && st !== 'waiting')) continue;
+            const late = k === 'due' && (st === 'pending' || st === 'waiting') && d < new Date();
+            out.push(item(`${label} ${NbWeb.isoDate(d)}`, late ? 'nb-task-late' : '', t[k]));
+        }
+        if (t.priority) out.push(item(`pri ${t.priority}`));
+        (t.tags || []).forEach(tag => out.push(item('+' + tag, 'nb-task-tag')));
+        if (t.recur) out.push(item(`🔁 ${t.recur}`, '', 'recurs'));
+        return out.join('<span class="nb-task-sep"> · </span>');
+    }
+
+    function _taskStripHtml(note) {
+        const tasks = note._twTasks;
+        if (tasks && tasks.length) {
+            const many = tasks.length > 1;
+            return `<div class="nb-task-strip">${tasks.map(t =>
+                `<div class="nb-task-strip-line">${many ? `<span class="nb-task-strip-id">${_esc(t.id ? String(t.id) : String(t.uuid).slice(0, 8))}</span>` : ''}${_taskAttrs(t)}</div>`
+            ).join('')}</div>`;
+        }
+        if (!(note._twMissing || (tasks && !tasks.length))) return '';
+        // not readable here: the note's own record of the task (the tw_ keys, nb tw status)
+        const m = note.meta || {};
+        const list = v => Array.isArray(v) ? v : String(v || '').split(/[\s,]+/).filter(Boolean);
+        const st = String(m.tw_status || '').trim();
+        if (!st) return '';
+        const parts = [`<span class="nb-task-attr nb-task-st nb-task-st-${_esc(st)}">${_TASK_ICON[st] || '☐'} ${_esc(st)}${m.tw_end ? ' ' + _esc(String(m.tw_end)) : ''}</span>`];
+        if (m.tw_project) parts.push(`<span class="nb-task-attr">${_esc(String(m.tw_project))}</span>`);
+        if (m.tw_due) parts.push(`<span class="nb-task-attr">due ${_esc(String(m.tw_due))}</span>`);
+        if (m.tw_priority) parts.push(`<span class="nb-task-attr">pri ${_esc(String(m.tw_priority))}</span>`);
+        list(m.tw_tags).forEach(tag => parts.push(`<span class="nb-task-attr nb-task-tag">+${_esc(tag)}</span>`));
+        return `<div class="nb-task-strip nb-task-notlive" title="From the note's frontmatter: not live">
+            <div class="nb-task-strip-line">${parts.join('<span class="nb-task-sep"> · </span>')}<span class="nb-task-sep"> · </span><span class="nb-task-attr">not live</span></div></div>`;
     }
 
     async function _renderTaskNote(note) {
@@ -200,7 +238,8 @@
             else if (d.missing === 'task') note._twMissing = d.error || NbWeb.TW_MISSING.task;
             else note._twError = d.error || String(r.status);
         } catch (e) { note._twError = e.message; }
-        return _renderSpecialtyNote(note);
+        NbWeb.twHealth();   // warm: "Task" opens tw-web inside its click (a new tab needs the gesture)
+        return _renderSpecialtyNote(note, _taskStripHtml(note));
     }
 
     // Type help popover moved to main.js (NbMain's internal _showTypeHelp) as part of
@@ -480,9 +519,8 @@
         // extraActions after it, flush to the header's right edge) rather
         // than inline with pairLink/pillsHtml -- none of those are removed
         // or reordered, they just stay in their normal left-flowing spot.
-        const oneTask = note.type === 'task' && note._twTasks?.length === 1 ? note._twTasks[0] : null;
-        const labelHtml = oneTask
-            ? _taskEditBtn(oneTask, 'Task')
+        const labelHtml = note.type === 'task'
+            ? `<button class="nb-specialty-label nb-task-open" title="Open in tw-web (W)">Task</button>`
             : `<span class="nb-specialty-label">${_esc(label)}</span>`;
         return `<div class="nb-specialty-header" data-selector="${_esc(note.selector || '')}">
             ${_navBtn(note.notebook || '', icon)}
@@ -491,7 +529,7 @@
         </div>`;
     }
 
-    function _renderSpecialtyNote(note) {
+    function _renderSpecialtyNote(note, afterHeader = '') {
         let body = note.type === 'project' ? _injectDateContext(note.body || '') : (note.body || '');
         body = body.replace(/^> ([A-Z]{2,}:.*)$/gm, (_, content) => {
             const markerType = (content.match(/^([A-Z]+):/) || [])[1]?.toLowerCase() || 'marker';
@@ -504,7 +542,7 @@
             }
             return `<div class="nb-project-marker" data-marker="${markerType}">${content}</div>\n`;
         });
-        return _renderSpecialtyHeader(note) + NbMain.renderMarkdown(body, note.selector);
+        return _renderSpecialtyHeader(note) + afterHeader + NbMain.renderMarkdown(body, note.selector);
     }
 
     async function _renderDotfileNote(note) {
@@ -868,6 +906,24 @@
         previewTypes: Object.keys(_cfg).filter(t => t !== 'item' && !_cfg[t]?.noRender),
     });
 
+    // `task info` in a modal: takes focus, Escape closes it and stops there (invariant 60)
+    function _showTaskInfo(text, name) {
+        document.querySelector('.nb-task-info-overlay')?.remove();
+        const back = document.createElement('div');
+        back.className = 'nb-task-info-overlay';
+        back.innerHTML = `<div class="nb-task-info-box" role="dialog" aria-modal="true" aria-label="Task ${_esc(name)} info">
+            <div class="nb-task-info-head"><strong>Task ${_esc(name)}</strong>
+              <button type="button" class="nb-tool-btn nb-task-info-close">Close</button></div>
+            <pre class="nb-task-info-text">${_esc(text || '')}</pre></div>`;
+        document.body.appendChild(back);
+        const close = () => back.remove();
+        back.addEventListener('click', ev => { if (ev.target === back) close(); });
+        back.addEventListener('keydown', ev => { if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); close(); } });
+        const btn = back.querySelector('.nb-task-info-close');
+        btn.addEventListener('click', close);
+        btn.focus();
+    }
+
     // The list row's icon follows the open note's task status (after ✓ ▶ ◼, or a change made
     // outside the page: NbMain's nb-note-changed-outside, M7 bug 19).
     function _syncTaskListIcon(sel) {
@@ -925,6 +981,36 @@
             if (!r.ok) { alert(`Couldn't ${v === 'plain' ? 'make it a plain note' : 'undelete the task'}: ${d.error || r.status}`); return; }
             NbMain.bustNoteCache?.(sel);
             await NbMain.openNote(sel, false);
+            return;
+        }
+        // "Task" opens tw-web on this note's task(s): ?rawfilter=uuid:…, same tab on this origin
+        // (like the W key), a plain new tab elsewhere, inside the click (health warmed at render)
+        const openTw = e.target.closest('.nb-task-open');
+        if (openTw) {
+            e.preventDefault();
+            const note = NbMain.activeNote();
+            const uuids = (note?._twTasks || []).map(t => t.uuid).concat(note?._twTasks?.length ? [] : (note?._twUuids || []));
+            const h = await Promise.race([NbWeb.twHealth(), new Promise(r => setTimeout(() => r(null), 50))]);
+            const tw = h?.twWeb;
+            if (tw && tw.state !== 'up') {
+                alert(tw.state === 'unset' ? NbWeb.TW_MISSING.unset : `${NbWeb.TW_MISSING.down} at ${tw.url}`);
+                return;
+            }
+            let url = tw?.url || (await fetch('/api/tw/embed-url').then(r => r.json()).catch(() => ({}))).url;
+            if (!url) { alert(NbWeb.TW_MISSING.unset); return; }
+            url = url.replace(/\/?$/, '/');
+            if (uuids.length) url += '?rawfilter=' + encodeURIComponent(uuids.map(u => `uuid:${u}`).join(' or '));
+            if (new URL(url, location.href).origin === location.origin) location.href = url;
+            else window.open(url, '_blank', 'noopener');
+            return;
+        }
+        // The ID shows `task info`, read-only (/api/tw/note-info, keyed by the note)
+        const info = e.target.closest('.nb-task-info');
+        if (info) {
+            e.preventDefault();
+            const r = await fetch(`/api/tw/note-info?selector=${encodeURIComponent(info.dataset.sel)}&uuid=${encodeURIComponent(info.dataset.uuid)}`).catch(() => null);
+            const d = r ? await r.json().catch(() => ({})) : {};
+            _showTaskInfo(r?.ok ? d.text : `${d.error || 'task info failed'}`, info.textContent.trim());
             return;
         }
         const edit = e.target.closest('.nb-task-edit');

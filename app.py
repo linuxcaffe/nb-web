@@ -4197,6 +4197,24 @@ def _relink_task_note(old_path, new_path):
 _NOTE_TASK_ACTIONS = ('done', 'start', 'stop', 'delete', 'unlink', 'undelete')
 
 
+@app.route('/api/tw/note-info')
+def api_tw_note_info():
+    """`task info` for one of a task note's own tasks (the header's ID, djp 2026-11-04). Read
+    access to the note is enough; hooks off; keyed by the note (invariant 83)."""
+    _, uuids, err = _task_note(request.args.get('selector', ''), write=False)
+    if err:
+        return err
+    uuid = request.args.get('uuid', '')
+    if uuid.lower() not in (uuids or []):
+        return jsonify({'error': "not one of this note's tasks"}), 400
+    code, out, errtext = _tw_run([f'uuid:{uuid.lower()}', 'info'], hooks=False)
+    if code == 127:
+        return jsonify({'error': TW_MISSING_TASK, 'missing': 'task'}), 503
+    if code != 0:
+        return jsonify({'error': errtext or 'task info failed'}), 502
+    return jsonify({'text': out})
+
+
 @app.route('/api/tw/note-action', methods=['POST'])
 def api_tw_note_action():
     """done / start / stop / delete on one of a task note's own tasks, then mirror its status
