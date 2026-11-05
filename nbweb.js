@@ -935,7 +935,7 @@ const NbWeb = (() => {
     async function _probeTwWeb(url) {
         if (!url) return 'unset';
         const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 800);
+        const timer = setTimeout(() => ctl.abort(), 2500);   // over Tailscale 0.8 s ran out (s5, 2026-11-05)
         try {
             const ping = new URL('api/ping', url.endsWith('/') ? url : url + '/');
             // no-cors: another origin answers opaquely, which still means it's up
@@ -972,13 +972,14 @@ const NbWeb = (() => {
     // Switch to tw-web (the menu link, W): same tab, so Back returns, but only once it answers.
     // When it doesn't, say so and take this device's address instead of leaving a dead page.
     // `serverUrl`: the server's tw_web_url, as the caller already has it.
-    // Before asking, in order (djp 2026-11-05): this device's address, the server's, tw-web's
-    // usual port where this page is (yoga without the bundle, or over Tailscale), and this
-    // device's own (localhost:5000: the phone's tw-web in Termux). All probed at once, the first
-    // that answers wins; a fallback isn't saved, so the bundle is used again once it's back.
+    // Before asking, in order (djp 2026-11-05): this device's address, the server's, this
+    // device's own tw-web (localhost:5000: the phone's in Termux), and tw-web's usual port where
+    // this page is (yoga without the bundle, or over Tailscale). Own before the page's: from the
+    // phone, the page's was yoga's tw-web. All probed at once, the first that answers wins; a
+    // fallback isn't saved, so the bundle is used again once it's back.
     function _twWebCandidates(serverUrl) {
         const own = `${location.protocol}//${location.hostname}:5000/`;
-        const all = [twWebHere(), serverUrl, own, 'http://localhost:5000/'].filter(u => u && _WEB_ADDR_RE.test(u));
+        const all = [twWebHere(), serverUrl, 'http://localhost:5000/', own].filter(u => u && _WEB_ADDR_RE.test(u));
         return [...new Set(all.map(u => u.replace(/\/?$/, '/')))];
     }
     async function goTwWeb(serverUrl) {
