@@ -21,6 +21,31 @@ Steps 3 and 4 are explicit git calls, not `nb sync`, because `nb sync` pushes `m
 
 **No-remote detection:** before step 1, checks `git remote` — returns `{no_remote: true}` with a message if unconfigured. The sync dialog disables "Sync Now" and shows guidance.
 
+## Conflicts
+
+Since 2026-11-05 (`9b691af`), a pull that stops ends as m-sync's does, never half-merged
+(`_sync_one_notebook`):
+
+- **A note changed on both sides** (`_resolve_sync_conflicts`): the remote's version keeps the
+  name; this station's goes beside it as `note.conflict-<station>.md` (`_conflict_copy_name`:
+  `-2`, `-3` … when one is there), both are committed, the merge is completed and pushed. The
+  output says `⚠ Conflict in <note>: the remote's version kept; this station's is <copy>`.
+  Changed here, deleted there: this station's version is kept.
+- **Any other stop** (MERGE_HEAD left for another reason, a failed resolution): `git merge
+  --abort`; the pull fails and says so; nothing is pushed.
+- **Markers are never pushed:** before the push, files with a `^(<<<<<<<|>>>>>>>) ` line refuse
+  it (`Not pushed: conflict markers in …`), whoever wrote them.
+- **`.index` merges by line:** `/.index merge=union` goes into `.git/info/attributes` (never a
+  committed `.gitattributes`).
+- **Station:** `_sync_station()`, `gittw.device` in `~/.task/local.rc`, else `nb-web`.
+
+The incident: a conflict on `tasknotes:tw/test-the-container…` left MERGE_HEAD and markers in
+the working tree; the next nb run committed them (`e6c0315`) and they reached both stations.
+Tests: `nb-web-tests/test_sync_conflicts.py` (real git: a bare remote and two clones). Across
+stations: [Task notes: the round trip across stations (dev)](dev-task-notes-round-trip.md#conflicts).
+
+---
+
 **Env for all git subprocess calls:** `GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true` — prevents credential prompts from hanging the Flask worker.
 
 ---

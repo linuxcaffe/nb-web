@@ -6,6 +6,8 @@
 > Design narrative and decisions: tw_nb_interop_plan_2026-11-01.md (tw-nb-interop).
 > Status: M1–M6 working (2026-11-01, tag `tw-nb-interop-m6`); refinements and the user topic
 > (M9) still to come.
+> **Across stations** (nbnotes, syncing, the phone, nb Docs, finding the other app):
+> [Task notes: the round trip across stations (dev)](dev-task-notes-round-trip.md).
 
 One Taskwarrior task (or recurring series) can have one note. Taskwarrior keeps the task;
 the note, an ordinary nb note with `type: task`, keeps what you write about it.
@@ -67,10 +69,12 @@ move (git sees a delete), isn't reported.
 
 ## Getting from one app to the other
 
-Each app links to the other from its own setting only, and shows nothing when it's unset:
-nb-web's menu footer has **tw-web** and the `W` key (`tw_web_url`, via `/api/tw/embed-url`, `user`
-floor); tw-web's nav bar has **nb-web** and the `N` key (its `nb` annotation launcher, when that's a
-web address). Same tab, so Back returns. In the bundle (`~/dev/tw-nb-bundle`: nb-web at `/`,
+nb-web's menu footer has **tw-web** and the `W` key; tw-web's has **nb-web** and the `N` key.
+Each checks first, from a list of addresses (this device's saved one, its own setting, the usual
+ports), and asks for this device's address when none answers: the lists and their order are in
+[Task notes: the round trip across stations (dev)](dev-task-notes-round-trip.md#finding-the-other-app). nb-web's setting is `tw_web_url`
+(via `/api/tw/embed-url`, `user` floor); tw-web's is its `nb` annotation launcher. Same tab, so
+Back returns. In the bundle (`~/dev/tw-nb-bundle`: nb-web at `/`,
 tw-web at `/tw/`, one origin) both stay in one window: tw-web names its files relatively
 (`api/…`, never `/api/…`), each service worker keeps to its own caches (invariant 8), and
 `tw_web_url` may carry the path (`http://localhost:5080/tw`).
