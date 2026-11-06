@@ -380,6 +380,11 @@ features:examples/jobs/ type:job status:active | Active jobs
 A note without the field never matches a filter, except a negated one: `-status:done` also finds
 notes with no `status` at all.
 
+**Projects.** `project:legal` also finds everything under it, `legal.dogbite` and
+`legal.dogbite.appeal`, the way Taskwarrior's own `project:` filter does; it stops at a dot, so
+`legalese` isn't included. `project:legal.dogbite` narrows to that branch. Only `project` (and a
+task note's `tw_project`) works this way; every other field matches exactly.
+
 **Lists.** A field that holds a list, like `tags: [kitchen, acme]`, matches if any item does:
 `tags:kitchen` finds it, and `-tags:acme` leaves it out.
 

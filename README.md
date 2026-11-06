@@ -331,13 +331,23 @@ nb-web uses session-based login. Users are `.md` files in `~/.nb/.users/` with Y
 
 ---
 
+## Task notes with Taskwarrior
+
+A Taskwarrior task can have its own note here. Annotate the task with a bare `nb:` and the
+[nbnotes](https://github.com/linuxcaffe/tw-nbnotes-hook) hook makes the note in `tasknotes`. The
+note's header then shows the task live (status, due, priority), with buttons to finish or start
+it. `W` goes to [tw-web](https://github.com/linuxcaffe/tw-web), and so does the menu's last line.
+Add → Task makes a task and its note in one go. The whole round trip, with a phone: [Task
+notes](https://github.com/linuxcaffe/tw-mobilize/blob/main/docs/task-notes.md).
+
 ## Related projects
 
 | Project | What it is |
 |---------|-----------|
 | [nb](https://github.com/xwmx/nb) | The CLI note-taking tool nb-web wraps |
 | [nb-quartz](https://github.com/linuxcaffe/nb-quartz) | Convert a notebook to a static website with Quartz |
-| [nb-plugins](https://github.com/linuxcaffe/nb-plugins) | Plugins for the nb CLI |
+| [nb-plugins](https://github.com/linuxcaffe/nb-plugins) | Plugins for the nb CLI, including `nb tw` (task notes) |
+| [nbnotes](https://github.com/linuxcaffe/tw-nbnotes-hook) | Taskwarrior hook: a bare `nb:` annotation gets the task its note |
 | [tw-web](https://github.com/linuxcaffe/tw-web) | Sister app: web interface for Taskwarrior; designed to run alongside nb-web |
 | [hledger-codeblock](https://github.com/linuxcaffe/hledger-codeblock) | Standalone hledger live block; the same widget used in nb-web |
 | [mkd-codeblocks](https://github.com/linuxcaffe/mkd-codeblocks) | The broader codeblock collection nb-web draws from |
