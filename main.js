@@ -762,6 +762,45 @@ const NbMain = (() => {
         finally { _outsideChecking = false; }
     }
 
+    // A link to a note this station doesn't have (djp 2026-11-05: a task note made on the phone,
+    // followed here before this station had synced). It said "Failed to load note." with the
+    // toolbar up, and Edit's Save failed with "unknown error". Now: say so, no toolbar, and offer
+    // Sync for its notebook, then try the note again. Not kept as the note to reopen.
+    function _showMissingNote(selector, said = '') {
+        const content = document.getElementById('nb-preview-content');
+        document.getElementById('nb-preview-toolbar').hidden = true;
+        try { if (localStorage.getItem(LAST_NOTE_KEY) === selector) localStorage.removeItem(LAST_NOTE_KEY); } catch {}
+        const nb = selector.includes(':') ? selector.split(':')[0] : '';
+        const canSync = nb && (!window.NbAuth || NbAuth.is('user'));
+        content.innerHTML = `<div class="nb-note-missing">
+            <h3>This note isn't on this station</h3>
+            <p><code>${_esc(selector)}</code> may have been made on another station and not synced
+            here yet, or it was moved or deleted.</p>
+            ${said ? `<p class="nb-note-missing-said">${_esc(said)}</p>` : ''}
+            ${canSync ? `<p><button type="button" class="nb-tool-btn nb-note-missing-sync">Sync ${_esc(nb)}</button></p>` : ''}
+        </div>`;
+        const btn = content.querySelector('.nb-note-missing-sync');
+        btn?.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="nb-spin"></span> Syncing…';
+            const d = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                 body: JSON.stringify({ notebook: nb }) })
+                .then(r => r.json()).catch(e => ({ success: false, output: String(e) }));
+            if (_activeSelector !== selector) return;               // opened another note meanwhile
+            if (!d.success) {
+                const why = String(d.output || '').trim().split('\n').pop() || 'unknown error';
+                _showMissingNote(selector, `Not synced: ${why}`);
+                return;
+            }
+            _noteCache.delete(selector);
+            const r = await fetch('/api/note?selector=' + encodeURIComponent(selector)).catch(() => null);
+            if (_activeSelector !== selector) return;
+            if (r?.ok) { openNote(selector, false); return; }
+            _showMissingNote(selector, "Synced, and it's still not here. Let the other station sync " +
+                "first (a phone's m-sync runs every 15 minutes), then Sync again.");
+        });
+    }
+
     async function openNote(selector, pushHistory = true, opts = {}) {
         if (_hasUnsaved() && selector !== _activeSelector) {
             if (opts.autoSelect) return;   // renderList auto-select: never disrupt editing
@@ -828,6 +867,7 @@ const NbMain = (() => {
             if (!d) {
                 const r = await fetch('/api/note?selector=' + encodeURIComponent(selector), { signal: _navSignal });
                 if (_navSignal.aborted) return;
+                if (r.status === 404) { _showMissingNote(selector); return; }
                 if (!r.ok) { content.innerHTML = '<div style="padding:40px;color:var(--red)">Failed to load note.</div>'; return; }
                 d = await r.json();
                 if (_navSignal.aborted) return;
