@@ -167,9 +167,29 @@ const NbTwAdd = (() => {
             return;
         }
         if (!editing && opts.note !== false && !health.plugin.ok) {
+            // What needs an nb-plugin installs it, here on a click (djp 2026-11-05); admin and up,
+            // as the endpoint (it fetches code from the network)
+            const admin = window.NbAuth && NbAuth.is('admin');
             explain(`<h4>${title}</h4><p>${_esc(why)}, and ${_esc(NbWeb.TW_MISSING.plugin)}, so the task's
-                note can't be made here.</p><p>Install it: <code>nb plugins install
-                https://raw.githubusercontent.com/linuxcaffe/nb-plugins/main/tw.nb-plugin</code></p>`);
+                note can't be made here.</p>${admin
+                    ? `<p><button type="button" class="nb-tool-btn nb-tw-install-plugin">Install it</button>
+                       <span class="nb-tw-install-why"></span></p>`
+                    : '<p>An admin can install it from here.</p>'}`);
+            const btn = overlay.querySelector('.nb-tw-install-plugin');
+            btn?.addEventListener('click', async () => {
+                const say = overlay.querySelector('.nb-tw-install-why');
+                btn.disabled = true;
+                say.innerHTML = '<span class="nb-spin"></span> Installing…';
+                const d = await fetch('/api/tw/install-plugin', { method: 'POST' })
+                    .then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+                if (d.ok) {
+                    ownForm(overlay, opts, { ...health, plugin: { ok: true } }, explain, finish);
+                } else {
+                    btn.disabled = false;
+                    say.textContent = `Not installed: ${d.error || 'unknown error'}`;
+                }
+            });
+            btn?.focus();
             return;
         }
         if (editing && !opts.selector) {

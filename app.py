@@ -3954,6 +3954,27 @@ def api_tw_health():
     return jsonify(_tw_health())
 
 
+TW_NB_PLUGIN_URL = 'https://raw.githubusercontent.com/linuxcaffe/nb-plugins/main/tw.nb-plugin'
+
+
+@app.route('/api/tw/install-plugin', methods=['POST'])
+def api_tw_install_plugin():
+    """Install the nb-plugin tw that task notes need, from Add task's Install it button (djp
+    2026-11-05: what needs an nb-plugin installs it, quietly or on a prompt). Admin floor: it
+    fetches code from the network (invariant 17). Through run_nb, under nb's lock (72). One
+    already there is kept (a symlink into a dev repo too)."""
+    if not _level_gte(session.get('user', {}).get('level', ''), 'admin'):
+        return jsonify({'error': 'forbidden'}), 403
+    plugin = NB_DIR / '.plugins' / 'tw.nb-plugin'
+    if not plugin.exists():
+        r = run_nb('plugins', 'install', TW_NB_PLUGIN_URL)
+        _tw_health_cache.clear()
+        if r['returncode'] != 0 or not plugin.exists():
+            why = strip_ansi(r['stderr'] or r['stdout']).strip().splitlines()
+            return jsonify({'ok': False, 'error': (why[-1] if why else 'nb plugins install failed')[:200]}), 502
+    return jsonify({'ok': True})
+
+
 @app.route('/api/tw/note', methods=['POST'])
 def api_tw_note():
     """Find or make task <uuid>'s note: `nb tw note <uuid> --porcelain [--notebook <nb>]`.
