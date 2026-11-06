@@ -24,7 +24,12 @@ names = [ln.strip() for ln in (Path.home() / '.nb' / '.rules' / 'private-names.t
 pats = [re.compile(r'(?<![\w])' + re.escape(n) + r'(?![\w])', re.I) for n in names]
 pats += [re.compile(r'\b100\.\d+\.\d+\.\d+\b'), re.compile(r'\b10\.0\.0\.\d+\b')]
 
-diff = subprocess.run(['git', 'diff', 'HEAD'] + sys.argv[1:], capture_output=True, text=True, check=True).stdout
+# A repo with no commits yet has no HEAD: compare with git's empty tree, so a new public repo's
+# first commit is scanned whole (it died there, 2026-11-05).
+has_head = subprocess.run(['git', 'rev-parse', '--verify', '-q', 'HEAD'], capture_output=True).returncode == 0
+base = 'HEAD' if has_head else subprocess.run(['git', 'hash-object', '-t', 'tree', '/dev/null'],
+                                              capture_output=True, text=True, check=True).stdout.strip()
+diff = subprocess.run(['git', 'diff', base] + sys.argv[1:], capture_output=True, text=True, check=True).stdout
 hits = [ln for ln in diff.splitlines()
         if ln.startswith('+') and not ln.startswith('+++') and any(p.search(ln) for p in pats)]
 print(f'private-scan: {len(names)} names; {len(hits)} hits')
