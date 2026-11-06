@@ -11566,6 +11566,10 @@ def _sync_one_notebook(notebook, message=''):
 def api_sync():
     """Sync one notebook, or every notebook (notebook='_all') — commit
     optional message, pull, push, verify per notebook via explicit git."""
+    # It commits, pulls and pushes: `user` and up (invariant 17; it had only the login check,
+    # so a guest could sync any notebook in scope, found 2026-11-05)
+    if not _level_gte(session.get('user', {}).get('level', ''), 'user'):
+        return jsonify({'success': False, 'output': 'Syncing needs a user account or higher.'}), 403
     data     = request.get_json() or {}
     notebook = data.get('notebook', '').strip()
     message  = data.get('message', '').strip()
